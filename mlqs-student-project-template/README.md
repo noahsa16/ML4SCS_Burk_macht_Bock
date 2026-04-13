@@ -1,4 +1,4 @@
-# Machine Learning for Quantified Self — Group Project
+# Machine Learning for smart and connected systems — Group Project
 
 ## Project Overview
 This repository contains our semester-long group project for **Machine Learning for Quantified Self**.
