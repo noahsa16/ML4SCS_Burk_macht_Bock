@@ -30,9 +30,9 @@ Can writing activity and concentration levels of elementary school children be d
 ---
 
 ## Dataset
-- **Dataset name:** self-collected 
-- **Source:** Moleskine Smart Pen (NWP-F130) + Samsung Watch / Apple Watch (Series 7)
+- **Dataset name:** self-collected (tbd)
+- **Source:** Moleskine Smart Pen (NWP-F130) + Samsung Watch (tbd) / Apple Watch (Series 7)
 - **Type of data:** Multivariate time series (pen coordinates, pressure, timestamps + accelerometer, gyroscope) (tbd)
-- **Target variable:** Writing activity (binary: writing / not writing), later: "concentration level"
+- **Target variable:** Writing activity (binary: writing / not writing), later: "concentration level" (tbd)
 - **Important features:** UserAcceleration (x/y/z), RotationRate (x/y/z), pen pressure, stroke duration, pause length (tbd)
 
