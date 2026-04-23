@@ -17,8 +17,8 @@ The goal of this repository is to document the full project workflow over the se
 
 ## Team Members
 - Noah Samel
-- Ben
-- Taji
+- Ben Kriegsmann
+- Tajuddin Snasni
 
 ---
 
