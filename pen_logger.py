@@ -175,11 +175,13 @@ class Parser:
         self._in  = False
         self._esc = False
         # Running paper / timing state
-        self._ts   = -1
-        self._sec  = -1
-        self._own  = -1
-        self._note = -1
-        self._page = -1
+        self._ts        = -1
+        self._sec       = -1
+        self._own       = -1
+        self._note      = -1
+        self._page      = -1
+        self._prev_dot  = None   # (ts, x, y, pressure, tx, ty) of last PEN_MOVE
+        self._has_paper = False  # True once PAPER_INFO received for current stroke
 
     # ── byte-level framing ────────────────────────────────────────────────────
 
@@ -255,6 +257,10 @@ class Parser:
 
             elif cmd == CMD_PASS_RSP:
                 status = r.u8()
+                retry  = r.u8()
+                reset  = r.u8()
+                if status != 1:
+                    print(f"  [AUTH] failed: retries_left={retry}  resets_left={reset}")
                 self._ev("auth_ok" if status == 1 else "auth_fail")
 
             elif cmd == CMD_SET_RSP:
@@ -271,7 +277,9 @@ class Parser:
                 r.u8()            # event counter
                 ts = r.u64()
                 r.u8(); r.u32()   # tip type, tip color
-                self._ts = ts
+                self._ts        = ts
+                self._prev_dot  = None
+                self._has_paper = False
                 self._dot(DOT_DOWN, ts, -1, -1, 0, 0, 0)
 
             # ── Old-firmware combined up/down (0x63) ───────────────────────
@@ -280,18 +288,28 @@ class Parser:
                 ts = r.u64()
                 r.u8(); r.u32()   # tip type, color
                 if is_down:
-                    self._ts = ts
-                    self._dot(DOT_DOWN, ts, -1, -1, 0, 0, 0)
+                    # SDK only updates state here, no DOT_DOWN emitted
+                    self._ts        = ts
+                    self._prev_dot  = None
+                    self._has_paper = False
                 else:
-                    self._ts = -1
-                    self._dot(DOT_UP, ts, -1, -1, 0, 0, 0)
+                    if self._ts >= 0 and self._prev_dot is not None:
+                        p = self._prev_dot
+                        self._dot(DOT_UP, p[0], p[1], p[2], p[3], p[4], p[5])
+                    self._ts        = -1
+                    self._prev_dot  = None
+                    self._has_paper = False
 
             # ── New-firmware pen-up (0x6A) ─────────────────────────────────
             elif cmd == CMD_NEW_UP:
                 r.u8()            # event counter
-                ts = r.u64()
-                self._ts = -1
-                self._dot(DOT_UP, ts, -1, -1, 0, 0, 0)
+                r.u64()           # timestamp (not used; UP coords come from prev dot)
+                if self._ts >= 0 and self._prev_dot is not None:
+                    p = self._prev_dot
+                    self._dot(DOT_UP, p[0], p[1], p[2], p[3], p[4], p[5])
+                self._ts        = -1
+                self._prev_dot  = None
+                self._has_paper = False
 
             # ── Paper info (0x6B / 0x64) ───────────────────────────────────
             elif cmd in (CMD_NEW_PAPER, CMD_PAPER_OLD):
@@ -301,8 +319,9 @@ class Parser:
                 # section = rb[3], owner = rb[0] + rb[1]*256 + rb[2]*65536
                 self._sec  = rb[3] & 0xFF
                 self._own  = rb[0] + rb[1] * 256 + rb[2] * 65536
-                self._note = r.u32()
-                self._page = r.u32()
+                self._note      = r.u32()
+                self._page      = r.u32()
+                self._has_paper = True
                 print(f"  [PAPER]  section={self._sec}  owner={self._own}  "
                       f"note={self._note}  page={self._page}")
 
@@ -318,10 +337,12 @@ class Parser:
                 fx    = r.u8();   fy = r.u8()   # sub-pixel (hundredths)
                 tx    = r.u8();   ty = r.u8()   # tilt angles
                 r.u16()           # twist (parsed but not written to CSV)
-                self._dot(DOT_MOVE, self._ts,
-                          round(xi + fx * 0.01, 2),
-                          round(yi + fy * 0.01, 2),
-                          force, tx, ty)
+                if self._ts < 0 or not self._has_paper:
+                    return        # no valid PEN_DOWN or no PAPER_INFO for this stroke
+                x_val = round(xi + fx * 0.01, 2)
+                y_val = round(yi + fy * 0.01, 2)
+                self._dot(DOT_MOVE, self._ts, x_val, y_val, force, tx, ty)
+                self._prev_dot = (self._ts, x_val, y_val, force, tx, ty)
 
             # ── Hover event (0x6F) ─────────────────────────────────────────
             elif cmd == CMD_HOVER:
