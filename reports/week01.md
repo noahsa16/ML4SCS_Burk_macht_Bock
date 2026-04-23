@@ -46,8 +46,9 @@ Can writing activity and concentration levels be detected using sensor data from
 **First Data Collection:** One subject wrote the same text concentrated and unconcentrated. This produced two clean CSV files with ~10k data points each.
 
 
-/<img width="2684" height="2064" alt="feature_comparison" src="https://github.com/user-attachments/assets/a3067596-1ea2-425f-a3a5-cd3cff8284e0" />
-
+<img width="2684" height="2064" alt="feature_comparison" src="https://github.com/user-attachments/assets/a3067596-1ea2-425f-a3a5-cd3cff8284e0" />
+(Vereinfachte Darstellung - kein standardisiertes wissenschaftliches Vorgehen und KI-generiert für einfachen Überblick)
+(Daten liegen unter data/)
 ---
 
 ## Key Insights
