@@ -19,7 +19,8 @@ The goal of this repository is to document the full project workflow over the se
 - Noah Samel
 - Ben Kriegsmann
 - Tajuddin Snasni
-
+---
+Picture will be added after the next seminar
 ---
 
 ## Project Question
