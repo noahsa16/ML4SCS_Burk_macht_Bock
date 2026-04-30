@@ -65,7 +65,9 @@ Can writing activity and concentration levels be detected using sensor data from
 
 ### Ben
 
--
+- Set up SensorLog on both the smartwatch and smartphone
+- Tested the SensorLog configuration and data collection process
+- Conducted initial writing experiments with a regular pen on paper while wearing the smartwatch
 
 ### Taji
 
