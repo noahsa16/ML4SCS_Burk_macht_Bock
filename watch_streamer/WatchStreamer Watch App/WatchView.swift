@@ -48,6 +48,9 @@ struct WatchView: View {
 
                 // ── Stats ──────────────────────────────────────────────────
                 VStack(spacing: 4) {
+                    stat("Hz", motion.actualSampleRateHz)
+                    stat("|acc|", motion.lastAccelerationMagnitude)
+                    stat("|gyro|", motion.lastGyroscopeMagnitude)
                     stat("Delivered", motion.deliveredSampleCount)
                     stat("Queued",    motion.queuedSampleCount + motion.backgroundQueuedSampleCount)
                     if motion.droppedSampleCount > 0 {
@@ -92,6 +95,16 @@ struct WatchView: View {
             Text(title).foregroundStyle(.secondary)
             Spacer()
             Text("\(value)").monospacedDigit()
+        }
+        .font(.caption2)
+    }
+
+    private func stat(_ title: String, _ value: Double) -> some View {
+        HStack {
+            Text(title).foregroundStyle(.secondary)
+            Spacer()
+            Text(value, format: .number.precision(.fractionLength(2)))
+                .monospacedDigit()
         }
         .font(.caption2)
     }

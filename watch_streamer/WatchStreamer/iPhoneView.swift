@@ -38,6 +38,13 @@ struct iPhoneView: View {
                     }
                 }
 
+                Section("Command Bridge") {
+                    labelRow("Last Watch command", server.lastWatchCommandStatus)
+                    Text("Browser session commands are mirrored to the Watch and acknowledged back to the server.")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+
                 // ── Active session ─────────────────────────────────────────
                 Section("Active Session") {
                     if let sid = server.currentSessionId {
