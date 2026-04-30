@@ -36,3 +36,27 @@ Can writing activity and concentration levels of elementary school children be d
 - **Target variable:** Writing activity (binary: writing / not writing), later: "concentration level" (tbd)
 - **Important features:** UserAcceleration (x/y/z), RotationRate (x/y/z), pen pressure, stroke duration, pause length (tbd)
 
+---
+
+## Live Data Capture
+
+The live capture stack is:
+
+Apple Watch → iPhone bridge → FastAPI server → `data/raw/watch/{session}_watch.csv`
+
+Moleskine Smart Pen → BLE logger → `data/raw/pen/{session}_pen.csv`
+
+Run the dashboard/server with:
+
+```bash
+uvicorn server:app --host 0.0.0.0 --port 8000
+```
+
+Open `http://localhost:8000` to start/stop sessions and validate connections.
+
+Important quality checks before using a session for modeling:
+
+- Watch samples should contain both accelerometer (`ax`, `ay`, `az`) and gyroscope (`rx`, `ry`, `rz`).
+- Watch estimated sample rate should be close to 50 Hz.
+- Pen rows should contain `local_ts_ms`; older pen logs without it are legacy data and cannot be aligned to watch wall-clock time with full confidence.
+- The dashboard `Sessions` page and `GET /sessions/quality` endpoint summarize readiness, warnings, and blockers for each recording.

@@ -2,38 +2,93 @@ import SwiftUI
 
 struct iPhoneView: View {
     @StateObject private var bridge = PhoneBridge()
+    @ObservedObject  private var server = ServerCommandListener.shared
+    @AppStorage("serverIP") private var serverIP = "192.168.178.147"
+    @State private var editingIP = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(bridge.isConnected ? "Connected" : "Not connected")
-                .font(.headline)
+        NavigationStack {
+            List {
+                // ── Connection ─────────────────────────────────────────────
+                Section("Connection") {
+                    labelRow("Server",
+                             server.isConnected ? "Connected ✅" : "Disconnected ❌",
+                             server.isConnected ? .green : .red)
 
-            stat("Received", bridge.receivedSampleCount)
-            stat("Uploaded", bridge.uploadedSampleCount)
-            stat("Queued batches", bridge.queuedBatchCount)
-            stat("Upload failures", bridge.failedUploadCount)
+                    labelRow("Watch",
+                             bridge.isConnected ? "Reachable ✅" : "Not reachable ❌",
+                             bridge.isConnected ? .green : .red)
 
-            Text(PhoneBridge.serverAddress)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
+                    HStack {
+                        Text("Server IP").foregroundStyle(.secondary)
+                        Spacer()
+                        if editingIP {
+                            TextField("e.g. 192.168.1.10", text: $serverIP)
+                                .multilineTextAlignment(.trailing)
+                                .keyboardType(.numbersAndPunctuation)
+                                .onSubmit { editingIP = false; server.connect() }
+                        } else {
+                            Text(serverIP).onTapGesture { editingIP = true }
+                        }
+                        Button(editingIP ? "Save" : "Edit") {
+                            if editingIP { server.connect() }
+                            editingIP.toggle()
+                        }
+                        .font(.caption).foregroundStyle(.blue)
+                    }
+                }
 
-            if !bridge.lastError.isEmpty {
-                Text(bridge.lastError)
-                    .font(.caption)
-                    .foregroundStyle(.red)
+                Section("Command Bridge") {
+                    labelRow("Last Watch command", server.lastWatchCommandStatus)
+                    Text("Browser session commands are mirrored to the Watch and acknowledged back to the server.")
+                        .foregroundStyle(.secondary)
+                        .font(.caption)
+                }
+
+                // ── Active session ─────────────────────────────────────────
+                Section("Active Session") {
+                    if let sid = server.currentSessionId {
+                        labelRow("Session ID", sid)
+                        labelRow("Person", server.currentPersonId ?? "—")
+                        labelRow("Watch streaming", "Active ✅", .green)
+                    } else {
+                        Text("No active session — control from browser dashboard")
+                            .foregroundStyle(.secondary).font(.subheadline)
+                    }
+                }
+
+                // ── Counters ───────────────────────────────────────────────
+                Section("Upload Stats") {
+                    countRow("Received",       bridge.receivedSampleCount)
+                    countRow("Uploaded",        bridge.uploadedSampleCount)
+                    countRow("Queued batches",  bridge.queuedBatchCount)
+                    countRow("Upload failures", bridge.failedUploadCount)
+                }
+
+                if !bridge.lastError.isEmpty {
+                    Section("Last Error") {
+                        Text(bridge.lastError).foregroundStyle(.red).font(.caption)
+                    }
+                }
             }
+            .navigationTitle("FocusTrack")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private func stat(_ title: String, _ value: Int) -> some View {
+    private func labelRow(_ label: String, _ value: String, _ color: Color = .primary) -> some View {
         HStack {
-            Text(title)
+            Text(label).foregroundStyle(.secondary)
             Spacer()
-            Text("\(value)")
-                .monospacedDigit()
+            Text(value).foregroundStyle(color).multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func countRow(_ label: String, _ value: Int) -> some View {
+        HStack {
+            Text(label).foregroundStyle(.secondary)
+            Spacer()
+            Text("\(value)").monospacedDigit()
         }
     }
 }
