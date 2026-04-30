@@ -24,3 +24,9 @@ results/metrics/*.csv
 
 # Misc
 .env
+
+# Xcode
+watch_streamer/**/*.xcuserstate
+watch_streamer/**/xcuserdata/
+watch_streamer/**/.DS_Store
+watch_data.csv
