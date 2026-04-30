@@ -4,10 +4,19 @@
 HOST="${1:-127.0.0.1}"
 URL="http://${HOST}:8000/watch"
 
-PAYLOAD='[
-  {"ts":1700000000000,"ax":0.01,"ay":-0.02,"az":9.80,"rx":0.001,"ry":0.002,"rz":-0.001},
-  {"ts":1700000000020,"ax":0.02,"ay":-0.01,"az":9.81,"rx":0.001,"ry":0.001,"rz":-0.002}
-]'
+PAYLOAD='{
+  "type":"watch_motion_batch",
+  "sessionId":"test-session",
+  "sequence":0,
+  "sampleRateHz":50,
+  "watchSentAt":1700000000100,
+  "phoneReceivedAt":1700000000200,
+  "source":"test",
+  "samples":[
+    {"ts":1700000000000,"ax":0.01,"ay":-0.02,"az":9.80,"rx":0.001,"ry":0.002,"rz":-0.001},
+    {"ts":1700000000020,"ax":0.02,"ay":-0.01,"az":9.81,"rx":0.001,"ry":0.001,"rz":-0.002}
+  ]
+}'
 
 echo "→ POSTing 2-sample test batch to $URL"
 curl -s -w "\nHTTP %{http_code}\n" \
