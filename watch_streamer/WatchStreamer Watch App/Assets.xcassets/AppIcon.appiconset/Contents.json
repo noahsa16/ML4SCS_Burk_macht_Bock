@@ -1,4 +1,14 @@
 {
-  "images" : [{ "idiom" : "watch", "scale" : "2x", "role" : "companionSettings" }],
-  "info" : { "author" : "xcode", "version" : 1 }
+  "images" : [
+    {
+      "filename" : "87e8fd7a-cb90-4cba-80c5-193f0c6662a4-2-2.png",
+      "idiom" : "watch",
+      "role" : "companionSettings",
+      "scale" : "2x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
 }

@@ -7,3 +7,4 @@ notebook
 bleak
 fastapi
 uvicorn
+websockets
