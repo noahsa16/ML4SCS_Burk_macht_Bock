@@ -38,7 +38,8 @@ import csv
 import signal
 import struct
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
 try:
     from bleak import BleakClient, BleakScanner
@@ -86,6 +87,11 @@ DOT_UP    = 2
 DOT_HOVER = 3
 LABEL = {DOT_DOWN: "PEN_DOWN", DOT_MOVE: "PEN_MOVE",
          DOT_UP:   "PEN_UP",   DOT_HOVER: "PEN_HOVER"}
+PEN_FIELDNAMES = [
+    "local_ts", "local_ts_ms",
+    "timestamp", "x", "y", "pressure", "dot_type",
+    "tilt_x", "tilt_y", "section", "owner", "note", "page",
+]
 
 
 # ── Packet builder ────────────────────────────────────────────────────────────
@@ -371,21 +377,47 @@ async def find_pen(timeout: float = 20.0):
     return found
 
 
+def _now_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _prepare_csv(path: str):
+    """
+    Append safely so reconnecting the pen during one server session does not
+    overwrite already recorded dots. Legacy CSVs are migrated with blank local
+    receive-time columns.
+    """
+    csv_path = Path(path)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if csv_path.exists() and csv_path.stat().st_size > 0:
+        with open(csv_path, newline="") as f:
+            reader = csv.DictReader(f)
+            existing = reader.fieldnames or []
+            rows = list(reader)
+        if existing != PEN_FIELDNAMES:
+            with open(csv_path, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=PEN_FIELDNAMES)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow({name: row.get(name, "") for name in PEN_FIELDNAMES})
+    else:
+        with open(csv_path, "w", newline="") as f:
+            csv.DictWriter(f, fieldnames=PEN_FIELDNAMES).writeheader()
+
+    csvf = open(csv_path, "a", newline="")
+    return csvf, csv.DictWriter(csvf, fieldnames=PEN_FIELDNAMES)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 async def run(password: str = "0000", output_path: str | None = None) -> None:
     # CSV output
     if output_path:
-        from pathlib import Path as _Path
-        _Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         fname = output_path
     else:
         fname = f"pen_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    csvf  = open(fname, "w", newline="")
-    wr    = csv.writer(csvf)
-    wr.writerow(["timestamp", "x", "y", "pressure", "dot_type",
-                 "tilt_x", "tilt_y", "section", "owner", "note", "page"])
-    csvf.flush()
+    csvf, wr = _prepare_csv(fname)
 
     loop = asyncio.get_running_loop()
     stop = loop.create_future()
@@ -532,11 +564,25 @@ async def run(password: str = "0000", output_path: str | None = None) -> None:
                           f"ty={dot['tilt_y']:3d}{suffix}", end="\r")
 
                 # CSV (raw Ncode values)
-                wr.writerow([
-                    dot["timestamp"], dot["x"], dot["y"], dot["pressure"],
-                    lbl, dot["tilt_x"], dot["tilt_y"],
-                    dot["section"], dot["owner"], dot["note"], dot["page"],
-                ])
+                local_ts_ms = _now_ms()
+                wr.writerow({
+                    "local_ts": datetime.fromtimestamp(
+                        local_ts_ms / 1000,
+                        tz=timezone.utc,
+                    ).isoformat(),
+                    "local_ts_ms": local_ts_ms,
+                    "timestamp": dot["timestamp"],
+                    "x": dot["x"],
+                    "y": dot["y"],
+                    "pressure": dot["pressure"],
+                    "dot_type": lbl,
+                    "tilt_x": dot["tilt_x"],
+                    "tilt_y": dot["tilt_y"],
+                    "section": dot["section"],
+                    "owner": dot["owner"],
+                    "note": dot["note"],
+                    "page": dot["page"],
+                })
                 csvf.flush()
 
         if connected:
@@ -564,8 +610,7 @@ def main() -> None:
 
     output_path = None
     if args.session:
-        from pathlib import Path as _Path
-        output_path = str(_Path(__file__).parent / "data" / "raw" / "pen" / f"{args.session}_pen.csv")
+        output_path = str(Path(__file__).parent / "data" / "raw" / "pen" / f"{args.session}_pen.csv")
 
     asyncio.run(run(password=args.password, output_path=output_path))
 

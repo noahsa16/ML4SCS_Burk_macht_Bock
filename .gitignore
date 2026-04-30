@@ -16,6 +16,9 @@ env/
 # Mac / OS
 .DS_Store
 
+# Build artifacts
+build/
+
 # Data / outputs
 data/processed/*.csv
 results/plots/*.png
@@ -24,5 +27,4 @@ results/metrics/*.csv
 
 # Misc
 .env
-
 
