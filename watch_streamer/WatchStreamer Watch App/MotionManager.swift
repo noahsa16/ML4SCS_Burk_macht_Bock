@@ -23,6 +23,7 @@ class MotionManager: NSObject, ObservableObject {
     @Published private(set) var queuedSampleCount = 0
     @Published private(set) var isRunning = false
     @Published private(set) var isReachable = false
+    @Published private(set) var serverSessionId: String?
     @Published private(set) var status = "Idle"
 
     override init() {
@@ -151,6 +152,22 @@ extension MotionManager: WCSessionDelegate {
     func sessionReachabilityDidChange(_ session: WCSession) {
         DispatchQueue.main.async {
             self.isReachable = session.isReachable
+        }
+    }
+
+    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        guard let command = message["command"] as? String else { return }
+        DispatchQueue.main.async {
+            switch command {
+            case "start":
+                self.serverSessionId = message["session_id"] as? String
+                self.start()
+            case "stop":
+                self.stop()
+                self.serverSessionId = nil
+            default:
+                break
+            }
         }
     }
 }

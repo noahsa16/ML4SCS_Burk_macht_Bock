@@ -3,7 +3,10 @@ import Foundation
 import WatchConnectivity
 
 class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
-    static let serverAddress = "http://192.168.178.147:8000/watch"
+    static var serverAddress: String {
+        let ip = UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147"
+        return "http://\(ip):8000/watch"
+    }
 
     @Published var isConnected = false
     @Published var receivedSampleCount = 0

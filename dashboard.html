@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Burk macht Bock — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ─── Tokens ─────────────────────────────────────────────────── */
+:root {
+  --bg:        oklch(0.955 0.016 72);
+  --surface:   oklch(0.990 0.007 72);
+  --surface2:  oklch(0.975 0.012 72);
+  --sidebar:   oklch(0.175 0.025 55);
+  --sidebar2:  oklch(0.225 0.030 55);
+  --border:    oklch(0.880 0.018 72);
+  --border2:   oklch(0.840 0.022 72);
+  --text:      oklch(0.185 0.022 58);
+  --text2:     oklch(0.465 0.022 58);
+  --text3:     oklch(0.650 0.018 58);
+  --accent:    oklch(0.595 0.165 43);
+  --accent-h:  oklch(0.540 0.175 43);
+  --green:     oklch(0.580 0.130 148);
+  --red:       oklch(0.575 0.175 24);
+  --yellow:    oklch(0.720 0.135 88);
+  --mono:      'IBM Plex Mono', monospace;
+  --sans:      'IBM Plex Sans', system-ui, sans-serif;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); display: flex; font-size: 14px; }
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ─── Sidebar ────────────────────────────────────────────────── */
+#sidebar {
+  width: 220px; min-width: 220px; background: var(--sidebar);
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+}
+.sb-brand { padding: 24px 20px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.sb-title { font-size: 15px; font-weight: 600; color: #fff; letter-spacing: -0.01em; line-height: 1.2; }
+.sb-subtitle { font-size: 11px; color: rgba(255,255,255,0.42); margin-top: 4px; font-style: italic; }
+.sb-nav { flex: 1; padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.sb-group { font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.28); letter-spacing: 0.08em; text-transform: uppercase; padding: 14px 10px 6px; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 6px; cursor: pointer;
+  color: rgba(255,255,255,0.58); font-size: 13px; font-weight: 400;
+  transition: background 0.15s, color 0.15s; user-select: none;
+}
+.nav-item:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.85); }
+.nav-item.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 500; }
+.nav-icon { font-size: 15px; opacity: 0.85; width: 18px; text-align: center; }
+.sb-footer { padding: 14px 16px; border-top: 1px solid rgba(255,255,255,0.08); }
+.ws-status { display: flex; align-items: center; gap: 7px; font-size: 11px; color: rgba(255,255,255,0.38); font-family: var(--mono); }
+.ws-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); transition: background 0.3s; }
+.ws-dot.ok { background: var(--green); }
+.ws-dot.blink { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+/* ─── Main area ──────────────────────────────────────────────── */
+#main { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ─── Top bar ────────────────────────────────────────────────── */
+#topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 24px; border-bottom: 1px solid var(--border);
+  background: var(--surface); min-height: 52px; flex-shrink: 0;
+}
+.page-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.page-sub { font-size: 12px; color: var(--text2); margin-top: 1px; }
+.pill-row { display: flex; gap: 8px; align-items: center; }
+.pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 11px; border-radius: 20px; font-size: 11.5px;
+  font-family: var(--mono); font-weight: 500; border: 1px solid transparent;
+  background: var(--surface2); border-color: var(--border);
+}
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); }
+.pill.ok .dot { background: var(--green); }
+.pill.warn .dot { background: var(--yellow); animation: pulse 1.5s infinite; }
+.pill.err .dot { background: var(--red); }
+
+/* ─── Content ────────────────────────────────────────────────── */
+#content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+/* ─── Cards ──────────────────────────────────────────────────── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px; position: relative;
+}
+.card-title { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text2); margin-bottom: 14px; }
+.card-title span { color: var(--text3); font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+
+/* ─── Recording page grid ───────────────────────────────────── */
+.rec-grid { display: grid; grid-template-columns: 260px 1fr 220px; gap: 16px; }
+.rec-grid .chart-card { grid-column: 2; }
+.rec-grid .device-col { display: flex; flex-direction: column; gap: 14px; }
+
+/* ─── Session control ────────────────────────────────────────── */
+.label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text2); margin-bottom: 5px; }
+input[type=text] {
+  width: 100%; padding: 8px 11px; border: 1px solid var(--border);
+  border-radius: 6px; font-family: var(--mono); font-size: 13px;
+  background: var(--surface2); color: var(--text); outline: none;
+  transition: border-color 0.15s;
+}
+input[type=text]:focus { border-color: var(--accent); }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 9px 18px; border-radius: 7px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; outline: none; transition: all 0.15s; letter-spacing: 0.02em;
+  font-family: var(--sans);
+}
+.btn-primary { background: var(--accent); color: #fff; width: 100%; padding: 11px; font-size: 14px; }
+.btn-primary:hover { background: var(--accent-h); }
+.btn-primary.stop { background: var(--red); }
+.btn-primary.stop:hover { background: oklch(0.52 0.18 24); }
+.btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 5px; font-weight: 500; }
+.btn-outline { background: transparent; border: 1px solid var(--border2); color: var(--text2); }
+.btn-outline:hover { background: var(--surface2); color: var(--text); border-color: var(--text3); }
+.btn-green { background: var(--green); color: #fff; }
+.btn-green:hover { background: oklch(0.52 0.135 148); }
+.btn-red { background: var(--red); color: #fff; }
+
+.timer { font-family: var(--mono); font-size: 32px; font-weight: 600; letter-spacing: 0.04em; color: var(--text); margin: 14px 0 4px; }
+.timer-label { font-size: 11px; color: var(--text3); margin-bottom: 14px; }
+
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.stat-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+.stat-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.stat-val { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--text); margin-top: 3px; }
+.stat-val.accent { color: var(--accent); }
+.stat-val.green { color: var(--green); }
+
+/* ─── Chart ──────────────────────────────────────────────────── */
+.chart-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.chart-legend { display: flex; gap: 14px; font-size: 11px; color: var(--text2); align-items: center; }
+.leg-dot { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.chart-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.chart-stat { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
+.chart-stat .val { font-family: var(--mono); font-size: 15px; font-weight: 600; }
+.chart-stat .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); margin-top: 2px; }
+canvas#imuChart { width: 100% !important; }
+
+/* ─── Device cards ───────────────────────────────────────────── */
+.device-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.device-name { font-size: 13px; font-weight: 600; }
+.status-badge {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 4px; font-family: var(--mono);
+}
+.badge-ok { background: oklch(0.58 0.13 148 / 0.15); color: var(--green); }
+.badge-err { background: oklch(0.575 0.175 24 / 0.12); color: var(--red); }
+.badge-warn { background: oklch(0.72 0.135 88 / 0.15); color: oklch(0.55 0.14 80); }
+.device-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); color: var(--text2); }
+.device-row:last-of-type { border-bottom: none; }
+.device-row .v { font-family: var(--mono); color: var(--text); font-weight: 500; }
+.device-actions { display: flex; gap: 7px; margin-top: 12px; }
+
+/* ─── Sessions page ──────────────────────────────────────────── */
+.sessions-toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }
+.sessions-toolbar input { max-width: 240px; }
+.sessions-toolbar .ml { margin-left: auto; }
+table { width: 100%; border-collapse: collapse; }
+thead th { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text2); padding: 9px 12px; text-align: left; border-bottom: 2px solid var(--border2); background: var(--surface2); }
+thead th:first-child { border-radius: 6px 0 0 0; }
+thead th:last-child { border-radius: 0 6px 0 0; }
+tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+tbody tr:hover { background: var(--surface2); }
+tbody td { padding: 10px 12px; font-size: 13px; }
+td.mono { font-family: var(--mono); font-size: 12px; }
+td.bold { font-weight: 600; }
+.table-empty { text-align: center; padding: 40px; color: var(--text3); font-size: 13px; font-style: italic; }
+
+/* ─── Connections page ───────────────────────────────────────── */
+.conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.conn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.info-block { background: var(--surface2); border-radius: 6px; padding: 10px 14px; margin-top: 8px; }
+.info-row { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.info-row:last-child { border-bottom: none; }
+.info-key { color: var(--text2); font-size: 11px; }
+.info-val { font-family: var(--mono); font-size: 12px; color: var(--text); font-weight: 500; word-break: break-all; text-align: right; max-width: 60%; }
+.endpoint-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.endpoint { display: flex; gap: 8px; align-items: center; padding: 6px 10px; background: var(--surface2); border-radius: 5px; }
+.method { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; min-width: 42px; text-align: center; }
+.method.get { background: oklch(0.58 0.13 148 / 0.15); color: var(--green); }
+.method.post { background: oklch(0.595 0.165 43 / 0.15); color: var(--accent); }
+.method.ws { background: oklch(0.55 0.15 275 / 0.15); color: oklch(0.60 0.14 275); }
+.ep-path { font-family: var(--mono); font-size: 12px; color: var(--text); }
+.ep-desc { font-size: 11px; color: var(--text3); margin-left: auto; }
+
+/* ─── System page ───────────────────────────────────────────── */
+.schema-table { font-family: var(--mono); font-size: 12px; width: 100%; border-collapse: collapse; }
+.schema-table th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2); padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border2); }
+.schema-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); color: var(--text); }
+.schema-table td:first-child { color: var(--accent); font-weight: 500; }
+.schema-table td:nth-child(2) { color: var(--green); }
+.schema-table tr:last-child td { border-bottom: none; }
+.tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 600; font-family: var(--mono); }
+.tag-int { background: oklch(0.58 0.13 275 / 0.14); color: oklch(0.55 0.14 275); }
+.tag-float { background: oklch(0.595 0.165 43 / 0.14); color: var(--accent); }
+.tag-str { background: oklch(0.58 0.13 148 / 0.14); color: var(--green); }
+.tag-bool { background: oklch(0.72 0.135 88 / 0.14); color: oklch(0.55 0.14 80); }
+
+/* ─── Uptime / server bar ────────────────────────────────────── */
+.uptime-bar { display: flex; gap: 20px; padding: 10px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.uptime-item { display: flex; flex-direction: column; gap: 2px; }
+.uptime-key { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.uptime-val { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--text); }
+
+/* ─── Page visibility ───────────────────────────────────────── */
+.page { display: none; }
+.page.active { display: block; }
+
+/* ─── Notification toast ─────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+  background: var(--sidebar); color: #fff; padding: 10px 18px; border-radius: 8px;
+  font-size: 13px; font-weight: 500; z-index: 9999; transition: transform 0.3s ease;
+  pointer-events: none; white-space: nowrap;
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ─── Responsive tweaks ──────────────────────────────────────── */
+@media (max-width: 900px) {
+  .rec-grid { grid-template-columns: 1fr; }
+  .conn-grid, .conn-grid-3 { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════ SIDEBAR ═══════════════════════════ -->
+<aside id="sidebar">
+  <div class="sb-brand">
+    <div class="sb-title">Burk macht Bock</div>
+    <div class="sb-subtitle">Writing Activity Study · Leuphana</div>
+  </div>
+  <nav class="sb-nav">
+    <div class="sb-group">Experiment</div>
+    <div class="nav-item active" data-page="recording">
+      <span class="nav-icon">⏺</span> Recording
+    </div>
+    <div class="nav-item" data-page="sessions">
+      <span class="nav-icon">📋</span> Sessions
+    </div>
+    <div class="sb-group">Setup</div>
+    <div class="nav-item" data-page="connections">
+      <span class="nav-icon">🔌</span> Connections
+    </div>
+    <div class="nav-item" data-page="system">
+      <span class="nav-icon">⚙️</span> System &amp; Schema
+    </div>
+  </nav>
+  <div class="sb-footer">
+    <div class="ws-status">
+      <div class="ws-dot" id="wsDot"></div>
+      <span id="wsLabel">Connecting…</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ═══════════════════════ MAIN ══════════════════════════════ -->
+<main id="main">
+  <!-- Top bar -->
+  <div id="topbar">
+    <div>
+      <div class="page-title" id="pageTitle">Live Recording</div>
+      <div class="page-sub" id="pageSub">Pen + Watch data capture</div>
+    </div>
+    <div class="pill-row">
+      <div class="pill" id="pillPen"><div class="dot"></div><span id="pillPenTxt">Pen – –</span></div>
+      <div class="pill" id="pillWatch"><div class="dot"></div><span id="pillWatchTxt">Watch – –</span></div>
+      <div class="pill ok" id="pillServer"><div class="dot"></div><span id="pillServerTxt">Server – –</span></div>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div id="content">
+
+    <!-- ══════════ PAGE: RECORDING ══════════ -->
+    <div class="page active" id="page-recording">
+      <div class="rec-grid">
+
+        <!-- Session control -->
+        <div class="card">
+          <div class="card-title">Session Control</div>
+          <div class="label">Person ID</div>
+          <input type="text" id="personId" placeholder="e.g. P01" value="P01">
+          <br><br>
+          <button class="btn btn-primary" id="sessionBtn" onclick="toggleSession()">START</button>
+          <div class="timer" id="timer">00:00:00</div>
+          <div class="timer-label" id="timerLabel">Ready for a new recording</div>
+          <div class="stat-grid">
+            <div class="stat-box">
+              <div class="stat-label">Watch Samples</div>
+              <div class="stat-val accent" id="watchCount">0</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Pen Dots</div>
+              <div class="stat-val green" id="penCount">0</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Session ID</div>
+              <div class="stat-val" id="sessionIdDisp" style="font-size:16px;font-family:var(--mono)">—</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Sample Rate</div>
+              <div class="stat-val" style="font-size:16px;font-family:var(--mono)">50 Hz</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live IMU chart -->
+        <div class="card chart-card">
+          <div class="chart-meta">
+            <div class="card-title" style="margin:0">Live IMU Signal<span>Accelerometer Magnitude |a|</span></div>
+            <div class="chart-legend">
+              <span><span class="leg-dot" style="background:var(--accent);height:2px"></span> Magnitude</span>
+              <span><span class="leg-dot" style="background:var(--green);opacity:0.6;width:14px"></span> Writing</span>
+              <span><span class="leg-dot" style="background:var(--border2);width:14px"></span> Idle</span>
+            </div>
+          </div>
+          <canvas id="imuChart" height="160"></canvas>
+          <div class="chart-stats">
+            <div class="chart-stat"><div class="val" id="statMag">–</div><div class="lbl">Current |a|</div></div>
+            <div class="chart-stat"><div class="val" id="statMax">–</div><div class="lbl">Peak (60s)</div></div>
+            <div class="chart-stat"><div class="val" id="statWritePct">–</div><div class="lbl">Writing %</div></div>
+          </div>
+        </div>
+
+        <!-- Device column -->
+        <div class="device-col">
+          <!-- Pen device -->
+          <div class="card">
+            <div class="device-header">
+              <div class="device-name">Smart Pen</div>
+              <div class="status-badge badge-err" id="penBadge">Disconnected</div>
+            </div>
+            <div class="device-row"><span>Model</span><span class="v">NWP-F130</span></div>
+            <div class="device-row"><span>Protocol</span><span class="v">NeoSmartpen V2</span></div>
+            <div class="device-row"><span>Dot type</span><span class="v" id="dotType">–</span></div>
+            <div class="device-row"><span>BLE</span><span class="v" id="penBleStatus">Scanning…</span></div>
+            <div class="device-actions">
+              <button class="btn btn-sm btn-green" id="penConnBtn" onclick="penConnect()">Connect</button>
+              <button class="btn btn-sm btn-outline" id="penDiscBtn" onclick="penDisconnect()">Disconnect</button>
+            </div>
+          </div>
+          <!-- Watch device -->
+          <div class="card">
+            <div class="device-header">
+              <div class="device-name">Apple Watch</div>
+              <div class="status-badge badge-err" id="watchBadge">Offline</div>
+            </div>
+            <div class="device-row"><span>IMU rate</span><span class="v">50 Hz</span></div>
+            <div class="device-row"><span>Batch size</span><span class="v">10 samples</span></div>
+            <div class="device-row"><span>Transport</span><span class="v">WCSession</span></div>
+            <div class="device-row"><span>Last data</span><span class="v mono" id="watchLastTs">–</span></div>
+            <div class="device-actions">
+              <button class="btn btn-sm btn-outline" onclick="watchCmd('start')">▶ Start</button>
+              <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">■ Stop</button>
+            </div>
+          </div>
+        </div>
+      </div><!-- /rec-grid -->
+    </div><!-- /page-recording -->
+
+    <!-- ══════════ PAGE: SESSIONS ══════════ -->
+    <div class="page" id="page-sessions">
+      <div class="sessions-toolbar">
+        <input type="text" id="sessionSearch" placeholder="Search person or session ID…" oninput="filterSessions()">
+        <button class="btn btn-outline btn-sm ml" onclick="loadSessions()">↻ Refresh</button>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table>
+          <thead>
+            <tr>
+              <th>Session ID</th>
+              <th>Person</th>
+              <th>Start Time</th>
+              <th>Duration</th>
+              <th>Watch Samples</th>
+              <th>Pen Dots</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="sessionsBody">
+            <tr><td colspan="7" class="table-empty">Loading sessions…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ══════════ PAGE: CONNECTIONS ══════════ -->
+    <div class="page" id="page-connections">
+      <div class="uptime-bar" id="uptimeBar">
+        <div class="uptime-item"><div class="uptime-key">Server Uptime</div><div class="uptime-val" id="uptimeVal">–</div></div>
+        <div class="uptime-item"><div class="uptime-key">Server Address</div><div class="uptime-val">localhost:8000</div></div>
+        <div class="uptime-item"><div class="uptime-key">WebSocket</div><div class="uptime-val" id="uptimeWs">–</div></div>
+        <div class="uptime-item"><div class="uptime-key">Active Session</div><div class="uptime-val" id="uptimeSession">–</div></div>
+      </div>
+
+      <div class="conn-grid" style="margin-bottom:16px">
+        <!-- Pen -->
+        <div class="card">
+          <div class="device-header">
+            <div class="card-title" style="margin:0">Pen — NWP-F130 (BLE)</div>
+            <div class="status-badge badge-err" id="connPenBadge">Disconnected</div>
+          </div>
+          <div class="info-block">
+            <div class="info-row"><span class="info-key">Protocol</span><span class="info-val">NeoSmartpen V2 (BLE)</span></div>
+            <div class="info-row"><span class="info-key">Service UUID</span><span class="info-val" style="font-size:10px">4f99f138-9d53-5bfa-9e50-b147491afe68</span></div>
+            <div class="info-row"><span class="info-key">Password</span><span class="info-val">0000 (default)</span></div>
+            <div class="info-row"><span class="info-key">Sample output</span><span class="info-val">x, y, pressure, tilt, dot_type</span></div>
+            <div class="info-row"><span class="info-key">Process PID</span><span class="info-val" id="penPid">–</span></div>
+          </div>
+          <div class="device-actions" style="margin-top:14px">
+            <button class="btn btn-sm btn-green" onclick="penConnect()">▲ Connect Pen</button>
+            <button class="btn btn-sm btn-red" onclick="penDisconnect()">▼ Disconnect</button>
+          </div>
+        </div>
+        <!-- Watch -->
+        <div class="card">
+          <div class="device-header">
+            <div class="card-title" style="margin:0">Watch — Apple Watch (HTTP)</div>
+            <div class="status-badge badge-err" id="connWatchBadge">Offline</div>
+          </div>
+          <div class="info-block">
+            <div class="info-row"><span class="info-key">Transport</span><span class="info-val">WatchConnectivity + HTTP POST</span></div>
+            <div class="info-row"><span class="info-key">Endpoint</span><span class="info-val">POST /watch</span></div>
+            <div class="info-row"><span class="info-key">Batch size</span><span class="info-val">10 samples</span></div>
+            <div class="info-row"><span class="info-key">Sample rate</span><span class="info-val">50 Hz</span></div>
+            <div class="info-row"><span class="info-key">Last packet</span><span class="info-val" id="connWatchLast">–</span></div>
+          </div>
+          <div class="device-actions" style="margin-top:14px">
+            <button class="btn btn-sm btn-outline" onclick="watchCmd('start')">▶ Send Start Cmd</button>
+            <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">■ Send Stop Cmd</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Endpoints -->
+      <div class="card">
+        <div class="card-title">API Endpoints<span>FastAPI server · localhost:8000</span></div>
+        <div class="endpoint-list">
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/</span><span class="ep-desc">Serve dashboard.html</span></div>
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/status</span><span class="ep-desc">Current server + device status (JSON)</span></div>
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions</span><span class="ep-desc">List all recorded sessions</span></div>
+          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/session/start</span><span class="ep-desc">Start new session · body: {person_id}</span></div>
+          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/session/stop</span><span class="ep-desc">Stop active session + finalize CSV</span></div>
+          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/pen/connect</span><span class="ep-desc">Launch pen_logger.py subprocess</span></div>
+          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/pen/disconnect</span><span class="ep-desc">Kill pen_logger subprocess (SIGINT)</span></div>
+          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/watch</span><span class="ep-desc">Receive watch IMU batch (from iPhone app)</span></div>
+          <div class="endpoint"><span class="method ws">WS</span><span class="ep-path">/ws</span><span class="ep-desc">Real-time status broadcast (1 Hz)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ PAGE: SYSTEM ══════════ -->
+    <div class="page" id="page-system">
+      <div class="conn-grid" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-title">Watch CSV Schema<span>data/raw/watch/{session}_watch.csv</span></div>
+          <div class="info-block" style="padding:0;overflow:hidden">
+            <table class="schema-table">
+              <thead><tr><th>Column</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td>local_ts</td><td><span class="tag tag-str">str</span></td><td>Server receive time (ISO 8601 UTC)</td></tr>
+                <tr><td>session_id</td><td><span class="tag tag-str">str</span></td><td>Session identifier e.g. S001</td></tr>
+                <tr><td>sequence</td><td><span class="tag tag-int">int</span></td><td>Batch sequence number (watch-side)</td></tr>
+                <tr><td>sample_rate_hz</td><td><span class="tag tag-float">float</span></td><td>Configured IMU rate (50.0)</td></tr>
+                <tr><td>watch_sent_at</td><td><span class="tag tag-int">int</span></td><td>Unix ms timestamp, watch side</td></tr>
+                <tr><td>phone_received_at</td><td><span class="tag tag-int">int</span></td><td>Unix ms timestamp, phone side</td></tr>
+                <tr><td>source</td><td><span class="tag tag-str">str</span></td><td>message / background (WCSession mode)</td></tr>
+                <tr><td>ts</td><td><span class="tag tag-int">int</span></td><td>Sample Unix ms timestamp</td></tr>
+                <tr><td>ax / ay / az</td><td><span class="tag tag-float">float</span></td><td>User acceleration (g), x/y/z</td></tr>
+                <tr><td>rx / ry / rz</td><td><span class="tag tag-float">float</span></td><td>Rotation rate (rad/s), x/y/z</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Pen CSV Schema<span>data/raw/pen/{session}_pen.csv</span></div>
+          <div class="info-block" style="padding:0;overflow:hidden">
+            <table class="schema-table">
+              <thead><tr><th>Column</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td>timestamp</td><td><span class="tag tag-int">int</span></td><td>Unix ms (pen internal clock)</td></tr>
+                <tr><td>x</td><td><span class="tag tag-float">float</span></td><td>Ncode x coordinate (sub-pixel)</td></tr>
+                <tr><td>y</td><td><span class="tag tag-float">float</span></td><td>Ncode y coordinate (sub-pixel)</td></tr>
+                <tr><td>pressure</td><td><span class="tag tag-int">int</span></td><td>Tip force (0–4095)</td></tr>
+                <tr><td>dot_type</td><td><span class="tag tag-str">str</span></td><td>PEN_DOWN / PEN_MOVE / PEN_UP / PEN_HOVER</td></tr>
+                <tr><td>tilt_x</td><td><span class="tag tag-int">int</span></td><td>Pen tilt angle X (°)</td></tr>
+                <tr><td>tilt_y</td><td><span class="tag tag-int">int</span></td><td>Pen tilt angle Y (°)</td></tr>
+                <tr><td>section / owner</td><td><span class="tag tag-int">int</span></td><td>Ncode paper identifiers</td></tr>
+                <tr><td>note / page</td><td><span class="tag tag-int">int</span></td><td>Ncode page identifiers</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Project Overview<span>ML4SCS · Leuphana University</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:13px;line-height:1.65;color:var(--text2)">
+          <div>
+            <p style="margin-bottom:8px"><strong style="color:var(--text)">Research question</strong></p>
+            <p>Can writing activity and concentration levels of elementary school children be detected and predicted using IMU data from a smartwatch in combination with ground truth data from a Moleskine Smart Pen (NWP-F130)?</p>
+          </div>
+          <div>
+            <p style="margin-bottom:8px"><strong style="color:var(--text)">Data pipeline</strong></p>
+            <p>Apple Watch → WatchStreamer app → iPhone bridge → FastAPI server → watch CSV. Moleskine Pen → BLE (pen_logger.py) → pen CSV. Both streams are aligned by session ID and Unix timestamp.</p>
+          </div>
+          <div>
+            <p style="margin-bottom:8px"><strong style="color:var(--text)">Team</strong></p>
+            <p>Noah Samel · Ben Kriegsmann · Tajuddin Snasni</p>
+          </div>
+          <div>
+            <p style="margin-bottom:8px"><strong style="color:var(--text)">Stack</strong></p>
+            <p>Python · FastAPI · Bleak (BLE) · Swift / WatchKit · scikit-learn · pandas · Jupyter</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</main>
+
+<div id="toast"></div>
+
+<script>
+// ════════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════════
+const S = {
+  sessionActive: false,
+  sessionId: null,
+  personId: null,
+  startTime: null,
+  watchSamples: 0,
+  penSamples: 0,
+  penConnected: false,
+  watchConnected: false,
+  uptime: 0,
+  timerInterval: null,
+  allSessions: [],
+  chartBuffer: [],   // {t, mag, pen_writing}
+  chartMax: 0,
+};
+
+// ════════════════════════════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════════════════════════════
+const pageMeta = {
+  recording:   { title: 'Live Recording',   sub: 'Pen + Watch data capture' },
+  sessions:    { title: 'Session History',  sub: 'All recorded sessions' },
+  connections: { title: 'Connections',      sub: 'Device & server management' },
+  system:      { title: 'System & Schema',  sub: 'Data structure · API reference · Project info' },
+};
+
+document.querySelectorAll('.nav-item').forEach(el => {
+  el.addEventListener('click', () => {
+    const p = el.dataset.page;
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    el.classList.add('active');
+    document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
+    document.getElementById('page-' + p).classList.add('active');
+    const m = pageMeta[p];
+    document.getElementById('pageTitle').textContent = m.title;
+    document.getElementById('pageSub').textContent = m.sub;
+    if (p === 'sessions') loadSessions();
+    if (p === 'connections') updateConnectionsPage();
+  });
+});
+
+// ════════════════════════════════════════════════════════════
+//  CHART
+// ════════════════════════════════════════════════════════════
+const chartCtx = document.getElementById('imuChart').getContext('2d');
+const imuChart = new Chart(chartCtx, {
+  type: 'line',
+  data: {
+    labels: [],
+    datasets: [{
+      label: '|a|',
+      data: [],
+      borderColor: 'oklch(0.595 0.165 43)',
+      backgroundColor: (ctx) => {
+        const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 200);
+        gradient.addColorStop(0, 'oklch(0.595 0.165 43 / 0.25)');
+        gradient.addColorStop(1, 'oklch(0.595 0.165 43 / 0.02)');
+        return gradient;
+      },
+      borderWidth: 1.8,
+      pointRadius: 0,
+      pointHoverRadius: 4,
+      tension: 0.35,
+      fill: true,
+    }]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: true,
+    animation: { duration: 0 },
+    interaction: { mode: 'index', intersect: false },
+    scales: {
+      x: {
+        ticks: {
+          maxTicksLimit: 7,
+          color: 'oklch(0.650 0.018 58)',
+          font: { family: "'IBM Plex Mono', monospace", size: 10 },
+          callback: (_, i, arr) => {
+            const sec = -(arr.length - 1 - i);
+            return sec === 0 ? 'now' : sec + 's';
+          }
+        },
+        grid: { color: 'oklch(0.880 0.018 72)' },
+      },
+      y: {
+        min: 0,
+        ticks: {
+          color: 'oklch(0.650 0.018 58)',
+          font: { family: "'IBM Plex Mono', monospace", size: 10 },
+          maxTicksLimit: 5,
+        },
+        grid: { color: 'oklch(0.880 0.018 72)' },
+      }
+    },
+    plugins: {
+      legend: { display: false },
+      tooltip: {
+        backgroundColor: 'oklch(0.175 0.025 55)',
+        titleFont: { family: "'IBM Plex Mono', monospace", size: 11 },
+        bodyFont: { family: "'IBM Plex Mono', monospace", size: 11 },
+        callbacks: {
+          title: (items) => items[0].label + 's',
+          label: (item) => ' |a| = ' + (item.raw || 0).toFixed(3),
+        }
+      }
+    }
+  },
+  plugins: [{
+    id: 'writingBands',
+    beforeDatasetsDraw(chart) {
+      const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+      if (!x || !S.chartBuffer.length) return;
+      ctx.save();
+      S.chartBuffer.forEach((pt, i) => {
+        if (!pt.pen_writing) return;
+        const xPos = x.getPixelForValue(i);
+        const nextX = x.getPixelForValue(i + 1);
+        ctx.fillStyle = 'oklch(0.580 0.130 148 / 0.18)';
+        ctx.fillRect(xPos, top, (nextX || xPos + 8) - xPos, bottom - top);
+      });
+      ctx.restore();
+    }
+  }]
+});
+
+function updateChart(chartPts) {
+  if (!chartPts || !chartPts.length) return;
+  // Merge new points into buffer (avoid duplicates by timestamp)
+  chartPts.forEach(pt => {
+    if (!S.chartBuffer.find(b => b.t === pt.t)) {
+      S.chartBuffer.push(pt);
+    }
+  });
+  // Keep last 60
+  if (S.chartBuffer.length > 60) S.chartBuffer = S.chartBuffer.slice(-60);
+
+  const vals = S.chartBuffer.map(b => b.mag);
+  imuChart.data.labels = S.chartBuffer.map((_, i) => i);
+  imuChart.data.datasets[0].data = vals;
+  imuChart.update('none');
+
+  // Stats
+  const cur = vals[vals.length - 1] || 0;
+  S.chartMax = Math.max(S.chartMax, ...vals);
+  const writePct = S.chartBuffer.length
+    ? Math.round(S.chartBuffer.filter(b => b.pen_writing).length / S.chartBuffer.length * 100)
+    : 0;
+
+  document.getElementById('statMag').textContent = cur.toFixed(3);
+  document.getElementById('statMax').textContent = S.chartMax.toFixed(3);
+  document.getElementById('statWritePct').textContent = writePct + '%';
+}
+
+// ════════════════════════════════════════════════════════════
+//  WEBSOCKET
+// ════════════════════════════════════════════════════════════
+let ws, wsReconnectTimer;
+
+function connectWs() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws`);
+
+  ws.onopen = () => {
+    setWsStatus('ok');
+  };
+
+  ws.onmessage = ({ data }) => {
+    const msg = JSON.parse(data);
+    if (msg.type === 'status') handleStatus(msg);
+    else if (msg.type === 'start') toast(`▶ Session ${msg.session_id} started`);
+    else if (msg.type === 'stop') { toast(`■ Session ${msg.session_id} stopped`); if (document.querySelector('.nav-item.active')?.dataset.page === 'sessions') loadSessions(); }
+  };
+
+  ws.onclose = () => {
+    setWsStatus('err');
+    wsReconnectTimer = setTimeout(connectWs, 3000);
+  };
+
+  ws.onerror = () => { ws.close(); };
+}
+
+function setWsStatus(st) {
+  const dot = document.getElementById('wsDot');
+  const lbl = document.getElementById('wsLabel');
+  dot.className = 'ws-dot';
+  if (st === 'ok') { dot.classList.add('ok'); lbl.textContent = 'WS connected'; }
+  else { lbl.textContent = 'WS reconnecting…'; }
+  document.getElementById('uptimeWs').textContent = st === 'ok' ? 'Connected' : 'Reconnecting';
+}
+
+// ════════════════════════════════════════════════════════════
+//  STATUS HANDLER
+// ════════════════════════════════════════════════════════════
+function handleStatus(s) {
+  S.sessionActive = s.session_active;
+  S.sessionId = s.session_id;
+  S.personId = s.person_id;
+  S.startTime = s.start_time ? new Date(s.start_time) : null;
+  S.watchSamples = s.watch_samples;
+  S.penSamples = s.pen_samples;
+  S.penConnected = s.pen_connected;
+  S.watchConnected = s.watch_connected;
+  S.uptime = s.uptime_seconds;
+
+  // Pills
+  setPill('pillPen', s.pen_connected, `Pen · ${s.pen_samples} dots`, s.pen_connected ? 'ok' : 'err');
+  setPill('pillWatch', s.watch_connected, `Watch · 50Hz`, s.watch_connected ? 'ok' : 'err');
+  setPill('pillServer', true, `Server · ${fmtUptime(s.uptime_seconds)}`, 'ok');
+
+  // Counts
+  document.getElementById('watchCount').textContent = s.watch_samples.toLocaleString();
+  document.getElementById('penCount').textContent = s.pen_samples.toLocaleString();
+  document.getElementById('sessionIdDisp').textContent = s.session_id || '—';
+  document.getElementById('personId').disabled = s.session_active;
+
+  // Session btn
+  const btn = document.getElementById('sessionBtn');
+  if (s.session_active) {
+    btn.textContent = '■  STOP'; btn.classList.add('stop');
+  } else {
+    btn.textContent = 'START'; btn.classList.remove('stop');
+  }
+
+  // Timer label
+  if (!s.session_active && !S.timerInterval) {
+    document.getElementById('timerLabel').textContent = 'Ready for a new recording';
+  }
+
+  // Pen badge
+  setBadge('penBadge', s.pen_connected, s.pen_connected ? 'Connected' : 'Disconnected');
+  setBadge('watchBadge', s.watch_connected, s.watch_connected ? 'Active' : 'Offline');
+  document.getElementById('penBleStatus').textContent = s.pen_connected ? 'Connected' : 'Idle';
+  document.getElementById('watchLastTs').textContent = s.watch_connected ? 'just now' : '–';
+
+  // Connections page
+  setBadge('connPenBadge', s.pen_connected, s.pen_connected ? 'Connected' : 'Disconnected');
+  setBadge('connWatchBadge', s.watch_connected, s.watch_connected ? 'Active' : 'Offline');
+  document.getElementById('connWatchLast').textContent = s.watch_connected ? 'just now' : '–';
+  document.getElementById('uptimeVal').textContent = fmtUptime(s.uptime_seconds);
+  document.getElementById('uptimeSession').textContent = s.session_id || 'None';
+
+  // Chart
+  if (s.chart) updateChart(s.chart);
+
+  // Start timer if session active and not already running
+  if (s.session_active && !S.timerInterval && S.startTime) {
+    startTimer();
+  } else if (!s.session_active && S.timerInterval) {
+    clearInterval(S.timerInterval); S.timerInterval = null;
+    document.getElementById('timerLabel').textContent = 'Session ended';
+  }
+}
+
+function setPill(id, ok, text, cls) {
+  const el = document.getElementById(id);
+  el.className = 'pill ' + (cls || '');
+  document.getElementById(id + 'Txt').textContent = text;
+}
+
+function setBadge(id, ok, text) {
+  const el = document.getElementById(id);
+  el.className = 'status-badge ' + (ok ? 'badge-ok' : 'badge-err');
+  el.textContent = text;
+}
+
+// ════════════════════════════════════════════════════════════
+//  TIMER
+// ════════════════════════════════════════════════════════════
+function startTimer() {
+  S.timerInterval = setInterval(() => {
+    if (!S.startTime) return;
+    const elapsed = Math.floor((Date.now() - S.startTime.getTime()) / 1000);
+    document.getElementById('timer').textContent = fmtDuration(elapsed);
+    document.getElementById('timerLabel').textContent = `Recording session ${S.sessionId || ''}`;
+  }, 1000);
+}
+
+// ════════════════════════════════════════════════════════════
+//  SESSION CONTROL
+// ════════════════════════════════════════════════════════════
+async function toggleSession() {
+  if (S.sessionActive) {
+    await api('/session/stop', 'POST');
+    toast('Session stopped');
+    S.chartMax = 0;
+  } else {
+    const pid = document.getElementById('personId').value.trim() || 'unknown';
+    const res = await api('/session/start', 'POST', { person_id: pid });
+    if (res?.session_id) toast(`▶ Session ${res.session_id} started`);
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  PEN / WATCH COMMANDS
+// ════════════════════════════════════════════════════════════
+async function penConnect() {
+  const r = await api('/pen/connect', 'POST');
+  if (r?.ok) toast('Pen logger started — switch pen on');
+  else toast('⚠ ' + (r?.error || 'Error'));
+}
+async function penDisconnect() {
+  await api('/pen/disconnect', 'POST');
+  toast('Pen disconnected');
+}
+async function watchCmd(cmd) {
+  await api(`/watch/${cmd}`, 'POST');
+  toast(`Watch command: ${cmd}`);
+}
+
+// ════════════════════════════════════════════════════════════
+//  SESSIONS TABLE
+// ════════════════════════════════════════════════════════════
+async function loadSessions() {
+  const data = await api('/sessions', 'GET');
+  S.allSessions = data || [];
+  renderSessions(S.allSessions);
+}
+
+function filterSessions() {
+  const q = document.getElementById('sessionSearch').value.toLowerCase();
+  renderSessions(S.allSessions.filter(s =>
+    s.session_id?.toLowerCase().includes(q) ||
+    s.person_id?.toLowerCase().includes(q)
+  ));
+}
+
+function renderSessions(rows) {
+  const tbody = document.getElementById('sessionsBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="table-empty">No sessions found</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map(s => {
+    const dur = s.start_time && s.end_time
+      ? fmtDuration(Math.floor((new Date(s.end_time) - new Date(s.start_time)) / 1000))
+      : (s.status === 'active' ? '<em style="color:var(--accent)">live</em>' : '–');
+    const startFmt = s.start_time
+      ? new Date(s.start_time).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'medium' })
+      : '–';
+    const statusCls = s.status === 'active' ? 'badge-warn' : 'badge-ok';
+    return `<tr>
+      <td class="mono bold">${s.session_id}</td>
+      <td>${s.person_id || '–'}</td>
+      <td class="mono" style="font-size:11px;color:var(--text2)">${startFmt}</td>
+      <td class="mono">${dur}</td>
+      <td class="mono">${Number(s.watch_samples || 0).toLocaleString()}</td>
+      <td class="mono">${Number(s.pen_samples || 0).toLocaleString()}</td>
+      <td><span class="status-badge ${statusCls}">${s.status || 'completed'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+// ════════════════════════════════════════════════════════════
+//  CONNECTIONS PAGE
+// ════════════════════════════════════════════════════════════
+function updateConnectionsPage() {
+  setBadge('connPenBadge', S.penConnected, S.penConnected ? 'Connected' : 'Disconnected');
+  setBadge('connWatchBadge', S.watchConnected, S.watchConnected ? 'Active' : 'Offline');
+  document.getElementById('uptimeVal').textContent = fmtUptime(S.uptime);
+  document.getElementById('uptimeSession').textContent = S.sessionId || 'None';
+}
+
+// ════════════════════════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════════════════════════
+async function api(path, method = 'GET', body = null) {
+  try {
+    const opts = { method, headers: { 'Content-Type': 'application/json' } };
+    if (body) opts.body = JSON.stringify(body);
+    const res = await fetch(path, opts);
+    return await res.json();
+  } catch (e) {
+    toast('⚠ Server unreachable');
+    return null;
+  }
+}
+
+function fmtDuration(sec) {
+  const h = Math.floor(sec / 3600).toString().padStart(2, '0');
+  const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+  const s = (sec % 60).toString().padStart(2, '0');
+  return `${h}:${m}:${s}`;
+}
+
+function fmtUptime(sec) {
+  if (!sec) return '–';
+  if (sec < 60) return `${sec}s`;
+  if (sec < 3600) return `${Math.floor(sec/60)}m ${sec%60}s`;
+  return `${Math.floor(sec/3600)}h ${Math.floor((sec%3600)/60)}m`;
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2800);
+}
+
+// ════════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════════
+document.getElementById('timer').textContent = '00:00:00';
+
+// Initial status fetch
+api('/status').then(s => { if (s) handleStatus({ type: 'status', ...s, chart: [] }); });
+
+connectWs();
+</script>
+</body>
+</html>

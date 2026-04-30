@@ -373,9 +373,14 @@ async def find_pen(timeout: float = 20.0):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-async def run(password: str = "0000") -> None:
+async def run(password: str = "0000", output_path: str | None = None) -> None:
     # CSV output
-    fname = f"pen_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    if output_path:
+        from pathlib import Path as _Path
+        _Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        fname = output_path
+    else:
+        fname = f"pen_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
     csvf  = open(fname, "w", newline="")
     wr    = csv.writer(csvf)
     wr.writerow(["timestamp", "x", "y", "pressure", "dot_type",
@@ -553,8 +558,16 @@ def main() -> None:
     )
     ap.add_argument("--password", default="0000",
                     help="Pen password (default: '0000' = no password)")
+    ap.add_argument("--session", default=None,
+                    help="Session ID (e.g. S001); output goes to data/raw/pen/{session}_pen.csv")
     args = ap.parse_args()
-    asyncio.run(run(password=args.password))
+
+    output_path = None
+    if args.session:
+        from pathlib import Path as _Path
+        output_path = str(_Path(__file__).parent / "data" / "raw" / "pen" / f"{args.session}_pen.csv")
+
+    asyncio.run(run(password=args.password, output_path=output_path))
 
 
 if __name__ == "__main__":
