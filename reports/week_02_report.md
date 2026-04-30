@@ -69,4 +69,7 @@ Can writing activity and concentration levels be detected using sensor data from
 
 ### Taji
 
--
+- Implemented a preprocessing pipeline for smart pen sensor data to transform raw CSV input into a machine-learning-ready dataset.
+- Selected relevant variables, removed invalid placeholder values, and derived the features pressure, distance, and speed from the original pen data.
+- Created a binary target label (label_writing) to distinguish between writing and non-writing events.
+- Verified the preprocessing output by checking dataset shape, missing values, feature output, and class distribution.
