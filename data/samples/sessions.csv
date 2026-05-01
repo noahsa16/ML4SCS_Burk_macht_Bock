@@ -1,0 +1,3 @@
+session_id,person_id,description,start_time,end_time,pen_samples,watch_samples,status
+S009,Erste valide Testsession,,2026-05-01T09:12:14.647808+00:00,2026-05-01T09:13:00.930879+00:00,1101,2290,completed
+S013,30 Sek Schreiben - 30 Sek Nichts,,2026-05-01T13:19:41.744813+00:00,2026-05-01T13:21:35.015569+00:00,2079,4680,completed
