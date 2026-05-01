@@ -16,6 +16,19 @@ class ServerCommandListener: NSObject, ObservableObject {
     private var reconnectWorkItem: DispatchWorkItem?
     private var sentHello = false
     private var serverIP: String { UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147" }
+    private var serverWebSocketURL: URL? {
+        let trimmed = serverIP
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if trimmed.hasPrefix("http://") {
+            return URL(string: "ws://" + String(trimmed.dropFirst("http://".count)) + "/ws")
+        }
+        if trimmed.hasPrefix("https://") {
+            return URL(string: "wss://" + String(trimmed.dropFirst("https://".count)) + "/ws")
+        }
+        let host = trimmed.contains(":") ? trimmed : "\(trimmed):8000"
+        return URL(string: "ws://\(host)/ws")
+    }
 
     private override init() {
         super.init()
@@ -26,7 +39,7 @@ class ServerCommandListener: NSObject, ObservableObject {
         reconnectWorkItem?.cancel()
         task?.cancel(with: .goingAway, reason: nil)
 
-        guard let url = URL(string: "ws://\(serverIP):8000/ws") else { return }
+        guard let url = serverWebSocketURL else { return }
         task = URLSession.shared.webSocketTask(with: url)
         task?.resume()
         isConnected = false
@@ -99,7 +112,7 @@ class ServerCommandListener: NSObject, ObservableObject {
     }
 
     private func watchPayload(command: String, sessionId: String?, personId: String?) -> [String: Any] {
-        var payload: [String: Any] = ["command": command]
+        var payload: [String: Any] = ["command": command, "server_ip": serverIP]
         if let sessionId, !sessionId.isEmpty { payload["session_id"] = sessionId }
         if let personId, !personId.isEmpty { payload["person_id"] = personId }
         return payload
@@ -109,43 +122,43 @@ class ServerCommandListener: NSObject, ObservableObject {
         let command = payload["command"] as? String ?? "unknown"
         let sessionId = payload["session_id"] as? String
 
-        guard WCSession.default.isReachable else {
-            let detail = "Watch not reachable"
-            lastWatchCommandStatus = "\(command): \(detail)"
-            sendServerEvent([
-                "type": "watch_ack",
-                "ok": false,
-                "command": command,
-                "session_id": sessionId ?? "",
-                "detail": detail
-            ])
-            return
+        if WCSession.default.isReachable {
+            // Fast path: Watch app is in foreground, deliver immediately.
+            WCSession.default.sendMessage(payload, replyHandler: { [weak self] reply in
+                DispatchQueue.main.async {
+                    self?.lastWatchCommandStatus = "\(command): acknowledged"
+                    self?.sendServerEvent([
+                        "type": "watch_ack",
+                        "ok": true,
+                        "command": command,
+                        "session_id": sessionId ?? "",
+                        "detail": "Watch acknowledged command",
+                        "reply": reply
+                    ])
+                }
+            }, errorHandler: { [weak self] error in
+                DispatchQueue.main.async {
+                    // sendMessage failed despite isReachable — queue as fallback.
+                    self?.transferUserInfoToWatch(payload, command: command, sessionId: sessionId)
+                }
+            })
+        } else {
+            // Slow path: Watch app is backgrounded or not running.
+            // transferUserInfo is queued and delivered reliably when the app next becomes active.
+            transferUserInfoToWatch(payload, command: command, sessionId: sessionId)
         }
+    }
 
-        WCSession.default.sendMessage(payload, replyHandler: { [weak self] reply in
-            DispatchQueue.main.async {
-                self?.lastWatchCommandStatus = "\(command): acknowledged"
-                self?.sendServerEvent([
-                    "type": "watch_ack",
-                    "ok": true,
-                    "command": command,
-                    "session_id": sessionId ?? "",
-                    "detail": "Watch acknowledged command",
-                    "reply": reply
-                ])
-            }
-        }, errorHandler: { [weak self] error in
-            DispatchQueue.main.async {
-                self?.lastWatchCommandStatus = "\(command): \(error.localizedDescription)"
-                self?.sendServerEvent([
-                    "type": "watch_ack",
-                    "ok": false,
-                    "command": command,
-                    "session_id": sessionId ?? "",
-                    "detail": error.localizedDescription
-                ])
-            }
-        })
+    private func transferUserInfoToWatch(_ payload: [String: Any], command: String, sessionId: String?) {
+        WCSession.default.transferUserInfo(payload)
+        lastWatchCommandStatus = "\(command): queued (Watch not reachable)"
+        sendServerEvent([
+            "type": "watch_ack",
+            "ok": false,
+            "command": command,
+            "session_id": sessionId ?? "",
+            "detail": "Watch not reachable – command queued via transferUserInfo"
+        ])
     }
 
     private func sendServerEvent(_ payload: [String: Any]) {

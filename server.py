@@ -58,6 +58,7 @@ class SessionState:
         self.ws_clients: set[WebSocket] = set()
         self.ws_client_meta: dict[int, dict[str, Any]] = {}
         self.last_watch_time: float = 0.0        # for "watch connected" check
+        self.last_watch_status_time: float = 0.0 # direct Watch /status heartbeat
         self.chart_buffer: list[dict] = []        # [{t, acc_mag, gyro_mag, pen_writing}, ...]
         self.chart_window_acc_mags: list[float] = []
         self.chart_window_gyro_mags: list[float] = []
@@ -243,6 +244,13 @@ def _pen_connected() -> bool:
 
 def _watch_connected() -> bool:
     return (time.time() - state.last_watch_time) < 5.0 if state.last_watch_time else False
+
+
+def _watch_direct_status_connected() -> bool:
+    return (
+        (time.time() - state.last_watch_status_time) < 5.0
+        if state.last_watch_status_time else False
+    )
 
 
 def _watch_bridge_connected() -> bool:
@@ -1074,6 +1082,7 @@ def _status_payload(
         watch_seen_ms = max(0, int((time.time() - state.last_watch_time) * 1000))
 
     watch_stream_active = _watch_connected()
+    watch_direct_connected = _watch_direct_status_connected()
     watch_bridge_connected = _watch_bridge_connected()
     watch_reachable = _watch_reachable()
 
@@ -1093,7 +1102,8 @@ def _status_payload(
         "pen_writing": pen_writing,
         "pen_last_dot": last_pen_dot,
         "pen_last_seen_ms_ago": pen_seen_ms,
-        "watch_connected": watch_stream_active or watch_reachable is True,
+        "watch_connected": watch_stream_active or watch_direct_connected or watch_reachable is True,
+        "watch_direct_connected": watch_direct_connected,
         "watch_stream_active": watch_stream_active,
         "watch_bridge_connected": watch_bridge_connected,
         "watch_reachable": watch_reachable,
@@ -1225,8 +1235,22 @@ async def dashboard():
     return FileResponse(DASHBOARD_HTML)
 
 
+@app.get("/watch/ping")
+async def watch_ping(request: Request):
+    """Lightweight session-state endpoint polled by the Watch every 2 s.
+    Returns only in-memory state — no CSV reads, no file I/O."""
+    state.last_watch_status_time = time.time()
+    return {
+        "session_active": state.active is not None,
+        "session_id": state.active["session_id"] if state.active else None,
+        "person_id": state.active["person_id"] if state.active else None,
+    }
+
+
 @app.get("/status")
-async def get_status():
+async def get_status(request: Request):
+    if request.headers.get("x-focustrack-client") == "watch_direct":
+        state.last_watch_status_time = time.time()
     return _status_payload()
 
 
@@ -1325,6 +1349,10 @@ async def session_stop():
     session_id = state.active["session_id"]
     end_time = datetime.now(timezone.utc).isoformat()
 
+    # Mark session inactive immediately so the Watch's next status poll or POST
+    # response returns session_active=false and stops streaming without delay.
+    state.active = None
+
     state.watch_command = {
         "command": "stop",
         "ok": None,
@@ -1348,8 +1376,6 @@ async def session_stop():
         "watch_samples": watch_samples,
         "status": "completed",
     })
-
-    state.active = None
 
     _append_event("session", "info", f"Session {session_id} finalized", {
         "pen_samples": pen_samples,
@@ -1626,7 +1652,13 @@ async def receive_watch(request: Request):
     if state.active:
         state.watch_sample_count += valid_count
 
-    return {"ok": True, "samples": valid_count, "invalid_samples": invalid_count}
+    return {
+        "ok": True,
+        "samples": valid_count,
+        "invalid_samples": invalid_count,
+        "session_active": state.active is not None,
+        "session_id": state.active["session_id"] if state.active else None,
+    }
 
 
 def _handle_ws_client_message(ws_id: int, text: str) -> None:

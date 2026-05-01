@@ -984,13 +984,15 @@ function handleStatus(s) {
   const gyroOk = validation.watch_has_gyroscope === true;
   const penClockOk = validation.pen_has_server_time === true;
   const watchStreamActive = s.watch_stream_active ?? s.watch_connected;
+  const watchDirectConnected = s.watch_direct_connected === true;
   const watchBridgeConnected = s.watch_bridge_connected || Boolean(clients.iphone || clients.watch_bridge);
   const watchReachable = s.watch_reachable === true;
-  const watchUiOnline = watchStreamActive || watchReachable || watchBridgeConnected;
+  const watchUiOnline = watchStreamActive || watchDirectConnected || watchReachable || watchBridgeConnected;
   const watchStatusText = watchStreamActive
     ? 'Streaming'
-    : (watchReachable ? 'Reachable' : (watchBridgeConnected ? 'Bridge ready' : 'Offline'));
-  const watchBadgeClass = watchStreamActive || watchReachable ? 'badge-ok' : (watchBridgeConnected ? 'badge-warn' : 'badge-err');
+    : (watchDirectConnected ? 'Direct · Connected'
+    : (watchReachable ? 'Reachable' : (watchBridgeConnected ? 'Bridge ready' : 'Offline')));
+  const watchBadgeClass = watchStreamActive || watchDirectConnected || watchReachable ? 'badge-ok' : (watchBridgeConnected ? 'badge-warn' : 'badge-err');
   S.watchConnected = watchUiOnline;
   S.watchStatusText = watchStatusText;
   S.watchBadgeClass = watchBadgeClass;

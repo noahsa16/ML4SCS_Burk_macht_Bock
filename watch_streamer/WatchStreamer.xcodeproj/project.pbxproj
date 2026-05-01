@@ -10,6 +10,7 @@
 		CC00000BCC00000BCC00000B /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00000ACC00000ACC00000A /* WatchConnectivity.framework */; };
 		CC00000DCC00000DCC00000D /* WatchConnectivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC00000CCC00000CCC00000C /* WatchConnectivity.framework */; };
 		CC00000ECC00000ECC00000E /* WatchStreamer Watch App.app in Embed Watch Content */ = {isa = PBXBuildFile; fileRef = CC000009CC000009CC000009 /* WatchStreamer Watch App.app */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CC000012CC000012CC000012 /* HealthKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = CC000013CC000013CC000013 /* HealthKit.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -41,6 +42,7 @@
 		CC000009CC000009CC000009 /* WatchStreamer Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "WatchStreamer Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC00000ACC00000ACC00000A /* WatchConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchConnectivity.framework; path = System/Library/Frameworks/WatchConnectivity.framework; sourceTree = SDKROOT; };
 		CC00000CCC00000CCC00000C /* WatchConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchConnectivity.framework; path = System/Library/Frameworks/WatchConnectivity.framework; sourceTree = SDKROOT; };
+		CC000013CC000013CC000013 /* HealthKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = HealthKit.framework; path = System/Library/Frameworks/HealthKit.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -69,6 +71,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CC000012CC000012CC000012 /* HealthKit.framework in Frameworks */,
 				CC00000DCC00000DCC00000D /* WatchConnectivity.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -79,6 +82,7 @@
 		469F6A862FA37415007299E6 /* Recovered References */ = {
 			isa = PBXGroup;
 			children = (
+				CC000013CC000013CC000013 /* HealthKit.framework */,
 				CC00000ACC00000ACC00000A /* WatchConnectivity.framework */,
 				CC00000CCC00000CCC00000C /* WatchConnectivity.framework */,
 			);
@@ -426,14 +430,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = WatchApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 85SSM5GQXF;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSMotionUsageDescription = "Collects wrist motion data for writing activity detection during research recording sessions.";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = ML4SCS.WatchStreamer;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WatchAppInfo.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -459,14 +462,13 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = WatchApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 85SSM5GQXF;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSMotionUsageDescription = "Collects wrist motion data for writing activity detection during research recording sessions.";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
-				INFOPLIST_KEY_WKCompanionAppBundleIdentifier = ML4SCS.WatchStreamer;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = WatchAppInfo.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
