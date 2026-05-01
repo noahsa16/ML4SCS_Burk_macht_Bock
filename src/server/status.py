@@ -106,6 +106,7 @@ def _status_payload(
         "session_active": state.active is not None,
         "session_id": sid,
         "person_id": state.active["person_id"] if state.active else None,
+        "description": state.active.get("description") if state.active else None,
         "start_time": state.active["start_time"] if state.active else None,
         "watch_samples": state.watch_sample_count,
         "watch_total_samples": state.watch_total_sample_count,

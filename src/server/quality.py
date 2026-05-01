@@ -28,6 +28,61 @@ def _quality_status(issues: list[dict[str, str]]) -> str:
     return "ok"
 
 
+def _issue_buckets(issues: list[dict[str, str]]) -> dict[str, list[dict[str, str]]]:
+    """Gruppiert Issues für stabile API-Antworten und Dashboard-Anzeigen."""
+    return {
+        "blockers": [i for i in issues if i.get("severity") == "bad"],
+        "warnings": [i for i in issues if i.get("severity") == "warn"],
+        "info": [i for i in issues if i.get("severity") == "info"],
+    }
+
+
+def _score_payload(issues: list[dict[str, str]]) -> dict[str, Any]:
+    """Score-Objekt für ML-Readiness und Recording-Health."""
+    buckets = _issue_buckets(issues)
+    return {
+        "status": _quality_status(issues),
+        **buckets,
+    }
+
+
+def _sync_diagnostic(sync: dict[str, Any]) -> dict[str, Any]:
+    """
+    Übersetzt die optionale Tap-/Peak-Heuristik in eine Diagnose.
+    Diese Diagnose darf die Session-Qualität nicht verschlechtern.
+    """
+    if sync.get("usable"):
+        confidence = sync.get("confidence", "unknown")
+        return {
+            "status": "estimated",
+            "label": "estimated",
+            "message": (
+                "Optional tap/peak calibration estimate is available. "
+                f"Heuristic confidence: {confidence}."
+            ),
+        }
+    reason = sync.get("reason", "")
+    if "Fewer than two" in reason:
+        return {
+            "status": "needs_explicit_tap_protocol",
+            "label": "needs tap protocol",
+            "message": (
+                "No reliable tap/peak calibration pattern was found. "
+                "This is only a calibration hint, not a session-quality failure."
+            ),
+        }
+    return {
+        "status": "not_required",
+        "label": "not required",
+        "message": (
+            "No explicit tap/peak calibration is required for the session score. "
+            f"Diagnostic detail: {reason}"
+            if reason else
+            "No explicit tap/peak calibration pattern was detected; this is not a quality failure."
+        ),
+    }
+
+
 # ── CSV-Timeline laden ────────────────────────────────────────────────────────
 
 def _load_watch_timeline(session_id: str) -> tuple[list[dict[str, Any]], Optional[str]]:
@@ -100,6 +155,8 @@ def _clock_summary(rows: list[dict[str, Any]], count_key: str) -> dict[str, Any]
     """
     Berechnet Start/Ende, Dauer und Clock-Drift für einen Datenstrom.
     count_key ist der Name für den Zähler im Ergebnis-Dict (z.B. 'total_samples').
+    Die Geräte-Zeitachse ist die kanonische ML-Zeitachse; lokale/serverseitige
+    Zeiten bleiben nur Capture-Metadaten.
     """
     source_values = [r["source_ts"] for r in rows if r.get("source_ts") is not None]
     local_values = [r["local_ts"] for r in rows if r.get("local_ts") is not None]
@@ -120,6 +177,12 @@ def _clock_summary(rows: list[dict[str, Any]], count_key: str) -> dict[str, Any]
         "duration_seconds": (
             round((max(local_values) - min(local_values)) / 1000, 3)
             if len(local_values) > 1 else None
+        ),
+        "device_start_ms": min(source_values) if source_values else None,
+        "device_end_ms": max(source_values) if source_values else None,
+        "device_duration_seconds": (
+            round((max(source_values) - min(source_values)) / 1000, 3)
+            if len(source_values) > 1 else None
         ),
         count_key: len(rows),
         "source_start_ms": min(source_values) if source_values else None,
@@ -356,13 +419,18 @@ def _estimate_sync_drift(
 def _session_quality(row: dict[str, str]) -> dict[str, Any]:
     """
     Schnelle Qualitätsprüfung einer Session anhand der sessions.csv-Zeile.
-    Liest die eigentlichen CSV-Dateien und prüft auf häufige Probleme wie
-    fehlende Sensordaten, falsche Sample-Raten oder Schema-Fehler.
+    Liefert zwei getrennte Scores:
+    - ml_readiness: Ist die Session für Labeling/Training brauchbar?
+    - recording_health: Lief die technische Aufnahme sauber?
+
+    Sync-/Clock-Heuristiken bleiben Diagnose und verschlechtern keinen Score.
     """
     sid = row.get("session_id", "")
     watch_path = DATA_RAW_WATCH / f"{sid}_watch.csv"
     pen_path = DATA_RAW_PEN / f"{sid}_pen.csv"
-    issues: list[dict[str, str]] = []
+    ml_issues: list[dict[str, str]] = []
+    recording_issues: list[dict[str, str]] = []
+    info_issues: list[dict[str, str]] = []
 
     watch_rows = 0
     watch_fieldnames: list[str] = []
@@ -371,6 +439,15 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
     gyro_rows = 0
     accel_rows = 0
     server_time_rows = 0
+
+    def add_ml(code: str, severity: str, message: str) -> None:
+        ml_issues.append({"code": code, "severity": severity, "message": message})
+
+    def add_recording(code: str, severity: str, message: str) -> None:
+        recording_issues.append({"code": code, "severity": severity, "message": message})
+
+    def add_info(code: str, message: str) -> None:
+        info_issues.append({"code": code, "severity": "info", "message": message})
 
     if watch_path.exists():
         try:
@@ -394,16 +471,15 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
                     if _as_int(sample.get("server_received_ms")) is not None:
                         server_time_rows += 1
         except Exception as exc:
-            issues.append({
-                "code": "watch_read_error",
-                "severity": "bad",
-                "message": f"Could not read watch CSV: {exc}",
-            })
+            msg = f"Could not read watch CSV: {exc}"
+            add_ml("watch_read_error", "bad", msg)
+            add_recording("watch_read_error", "bad", msg)
 
     pen_rows = 0
     pen_fieldnames: list[str] = []
     pen_server_time_rows = 0
     pen_timestamp_years: list[int] = []
+    pen_ts_values: list[int] = []
 
     if pen_path.exists():
         try:
@@ -416,6 +492,7 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
                         pen_server_time_rows += 1
                     pen_ts = _as_int(dot.get("timestamp"))
                     if pen_ts:
+                        pen_ts_values.append(pen_ts)
                         try:
                             pen_timestamp_years.append(
                                 datetime.fromtimestamp(pen_ts / 1000, tz=timezone.utc).year
@@ -423,11 +500,9 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
                         except (OSError, OverflowError, ValueError):
                             pass
         except Exception as exc:
-            issues.append({
-                "code": "pen_read_error",
-                "severity": "bad",
-                "message": f"Could not read pen CSV: {exc}",
-            })
+            msg = f"Could not read pen CSV: {exc}"
+            add_ml("pen_read_error", "bad", msg)
+            add_recording("pen_read_error", "bad", msg)
 
     watch_diffs = [
         b - a for a, b in zip(watch_ts_values, watch_ts_values[1:])
@@ -447,91 +522,130 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
     expected_watch_samples = None
     if start and end and end > start:
         duration_seconds = (end - start).total_seconds()
-        expected_watch_samples = int(duration_seconds * 50)
+        watch_source_duration = (
+            (max(watch_ts_values) - min(watch_ts_values)) / 1000
+            if len(watch_ts_values) > 1 else None
+        )
+        expected_duration = watch_source_duration or duration_seconds
+        expected_watch_samples = int(expected_duration * 50)
 
     session_watch_samples = _as_int(row.get("watch_samples")) or 0
     session_pen_samples = _as_int(row.get("pen_samples")) or 0
     is_active_session = row.get("status") == "active"
 
     if watch_rows == 0:
-        issues.append({
-            "code": "no_watch_samples",
-            "severity": "bad",
-            "message": "No watch samples were recorded.",
-        })
+        add_ml("no_watch_samples", "bad", "No watch samples were recorded.")
+        add_recording("no_watch_samples", "bad", "No watch samples were recorded.")
     if pen_rows == 0:
-        issues.append({
-            "code": "no_pen_samples",
-            "severity": "warn",
-            "message": "No pen dots were recorded for ground truth.",
-        })
+        add_ml("no_pen_samples", "bad", "No pen dots were recorded for ground truth.")
+        add_recording("no_pen_samples", "warn", "No pen dots were recorded for ground truth.")
+    if watch_rows and not watch_ts_values:
+        add_ml("watch_no_device_time", "bad", "Watch rows have no usable device timestamp column 'ts'.")
+        add_recording("watch_no_device_time", "bad", "Watch rows have no usable device timestamp column 'ts'.")
+    if pen_rows and not pen_ts_values:
+        add_ml("pen_no_device_time", "bad", "Pen rows have no usable device timestamp column 'timestamp'.")
+        add_recording("pen_no_device_time", "bad", "Pen rows have no usable device timestamp column 'timestamp'.")
     if watch_rows and gyro_rows == 0:
-        issues.append({
-            "code": "missing_gyroscope",
-            "severity": "bad",
-            "message": "Watch samples do not contain rx/ry/rz gyroscope values.",
-        })
+        msg = "Watch samples do not contain rx/ry/rz gyroscope values."
+        add_ml("missing_gyroscope", "bad", msg)
+        add_recording("missing_gyroscope", "bad", msg)
     if watch_rows and accel_rows == 0:
-        issues.append({
-            "code": "missing_accelerometer",
-            "severity": "warn",
-            "message": "Watch samples do not contain ax/ay/az accelerometer values.",
-        })
+        msg = "Watch samples do not contain ax/ay/az accelerometer values."
+        add_ml("missing_accelerometer", "warn", msg)
+        add_recording("missing_accelerometer", "warn", msg)
     if watch_est_hz is not None and not (40 <= watch_est_hz <= 60):
-        issues.append({
-            "code": "watch_rate_out_of_range",
-            "severity": "warn",
-            "message": f"Estimated watch sample rate is {watch_est_hz:.1f} Hz.",
-        })
+        msg = f"Estimated watch sample rate is {watch_est_hz:.1f} Hz."
+        add_ml("watch_rate_out_of_range", "warn", msg)
+        add_recording("watch_rate_out_of_range", "warn", msg)
     if sequence_gaps:
-        issues.append({
-            "code": "sequence_gaps",
-            "severity": "warn",
-            "message": f"Detected {sequence_gaps} missing watch batch sequence(s).",
-        })
+        msg = f"Detected {sequence_gaps} missing watch batch sequence(s)."
+        add_ml("sequence_gaps", "warn", msg)
+        add_recording("sequence_gaps", "warn", msg)
+    watch_count_delta = abs(watch_rows - session_watch_samples)
+    watch_count_tolerance = max(5, int(max(watch_rows, session_watch_samples) * 0.01))
     if not is_active_session and watch_rows != session_watch_samples:
-        issues.append({
-            "code": "watch_count_mismatch",
-            "severity": "warn",
-            "message": f"sessions.csv has {session_watch_samples}, file has {watch_rows}.",
-        })
+        msg = f"sessions.csv has {session_watch_samples}, file has {watch_rows}."
+        severity = "info" if watch_count_delta <= watch_count_tolerance else "warn"
+        if severity == "warn":
+            add_recording("watch_count_mismatch", "warn", msg)
+        else:
+            add_info("watch_count_mismatch", msg)
+    pen_count_delta = abs(pen_rows - session_pen_samples)
+    pen_count_tolerance = max(3, int(max(pen_rows, session_pen_samples) * 0.01))
     if not is_active_session and pen_rows != session_pen_samples:
-        issues.append({
-            "code": "pen_count_mismatch",
-            "severity": "warn",
-            "message": f"sessions.csv has {session_pen_samples}, file has {pen_rows}.",
-        })
+        msg = f"sessions.csv has {session_pen_samples}, file has {pen_rows}."
+        severity = "info" if pen_count_delta <= pen_count_tolerance else "warn"
+        if severity == "warn":
+            add_recording("pen_count_mismatch", "warn", msg)
+        else:
+            add_info("pen_count_mismatch", msg)
     if pen_rows and pen_server_time_rows == 0:
-        issues.append({
-            "code": "legacy_pen_time",
-            "severity": "warn",
-            "message": "Pen CSV has no local_ts_ms; align with watch only cautiously.",
-        })
+        add_recording(
+            "legacy_pen_time",
+            "warn",
+            "Pen CSV has no local_ts_ms capture metadata; device timestamps are still usable.",
+        )
     if watch_rows and server_time_rows == 0:
-        issues.append({
-            "code": "legacy_watch_time",
-            "severity": "warn",
-            "message": "Watch CSV has no server_received_ms column.",
-        })
+        add_recording("legacy_watch_time", "warn", "Watch CSV has no server_received_ms column.")
     if not is_active_session and expected_watch_samples and watch_rows < expected_watch_samples * 0.7:
-        issues.append({
-            "code": "low_watch_coverage",
-            "severity": "warn",
-            "message": "Watch rows are far below duration * 50 Hz.",
-        })
+        msg = "Watch rows are far below expected 50 Hz device/session duration."
+        add_ml("low_watch_coverage", "warn", msg)
+        add_recording("low_watch_coverage", "warn", msg)
     if start and pen_timestamp_years and start.year not in pen_timestamp_years and pen_server_time_rows == 0:
-        issues.append({
-            "code": "pen_clock_mismatch",
-            "severity": "bad",
-            "message": "Pen internal timestamp year does not match the session year.",
-        })
+        add_info(
+            "pen_clock_mismatch",
+            "Pen internal timestamp year differs from wall-clock session year; device-relative time is used.",
+        )
 
+    watch_timeline, _watch_timeline_error = _load_watch_timeline(sid)
+    pen_timeline, _pen_timeline_error = _load_pen_timeline(sid)
+    watch_clock = _clock_summary(watch_timeline, "total_samples")
+    pen_clock = _clock_summary(pen_timeline, "total_dots")
+    intervals = _pen_intervals(pen_timeline)
+    sync_estimate = _estimate_sync_drift(watch_timeline, pen_timeline, intervals)
+
+    watch_local_start = watch_clock.get("start_ms")
+    watch_local_end = watch_clock.get("end_ms")
+    pen_local_dots = [r for r in pen_timeline if r.get("local_ts") is not None]
+    pen_dots_in_watch_range = [
+        r for r in pen_local_dots
+        if watch_local_start is not None and watch_local_end is not None
+        and watch_local_start <= r["local_ts"] <= watch_local_end
+    ]
+    pen_range_pct = (
+        len(pen_dots_in_watch_range) / len(pen_local_dots)
+        if pen_local_dots else None
+    )
+    if pen_range_pct is not None and pen_range_pct < 0.95:
+        add_ml(
+            "pen_dots_outside_watch_range",
+            "warn",
+            f"Only {pen_range_pct:.1%} of pen dots fall inside the watch capture range.",
+        )
+
+    ml_readiness = _score_payload(ml_issues)
+    recording_health = _score_payload(recording_issues)
+    combined_issues = []
+    seen_issues = set()
+    for issue in ml_issues + recording_issues + info_issues:
+        key = (issue.get("code"), issue.get("severity"))
+        if key in seen_issues:
+            continue
+        seen_issues.add(key)
+        combined_issues.append(issue)
     return {
         "session_id": sid,
         "person_id": row.get("person_id", ""),
+        "description": row.get("description", ""),
         "status": row.get("status", ""),
         "duration_seconds": round(duration_seconds, 1) if duration_seconds is not None else None,
         "expected_watch_samples_50hz": expected_watch_samples,
+        "clock_model": {
+            "canonical_ml_timeline": "device_relative_ms",
+            "watch_device_timestamp": "ts",
+            "pen_device_timestamp": "timestamp",
+            "server_times": "capture metadata only",
+        },
         "watch": {
             "path": str(watch_path),
             "exists": watch_path.exists(),
@@ -560,8 +674,38 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
             "timestamp_year_max": max(pen_timestamp_years) if pen_timestamp_years else None,
             "schema": pen_fieldnames,
         },
-        "issues": issues,
-        "quality": _quality_status(issues),
+        "ml_readiness": ml_readiness,
+        "recording_health": recording_health,
+        "diagnostics": {
+            "clock_model": {
+                "canonical_ml_timeline": "device_relative_ms",
+                "watch_device_timestamp": "ts",
+                "pen_device_timestamp": "timestamp",
+                "server_times": "capture metadata only",
+            },
+            "sync_estimate": sync_estimate,
+            "sync_diagnostic": _sync_diagnostic(sync_estimate),
+            "counts": {
+                "watch_rows": watch_rows,
+                "watch_sessions_csv_rows": session_watch_samples,
+                "watch_count_delta": watch_count_delta,
+                "watch_count_tolerance": watch_count_tolerance,
+                "pen_rows": pen_rows,
+                "pen_sessions_csv_rows": session_pen_samples,
+                "pen_count_delta": pen_count_delta,
+                "pen_count_tolerance": pen_count_tolerance,
+            },
+            "coverage": {
+                "expected_watch_samples_50hz": expected_watch_samples,
+                "pen_dots_in_watch_range_pct": round(pen_range_pct, 4)
+                if pen_range_pct is not None else None,
+                "watch_device_duration_seconds": watch_clock.get("device_duration_seconds"),
+                "pen_device_duration_seconds": pen_clock.get("device_duration_seconds"),
+            },
+            "info": info_issues,
+        },
+        "issues": combined_issues,
+        "quality": ml_readiness["status"],
     }
 
 
@@ -619,14 +763,14 @@ def _session_validation(session_id: str) -> dict[str, Any]:
     if watch_rows and not any(r.get("local_ts") is not None for r in watch_rows):
         issues.append({
             "code": "watch_no_local_timeline",
-            "severity": "bad",
-            "message": "Watch rows have no local_ts_ms/server_received_ms/local_ts.",
+            "severity": "warn",
+            "message": "Watch rows have no local_ts_ms/server_received_ms/local_ts capture metadata.",
         })
     if pen_rows and not dots_with_local:
         issues.append({
             "code": "pen_no_local_timeline",
-            "severity": "bad",
-            "message": "Pen rows have no local_ts_ms/local_ts.",
+            "severity": "warn",
+            "message": "Pen rows have no local_ts_ms/local_ts capture metadata.",
         })
     if None not in (watch_start, watch_end, pen_start, pen_end) and not streams_overlap:
         issues.append({
@@ -661,11 +805,11 @@ def _session_validation(session_id: str) -> dict[str, Any]:
         if abs(source_clock_offset_gap) > 1000:
             issues.append({
                 "code": "source_clocks_not_shared",
-                "severity": "warn",
+                "severity": "info",
                 "message": (
                     "Pen and watch source timestamps are not on the same clock. "
                     f"Median source-to-local offsets differ by {source_clock_offset_gap:.0f}ms; "
-                    "raw source timestamps need calibration before ML alignment."
+                    "device-relative timestamps are used for ML alignment."
                 ),
             })
 
@@ -673,7 +817,7 @@ def _session_validation(session_id: str) -> dict[str, Any]:
     if not sync.get("usable"):
         issues.append({
             "code": "sync_drift_not_estimated",
-            "severity": "warn",
+            "severity": "info",
             "message": sync.get("reason", "Sync drift could not be estimated."),
         })
 
@@ -700,11 +844,14 @@ def _session_validation(session_id: str) -> dict[str, Any]:
         "session_id": safe_id,
         "status": _quality_status(issues),
         "timestamp_sources": {
-            "canonical_ml_timeline": "watch.ts",
+            "canonical_ml_timeline": "device_relative_ms",
             "watch_source": "watch ts",
             "pen_source": "pen timestamp",
             "local_timeline": "local_ts_ms if present, else server_received_ms/local_ts fallback",
-            "warning": "local timeline proves capture overlap, not exact physical simultaneity.",
+            "note": (
+                "Device timestamps define within-stream timing. Local/server times are "
+                "used only as capture metadata and, when available, as a coarse session anchor."
+            ),
         },
         "watch": watch,
         "pen": pen,
@@ -731,6 +878,7 @@ def _session_validation(session_id: str) -> dict[str, Any]:
             "pen_source_to_local_offset_median_ms": pen.get("source_to_local_offset_median_ms"),
         },
         "sync_estimate": sync,
+        "sync_diagnostic": _sync_diagnostic(sync),
         "timeline_for_chart": {
             "session_start_ms": local_session_start,
             "watch_start_s": (
@@ -755,6 +903,14 @@ def _session_validation(session_id: str) -> dict[str, Any]:
                 else None
             ),
             "pen_events": timeline_intervals,
+        },
+        "device_timeline": {
+            "watch_start_ms": watch.get("device_start_ms"),
+            "watch_end_ms": watch.get("device_end_ms"),
+            "watch_duration_seconds": watch.get("device_duration_seconds"),
+            "pen_start_ms": pen.get("device_start_ms"),
+            "pen_end_ms": pen.get("device_end_ms"),
+            "pen_duration_seconds": pen.get("device_duration_seconds"),
         },
         "issues": issues,
     }

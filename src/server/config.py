@@ -13,9 +13,11 @@ DATA_RAW_WATCH = ROOT / "data" / "raw" / "watch"
 DATA_RAW_PEN   = ROOT / "data" / "raw" / "pen"
 SESSIONS_CSV   = ROOT / "data" / "sessions.csv"
 DASHBOARD_HTML = ROOT / "dashboard.html"
+STATIC_DIR     = ROOT / "static"
 
 DATA_RAW_WATCH.mkdir(parents=True, exist_ok=True)
 DATA_RAW_PEN.mkdir(parents=True, exist_ok=True)
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
 
 WATCH_FIELDNAMES = [
     "local_ts", "local_ts_ms", "session_id", "sequence", "sample_rate_hz",
@@ -28,7 +30,7 @@ PEN_FIELDNAMES = [
     "tilt_x", "tilt_y", "section", "owner", "note", "page",
 ]
 SESSIONS_FIELDNAMES = [
-    "session_id", "person_id", "start_time", "end_time",
+    "session_id", "person_id", "description", "start_time", "end_time",
     "pen_samples", "watch_samples", "status",
 ]
 
