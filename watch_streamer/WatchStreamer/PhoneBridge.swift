@@ -3,9 +3,21 @@ import Foundation
 import WatchConnectivity
 
 class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
+    static let shared = PhoneBridge()
+
+    static var serverBaseURL: String {
+        let raw = UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147"
+        let trimmed = raw
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            return trimmed
+        }
+        return trimmed.contains(":") ? "http://\(trimmed)" : "http://\(trimmed):8000"
+    }
+
     static var serverAddress: String {
-        let ip = UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147"
-        return "http://\(ip):8000/watch"
+        "\(serverBaseURL)/watch"
     }
 
     @Published var isConnected = false
@@ -18,7 +30,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     private var uploadQueue: [[String: Any]] = []
     private var isUploading = false
 
-    override init() {
+    private override init() {
         super.init()
         WCSession.default.delegate = self
         WCSession.default.activate()
@@ -32,6 +44,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             if let error {
                 self.lastError = error.localizedDescription
             }
+            self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
         }
     }
     func sessionDidBecomeInactive(_ session: WCSession) {}
@@ -53,7 +66,22 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     func sessionReachabilityDidChange(_ session: WCSession) {
-        DispatchQueue.main.async { self.isConnected = session.isReachable }
+        DispatchQueue.main.async {
+            self.isConnected = session.isReachable
+            self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
+        }
+    }
+
+    func syncServerIP(_ ip: String) {
+        let trimmed = ip.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        UserDefaults.standard.set(trimmed, forKey: "serverIP")
+        guard WCSession.default.activationState == .activated else { return }
+        do {
+            try WCSession.default.updateApplicationContext(["server_ip": trimmed])
+        } catch {
+            lastError = "Could not sync server IP: \(error.localizedDescription)"
+        }
     }
 
     @discardableResult
@@ -69,6 +97,22 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             self.uploadQueue.append(normalized)
             self.queuedBatchCount = self.uploadQueue.count
             self.lastError = ""
+
+            // Feed real IMU magnitudes to the live chart.
+            let accValues  = samples.map { s -> Double in
+                let ax = s["ax"] as? Double ?? 0
+                let ay = s["ay"] as? Double ?? 0
+                let az = s["az"] as? Double ?? 0
+                return sqrt(ax*ax + ay*ay + az*az)
+            }
+            let gyroValues = samples.map { s -> Double in
+                let rx = s["rx"] as? Double ?? 0
+                let ry = s["ry"] as? Double ?? 0
+                let rz = s["rz"] as? Double ?? 0
+                return sqrt(rx*rx + ry*ry + rz*rz)
+            }
+            IMUDataStore.shared.pushBatch(accValues: accValues, gyroValues: gyroValues)
+
             self.uploadNextIfNeeded()
         }
         return true
@@ -87,7 +131,8 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
         var normalized = decodedPayload
         normalized["type"] = decodedPayload["type"] as? String ?? "watch_motion_batch"
-        normalized["source"] = source
+        normalized["source"] = decodedPayload["source"] as? String ?? source
+        normalized["transport"] = decodedPayload["transport"] as? String ?? "watchconnectivity"
         normalized["phoneReceivedAt"] = Self.currentTimestampMillis()
         normalized["samples"] = samples
         return normalized

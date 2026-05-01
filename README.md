@@ -24,7 +24,7 @@ The goal of this repository is to document the full project workflow over the se
 
 ## Project Question
 
-Can writing activity and concentration levels of elementary school children be detected and predicted using IMU data from a smartwatch in combination with ground truth data from a Moleskine Smart Pen (NWP-F130)?
+Can writing activity (and concentration levels)  be detected and predicted using IMU data from a smartwatch in combination with ground truth data from a Moleskine Smart Pen (NWP-F130)?
 
 
 ---
@@ -53,10 +53,12 @@ uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
 Open `http://localhost:8000` to start/stop sessions and validate connections.
+Use the session description field to record the protocol, for example
+`2 min writing, 2 min pause`.
 
 Important quality checks before using a session for modeling:
 
 - Watch samples should contain both accelerometer (`ax`, `ay`, `az`) and gyroscope (`rx`, `ry`, `rz`).
 - Watch estimated sample rate should be close to 50 Hz.
-- Pen rows should contain `local_ts_ms`; older pen logs without it are legacy data and cannot be aligned to watch wall-clock time with full confidence.
-- The dashboard `Sessions` page and `GET /sessions/quality` endpoint summarize readiness, warnings, and blockers for each recording.
+- Watch `ts` and pen `timestamp` are the canonical device timestamps. Preprocessing aligns streams on device-relative milliseconds; server/local timestamps are capture metadata and a coarse session anchor.
+- The dashboard `Sessions` page and `GET /sessions/quality` endpoint report separate `ml_readiness` and `recording_health` scores; sync confidence is only an optional calibration diagnostic.
