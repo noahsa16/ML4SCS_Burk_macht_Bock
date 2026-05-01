@@ -207,6 +207,35 @@ tbody td { padding: 10px 12px; font-size: 13px; }
 td.mono { font-family: var(--mono); font-size: 12px; }
 td.bold { font-weight: 600; }
 .table-empty { text-align: center; padding: 40px; color: var(--text3); font-size: 13px; font-style: italic; }
+.click-row { cursor: pointer; }
+.click-row.active { background: oklch(0.595 0.165 43 / 0.10); }
+
+/* ─── Session validation timeline ──────────────────────────── */
+.validation-panel { margin-top: 16px; display: none; }
+.validation-panel.active { display: block; }
+.validation-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.validation-title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+.validation-status { font-family: var(--mono); font-size: 13px; font-weight: 700; }
+.validation-metrics { display: flex; gap: 18px; flex-wrap: wrap; margin: 12px 0 16px; color: var(--text2); }
+.validation-metric { font-size: 13px; }
+.validation-metric strong { font-family: var(--mono); color: var(--text); }
+.timeline-wrap { margin-top: 8px; }
+.timeline-axis { position: relative; height: 24px; margin-left: 70px; border-bottom: 1px solid var(--border2); font-family: var(--mono); font-size: 10px; color: var(--text3); }
+.axis-tick { position: absolute; top: 4px; transform: translateX(-50%); white-space: nowrap; }
+.timeline-row { display: grid; grid-template-columns: 58px 1fr; gap: 12px; align-items: center; margin: 12px 0; }
+.timeline-label { font-weight: 700; color: var(--text2); text-align: right; }
+.timeline-track { position: relative; height: 36px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
+.timeline-bar { position: absolute; top: 7px; height: 20px; border-radius: 999px; min-width: 2px; }
+.bar-watch { background: linear-gradient(90deg, var(--accent), oklch(0.720 0.135 88)); }
+.bar-pen { background: var(--green); }
+.bar-gap { background: oklch(0.650 0.018 58 / 0.18); }
+.drift-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 16px; }
+.drift-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+.drift-box .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.drift-box .v { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--text); margin-top: 4px; }
+.validation-note { color: var(--text3); font-size: 12px; line-height: 1.55; margin-top: 12px; }
+.issue-list { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.issue-chip { font-family: var(--mono); font-size: 10px; border-radius: 5px; padding: 4px 7px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
 
 /* ─── Connections page ───────────────────────────────────────── */
 .conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -486,14 +515,39 @@ td.bold { font-weight: 600; }
               <th>Pen Dots</th>
               <th>Watch Hz</th>
               <th>Signals</th>
+              <th>Sync</th>
               <th>Quality</th>
               <th>Status</th>
             </tr>
           </thead>
           <tbody id="sessionsBody">
-            <tr><td colspan="10" class="table-empty">Loading sessions…</td></tr>
+            <tr><td colspan="11" class="table-empty">Loading sessions…</td></tr>
           </tbody>
         </table>
+      </div>
+      <div class="card validation-panel" id="sessionValidationPanel">
+        <div class="validation-head">
+          <div>
+            <div class="card-title" style="margin-bottom:6px">Session Timeline Validation<span>source clocks + local capture overlap</span></div>
+            <div class="validation-title" id="validationTitle">Select a session</div>
+          </div>
+          <div class="validation-status" id="validationOverall">–</div>
+        </div>
+        <div class="validation-metrics">
+          <div class="validation-metric">Start offset: <strong id="validationStartOffset">–</strong></div>
+          <div class="validation-metric">End offset: <strong id="validationEndOffset">–</strong></div>
+          <div class="validation-metric">Pen in watch range: <strong id="validationPenPct">–</strong></div>
+          <div class="validation-metric">Sync confidence: <strong id="validationConfidence">–</strong></div>
+        </div>
+        <div class="timeline-wrap" id="validationTimeline"></div>
+        <div class="drift-grid">
+          <div class="drift-box"><div class="k">Watch clock drift</div><div class="v" id="driftWatch">–</div></div>
+          <div class="drift-box"><div class="k">Pen clock drift</div><div class="v" id="driftPen">–</div></div>
+          <div class="drift-box"><div class="k">Relative drift</div><div class="v" id="driftRelative">–</div></div>
+          <div class="drift-box"><div class="k">Clock offset gap</div><div class="v" id="driftSyncOffset">–</div></div>
+        </div>
+        <div class="validation-note" id="validationSummary">Click a session row to inspect the timeline.</div>
+        <div class="issue-list" id="validationIssues"></div>
       </div>
     </div>
 
@@ -538,6 +592,9 @@ td.bold { font-weight: 600; }
           <div class="info-block">
             <div class="info-row"><span class="info-key">Transport</span><span class="info-val">WatchConnectivity + HTTP POST</span></div>
             <div class="info-row"><span class="info-key">Endpoint</span><span class="info-val">POST /watch</span></div>
+            <div class="info-row"><span class="info-key">iPhone bridge</span><span class="info-val" id="connWatchBridge">–</span></div>
+            <div class="info-row"><span class="info-key">Watch reachability</span><span class="info-val" id="connWatchReachable">–</span></div>
+            <div class="info-row"><span class="info-key">Motion stream</span><span class="info-val" id="connWatchStream">–</span></div>
             <div class="info-row"><span class="info-key">Batch size</span><span class="info-val">10 samples</span></div>
             <div class="info-row"><span class="info-key">Sample rate</span><span class="info-val">50 Hz</span></div>
             <div class="info-row"><span class="info-key">Actual receive rate</span><span class="info-val" id="connWatchHz">–</span></div>
@@ -563,6 +620,7 @@ td.bold { font-weight: 600; }
           <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/status</span><span class="ep-desc">Current server + device status (JSON)</span></div>
           <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions</span><span class="ep-desc">List all recorded sessions</span></div>
           <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions/quality</span><span class="ep-desc">Read-only quality report per session</span></div>
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions/{id}/validation</span><span class="ep-desc">Timeline overlap + source-clock drift estimate</span></div>
           <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/session/start</span><span class="ep-desc">Start new session · body: {person_id}</span></div>
           <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/session/stop</span><span class="ep-desc">Stop active session + finalize CSV</span></div>
           <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/pen/connect</span><span class="ep-desc">Launch pen_logger.py subprocess</span></div>
@@ -619,6 +677,7 @@ td.bold { font-weight: 600; }
               <thead><tr><th>Column</th><th>Type</th><th>Description</th></tr></thead>
               <tbody>
                 <tr><td>local_ts</td><td><span class="tag tag-str">str</span></td><td>Server receive time (ISO 8601 UTC)</td></tr>
+                <tr><td>local_ts_ms</td><td><span class="tag tag-int">int</span></td><td>Server receive time in Unix ms</td></tr>
                 <tr><td>session_id</td><td><span class="tag tag-str">str</span></td><td>Session identifier e.g. S001</td></tr>
                 <tr><td>sequence</td><td><span class="tag tag-int">int</span></td><td>Batch sequence number (watch-side)</td></tr>
                 <tr><td>sample_rate_hz</td><td><span class="tag tag-float">float</span></td><td>Configured IMU rate (50.0)</td></tr>
@@ -707,6 +766,10 @@ const S = {
   theme: localStorage.getItem('theme') || 'light',
   qualityBySession: {},
   qualitySummary: null,
+  validationBySession: {},
+  selectedSessionId: null,
+  watchStatusText: 'Offline',
+  watchBadgeClass: 'badge-err',
 };
 
 // ════════════════════════════════════════════════════════════
@@ -908,7 +971,6 @@ function handleStatus(s) {
   S.watchSamples = s.watch_samples;
   S.penSamples = s.pen_samples;
   S.penConnected = s.pen_connected;
-  S.watchConnected = s.watch_connected;
   S.uptime = s.uptime_seconds;
   S.eventLog = s.event_log || S.eventLog;
   S.sampleLog = s.sample_log || S.sampleLog;
@@ -921,10 +983,21 @@ function handleStatus(s) {
   const clients = s.connected_clients || {};
   const gyroOk = validation.watch_has_gyroscope === true;
   const penClockOk = validation.pen_has_server_time === true;
+  const watchStreamActive = s.watch_stream_active ?? s.watch_connected;
+  const watchBridgeConnected = s.watch_bridge_connected || Boolean(clients.iphone || clients.watch_bridge);
+  const watchReachable = s.watch_reachable === true;
+  const watchUiOnline = watchStreamActive || watchReachable || watchBridgeConnected;
+  const watchStatusText = watchStreamActive
+    ? 'Streaming'
+    : (watchReachable ? 'Reachable' : (watchBridgeConnected ? 'Bridge ready' : 'Offline'));
+  const watchBadgeClass = watchStreamActive || watchReachable ? 'badge-ok' : (watchBridgeConnected ? 'badge-warn' : 'badge-err');
+  S.watchConnected = watchUiOnline;
+  S.watchStatusText = watchStatusText;
+  S.watchBadgeClass = watchBadgeClass;
 
   // Pills
   setPill('pillPen', s.pen_connected, `Pen · ${s.pen_samples} dots`, s.pen_connected ? 'ok' : 'err');
-  setPill('pillWatch', s.watch_connected, `Watch · ${fmtHz(watchRate)}`, s.watch_connected ? 'ok' : 'err');
+  setPill('pillWatch', watchUiOnline, `Watch · ${watchStatusText} · ${fmtHz(watchRate)}`, watchStreamActive || watchReachable ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'));
   setPill('pillServer', true, `Server · ${fmtUptime(s.uptime_seconds)}`, 'ok');
 
   // Counts
@@ -949,7 +1022,7 @@ function handleStatus(s) {
 
   // Pen badge
   setBadge('penBadge', s.pen_connected, s.pen_connected ? 'Connected' : 'Disconnected');
-  setBadge('watchBadge', s.watch_connected, s.watch_connected ? 'Active' : 'Offline');
+  setBadge('watchBadge', watchUiOnline, watchStatusText, watchBadgeClass);
   document.getElementById('penBleStatus').textContent = s.pen_connected ? 'Connected' : 'Idle';
   document.getElementById('dotType').textContent = lastPen.dot_type || '–';
   document.getElementById('penLastXY').textContent = lastPen.x != null ? `${fmtNum(lastPen.x)}, ${fmtNum(lastPen.y)}` : '–';
@@ -966,17 +1039,20 @@ function handleStatus(s) {
 
   // Connections page
   setBadge('connPenBadge', s.pen_connected, s.pen_connected ? 'Connected' : 'Disconnected');
-  setBadge('connWatchBadge', s.watch_connected, s.watch_connected ? 'Active' : 'Offline');
+  setBadge('connWatchBadge', watchUiOnline, watchStatusText, watchBadgeClass);
   document.getElementById('connWatchLast').textContent = s.watch_last_packet
     ? `${fmtAgo(Date.now() - s.watch_last_packet.server_received_ms)} · seq ${s.watch_last_packet.sequence ?? '–'}`
     : '–';
   document.getElementById('uptimeVal').textContent = fmtUptime(s.uptime_seconds);
   document.getElementById('uptimeSession').textContent = s.session_id || 'None';
-  document.getElementById('uptimeBridge').textContent = clients.iphone ? 'Connected' : '–';
+  document.getElementById('uptimeBridge').textContent = watchBridgeConnected ? 'Connected' : '–';
   document.getElementById('penPid').textContent = s.pen_pid || '–';
   document.getElementById('connPenHz').textContent = fmtHz(penRate);
   document.getElementById('connPenLast').textContent = lastPen.dot_type ? `${lastPen.dot_type} · ${fmtNum(lastPen.x)}, ${fmtNum(lastPen.y)}` : '–';
   document.getElementById('connPenClock').textContent = penClockOk ? 'ok' : 'legacy/missing';
+  document.getElementById('connWatchBridge').textContent = watchBridgeConnected ? 'connected' : 'not connected';
+  document.getElementById('connWatchReachable').textContent = s.watch_reachable === true ? 'yes' : (s.watch_reachable === false ? 'no' : 'unknown');
+  document.getElementById('connWatchStream').textContent = watchStreamActive ? 'active' : 'idle/no samples';
   document.getElementById('connWatchHz').textContent = fmtHz(watchRate);
   document.getElementById('connWatchBatchHz').textContent = fmtHz(s.watch_batch_rate_hz || 0);
   document.getElementById('connWatchGyro').textContent = gyroOk ? 'yes' : 'no';
@@ -1010,9 +1086,9 @@ function setPill(id, ok, text, cls) {
   document.getElementById(id + 'Txt').textContent = text;
 }
 
-function setBadge(id, ok, text) {
+function setBadge(id, ok, text, cls = null) {
   const el = document.getElementById(id);
-  el.className = 'status-badge ' + (ok ? 'badge-ok' : 'badge-err');
+  el.className = 'status-badge ' + (cls || (ok ? 'badge-ok' : 'badge-err'));
   el.textContent = text;
 }
 
@@ -1078,8 +1154,17 @@ async function loadSessions() {
   S.qualitySummary = quality?.summary || null;
   S.qualityBySession = {};
   (quality?.sessions || []).forEach(q => { S.qualityBySession[q.session_id] = q; });
+  S.validationBySession = {};
+  const validations = await Promise.all((S.allSessions || []).map(s =>
+    api(`/sessions/${encodeURIComponent(s.session_id)}/validation`, 'GET')
+      .then(v => ({ sid: s.session_id, validation: v }))
+  ));
+  validations.forEach(({ sid, validation }) => {
+    if (validation) S.validationBySession[sid] = validation;
+  });
   renderQualitySummary();
   renderSessions(S.allSessions);
+  if (S.selectedSessionId) renderSessionValidation(S.selectedSessionId);
 }
 
 function filterSessions() {
@@ -1093,11 +1178,12 @@ function filterSessions() {
 function renderSessions(rows) {
   const tbody = document.getElementById('sessionsBody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="table-empty">No sessions found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="table-empty">No sessions found</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(s => {
     const q = S.qualityBySession[s.session_id] || {};
+    const validation = S.validationBySession[s.session_id] || {};
     const watch = q.watch || {};
     const pen = q.pen || {};
     const dur = s.start_time && s.end_time
@@ -1109,12 +1195,22 @@ function renderSessions(rows) {
     const statusCls = s.status === 'active' ? 'badge-warn' : 'badge-ok';
     const qualityCls = q.quality === 'ok' ? 'badge-ok' : (q.quality === 'bad' ? 'badge-err' : 'badge-warn');
     const issueText = (q.issues || []).map(i => i.code).join(', ') || 'ready';
+    const validationIssueCodes = (validation.issues || []).map(i => i.code);
+    const localSyncOk = validation.overlap?.streams_overlap === true
+      && Number(validation.overlap?.pen_dots_in_watch_range_pct || 0) > 0.95;
+    const clockNeedsCalibration = validationIssueCodes.includes('source_clocks_not_shared')
+      || validationIssueCodes.includes('sync_drift_not_estimated');
+    const syncOk = localSyncOk && !clockNeedsCalibration;
+    const syncTitle = validation.sync_estimate?.usable
+      ? `sync ${validation.sync_estimate.confidence}, drift ${fmtMs(validation.sync_estimate.estimated_drift_ms)}`
+      : (validation.issues || []).map(i => i.code).join(', ') || 'not checked';
     const signalText = [
       watch.has_gyroscope ? 'gyro' : 'no gyro',
       watch.has_accelerometer ? 'accel' : 'no accel',
       pen.has_server_time ? 'pen time' : 'legacy pen',
     ].join(' · ');
-    return `<tr>
+    const activeRow = S.selectedSessionId === s.session_id ? ' active' : '';
+    return `<tr class="click-row${activeRow}" onclick="selectSession('${escAttr(s.session_id)}')">
       <td class="mono bold">${esc(s.session_id)}</td>
       <td>${esc(s.person_id || '–')}</td>
       <td class="mono" style="font-size:11px;color:var(--text2)">${startFmt}</td>
@@ -1123,6 +1219,7 @@ function renderSessions(rows) {
       <td class="mono">${Number(s.pen_samples || 0).toLocaleString()}</td>
       <td class="mono">${watch.estimated_hz ? fmtHz(watch.estimated_hz) : '–'}</td>
       <td class="mono" title="${esc(signalText)}">${esc(signalText)}</td>
+      <td title="${esc(syncTitle)}">${syncOk ? '✅' : '⚠️'}</td>
       <td title="${esc(issueText)}"><span class="status-badge ${qualityCls}">${esc(q.quality || 'unknown')}</span></td>
       <td><span class="status-badge ${statusCls}">${esc(s.status || 'completed')}</span></td>
     </tr>`;
@@ -1137,12 +1234,104 @@ function renderQualitySummary() {
   document.getElementById('qualityBad').textContent = summary.bad ?? 0;
 }
 
+function selectSession(sessionId) {
+  S.selectedSessionId = sessionId;
+  renderSessions(S.allSessions);
+  renderSessionValidation(sessionId);
+}
+
+function renderSessionValidation(sessionId) {
+  const panel = document.getElementById('sessionValidationPanel');
+  const v = S.validationBySession[sessionId];
+  panel.classList.add('active');
+
+  if (!v) {
+    document.getElementById('validationTitle').textContent = `Session ${sessionId}`;
+    document.getElementById('validationOverall').textContent = 'Loading…';
+    document.getElementById('validationTimeline').innerHTML = '';
+    document.getElementById('validationSummary').textContent = 'Validation is loading or unavailable.';
+    return;
+  }
+
+  const duration = v.timeline_for_chart?.duration_s ?? v.watch?.duration_seconds ?? 0;
+  const issueCodes = (v.issues || []).map(i => i.code);
+  const aligned = v.overlap?.streams_overlap === true
+    && Number(v.overlap?.pen_dots_in_watch_range_pct || 0) > 0.95;
+  const needsCalibration = issueCodes.includes('source_clocks_not_shared')
+    || issueCodes.includes('sync_drift_not_estimated');
+  document.getElementById('validationTitle').textContent = `Session ${sessionId} — ${fmtDuration(Math.round(duration || 0))} duration`;
+  document.getElementById('validationOverall').textContent = aligned && !needsCalibration
+    ? 'Overall: Streams aligned ✅'
+    : (aligned ? 'Overall: Capture overlaps, clock calibration needed ⚠️' : 'Overall: Streams need review ❌');
+  document.getElementById('validationStartOffset').textContent = fmtMs(v.overlap?.start_offset_ms);
+  document.getElementById('validationEndOffset').textContent = fmtMs(v.overlap?.end_offset_ms);
+  document.getElementById('validationPenPct').textContent = v.overlap?.pen_dots_in_watch_range_pct != null
+    ? `${Math.round(v.overlap.pen_dots_in_watch_range_pct * 1000) / 10}%`
+    : '–';
+  document.getElementById('validationConfidence').textContent = v.sync_estimate?.confidence || 'none';
+  document.getElementById('driftWatch').textContent = fmtMs(v.source_clocks?.watch_source_to_local_drift_ms);
+  document.getElementById('driftPen').textContent = fmtMs(v.source_clocks?.pen_source_to_local_drift_ms);
+  document.getElementById('driftRelative').textContent = fmtMs(v.source_clocks?.relative_pen_vs_watch_clock_drift_ms);
+  document.getElementById('driftSyncOffset').textContent = v.source_clocks?.source_clock_offset_gap_ms != null
+    ? fmtMs(v.source_clocks.source_clock_offset_gap_ms)
+    : (v.sync_estimate?.usable ? fmtMs(v.sync_estimate.median_offset_ms) : 'not estimated');
+
+  document.getElementById('validationTimeline').innerHTML = renderTimeline(v);
+  const intervals = v.timeline_for_chart?.pen_events?.length || 0;
+  document.getElementById('validationSummary').textContent =
+    `Watch: ${Number(v.watch?.total_samples || 0).toLocaleString()} samples over ${fmtSec(v.watch?.duration_seconds)} | ` +
+    `Pen: ${intervals} writing intervals, ${Number(v.pen?.total_dots || 0).toLocaleString()} dots over ${fmtSec(v.pen?.duration_seconds)}. ` +
+    `Note: local overlap is transport validation; source-clock drift is the safer sync signal.`;
+  document.getElementById('validationIssues').innerHTML = (v.issues || []).length
+    ? v.issues.map(i => `<span class="issue-chip" title="${escAttr(i.message || '')}">${esc(i.code)}</span>`).join('')
+    : '<span class="issue-chip">no issues</span>';
+}
+
+function renderTimeline(v) {
+  const tl = v.timeline_for_chart || {};
+  const duration = Math.max(1, Number(tl.duration_s || 1));
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map(t => {
+    const sec = Math.round(duration * t);
+    return `<span class="axis-tick" style="left:${t * 100}%">${sec}s</span>`;
+  }).join('');
+  const watchStart = pct(tl.watch_start_s || 0, duration);
+  const watchWidth = pct((tl.watch_end_s || 0) - (tl.watch_start_s || 0), duration);
+  const penStart = pct(tl.pen_start_s || 0, duration);
+  const penWidth = pct((tl.pen_end_s || 0) - (tl.pen_start_s || 0), duration);
+  const penBlocks = (tl.pen_events || []).map(ev => {
+    const left = pct(ev.start_s, duration);
+    const width = Math.max(0.2, pct(ev.end_s - ev.start_s, duration));
+    return `<span class="timeline-bar bar-pen" title="${fmtSec(ev.duration_s)} · ${ev.dot_count || 0} dots" style="left:${left}%;width:${width}%"></span>`;
+  }).join('');
+  return `
+    <div class="timeline-axis">${ticks}</div>
+    <div class="timeline-row">
+      <div class="timeline-label">Watch</div>
+      <div class="timeline-track">
+        <span class="timeline-bar bar-watch" style="left:${watchStart}%;width:${Math.max(0.2, watchWidth)}%"></span>
+      </div>
+    </div>
+    <div class="timeline-row">
+      <div class="timeline-label">Pen</div>
+      <div class="timeline-track">
+        <span class="timeline-bar bar-gap" style="left:${penStart}%;width:${Math.max(0.2, penWidth)}%"></span>
+        ${penBlocks}
+      </div>
+    </div>`;
+}
+
+function pct(value, total) {
+  const n = Number(value || 0);
+  const d = Math.max(1, Number(total || 1));
+  return Math.max(0, Math.min(100, n / d * 100));
+}
+
 // ════════════════════════════════════════════════════════════
 //  CONNECTIONS PAGE
 // ════════════════════════════════════════════════════════════
 function updateConnectionsPage() {
   setBadge('connPenBadge', S.penConnected, S.penConnected ? 'Connected' : 'Disconnected');
-  setBadge('connWatchBadge', S.watchConnected, S.watchConnected ? 'Active' : 'Offline');
+  setBadge('connWatchBadge', S.watchConnected, S.watchStatusText || (S.watchConnected ? 'Active' : 'Offline'), S.watchBadgeClass);
   document.getElementById('uptimeVal').textContent = fmtUptime(S.uptime);
   document.getElementById('uptimeSession').textContent = S.sessionId || 'None';
 }
@@ -1229,6 +1418,23 @@ function fmtNum(value) {
   return Number.isFinite(n) ? n.toFixed(3) : '–';
 }
 
+function fmtMs(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '–';
+  const rounded = `${Math.round(n)}ms`;
+  const abs = Math.abs(n);
+  if (abs >= 86400000) return `${rounded} (~${(n / 86400000).toFixed(1)}d)`;
+  if (abs >= 3600000) return `${rounded} (~${(n / 3600000).toFixed(1)}h)`;
+  if (abs >= 60000) return `${rounded} (~${(n / 60000).toFixed(1)}min)`;
+  if (abs >= 1000) return `${rounded} (~${(n / 1000).toFixed(1)}s)`;
+  return rounded;
+}
+
+function fmtSec(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? `${Math.round(n)}s` : '–';
+}
+
 function fmtAgo(ms) {
   const n = Number(ms);
   if (!Number.isFinite(n)) return '–';
@@ -1260,6 +1466,10 @@ function esc(value) {
   return String(value ?? '').replace(/[&<>"']/g, ch => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
   }[ch]));
+}
+
+function escAttr(value) {
+  return esc(value).replace(/`/g, '&#096;');
 }
 
 let toastTimer;
