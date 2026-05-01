@@ -24,7 +24,7 @@ The goal of this repository is to document the full project workflow over the se
 
 ## Project Question
 
-Can writing activity and concentration levels of elementary school children be detected and predicted using IMU data from a smartwatch in combination with ground truth data from a Moleskine Smart Pen (NWP-F130)?
+Can writing activity (and concentration levels)  be detected and predicted using IMU data from a smartwatch in combination with ground truth data from a Moleskine Smart Pen (NWP-F130)?
 
 
 ---
