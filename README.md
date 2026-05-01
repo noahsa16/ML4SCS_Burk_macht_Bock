@@ -30,8 +30,8 @@ Can writing activity (and concentration levels)  be detected and predicted using
 ---
 
 ## Dataset
-- **Dataset name:** self-collected (tbd)
-- **Source:** Moleskine Smart Pen (NWP-F130) + Samsung Watch (tbd) / Apple Watch (Series 7)
+- **Dataset name:** data/
+- **Source:** Moleskine Smart Pen (NWP-F130) and Apple Watch (Series 6)
 - **Type of data:** Multivariate time series (pen coordinates, pressure, timestamps + accelerometer, gyroscope) (tbd)
 - **Target variable:** Writing activity (binary: writing / not writing), later: "concentration level" (tbd)
 - **Important features:** UserAcceleration (x/y/z), RotationRate (x/y/z), pen pressure, stroke duration, pause length (tbd)
