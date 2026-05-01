@@ -38,7 +38,8 @@ import csv
 import signal
 import struct
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 
 try:
     from bleak import BleakClient, BleakScanner
@@ -86,6 +87,11 @@ DOT_UP    = 2
 DOT_HOVER = 3
 LABEL = {DOT_DOWN: "PEN_DOWN", DOT_MOVE: "PEN_MOVE",
          DOT_UP:   "PEN_UP",   DOT_HOVER: "PEN_HOVER"}
+PEN_FIELDNAMES = [
+    "local_ts", "local_ts_ms",
+    "timestamp", "x", "y", "pressure", "dot_type",
+    "tilt_x", "tilt_y", "section", "owner", "note", "page",
+]
 
 
 # ── Packet builder ────────────────────────────────────────────────────────────
@@ -175,11 +181,13 @@ class Parser:
         self._in  = False
         self._esc = False
         # Running paper / timing state
-        self._ts   = -1
-        self._sec  = -1
-        self._own  = -1
-        self._note = -1
-        self._page = -1
+        self._ts        = -1
+        self._sec       = -1
+        self._own       = -1
+        self._note      = -1
+        self._page      = -1
+        self._prev_dot  = None   # (ts, x, y, pressure, tx, ty) of last PEN_MOVE
+        self._has_paper = False  # True once PAPER_INFO received for current stroke
 
     # ── byte-level framing ────────────────────────────────────────────────────
 
@@ -255,6 +263,10 @@ class Parser:
 
             elif cmd == CMD_PASS_RSP:
                 status = r.u8()
+                retry  = r.u8()
+                reset  = r.u8()
+                if status != 1:
+                    print(f"  [AUTH] failed: retries_left={retry}  resets_left={reset}")
                 self._ev("auth_ok" if status == 1 else "auth_fail")
 
             elif cmd == CMD_SET_RSP:
@@ -271,7 +283,9 @@ class Parser:
                 r.u8()            # event counter
                 ts = r.u64()
                 r.u8(); r.u32()   # tip type, tip color
-                self._ts = ts
+                self._ts        = ts
+                self._prev_dot  = None
+                self._has_paper = False
                 self._dot(DOT_DOWN, ts, -1, -1, 0, 0, 0)
 
             # ── Old-firmware combined up/down (0x63) ───────────────────────
@@ -280,18 +294,28 @@ class Parser:
                 ts = r.u64()
                 r.u8(); r.u32()   # tip type, color
                 if is_down:
-                    self._ts = ts
-                    self._dot(DOT_DOWN, ts, -1, -1, 0, 0, 0)
+                    # SDK only updates state here, no DOT_DOWN emitted
+                    self._ts        = ts
+                    self._prev_dot  = None
+                    self._has_paper = False
                 else:
-                    self._ts = -1
-                    self._dot(DOT_UP, ts, -1, -1, 0, 0, 0)
+                    if self._ts >= 0 and self._prev_dot is not None:
+                        p = self._prev_dot
+                        self._dot(DOT_UP, p[0], p[1], p[2], p[3], p[4], p[5])
+                    self._ts        = -1
+                    self._prev_dot  = None
+                    self._has_paper = False
 
             # ── New-firmware pen-up (0x6A) ─────────────────────────────────
             elif cmd == CMD_NEW_UP:
                 r.u8()            # event counter
-                ts = r.u64()
-                self._ts = -1
-                self._dot(DOT_UP, ts, -1, -1, 0, 0, 0)
+                r.u64()           # timestamp (not used; UP coords come from prev dot)
+                if self._ts >= 0 and self._prev_dot is not None:
+                    p = self._prev_dot
+                    self._dot(DOT_UP, p[0], p[1], p[2], p[3], p[4], p[5])
+                self._ts        = -1
+                self._prev_dot  = None
+                self._has_paper = False
 
             # ── Paper info (0x6B / 0x64) ───────────────────────────────────
             elif cmd in (CMD_NEW_PAPER, CMD_PAPER_OLD):
@@ -301,8 +325,9 @@ class Parser:
                 # section = rb[3], owner = rb[0] + rb[1]*256 + rb[2]*65536
                 self._sec  = rb[3] & 0xFF
                 self._own  = rb[0] + rb[1] * 256 + rb[2] * 65536
-                self._note = r.u32()
-                self._page = r.u32()
+                self._note      = r.u32()
+                self._page      = r.u32()
+                self._has_paper = True
                 print(f"  [PAPER]  section={self._sec}  owner={self._own}  "
                       f"note={self._note}  page={self._page}")
 
@@ -318,10 +343,12 @@ class Parser:
                 fx    = r.u8();   fy = r.u8()   # sub-pixel (hundredths)
                 tx    = r.u8();   ty = r.u8()   # tilt angles
                 r.u16()           # twist (parsed but not written to CSV)
-                self._dot(DOT_MOVE, self._ts,
-                          round(xi + fx * 0.01, 2),
-                          round(yi + fy * 0.01, 2),
-                          force, tx, ty)
+                if self._ts < 0 or not self._has_paper:
+                    return        # no valid PEN_DOWN or no PAPER_INFO for this stroke
+                x_val = round(xi + fx * 0.01, 2)
+                y_val = round(yi + fy * 0.01, 2)
+                self._dot(DOT_MOVE, self._ts, x_val, y_val, force, tx, ty)
+                self._prev_dot = (self._ts, x_val, y_val, force, tx, ty)
 
             # ── Hover event (0x6F) ─────────────────────────────────────────
             elif cmd == CMD_HOVER:
@@ -371,16 +398,47 @@ async def find_pen(timeout: float = 20.0):
     return found
 
 
+def _now_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _prepare_csv(path: str):
+    """
+    Append safely so reconnecting the pen during one server session does not
+    overwrite already recorded dots. Legacy CSVs are migrated with blank local
+    receive-time columns.
+    """
+    csv_path = Path(path)
+    csv_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if csv_path.exists() and csv_path.stat().st_size > 0:
+        with open(csv_path, newline="") as f:
+            reader = csv.DictReader(f)
+            existing = reader.fieldnames or []
+            rows = list(reader)
+        if existing != PEN_FIELDNAMES:
+            with open(csv_path, "w", newline="") as f:
+                writer = csv.DictWriter(f, fieldnames=PEN_FIELDNAMES)
+                writer.writeheader()
+                for row in rows:
+                    writer.writerow({name: row.get(name, "") for name in PEN_FIELDNAMES})
+    else:
+        with open(csv_path, "w", newline="") as f:
+            csv.DictWriter(f, fieldnames=PEN_FIELDNAMES).writeheader()
+
+    csvf = open(csv_path, "a", newline="")
+    return csvf, csv.DictWriter(csvf, fieldnames=PEN_FIELDNAMES)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-async def run(password: str = "0000") -> None:
+async def run(password: str = "0000", output_path: str | None = None) -> None:
     # CSV output
-    fname = f"pen_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    csvf  = open(fname, "w", newline="")
-    wr    = csv.writer(csvf)
-    wr.writerow(["timestamp", "x", "y", "pressure", "dot_type",
-                 "tilt_x", "tilt_y", "section", "owner", "note", "page"])
-    csvf.flush()
+    if output_path:
+        fname = output_path
+    else:
+        fname = f"pen_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+    csvf, wr = _prepare_csv(fname)
 
     loop = asyncio.get_running_loop()
     stop = loop.create_future()
@@ -527,11 +585,25 @@ async def run(password: str = "0000") -> None:
                           f"ty={dot['tilt_y']:3d}{suffix}", end="\r")
 
                 # CSV (raw Ncode values)
-                wr.writerow([
-                    dot["timestamp"], dot["x"], dot["y"], dot["pressure"],
-                    lbl, dot["tilt_x"], dot["tilt_y"],
-                    dot["section"], dot["owner"], dot["note"], dot["page"],
-                ])
+                local_ts_ms = _now_ms()
+                wr.writerow({
+                    "local_ts": datetime.fromtimestamp(
+                        local_ts_ms / 1000,
+                        tz=timezone.utc,
+                    ).isoformat(),
+                    "local_ts_ms": local_ts_ms,
+                    "timestamp": dot["timestamp"],
+                    "x": dot["x"],
+                    "y": dot["y"],
+                    "pressure": dot["pressure"],
+                    "dot_type": lbl,
+                    "tilt_x": dot["tilt_x"],
+                    "tilt_y": dot["tilt_y"],
+                    "section": dot["section"],
+                    "owner": dot["owner"],
+                    "note": dot["note"],
+                    "page": dot["page"],
+                })
                 csvf.flush()
 
         if connected:
@@ -553,8 +625,15 @@ def main() -> None:
     )
     ap.add_argument("--password", default="0000",
                     help="Pen password (default: '0000' = no password)")
+    ap.add_argument("--session", default=None,
+                    help="Session ID (e.g. S001); output goes to data/raw/pen/{session}_pen.csv")
     args = ap.parse_args()
-    asyncio.run(run(password=args.password))
+
+    output_path = None
+    if args.session:
+        output_path = str(Path(__file__).parent / "data" / "raw" / "pen" / f"{args.session}_pen.csv")
+
+    asyncio.run(run(password=args.password, output_path=output_path))
 
 
 if __name__ == "__main__":

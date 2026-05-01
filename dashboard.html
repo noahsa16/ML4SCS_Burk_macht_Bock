@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Burk macht Bock — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+/* ─── Tokens ─────────────────────────────────────────────────── */
+:root {
+  --bg:        oklch(0.955 0.016 72);
+  --surface:   oklch(0.990 0.007 72);
+  --surface2:  oklch(0.975 0.012 72);
+  --sidebar:   oklch(0.175 0.025 55);
+  --sidebar2:  oklch(0.225 0.030 55);
+  --border:    oklch(0.880 0.018 72);
+  --border2:   oklch(0.840 0.022 72);
+  --text:      oklch(0.185 0.022 58);
+  --text2:     oklch(0.465 0.022 58);
+  --text3:     oklch(0.650 0.018 58);
+  --accent:    oklch(0.595 0.165 43);
+  --accent-h:  oklch(0.540 0.175 43);
+  --green:     oklch(0.580 0.130 148);
+  --red:       oklch(0.575 0.175 24);
+  --yellow:    oklch(0.720 0.135 88);
+  --mono:      'IBM Plex Mono', monospace;
+  --sans:      'IBM Plex Sans', system-ui, sans-serif;
+}
+body[data-theme="dark"] {
+  --bg:        oklch(0.165 0.018 58);
+  --surface:   oklch(0.220 0.020 58);
+  --surface2:  oklch(0.270 0.021 58);
+  --sidebar:   oklch(0.125 0.020 55);
+  --sidebar2:  oklch(0.180 0.025 55);
+  --border:    oklch(0.335 0.018 58);
+  --border2:   oklch(0.420 0.020 58);
+  --text:      oklch(0.925 0.014 78);
+  --text2:     oklch(0.735 0.018 78);
+  --text3:     oklch(0.585 0.018 78);
+  --accent:    oklch(0.690 0.150 48);
+  --accent-h:  oklch(0.745 0.150 48);
+  --green:     oklch(0.710 0.130 150);
+  --red:       oklch(0.680 0.170 24);
+  --yellow:    oklch(0.790 0.135 88);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body { font-family: var(--sans); background: var(--bg); color: var(--text); display: flex; font-size: 14px; }
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ─── Sidebar ────────────────────────────────────────────────── */
+#sidebar {
+  width: 220px; min-width: 220px; background: var(--sidebar);
+  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+}
+.sb-brand { padding: 24px 20px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.sb-title { font-size: 15px; font-weight: 600; color: #fff; letter-spacing: -0.01em; line-height: 1.2; }
+.sb-subtitle { font-size: 11px; color: rgba(255,255,255,0.42); margin-top: 4px; font-style: italic; }
+.sb-nav { flex: 1; padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
+.sb-group { font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.28); letter-spacing: 0.08em; text-transform: uppercase; padding: 14px 10px 6px; }
+.nav-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: 6px; cursor: pointer;
+  color: rgba(255,255,255,0.58); font-size: 13px; font-weight: 400;
+  transition: background 0.15s, color 0.15s; user-select: none;
+}
+.nav-item:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.85); }
+.nav-item.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 500; }
+.nav-icon { font-size: 15px; opacity: 0.85; width: 18px; text-align: center; }
+.sb-footer { padding: 14px 16px; border-top: 1px solid rgba(255,255,255,0.08); }
+.ws-status { display: flex; align-items: center; gap: 7px; font-size: 11px; color: rgba(255,255,255,0.38); font-family: var(--mono); }
+.ws-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); transition: background 0.3s; }
+.ws-dot.ok { background: var(--green); }
+.ws-dot.blink { animation: pulse 1s ease-in-out infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+/* ─── Main area ──────────────────────────────────────────────── */
+#main { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ─── Top bar ────────────────────────────────────────────────── */
+#topbar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 24px; border-bottom: 1px solid var(--border);
+  background: var(--surface); min-height: 52px; flex-shrink: 0;
+}
+.page-title { font-size: 15px; font-weight: 600; color: var(--text); }
+.page-sub { font-size: 12px; color: var(--text2); margin-top: 1px; }
+.pill-row { display: flex; gap: 8px; align-items: center; }
+.pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 11px; border-radius: 20px; font-size: 11.5px;
+  font-family: var(--mono); font-weight: 500; border: 1px solid transparent;
+  background: var(--surface2); border-color: var(--border);
+}
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); }
+.pill.ok .dot { background: var(--green); }
+.pill.warn .dot { background: var(--yellow); animation: pulse 1.5s infinite; }
+.pill.err .dot { background: var(--red); }
+
+/* ─── Content ────────────────────────────────────────────────── */
+#content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+
+/* ─── Cards ──────────────────────────────────────────────────── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 18px 20px; position: relative;
+}
+.card-title { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text2); margin-bottom: 14px; }
+.card-title span { color: var(--text3); font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+
+/* ─── Recording page grid ───────────────────────────────────── */
+.rec-grid { display: grid; grid-template-columns: 260px 1fr 220px; gap: 16px; }
+.rec-grid .chart-card { grid-column: 2; }
+.rec-grid .device-col { display: flex; flex-direction: column; gap: 14px; }
+
+/* ─── Session control ────────────────────────────────────────── */
+.label { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text2); margin-bottom: 5px; }
+input[type=text],
+textarea {
+  width: 100%; padding: 8px 11px; border: 1px solid var(--border);
+  border-radius: 6px; font-family: var(--mono); font-size: 13px;
+  background: var(--surface2); color: var(--text); outline: none;
+  transition: border-color 0.15s;
+  resize: vertical;
+}
+input[type=text]:focus,
+textarea:focus { border-color: var(--accent); }
+select {
+  width: 100%; padding: 8px 11px; border: 1px solid var(--border);
+  border-radius: 6px; font-family: var(--mono); font-size: 13px;
+  background: var(--surface2); color: var(--text); outline: none;
+}
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 7px;
+  padding: 9px 18px; border-radius: 7px; font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; outline: none; transition: all 0.15s; letter-spacing: 0.02em;
+  font-family: var(--sans);
+}
+.btn-primary { background: var(--accent); color: #fff; width: 100%; padding: 11px; font-size: 14px; }
+.btn-primary:hover { background: var(--accent-h); }
+.btn-primary.stop { background: var(--red); }
+.btn-primary.stop:hover { background: oklch(0.52 0.18 24); }
+.btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 5px; font-weight: 500; }
+.btn-outline { background: transparent; border: 1px solid var(--border2); color: var(--text2); }
+.btn-outline:hover { background: var(--surface2); color: var(--text); border-color: var(--text3); }
+.btn-green { background: var(--green); color: #fff; }
+.btn-green:hover { background: oklch(0.52 0.135 148); }
+.btn-red { background: var(--red); color: #fff; }
+
+.timer { font-family: var(--mono); font-size: 32px; font-weight: 600; letter-spacing: 0.04em; color: var(--text); margin: 14px 0 4px; }
+.timer-label { font-size: 11px; color: var(--text3); margin-bottom: 14px; }
+
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.stat-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+.stat-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.stat-val { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--text); margin-top: 3px; }
+.stat-val.accent { color: var(--accent); }
+.stat-val.green { color: var(--green); }
+
+/* ─── Chart ──────────────────────────────────────────────────── */
+.chart-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.chart-legend { display: flex; gap: 14px; font-size: 11px; color: var(--text2); align-items: center; }
+.leg-dot { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.chart-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+.chart-stat { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
+.chart-stat .val { font-family: var(--mono); font-size: 15px; font-weight: 600; }
+.chart-stat .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); margin-top: 2px; }
+canvas#imuChart { width: 100% !important; }
+.wide-card { grid-column: 1 / -1; }
+.health-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+.health-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+.health-box .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.health-box .v { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--text); margin-top: 4px; }
+.health-box .v.ok { color: var(--green); }
+.health-box .v.warn { color: var(--yellow); }
+.health-box .v.err { color: var(--red); }
+
+/* ─── Device cards ───────────────────────────────────────────── */
+.device-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.device-name { font-size: 13px; font-weight: 600; }
+.status-badge {
+  font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 4px; font-family: var(--mono);
+}
+.badge-ok { background: oklch(0.58 0.13 148 / 0.15); color: var(--green); }
+.badge-err { background: oklch(0.575 0.175 24 / 0.12); color: var(--red); }
+.badge-warn { background: oklch(0.72 0.135 88 / 0.15); color: oklch(0.55 0.14 80); }
+.device-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); color: var(--text2); }
+.device-row:last-of-type { border-bottom: none; }
+.device-row .v { font-family: var(--mono); color: var(--text); font-weight: 500; }
+.device-actions { display: flex; gap: 7px; margin-top: 12px; }
+
+/* ─── Sessions page ──────────────────────────────────────────── */
+.sessions-toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }
+.sessions-toolbar input { max-width: 240px; }
+.sessions-toolbar .ml { margin-left: auto; }
+table { width: 100%; border-collapse: collapse; }
+thead th { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text2); padding: 9px 12px; text-align: left; border-bottom: 2px solid var(--border2); background: var(--surface2); }
+thead th:first-child { border-radius: 6px 0 0 0; }
+thead th:last-child { border-radius: 0 6px 0 0; }
+tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+tbody tr:hover { background: var(--surface2); }
+tbody td { padding: 10px 12px; font-size: 13px; }
+td.mono { font-family: var(--mono); font-size: 12px; }
+td.bold { font-weight: 600; }
+.table-empty { text-align: center; padding: 40px; color: var(--text3); font-size: 13px; font-style: italic; }
+.click-row { cursor: pointer; }
+.click-row.active { background: oklch(0.595 0.165 43 / 0.10); }
+
+/* ─── Session validation timeline ──────────────────────────── */
+.validation-panel { margin-top: 16px; display: none; }
+.validation-panel.active { display: block; }
+.validation-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.validation-title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+.validation-status { font-family: var(--mono); font-size: 13px; font-weight: 700; }
+.validation-metrics { display: flex; gap: 18px; flex-wrap: wrap; margin: 12px 0 16px; color: var(--text2); }
+.validation-metric { font-size: 13px; }
+.validation-metric strong { font-family: var(--mono); color: var(--text); }
+.timeline-wrap { margin-top: 8px; }
+.timeline-axis { position: relative; height: 24px; margin-left: 70px; border-bottom: 1px solid var(--border2); font-family: var(--mono); font-size: 10px; color: var(--text3); }
+.axis-tick { position: absolute; top: 4px; transform: translateX(-50%); white-space: nowrap; }
+.timeline-row { display: grid; grid-template-columns: 58px 1fr; gap: 12px; align-items: center; margin: 12px 0; }
+.timeline-label { font-weight: 700; color: var(--text2); text-align: right; }
+.timeline-track { position: relative; height: 36px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
+.timeline-bar { position: absolute; top: 7px; height: 20px; border-radius: 999px; min-width: 2px; }
+.bar-watch { background: linear-gradient(90deg, var(--accent), oklch(0.720 0.135 88)); }
+.bar-pen { background: var(--green); }
+.bar-gap { background: oklch(0.650 0.018 58 / 0.18); }
+.drift-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 16px; }
+.drift-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+.drift-box .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.drift-box .v { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--text); margin-top: 4px; }
+.validation-note { color: var(--text3); font-size: 12px; line-height: 1.55; margin-top: 12px; }
+.issue-list { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.issue-chip { font-family: var(--mono); font-size: 10px; border-radius: 5px; padding: 4px 7px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
+
+/* ─── Connections page ───────────────────────────────────────── */
+.conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.conn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+.info-block { background: var(--surface2); border-radius: 6px; padding: 10px 14px; margin-top: 8px; }
+.info-row { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
+.info-row:last-child { border-bottom: none; }
+.info-key { color: var(--text2); font-size: 11px; }
+.info-val { font-family: var(--mono); font-size: 12px; color: var(--text); font-weight: 500; word-break: break-all; text-align: right; max-width: 60%; }
+.endpoint-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.endpoint { display: flex; gap: 8px; align-items: center; padding: 6px 10px; background: var(--surface2); border-radius: 5px; }
+.method { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; min-width: 42px; text-align: center; }
+.method.get { background: oklch(0.58 0.13 148 / 0.15); color: var(--green); }
+.method.post { background: oklch(0.595 0.165 43 / 0.15); color: var(--accent); }
+.method.ws { background: oklch(0.55 0.15 275 / 0.15); color: oklch(0.60 0.14 275); }
+.ep-path { font-family: var(--mono); font-size: 12px; color: var(--text); }
+.ep-desc { font-size: 11px; color: var(--text3); margin-left: auto; }
+
+/* ─── Live logs ─────────────────────────────────────────────── */
+.log-split { display: grid; grid-template-columns: 1.15fr 1fr; gap: 14px; }
+.log-panel {
+  background: oklch(0.145 0.018 55); color: oklch(0.910 0.010 80);
+  border: 1px solid oklch(0.300 0.025 55); border-radius: 8px;
+  font-family: var(--mono); font-size: 11px; line-height: 1.45;
+  max-height: 250px; overflow-y: auto; padding: 10px;
+}
+.log-row { display: grid; grid-template-columns: 62px 56px 1fr; gap: 8px; padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.log-row:last-child { border-bottom: none; }
+.log-time { color: oklch(0.720 0.020 80); }
+.log-src { color: var(--accent); text-transform: uppercase; }
+.log-msg { color: oklch(0.910 0.010 80); word-break: break-word; }
+.log-msg.warn { color: var(--yellow); }
+.log-msg.error { color: var(--red); }
+.sample-row { grid-template-columns: 62px 54px 1fr; }
+.sample-pill { color: var(--green); text-transform: uppercase; }
+
+/* ─── Settings ──────────────────────────────────────────────── */
+.settings-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.setting-row { display: grid; grid-template-columns: 180px 1fr; gap: 14px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.setting-row:last-child { border-bottom: none; }
+.setting-title { font-weight: 600; color: var(--text); }
+.setting-help { font-size: 11px; color: var(--text3); margin-top: 2px; }
+
+/* ─── System page ───────────────────────────────────────────── */
+.schema-table { font-family: var(--mono); font-size: 12px; width: 100%; border-collapse: collapse; }
+.schema-table th { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text2); padding: 7px 10px; text-align: left; border-bottom: 1px solid var(--border2); }
+.schema-table td { padding: 6px 10px; border-bottom: 1px solid var(--border); color: var(--text); }
+.schema-table td:first-child { color: var(--accent); font-weight: 500; }
+.schema-table td:nth-child(2) { color: var(--green); }
+.schema-table tr:last-child td { border-bottom: none; }
+.tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 600; font-family: var(--mono); }
+.tag-int { background: oklch(0.58 0.13 275 / 0.14); color: oklch(0.55 0.14 275); }
+.tag-float { background: oklch(0.595 0.165 43 / 0.14); color: var(--accent); }
+.tag-str { background: oklch(0.58 0.13 148 / 0.14); color: var(--green); }
+.tag-bool { background: oklch(0.72 0.135 88 / 0.14); color: oklch(0.55 0.14 80); }
+
+/* ─── Uptime / server bar ────────────────────────────────────── */
+.uptime-bar { display: flex; gap: 20px; padding: 10px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.uptime-item { display: flex; flex-direction: column; gap: 2px; }
+.uptime-key { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.uptime-val { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--text); }
+
+/* ─── Page visibility ───────────────────────────────────────── */
+.page { display: none; }
+.page.active { display: block; }
+
+/* ─── Notification toast ─────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+  background: var(--sidebar); color: #fff; padding: 10px 18px; border-radius: 8px;
+  font-size: 13px; font-weight: 500; z-index: 9999; transition: transform 0.3s ease;
+  pointer-events: none; white-space: nowrap;
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ─── Responsive tweaks ──────────────────────────────────────── */
+@media (max-width: 900px) {
+  .rec-grid { grid-template-columns: 1fr; }
+  .conn-grid, .conn-grid-3, .log-split, .settings-grid { grid-template-columns: 1fr; }
+  .health-grid { grid-template-columns: 1fr 1fr; }
+  .setting-row { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════ SIDEBAR ═══════════════════════════ -->
+<aside id="sidebar">
+  <div class="sb-brand">
+    <div class="sb-title">Burk macht Bock</div>
+    <div class="sb-subtitle">Writing Activity Study · Leuphana</div>
+  </div>
+  <nav class="sb-nav">
+    <div class="sb-group">Experiment</div>
+    <div class="nav-item active" data-page="recording">
+      <span class="nav-icon">⏺</span> Recording
+    </div>
+    <div class="nav-item" data-page="sessions">
+      <span class="nav-icon">📋</span> Sessions
+    </div>
+    <div class="sb-group">Setup</div>
+    <div class="nav-item" data-page="connections">
+      <span class="nav-icon">🔌</span> Connections
+    </div>
+    <div class="nav-item" data-page="system">
+      <span class="nav-icon">⚙️</span> System &amp; Schema
+    </div>
+  </nav>
+  <div class="sb-footer">
+    <div class="ws-status">
+      <div class="ws-dot" id="wsDot"></div>
+      <span id="wsLabel">Connecting…</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ═══════════════════════ MAIN ══════════════════════════════ -->
+<main id="main">
+  <!-- Top bar -->
+  <div id="topbar">
+    <div>
+      <div class="page-title" id="pageTitle">Live Recording</div>
+      <div class="page-sub" id="pageSub">Pen + Watch data capture</div>
+    </div>
+    <div class="pill-row">
+      <div class="pill" id="pillPen"><div class="dot"></div><span id="pillPenTxt">Pen – –</span></div>
+      <div class="pill" id="pillWatch"><div class="dot"></div><span id="pillWatchTxt">Watch – –</span></div>
+      <div class="pill ok" id="pillServer"><div class="dot"></div><span id="pillServerTxt">Server – –</span></div>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div id="content">
+
+    <!-- ══════════ PAGE: RECORDING ══════════ -->
+    <div class="page active" id="page-recording">
+      <div class="rec-grid">
+
+        <!-- Session control -->
+        <div class="card">
+          <div class="card-title">Session Control</div>
+          <div class="label">Person ID</div>
+          <input type="text" id="personId" placeholder="e.g. P01" value="P01">
+          <br><br>
+          <div class="label">Session Description</div>
+          <textarea id="sessionDescription" rows="3" placeholder="e.g. 2 min writing, 2 min pause"></textarea>
+          <br><br>
+          <button class="btn btn-primary" id="sessionBtn" onclick="toggleSession()">START</button>
+          <div class="timer" id="timer">00:00:00</div>
+          <div class="timer-label" id="timerLabel">Ready for a new recording</div>
+          <div class="stat-grid">
+            <div class="stat-box">
+              <div class="stat-label">Watch Samples</div>
+              <div class="stat-val accent" id="watchCount">0</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Pen Dots</div>
+              <div class="stat-val green" id="penCount">0</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Session ID</div>
+              <div class="stat-val" id="sessionIdDisp" style="font-size:16px;font-family:var(--mono)">—</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Sample Rate</div>
+              <div class="stat-val" id="watchRateMain" style="font-size:16px;font-family:var(--mono)">– Hz</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Live IMU chart -->
+        <div class="card chart-card">
+          <div class="chart-meta">
+            <div class="card-title" style="margin:0">Live IMU Signal<span>Accelerometer + Gyroscope Magnitudes</span></div>
+            <div class="chart-legend">
+              <span><span class="leg-dot" style="background:var(--accent);height:2px"></span> Accel |a|</span>
+              <span><span class="leg-dot" style="background:var(--yellow);height:2px"></span> Gyro |r|</span>
+              <span><span class="leg-dot" style="background:var(--green);opacity:0.6;width:14px"></span> Writing</span>
+              <span><span class="leg-dot" style="background:var(--border2);width:14px"></span> Idle</span>
+            </div>
+          </div>
+          <canvas id="imuChart" height="160"></canvas>
+          <div class="chart-stats">
+            <div class="chart-stat"><div class="val" id="statMag">–</div><div class="lbl">Current |a|</div></div>
+            <div class="chart-stat"><div class="val" id="statGyro">–</div><div class="lbl">Current |r|</div></div>
+            <div class="chart-stat"><div class="val" id="statWritePct">–</div><div class="lbl">Writing %</div></div>
+          </div>
+          <div class="health-grid">
+            <div class="health-box"><div class="k">Watch actual Hz</div><div class="v" id="watchHz">–</div></div>
+            <div class="health-box"><div class="k">Pen dot Hz</div><div class="v" id="penHz">–</div></div>
+            <div class="health-box"><div class="k">Gyro stream</div><div class="v" id="gyroHealth">–</div></div>
+            <div class="health-box"><div class="k">Clock align</div><div class="v" id="clockHealth">–</div></div>
+          </div>
+        </div>
+
+        <!-- Device column -->
+        <div class="device-col">
+          <!-- Pen device -->
+          <div class="card">
+            <div class="device-header">
+              <div class="device-name">Smart Pen</div>
+              <div class="status-badge badge-err" id="penBadge">Disconnected</div>
+            </div>
+            <div class="device-row"><span>Model</span><span class="v">NWP-F130</span></div>
+            <div class="device-row"><span>Protocol</span><span class="v">NeoSmartpen V2</span></div>
+            <div class="device-row"><span>Dot type</span><span class="v" id="dotType">–</span></div>
+            <div class="device-row"><span>Last xy</span><span class="v" id="penLastXY">–</span></div>
+            <div class="device-row"><span>Dot Hz</span><span class="v" id="penRateSide">–</span></div>
+            <div class="device-row"><span>BLE</span><span class="v" id="penBleStatus">Scanning…</span></div>
+            <div class="device-actions">
+              <button class="btn btn-sm btn-green" id="penConnBtn" onclick="penConnect()">Connect</button>
+              <button class="btn btn-sm btn-outline" id="penDiscBtn" onclick="penDisconnect()">Disconnect</button>
+            </div>
+          </div>
+          <!-- Watch device -->
+          <div class="card">
+            <div class="device-header">
+              <div class="device-name">Apple Watch</div>
+              <div class="status-badge badge-err" id="watchBadge">Offline</div>
+            </div>
+            <div class="device-row"><span>IMU rate</span><span class="v">50 Hz</span></div>
+            <div class="device-row"><span>Batch size</span><span class="v">10 samples</span></div>
+            <div class="device-row"><span>Transport</span><span class="v">WCSession</span></div>
+            <div class="device-row"><span>Actual Hz</span><span class="v" id="watchRateSide">–</span></div>
+            <div class="device-row"><span>Last |r|</span><span class="v" id="watchGyroSide">–</span></div>
+            <div class="device-row"><span>Last data</span><span class="v mono" id="watchLastTs">–</span></div>
+            <div class="device-actions">
+              <button class="btn btn-sm btn-outline" onclick="watchCmd('start')">▶ Start</button>
+              <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">■ Stop</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card wide-card">
+          <div class="chart-meta">
+            <div class="card-title" style="margin:0">Live Validation Log<span>recent samples + server/device events</span></div>
+            <button class="btn btn-sm btn-outline" onclick="clearVisualLogs()">Clear view</button>
+          </div>
+          <div class="log-split">
+            <div>
+              <div class="label">Sample output</div>
+              <div class="log-panel" id="sampleLog"><div class="log-row sample-row"><span class="log-time">--:--:--</span><span class="sample-pill">idle</span><span class="log-msg">Waiting for pen/watch samples…</span></div></div>
+            </div>
+            <div>
+              <div class="label">System events</div>
+              <div class="log-panel" id="eventLog"><div class="log-row"><span class="log-time">--:--:--</span><span class="log-src">server</span><span class="log-msg">Waiting for events…</span></div></div>
+            </div>
+          </div>
+        </div>
+      </div><!-- /rec-grid -->
+    </div><!-- /page-recording -->
+
+    <!-- ══════════ PAGE: SESSIONS ══════════ -->
+    <div class="page" id="page-sessions">
+      <div class="card" style="margin-bottom:14px">
+        <div class="chart-meta">
+          <div class="card-title" style="margin:0">Data Quality Report<span>model readiness per recording</span></div>
+          <button class="btn btn-outline btn-sm" onclick="loadSessions()">↻ Refresh</button>
+        </div>
+        <div class="health-grid">
+          <div class="health-box"><div class="k">Total Sessions</div><div class="v" id="qualityTotal">–</div></div>
+          <div class="health-box"><div class="k">ML Ready</div><div class="v ok" id="qualityOk">–</div></div>
+          <div class="health-box"><div class="k">ML Warnings</div><div class="v warn" id="qualityWarn">–</div></div>
+          <div class="health-box"><div class="k">ML Blocked</div><div class="v err" id="qualityBad">–</div></div>
+        </div>
+      </div>
+      <div class="sessions-toolbar">
+        <input type="text" id="sessionSearch" placeholder="Search session, person, or description…" oninput="filterSessions()">
+        <button class="btn btn-outline btn-sm ml" onclick="loadSessions()">↻ Refresh</button>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table>
+          <thead>
+            <tr>
+              <th>Session ID</th>
+              <th>Person</th>
+              <th>Description</th>
+              <th>Start Time</th>
+              <th>Duration</th>
+              <th>Watch Samples</th>
+              <th>Pen Dots</th>
+              <th>Watch Hz</th>
+              <th>Signals</th>
+              <th>ML Ready</th>
+              <th>Recording</th>
+              <th>Diagnostics</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="sessionsBody">
+            <tr><td colspan="13" class="table-empty">Loading sessions…</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="card validation-panel" id="sessionValidationPanel">
+        <div class="validation-head">
+          <div>
+            <div class="card-title" style="margin-bottom:6px">Session Validation<span>ML readiness + recording health + diagnostics</span></div>
+            <div class="validation-title" id="validationTitle">Select a session</div>
+          </div>
+          <div class="validation-status" id="validationOverall">–</div>
+        </div>
+        <div class="validation-metrics">
+          <div class="validation-metric">ML readiness: <strong id="validationMlReady">–</strong></div>
+          <div class="validation-metric">Recording: <strong id="validationRecording">–</strong></div>
+          <div class="validation-metric">Pen in watch range: <strong id="validationPenPct">–</strong></div>
+          <div class="validation-metric">Sync diagnostic: <strong id="validationSyncDiagnostic">–</strong></div>
+        </div>
+        <div class="timeline-wrap" id="validationTimeline"></div>
+        <div class="drift-grid">
+          <div class="drift-box"><div class="k">Watch clock drift</div><div class="v" id="driftWatch">–</div></div>
+          <div class="drift-box"><div class="k">Pen clock drift</div><div class="v" id="driftPen">–</div></div>
+          <div class="drift-box"><div class="k">Relative drift</div><div class="v" id="driftRelative">–</div></div>
+          <div class="drift-box"><div class="k">Clock offset gap</div><div class="v" id="driftSyncOffset">–</div></div>
+        </div>
+        <div class="validation-note" id="validationSummary">Click a session row to inspect the timeline.</div>
+        <div class="issue-list" id="validationIssues"></div>
+      </div>
+    </div>
+
+    <!-- ══════════ PAGE: CONNECTIONS ══════════ -->
+    <div class="page" id="page-connections">
+      <div class="uptime-bar" id="uptimeBar">
+        <div class="uptime-item"><div class="uptime-key">Server Uptime</div><div class="uptime-val" id="uptimeVal">–</div></div>
+        <div class="uptime-item"><div class="uptime-key">Server Address</div><div class="uptime-val">localhost:8000</div></div>
+        <div class="uptime-item"><div class="uptime-key">WebSocket</div><div class="uptime-val" id="uptimeWs">–</div></div>
+        <div class="uptime-item"><div class="uptime-key">Active Session</div><div class="uptime-val" id="uptimeSession">–</div></div>
+        <div class="uptime-item"><div class="uptime-key">iPhone Bridge</div><div class="uptime-val" id="uptimeBridge">–</div></div>
+      </div>
+
+      <div class="conn-grid" style="margin-bottom:16px">
+        <!-- Pen -->
+        <div class="card">
+          <div class="device-header">
+            <div class="card-title" style="margin:0">Pen — NWP-F130 (BLE)</div>
+            <div class="status-badge badge-err" id="connPenBadge">Disconnected</div>
+          </div>
+          <div class="info-block">
+            <div class="info-row"><span class="info-key">Protocol</span><span class="info-val">NeoSmartpen V2 (BLE)</span></div>
+            <div class="info-row"><span class="info-key">Service UUID</span><span class="info-val" style="font-size:10px">4f99f138-9d53-5bfa-9e50-b147491afe68</span></div>
+            <div class="info-row"><span class="info-key">Password</span><span class="info-val">0000 (default)</span></div>
+            <div class="info-row"><span class="info-key">Sample output</span><span class="info-val">x, y, pressure, tilt, dot_type</span></div>
+            <div class="info-row"><span class="info-key">Process PID</span><span class="info-val" id="penPid">–</span></div>
+            <div class="info-row"><span class="info-key">Dot rate</span><span class="info-val" id="connPenHz">–</span></div>
+            <div class="info-row"><span class="info-key">Last dot</span><span class="info-val" id="connPenLast">–</span></div>
+            <div class="info-row"><span class="info-key">Server time column</span><span class="info-val" id="connPenClock">–</span></div>
+          </div>
+          <div class="device-actions" style="margin-top:14px">
+            <button class="btn btn-sm btn-green" onclick="penConnect()">▲ Connect Pen</button>
+            <button class="btn btn-sm btn-red" onclick="penDisconnect()">▼ Disconnect</button>
+          </div>
+        </div>
+        <!-- Watch -->
+        <div class="card">
+          <div class="device-header">
+            <div class="card-title" style="margin:0">Watch — Apple Watch (HTTP)</div>
+            <div class="status-badge badge-err" id="connWatchBadge">Offline</div>
+          </div>
+          <div class="info-block">
+            <div class="info-row"><span class="info-key">Transport</span><span class="info-val">WatchConnectivity + HTTP POST</span></div>
+            <div class="info-row"><span class="info-key">Endpoint</span><span class="info-val">POST /watch</span></div>
+            <div class="info-row"><span class="info-key">iPhone bridge</span><span class="info-val" id="connWatchBridge">–</span></div>
+            <div class="info-row"><span class="info-key">Watch reachability</span><span class="info-val" id="connWatchReachable">–</span></div>
+            <div class="info-row"><span class="info-key">Motion stream</span><span class="info-val" id="connWatchStream">–</span></div>
+            <div class="info-row"><span class="info-key">Batch size</span><span class="info-val">10 samples</span></div>
+            <div class="info-row"><span class="info-key">Sample rate</span><span class="info-val">50 Hz</span></div>
+            <div class="info-row"><span class="info-key">Actual receive rate</span><span class="info-val" id="connWatchHz">–</span></div>
+            <div class="info-row"><span class="info-key">Batch sample rate</span><span class="info-val" id="connWatchBatchHz">–</span></div>
+            <div class="info-row"><span class="info-key">Gyroscope present</span><span class="info-val" id="connWatchGyro">–</span></div>
+            <div class="info-row"><span class="info-key">Clock skew</span><span class="info-val" id="connWatchSkew">–</span></div>
+            <div class="info-row"><span class="info-key">Sequence gaps</span><span class="info-val" id="connWatchGaps">–</span></div>
+            <div class="info-row"><span class="info-key">Last command</span><span class="info-val" id="connWatchCommand">–</span></div>
+            <div class="info-row"><span class="info-key">Last packet</span><span class="info-val" id="connWatchLast">–</span></div>
+          </div>
+          <div class="device-actions" style="margin-top:14px">
+            <button class="btn btn-sm btn-outline" onclick="watchCmd('start')">▶ Send Start Cmd</button>
+            <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">■ Send Stop Cmd</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- API Endpoints -->
+      <div class="card">
+        <div class="card-title">API Endpoints<span>FastAPI server · localhost:8000</span></div>
+        <div class="endpoint-list">
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/</span><span class="ep-desc">Serve dashboard.html</span></div>
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/status</span><span class="ep-desc">Current server + device status (JSON)</span></div>
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions</span><span class="ep-desc">List all recorded sessions</span></div>
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions/quality</span><span class="ep-desc">Read-only quality report per session</span></div>
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions/{id}/validation</span><span class="ep-desc">Timeline overlap + source-clock drift estimate</span></div>
+          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/session/start</span><span class="ep-desc">Start new session · body: {person_id}</span></div>
+          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/session/stop</span><span class="ep-desc">Stop active session + finalize CSV</span></div>
+          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/pen/connect</span><span class="ep-desc">Launch pen_logger.py subprocess</span></div>
+          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/pen/disconnect</span><span class="ep-desc">Kill pen_logger subprocess (SIGINT)</span></div>
+          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/watch</span><span class="ep-desc">Receive watch IMU batch (from iPhone app)</span></div>
+          <div class="endpoint"><span class="method ws">WS</span><span class="ep-path">/ws</span><span class="ep-desc">Real-time status broadcast (1 Hz)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ══════════ PAGE: SYSTEM ══════════ -->
+    <div class="page" id="page-system">
+      <div class="settings-grid" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-title">Dashboard Settings<span>local browser preferences</span></div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-title">Theme</div>
+              <div class="setting-help">Switch between light and dark validation mode.</div>
+            </div>
+            <select id="themeSelect" onchange="setTheme(this.value)">
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <div>
+              <div class="setting-title">Log rows</div>
+              <div class="setting-help">How many live rows are visible in each log panel.</div>
+            </div>
+            <select id="logRowsSelect" onchange="setLogRows(this.value)">
+              <option value="24">24 rows</option>
+              <option value="40">40 rows</option>
+              <option value="80">80 rows</option>
+            </select>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Live Quality Checklist<span>what must be true before modeling</span></div>
+          <div class="info-block">
+            <div class="info-row"><span class="info-key">Watch accelerometer</span><span class="info-val" id="checkAccel">–</span></div>
+            <div class="info-row"><span class="info-key">Watch gyroscope</span><span class="info-val" id="checkGyro">–</span></div>
+            <div class="info-row"><span class="info-key">Pen server timestamp</span><span class="info-val" id="checkPenTime">–</span></div>
+            <div class="info-row"><span class="info-key">Rate health</span><span class="info-val" id="checkRate">–</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="conn-grid" style="margin-bottom:16px">
+        <div class="card">
+          <div class="card-title">Watch CSV Schema<span>data/raw/watch/{session}_watch.csv</span></div>
+          <div class="info-block" style="padding:0;overflow:hidden">
+            <table class="schema-table">
+              <thead><tr><th>Column</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td>local_ts</td><td><span class="tag tag-str">str</span></td><td>Server receive time (ISO 8601 UTC)</td></tr>
+                <tr><td>local_ts_ms</td><td><span class="tag tag-int">int</span></td><td>Server receive time in Unix ms</td></tr>
+                <tr><td>session_id</td><td><span class="tag tag-str">str</span></td><td>Session identifier e.g. S001</td></tr>
+                <tr><td>sequence</td><td><span class="tag tag-int">int</span></td><td>Batch sequence number (watch-side)</td></tr>
+                <tr><td>sample_rate_hz</td><td><span class="tag tag-float">float</span></td><td>Configured IMU rate (50.0)</td></tr>
+                <tr><td>watch_sent_at</td><td><span class="tag tag-int">int</span></td><td>Unix ms timestamp, watch side</td></tr>
+                <tr><td>phone_received_at</td><td><span class="tag tag-int">int</span></td><td>Unix ms timestamp, phone side</td></tr>
+                <tr><td>server_received_ms</td><td><span class="tag tag-int">int</span></td><td>Unix ms timestamp, FastAPI receive time</td></tr>
+                <tr><td>source</td><td><span class="tag tag-str">str</span></td><td>message / background (WCSession mode)</td></tr>
+                <tr><td>ts</td><td><span class="tag tag-int">int</span></td><td>Sample Unix ms timestamp</td></tr>
+                <tr><td>ax / ay / az</td><td><span class="tag tag-float">float</span></td><td>User acceleration (g), x/y/z</td></tr>
+                <tr><td>rx / ry / rz</td><td><span class="tag tag-float">float</span></td><td>Rotation rate (rad/s), x/y/z</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Pen CSV Schema<span>data/raw/pen/{session}_pen.csv</span></div>
+          <div class="info-block" style="padding:0;overflow:hidden">
+            <table class="schema-table">
+              <thead><tr><th>Column</th><th>Type</th><th>Description</th></tr></thead>
+              <tbody>
+                <tr><td>timestamp</td><td><span class="tag tag-int">int</span></td><td>Unix ms (pen internal clock)</td></tr>
+                <tr><td>local_ts / local_ts_ms</td><td><span class="tag tag-str">str/int</span></td><td>Server receive time for watch alignment</td></tr>
+                <tr><td>x</td><td><span class="tag tag-float">float</span></td><td>Ncode x coordinate (sub-pixel)</td></tr>
+                <tr><td>y</td><td><span class="tag tag-float">float</span></td><td>Ncode y coordinate (sub-pixel)</td></tr>
+                <tr><td>pressure</td><td><span class="tag tag-int">int</span></td><td>Tip force (0–4095)</td></tr>
+                <tr><td>dot_type</td><td><span class="tag tag-str">str</span></td><td>PEN_DOWN / PEN_MOVE / PEN_UP / PEN_HOVER</td></tr>
+                <tr><td>tilt_x</td><td><span class="tag tag-int">int</span></td><td>Pen tilt angle X (°)</td></tr>
+                <tr><td>tilt_y</td><td><span class="tag tag-int">int</span></td><td>Pen tilt angle Y (°)</td></tr>
+                <tr><td>section / owner</td><td><span class="tag tag-int">int</span></td><td>Ncode paper identifiers</td></tr>
+                <tr><td>note / page</td><td><span class="tag tag-int">int</span></td><td>Ncode page identifiers</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Project Overview<span>ML4SCS · Leuphana University</span></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:13px;line-height:1.65;color:var(--text2)">
+          <div>
+            <p style="margin-bottom:8px"><strong style="color:var(--text)">Research question</strong></p>
+            <p>Can writing activity and concentration levels of elementary school children be detected and predicted using IMU data from a smartwatch in combination with ground truth data from a Moleskine Smart Pen (NWP-F130)?</p>
+          </div>
+          <div>
+            <p style="margin-bottom:8px"><strong style="color:var(--text)">Data pipeline</strong></p>
+            <p>Apple Watch → WatchStreamer app → iPhone bridge → FastAPI server → watch CSV. Moleskine Pen → BLE (pen_logger.py) → pen CSV. Both streams keep their device timestamps; server receive times are capture metadata and a coarse session anchor.</p>
+          </div>
+          <div>
+            <p style="margin-bottom:8px"><strong style="color:var(--text)">Team</strong></p>
+            <p>Noah Samel · Ben Kriegsmann · Tajuddin Snasni</p>
+          </div>
+          <div>
+            <p style="margin-bottom:8px"><strong style="color:var(--text)">Stack</strong></p>
+            <p>Python · FastAPI · Bleak (BLE) · Swift / WatchKit · scikit-learn · pandas · Jupyter</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+</main>
+
+<div id="toast"></div>
+
+<script src="/static/dashboard.js"></script>
+</body>
+</html>
