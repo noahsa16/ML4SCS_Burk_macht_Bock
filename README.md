@@ -16,17 +16,17 @@ The Moleskine Smart Pen acts as ground truth during data collection: its stroke 
 ## How it works
 
 ```
-Apple Watch (50 Hz IMU)
+Apple Watch (IMU)
   └─ WatchConnectivity ──► iPhone Bridge ──► POST /watch ──► server.py
                                                                   │
-Moleskine Smart Pen (BLE, ~85 Hz)                                 │
+Moleskine Smart Pen (BLE)                                 │
   └─ pen_logger.py ────────────────────────────────────────────────┘
                                                                   │
                                               data/raw/watch/{session}_watch.csv
                                               data/raw/pen/{session}_pen.csv
                                                                   │
                                               src/preprocessing/preprocessing.py
-                                              (nearest-neighbour join ±20 ms)
+                                              (tbd)
                                                                   │
                                               data/processed/merged_dataset.csv
                                                                   │
@@ -45,14 +45,6 @@ The session dashboard runs at `http://localhost:8000` and gives a real-time view
 **Session overview & live sensor status**
 
 ![Dashboard – Session Control](docs/screenshots/dashboard_session.png)
-
-**Sessions page with quality scores**
-
-![Dashboard – Sessions](docs/screenshots/dashboard_sessions.png)
-
-**Session validation / timeline detail**
-
-![Dashboard – Validation](docs/screenshots/dashboard_validation.png)
 
 ---
 
@@ -76,8 +68,8 @@ The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 sampl
 
 | Device | Role | Data |
 |--------|------|------|
-| Apple Watch (Series 6+) | Model input | Accelerometer + Gyroscope @ 50 Hz |
-| Moleskine Smart Pen NWP-F130 | Ground truth | x/y/pressure/dot_type @ ~85 Hz via BLE |
+| Apple Watch (Series 6+) | Model input | Accelerometer + Gyroscope  |
+| Moleskine Smart Pen NWP-F130 | Ground truth | x/y/pressure/dot_type  via BLE |
 
 ---
 
