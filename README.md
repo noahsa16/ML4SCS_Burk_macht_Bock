@@ -1,4 +1,4 @@
-# FocusTrack — Writing Activity Detection via Apple Watch IMU
+# Writing Activity Detection via Apple Watch IMU
 
 **Semester project · Machine Learning for Smart and Connected Systems**  
 Team: Noah Samel · Ben Kriegsmann · Tajuddin Snasni
@@ -7,7 +7,7 @@ Team: Noah Samel · Ben Kriegsmann · Tajuddin Snasni
 
 ## Research Question
 
-> Can writing activity be detected and predicted **solely from IMU data** (accelerometer + gyroscope) of an Apple Watch?
+> Can writing activity be detected and predicted from IMU data (accelerometer + gyroscope) of an Apple Watch?
 
 The Moleskine Smart Pen acts as ground truth during data collection: its stroke events label each watch sample in time. Once the model is trained, the pen is no longer needed — inference runs on watch data alone.
 
