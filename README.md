@@ -3,6 +3,8 @@
 **Semester project · Machine Learning for Smart and Connected Systems**  
 Team: Noah Samel · Ben Kriegsmann · Tajuddin Snasni
 
+(Picture to be added after next seminar)
+
 ---
 
 ## Research Question
