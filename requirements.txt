@@ -5,3 +5,6 @@ scikit-learn
 jupyter
 notebook
 bleak
+fastapi
+uvicorn
+websockets
