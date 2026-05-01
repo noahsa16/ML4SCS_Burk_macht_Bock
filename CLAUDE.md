@@ -60,7 +60,8 @@ data/raw/pen/              data/raw/watch/
 
 **Key modules:**
 - `pen_logger.py` — reverse-engineered BLE protocol for the Moleskine Smart Pen (based on the TypeScript NeoSmartpen SDK)
-- `server.py` — minimal FastAPI app; each POST to `/watch` appends a JSON batch of IMU samples to CSV
+- `server.py` — thin FastAPI entry point (~44 lines); wires up lifespan, mounts the router from `src/server/routes.py`
+- `src/server/` — modular server package (see below)
 - `src/preprocessing/preprocessing.py` — `prepare_pen_data()`, `prepare_watch_data()`, `merge_pen_watch()` (nearest-neighbor join, 20 ms tolerance)
 - `src/training/train.py` — orchestrates load → merge → save; feature engineering and model fitting go here
 - `src/evaluation/evaluate.py` — evaluation harness; currently prints counts only
@@ -68,14 +69,36 @@ data/raw/pen/              data/raw/watch/
 
 Root-level `src/preprocessing.py`, `src/train.py`, `src/evaluate.py` are thin re-export shims for convenience.
 
+### Server package (`src/server/`)
+
+Dependency order (von unten nach oben, keine Rückwärts-Imports):
+
+```
+config.py     Pfade, Feldnamen, SESSIONS_CSV-Initialisierung
+utils.py      reine Hilfsfunktionen (_now_ms, _as_float, _mad, …)
+state.py      SessionState-Klasse + globales state-Objekt;
+              append_event() / append_sample() als Methoden
+csv_io.py     CSV lesen/schreiben (Watch, Pen, Sessions)
+status.py     Verbindungsstatus (_pen_connected, _watch_connected …)
+              + _status_payload() für WS-Broadcasts
+quality.py    Session-Qualität (_session_quality) und detaillierte
+              Validierung (_session_validation) — kein state-Import,
+              reine read-only Analyse der CSV-Dateien
+broadcast.py  _broadcast() + _status_loop() (1-s-Tick)
+pen_proc.py   Pen-Logger Subprozess starten/stoppen
+routes.py     alle FastAPI-Endpunkte als APIRouter
+```
+
 ## Data Formats
 
-**Pen CSV:** `timestamp, x, y, pressure, dot_type, tilt_x, tilt_y, section, owner, note, page`
+**Pen CSV:** `local_ts, local_ts_ms, timestamp, x, y, pressure, dot_type, tilt_x, tilt_y, section, owner, note, page`
 - `dot_type`: `PEN_DOWN`, `PEN_MOVE`, `PEN_UP`, `PEN_HOVER` — used to derive `label_writing` (1 for DOWN/MOVE, 0 otherwise)
 
-**Watch CSV:** `local_ts, session_id, sequence, sample_rate_hz, watch_sent_at, phone_received_at, source, ts, ax, ay, az, rx, ry, rz`
+**Watch CSV:** `local_ts, local_ts_ms, session_id, sequence, sample_rate_hz, watch_sent_at, phone_received_at, server_received_ms, source, ts, ax, ay, az, rx, ry, rz`
 
-**Merged CSV:** pen rows as base, watch IMU joined at nearest timestamp within ±20 ms tolerance; pen-derived features `dt`, `dx`, `dy`, `distance`, `speed` added during preprocessing.
+**Merged CSV:** pen rows as base, watch IMU joined on device-relative milliseconds within ±20 ms tolerance; pen-derived features `dt`, `dx`, `dy`, `distance`, `speed` added during preprocessing. Server/local timestamps are capture metadata, not the canonical ML timeline.
+
+**Session quality:** `/sessions/quality` exposes separate `ml_readiness` and `recording_health` scores. Sync confidence is only a calibration diagnostic and must not downgrade a session by itself.
 
 ## Path Convention
 
