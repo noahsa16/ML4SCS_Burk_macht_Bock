@@ -70,11 +70,7 @@ The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 sampl
 
 ![Watch App](docs/screenshots/watch_app.png)
 
----
 
-> **Adding screenshots:** drop PNG files into `docs/screenshots/` with the filenames above, then commit. GitHub renders them automatically.
-
----
 
 ## Hardware
 
