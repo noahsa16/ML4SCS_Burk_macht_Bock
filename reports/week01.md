@@ -48,7 +48,7 @@ Can writing activity and concentration levels be detected using sensor data from
 
 <img width="2684" height="2064" alt="feature_comparison" src="https://github.com/user-attachments/assets/a3067596-1ea2-425f-a3a5-cd3cff8284e0" />
 (Vereinfachte Darstellung - kein standardisiertes wissenschaftliches Vorgehen und KI-generiert für einfachen Überblick)
-(Daten liegen unter Ordner: data)
+(Daten liegen unter Ordner: data/experiments)
 
 ---
 
