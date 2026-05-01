@@ -44,6 +44,7 @@ def _ensure_csv_header(path: Path, fieldnames: list[str]) -> bool:
 
 
 def _next_session_id() -> str:
+    _ensure_csv_header(SESSIONS_CSV, SESSIONS_FIELDNAMES)
     nums = []
     try:
         with open(SESSIONS_CSV, newline="") as f:
@@ -107,6 +108,7 @@ def _pen_last_dot(session_id: str) -> Optional[dict[str, Any]]:
 
 
 def _update_session_row(session_id: str, updates: dict):
+    _ensure_csv_header(SESSIONS_CSV, SESSIONS_FIELDNAMES)
     rows = []
     try:
         with open(SESSIONS_CSV, newline="") as f:
@@ -123,6 +125,7 @@ def _update_session_row(session_id: str, updates: dict):
 
 
 def _read_session_rows() -> list[dict[str, str]]:
+    _ensure_csv_header(SESSIONS_CSV, SESSIONS_FIELDNAMES)
     try:
         with open(SESSIONS_CSV, newline="") as f:
             return list(csv.DictReader(f))

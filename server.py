@@ -18,8 +18,10 @@ import signal
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from src.server.broadcast import _broadcast, _status_loop
+from src.server.config import STATIC_DIR
 from src.server.pen_proc import _stop_pen
 from src.server.routes import router
 from src.server.state import state
@@ -38,6 +40,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.include_router(router)
 
 

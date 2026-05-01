@@ -52,6 +52,7 @@ async def watch_ping(request: Request):
         "session_active": state.active is not None,
         "session_id": state.active["session_id"] if state.active else None,
         "person_id": state.active["person_id"] if state.active else None,
+        "description": state.active.get("description") if state.active else None,
     }
 
 
@@ -73,11 +74,22 @@ async def get_sessions():
 async def get_session_quality():
     rows = _read_session_rows()
     reports = [_session_quality(row) for row in rows]
+    def _summary_for(key: str) -> dict[str, int]:
+        return {
+            "ok": sum(1 for r in reports if r.get(key, {}).get("status") == "ok"),
+            "warn": sum(1 for r in reports if r.get(key, {}).get("status") == "warn"),
+            "bad": sum(1 for r in reports if r.get(key, {}).get("status") == "bad"),
+        }
+    ml_summary = _summary_for("ml_readiness")
+    recording_summary = _summary_for("recording_health")
     summary = {
         "total": len(reports),
-        "ok": sum(1 for r in reports if r["quality"] == "ok"),
-        "warn": sum(1 for r in reports if r["quality"] == "warn"),
-        "bad": sum(1 for r in reports if r["quality"] == "bad"),
+        # Backward-compatible aliases for older dashboard code: ML readiness.
+        "ok": ml_summary["ok"],
+        "warn": ml_summary["warn"],
+        "bad": ml_summary["bad"],
+        "ml_readiness": ml_summary,
+        "recording_health": recording_summary,
     }
     return {
         "summary": summary,
@@ -103,10 +115,16 @@ async def session_start(request: Request):
     except Exception:
         body = {}
     person_id = str(body.get("person_id", "unknown")).strip() or "unknown"
+    description = str(body.get("description", "")).strip()
     session_id = _next_session_id()
     start_time = datetime.now(timezone.utc).isoformat()
 
-    state.active = {"session_id": session_id, "person_id": person_id, "start_time": start_time}
+    state.active = {
+        "session_id": session_id,
+        "person_id": person_id,
+        "description": description,
+        "start_time": start_time,
+    }
     state.watch_sample_count = 0
     state.chart_buffer = []
     state.chart_window_acc_mags = []
@@ -129,10 +147,12 @@ async def session_start(request: Request):
         "session_id": session_id,
     }
 
+    _ensure_csv_header(SESSIONS_CSV, SESSIONS_FIELDNAMES)
     with open(SESSIONS_CSV, "a", newline="") as f:
         csv.DictWriter(f, fieldnames=SESSIONS_FIELDNAMES).writerow({
             "session_id": session_id,
             "person_id": person_id,
+            "description": description,
             "start_time": start_time,
             "end_time": "",
             "pen_samples": 0,
@@ -147,9 +167,15 @@ async def session_start(request: Request):
 
     state.append_event("session", "info", f"Session {session_id} started", {
         "person_id": person_id,
+        "description": description,
     })
-    await _broadcast({"type": "start", "session_id": session_id, "person_id": person_id})
-    return {"session_id": session_id, "person_id": person_id}
+    await _broadcast({
+        "type": "start",
+        "session_id": session_id,
+        "person_id": person_id,
+        "description": description,
+    })
+    return {"session_id": session_id, "person_id": person_id, "description": description}
 
 
 @router.post("/session/stop")
