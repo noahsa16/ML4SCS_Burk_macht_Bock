@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 *.pyd
 *.so
+.pytest_cache/
 
 # Virtual environments
 .venv/
@@ -16,10 +17,27 @@ env/
 # Mac / OS
 .DS_Store
 
+# IDE / local editor state
+.idea/
+.vscode/
+
+# Browser/test tooling
+.playwright-cli/
+output/
+
+# Xcode / Apple build state
+DerivedData/
+xcuserdata/
+*.xcuserstate
+*.xcactivitylog
+
 # Build artifacts
 build/
 
 # Data / outputs
+data/raw/
+data/experiments/
+data/sessions.csv
 data/processed/*.csv
 results/plots/*.png
 results/plots/*.jpg
@@ -27,4 +45,4 @@ results/metrics/*.csv
 
 # Misc
 .env
-
+*.log

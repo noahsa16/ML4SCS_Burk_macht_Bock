@@ -79,7 +79,7 @@ The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 sampl
 server.py                        FastAPI entry point (thin, ~44 lines)
 pen_logger.py                    BLE logger for the Moleskine Smart Pen
 dashboard.html                   Single-page session dashboard
-static/dashboard.js              Dashboard frontend logic
+static/js/                       Browser-side dashboard modules
 
 src/server/                      Modular server package
   config.py                        Paths, field names
@@ -108,9 +108,9 @@ watch_streamer/
     ServerCommandListener.swift    Listens for start/stop over WebSocket
 
 data/
-  raw/pen/{session}_pen.csv        Raw pen dots per session
-  raw/watch/{session}_watch.csv    Raw IMU samples per session
-  sessions.csv                     Session index
+  raw/                            Local recordings (gitignored)
+  sessions.csv                     Local session index (gitignored)
+  samples/                         Versioned demo sessions (S009, S013)
   processed/                       Merged datasets (gitignored)
 reports/                           Weekly progress reports
 ```
@@ -145,6 +145,14 @@ Open `http://localhost:8000` — the dashboard loads automatically.
 
 ---
 
+## Data Policy
+
+Real recordings live locally in `data/raw/` and `data/sessions.csv` and are not committed. The repository keeps only small demo sessions under `data/samples/` so the quality and preprocessing code can be tested without dragging the whole capture archive into Git.
+
+Do not commit local/generated artifacts: `.venv/`, `build/`, `DerivedData/`, `.playwright-cli/`, `.idea/`, `xcuserdata/`, `.DS_Store`, `__pycache__/`, real `data/raw/`, or local `data/sessions.csv`.
+
+---
+
 ## Data Formats
 
 **Watch CSV** — one row per IMU sample:
@@ -176,7 +184,7 @@ Before using a session for modelling:
 | Watch has accelerometer (`ax/ay/az`) | Required |
 | Watch has gyroscope (`rx/ry/rz`) | Required |
 | Watch sample rate | 40–60 Hz (target: 50 Hz) |
-| Pen CSV has `local_ts_ms` | Required for time alignment |
+| Device timestamps (`ts`, `timestamp`) | Required |
 | No sequence gaps in watch batches | Recommended |
 | Pen dots fall within watch time range | ≥ 95 % |
 
