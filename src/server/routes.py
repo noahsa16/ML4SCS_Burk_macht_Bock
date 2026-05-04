@@ -58,8 +58,6 @@ async def watch_ping(request: Request):
 
 @router.get("/status")
 async def get_status(request: Request):
-    if request.headers.get("x-focustrack-client") == "watch_direct":
-        state.last_watch_status_time = time.time()
     return _status_payload()
 
 
