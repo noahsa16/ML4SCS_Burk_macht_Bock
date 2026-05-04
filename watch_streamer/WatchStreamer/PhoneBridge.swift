@@ -20,7 +20,10 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         "\(serverBaseURL)/watch"
     }
 
+    /// True while WCSession.isReachable (debounced: 4 s grace period on drop to avoid flicker).
     @Published var isConnected = false
+    /// True when the Watch is paired and the Watch app is installed — structural, not live.
+    @Published var isBridgeCapable = false
     @Published var receivedSampleCount = 0
     @Published var uploadedSampleCount = 0
     @Published var queuedBatchCount = 0
@@ -29,6 +32,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
     private var uploadQueue: [[String: Any]] = []
     private var isUploading = false
+    private var disconnectDebounce: DispatchWorkItem?
 
     private override init() {
         super.init()
@@ -36,32 +40,68 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         WCSession.default.activate()
     }
 
+    // MARK: – Connectivity helpers (must be called on main thread)
+
+    private func applyReachability(_ session: WCSession) {
+        isBridgeCapable = session.activationState == .activated
+            && session.isPaired
+            && session.isWatchAppInstalled
+
+        if session.isReachable {
+            disconnectDebounce?.cancel()
+            disconnectDebounce = nil
+            isConnected = true
+        } else {
+            guard isConnected, disconnectDebounce == nil else { return }
+            let item = DispatchWorkItem { [weak self] in
+                self?.isConnected = false
+                self?.disconnectDebounce = nil
+            }
+            disconnectDebounce = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: item)
+        }
+    }
+
+    private func forceDisconnect() {
+        disconnectDebounce?.cancel()
+        disconnectDebounce = nil
+        isConnected = false
+        isBridgeCapable = false
+    }
+
     func session(_ session: WCSession,
                  activationDidCompleteWith state: WCSessionActivationState,
                  error: Error?) {
         DispatchQueue.main.async {
-            self.isConnected = state == .activated && session.isReachable
+            self.applyReachability(session)
             if let error {
                 self.lastError = error.localizedDescription
             }
             self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
+            ServerCommandListener.shared.sendPhoneStatus()
         }
     }
     func sessionDidBecomeInactive(_ session: WCSession) {
-        DispatchQueue.main.async { self.isConnected = false }
+        DispatchQueue.main.async { self.forceDisconnect() }
     }
     func sessionDidDeactivate(_ session: WCSession) {
-        DispatchQueue.main.async { self.isConnected = false }
+        DispatchQueue.main.async { self.forceDisconnect() }
         session.activate()
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        guard message["type"] as? String != "command_poll" else { return }
         receivePayload(message, source: "message")
     }
 
     func session(_ session: WCSession,
                  didReceiveMessage message: [String: Any],
                  replyHandler: @escaping ([String: Any]) -> Void) {
+        if message["type"] as? String == "command_poll" {
+            let reply = ServerCommandListener.shared.handleWatchCommandPoll(message)
+            replyHandler(reply)
+            return
+        }
         let accepted = receivePayload(message, source: "message")
         replyHandler(["ok": accepted])
     }
@@ -72,8 +112,9 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
     func sessionReachabilityDidChange(_ session: WCSession) {
         DispatchQueue.main.async {
-            self.isConnected = session.isReachable
+            self.applyReachability(session)
             self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
+            ServerCommandListener.shared.sendPhoneStatus()
         }
     }
 
@@ -83,11 +124,42 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         UserDefaults.standard.set(trimmed, forKey: "serverIP")
         guard WCSession.default.activationState == .activated else { return }
         do {
-            try WCSession.default.updateApplicationContext(["server_ip": trimmed])
+            var context = ServerCommandListener.shared.currentWatchCommandPayload()
+            context["server_ip"] = trimmed
+            try WCSession.default.updateApplicationContext(context)
         } catch {
             lastError = "Could not sync server IP: \(error.localizedDescription)"
         }
     }
+
+    func reactivateSession() {
+        WCSession.default.delegate = self
+        WCSession.default.activate()
+        applyReachability(WCSession.default)
+        syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
+        ServerCommandListener.shared.sendPhoneStatus()
+    }
+
+    func resyncWatchContext() {
+        syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
+        ServerCommandListener.shared.refreshWatchContext()
+    }
+
+    func retryUploadQueue() {
+        guard !uploadQueue.isEmpty else {
+            lastError = ""
+            queuedBatchCount = 0
+            return
+        }
+        lastError = ""
+        uploadNextIfNeeded()
+    }
+
+    func clearDiagnostics() {
+        lastError = ""
+        failedUploadCount = 0
+    }
+
 
     @discardableResult
     private func receivePayload(_ payload: [String: Any], source: String) -> Bool {

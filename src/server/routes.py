@@ -9,6 +9,7 @@ import csv
 import json
 import math
 import time
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
@@ -30,6 +31,54 @@ from .status import _status_payload
 from .utils import _as_float, _as_int, _now_ms, _round_or_none, _safe_file_id, _utc_iso_from_ms
 
 router = APIRouter()
+
+
+def _new_command_id(command: str, session_id: str | None = None) -> str:
+    scope = _safe_file_id(session_id or "manual")
+    return f"{command}-{scope}-{uuid.uuid4().hex[:8]}"
+
+
+def _session_preflight_payload() -> dict:
+    status = _status_payload()
+    blockers = []
+    warnings = []
+
+    if not status.get("watch_bridge_connected"):
+        blockers.append({
+            "code": "iphone_bridge_missing",
+            "message": "iPhone bridge WebSocket is not connected.",
+        })
+    if not status.get("watch_polling"):
+        blockers.append({
+            "code": "watch_not_polling",
+            "message": "Apple Watch has not polled the iPhone bridge recently.",
+        })
+    if not status.get("pen_connected"):
+        warnings.append({
+            "code": "pen_disconnected",
+            "message": "Smart Pen logger is not connected; the session can start, but pen data will be missing.",
+        })
+
+    compact_status = {
+        "session_active": status.get("session_active"),
+        "watch_bridge_connected": status.get("watch_bridge_connected"),
+        "watch_polling": status.get("watch_polling"),
+        "watch_poll_age_ms": status.get("watch_poll_age_ms"),
+        "watch_reachable": status.get("watch_reachable"),
+        "watch_running": status.get("watch_running"),
+        "watch_command": status.get("watch_command"),
+        "iphone_connected": status.get("watch_bridge_connected"),
+        "pen_connected": status.get("pen_connected"),
+        "pen_pid": status.get("pen_pid"),
+        "connected_clients": status.get("connected_clients"),
+    }
+    return {
+        "ok": not blockers and not warnings,
+        "can_start": not blockers,
+        "blockers": blockers,
+        "warnings": warnings,
+        "status": compact_status,
+    }
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -59,6 +108,28 @@ async def watch_ping(request: Request):
 @router.get("/status")
 async def get_status(request: Request):
     return _status_payload()
+
+
+@router.get("/session/preflight")
+async def session_preflight():
+    return _session_preflight_payload()
+
+
+@router.get("/debug/package")
+async def debug_package():
+    status = _status_payload()
+    return {
+        "version": "debug_package_v1",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "preflight": _session_preflight_payload(),
+        "status": status,
+        "active_session": state.active,
+        "watch_command": state.watch_command,
+        "connected_clients": list(state.ws_client_meta.values()),
+        "recent_events": list(state.event_log)[-200:],
+        "recent_samples": list(state.sample_log)[-200:],
+        "recent_sessions": list(reversed(_read_session_rows()))[:20],
+    }
 
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
@@ -114,8 +185,22 @@ async def session_start(request: Request):
         body = {}
     person_id = str(body.get("person_id", "unknown")).strip() or "unknown"
     description = str(body.get("description", "")).strip()
+    force_preflight = bool(body.get("force_preflight"))
+    preflight = _session_preflight_payload()
+    if preflight["blockers"]:
+        return JSONResponse({
+            "error": "Preflight blocked session start",
+            "preflight": preflight,
+        }, status_code=428)
+    if preflight["warnings"] and not force_preflight:
+        return JSONResponse({
+            "error": "Preflight warning",
+            "preflight": preflight,
+        }, status_code=428)
+
     session_id = _next_session_id()
     start_time = datetime.now(timezone.utc).isoformat()
+    command_id = _new_command_id("start", session_id)
 
     state.active = {
         "session_id": session_id,
@@ -143,6 +228,7 @@ async def session_start(request: Request):
         "at": _now_ms(),
         "detail": "Start command broadcast to iPhone bridge",
         "session_id": session_id,
+        "command_id": command_id,
     }
 
     _ensure_csv_header(SESSIONS_CSV, SESSIONS_FIELDNAMES)
@@ -166,14 +252,22 @@ async def session_start(request: Request):
     state.append_event("session", "info", f"Session {session_id} started", {
         "person_id": person_id,
         "description": description,
+        "command_id": command_id,
     })
     await _broadcast({
         "type": "start",
         "session_id": session_id,
         "person_id": person_id,
         "description": description,
+        "command_id": command_id,
     })
-    return {"session_id": session_id, "person_id": person_id, "description": description}
+    return {
+        "session_id": session_id,
+        "person_id": person_id,
+        "description": description,
+        "command_id": command_id,
+        "preflight": preflight,
+    }
 
 
 @router.post("/session/stop")
@@ -183,6 +277,7 @@ async def session_stop():
 
     session_id = state.active["session_id"]
     end_time = datetime.now(timezone.utc).isoformat()
+    command_id = _new_command_id("stop", session_id)
 
     # Session sofort deaktivieren, damit die Watch beim nächsten Poll aufhört zu senden
     state.active = None
@@ -193,11 +288,13 @@ async def session_stop():
         "at": _now_ms(),
         "detail": "Stop command broadcast to iPhone bridge",
         "session_id": session_id,
+        "command_id": command_id,
     }
     state.append_event("session", "info", f"Stop requested for {session_id}", {
         "session_id": session_id,
+        "command_id": command_id,
     })
-    await _broadcast({"type": "stop", "session_id": session_id})
+    await _broadcast({"type": "stop", "session_id": session_id, "command_id": command_id})
 
     await _stop_pen()
 
@@ -215,7 +312,12 @@ async def session_stop():
         "pen_samples": pen_samples,
         "watch_samples": watch_samples,
     })
-    return {"session_id": session_id, "pen_samples": pen_samples, "watch_samples": watch_samples}
+    return {
+        "session_id": session_id,
+        "pen_samples": pen_samples,
+        "watch_samples": watch_samples,
+        "command_id": command_id,
+    }
 
 
 # ── Pen-Steuerung ─────────────────────────────────────────────────────────────
@@ -243,30 +345,46 @@ async def pen_disconnect():
 async def watch_cmd_start():
     sid = state.active["session_id"] if state.active else None
     pid = state.active["person_id"] if state.active else "manual"
+    command_id = _new_command_id("start", sid)
     state.watch_command = {
         "command": "start",
         "ok": None,
         "at": _now_ms(),
         "detail": "Manual start command broadcast",
         "session_id": sid,
+        "command_id": command_id,
     }
-    state.append_event("watch", "info", "Manual start command broadcast", {"session_id": sid})
-    await _broadcast({"type": "start", "session_id": sid, "person_id": pid})
-    return {"ok": True}
+    state.append_event("watch", "info", "Manual start command broadcast", {
+        "session_id": sid,
+        "command_id": command_id,
+    })
+    await _broadcast({
+        "type": "start",
+        "session_id": sid,
+        "person_id": pid,
+        "command_id": command_id,
+    })
+    return {"ok": True, "command_id": command_id}
 
 
 @router.post("/watch/stop")
 async def watch_cmd_stop():
+    sid = state.active["session_id"] if state.active else None
+    command_id = _new_command_id("stop", sid)
     state.watch_command = {
         "command": "stop",
         "ok": None,
         "at": _now_ms(),
         "detail": "Manual stop command broadcast",
-        "session_id": state.active["session_id"] if state.active else None,
+        "session_id": sid,
+        "command_id": command_id,
     }
-    state.append_event("watch", "info", "Manual stop command broadcast")
-    await _broadcast({"type": "stop", "session_id": None})
-    return {"ok": True}
+    state.append_event("watch", "info", "Manual stop command broadcast", {
+        "session_id": sid,
+        "command_id": command_id,
+    })
+    await _broadcast({"type": "stop", "session_id": sid, "command_id": command_id})
+    return {"ok": True, "command_id": command_id}
 
 
 # ── Watch-Daten empfangen ─────────────────────────────────────────────────────
@@ -479,17 +597,20 @@ def _handle_ws_client_message(ws_id: int, text: str) -> None:
 
     if msg_type == "watch_ack":
         ok = bool(msg.get("ok"))
+        command_id = msg.get("command_id")
         state.watch_command = {
             "command": msg.get("command"),
             "ok": ok,
             "at": _now_ms(),
             "detail": msg.get("detail") or ("Watch acknowledged command" if ok else "Watch command failed"),
             "session_id": msg.get("session_id"),
+            "command_id": command_id,
             "reply": msg.get("reply"),
         }
         state.append_event("watch", "info" if ok else "error", state.watch_command["detail"], {
             "command": msg.get("command"),
             "session_id": msg.get("session_id"),
+            "command_id": command_id,
         })
     elif msg_type == "phone_status":
         state.ws_client_meta.setdefault(ws_id, {})["phone_status"] = msg

@@ -25,6 +25,7 @@ const S = {
   selectedSessionId: null,
   watchStatusText: 'Offline',
   watchBadgeClass: 'badge-err',
+  lastStatus: null,
 };
 
 // ════════════════════════════════════════════════════════════
@@ -215,10 +216,27 @@ function setWsStatus(st) {
   document.getElementById('uptimeWs').textContent = st === 'ok' ? 'Connected' : 'Reconnecting';
 }
 
+function setNetworkNode(id, state, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('ok', 'warn', 'err');
+  el.classList.add(state);
+  const status = document.getElementById(`${id}Status`);
+  if (status) status.textContent = text;
+}
+
+function setNetworkLine(id, state) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('ok', 'warn', 'err');
+  if (state) el.classList.add(state);
+}
+
 // ════════════════════════════════════════════════════════════
 //  STATUS HANDLER
 // ════════════════════════════════════════════════════════════
 function handleStatus(s) {
+  S.lastStatus = s;
   S.sessionActive = s.session_active;
   S.sessionId = s.session_id;
   S.personId = s.person_id;
@@ -242,19 +260,21 @@ function handleStatus(s) {
   const watchDirectConnected = s.watch_direct_connected === true;
   const watchBridgeConnected = s.watch_bridge_connected || Boolean(clients.iphone || clients.watch_bridge);
   const watchReachable = s.watch_reachable === true;
-  const watchUiOnline = watchStreamActive || watchDirectConnected || watchReachable || watchBridgeConnected;
+  const watchPolling = s.watch_polling === true;
+  const watchUiOnline = watchStreamActive || watchDirectConnected || watchReachable || watchPolling || watchBridgeConnected;
   const watchStatusText = watchStreamActive
     ? 'Streaming'
     : (watchDirectConnected ? 'Direct · Connected'
-    : (watchReachable ? 'Reachable' : (watchBridgeConnected ? 'Bridge ready' : 'Offline')));
-  const watchBadgeClass = watchStreamActive || watchDirectConnected || watchReachable ? 'badge-ok' : (watchBridgeConnected ? 'badge-warn' : 'badge-err');
+    : (watchPolling ? 'Polling via iPhone'
+    : (watchReachable ? 'Reachable' : (watchBridgeConnected ? 'Bridge ready' : 'Offline'))));
+  const watchBadgeClass = watchStreamActive || watchDirectConnected || watchReachable || watchPolling ? 'badge-ok' : (watchBridgeConnected ? 'badge-warn' : 'badge-err');
   S.watchConnected = watchUiOnline;
   S.watchStatusText = watchStatusText;
   S.watchBadgeClass = watchBadgeClass;
 
   // Pills
   setPill('pillPen', s.pen_connected, `Pen · ${s.pen_samples} dots`, s.pen_connected ? 'ok' : 'err');
-  setPill('pillWatch', watchUiOnline, `Watch · ${watchStatusText} · ${fmtHz(watchRate)}`, watchStreamActive || watchReachable ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'));
+  setPill('pillWatch', watchUiOnline, `Watch · ${watchStatusText} · ${fmtHz(watchRate)}`, watchStreamActive || watchReachable || watchPolling ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'));
   setPill('pillServer', true, `Server · ${fmtUptime(s.uptime_seconds)}`, 'ok');
 
   // Counts
@@ -290,7 +310,7 @@ function handleStatus(s) {
   document.getElementById('watchLastTs').textContent = s.watch_last_seen_ms_ago != null ? fmtAgo(s.watch_last_seen_ms_ago) : '–';
 
   // Health metrics
-  setHealth('watchHz', fmtHz(watchRate), watchRate > 40 ? 'ok' : (watchRate > 0 ? 'warn' : 'err'));
+  setHealth('watchHz', fmtHz(watchRate), watchRate > 80 ? 'ok' : (watchRate > 0 ? 'warn' : 'err'));
   setHealth('penHz', fmtHz(penRate), penRate > 0 ? 'ok' : (s.pen_connected ? 'warn' : 'err'));
   setHealth('gyroHealth', gyroOk ? 'present' : 'missing', gyroOk ? 'ok' : 'err');
   setHealth('clockHealth', penClockOk ? 'server time' : 'legacy pen time', penClockOk ? 'ok' : 'warn');
@@ -309,7 +329,9 @@ function handleStatus(s) {
   document.getElementById('connPenLast').textContent = lastPen.dot_type ? `${lastPen.dot_type} · ${fmtNum(lastPen.x)}, ${fmtNum(lastPen.y)}` : '–';
   document.getElementById('connPenClock').textContent = penClockOk ? 'ok' : 'legacy/missing';
   document.getElementById('connWatchBridge').textContent = watchBridgeConnected ? 'connected' : 'not connected';
-  document.getElementById('connWatchReachable').textContent = s.watch_reachable === true ? 'yes' : (s.watch_reachable === false ? 'no' : 'unknown');
+  document.getElementById('connWatchReachable').textContent = watchPolling
+    ? `polling${s.watch_poll_age_ms != null ? ` · ${fmtAgo(s.watch_poll_age_ms)}` : ''}`
+    : (s.watch_reachable === true ? 'yes' : (s.watch_reachable === false ? 'no' : 'unknown'));
   document.getElementById('connWatchStream').textContent = watchStreamActive ? 'active' : 'idle/no samples';
   document.getElementById('connWatchHz').textContent = fmtHz(watchRate);
   document.getElementById('connWatchBatchHz').textContent = fmtHz(s.watch_batch_rate_hz || 0);
@@ -317,6 +339,34 @@ function handleStatus(s) {
   document.getElementById('connWatchSkew').textContent = s.watch_clock_skew_ms != null ? `${s.watch_clock_skew_ms} ms` : '–';
   document.getElementById('connWatchGaps').textContent = s.watch_sequence_gaps ?? 0;
   document.getElementById('connWatchCommand').textContent = fmtCommand(s.watch_command);
+
+  // Live connectivity map
+  const pollDetail = watchPolling
+    ? `polling · ${s.watch_poll_age_ms != null ? fmtAgo(s.watch_poll_age_ms) : 'fresh'}`
+    : 'no command_poll from Watch';
+  const watchState = s.watch_running
+    ? `running · ${s.watch_bridge_session_id || s.session_id || 'session'}`
+    : (s.session_active ? 'expected running, waiting' : 'idle');
+  const sampleBridge = `${s.watch_bridge_samples ?? 0} watch · ${s.watch_bridge_delivered_samples ?? 0} delivered · ${s.watch_bridge_queued_samples ?? 0} queued`;
+  const failureReason = !watchBridgeConnected
+    ? 'iPhone bridge WebSocket is not connected'
+    : (!watchPolling
+      ? 'Watch app has not polled the iPhone yet'
+      : (s.watch_bridge_failed_batches > 0
+        ? `${s.watch_bridge_failed_batches} bridge batch failure(s)`
+        : (watchStreamActive || !s.session_active ? 'none' : 'waiting for first /watch POST')));
+
+  setNetworkNode('netServer', 'ok', 'status online');
+  setNetworkNode('netPhone', watchBridgeConnected ? 'ok' : 'err',
+                 watchBridgeConnected ? 'bridge websocket' : 'no iPhone WS');
+  setNetworkNode('netWatch', watchPolling ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'),
+                 watchPolling ? pollDetail : 'no poll');
+  setNetworkLine('netLineServerPhone', watchBridgeConnected ? 'ok' : 'err');
+  setNetworkLine('netLinePhoneWatch', watchPolling ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'));
+  document.getElementById('netWatchPollDetail').textContent = pollDetail;
+  document.getElementById('netWatchStateDetail').textContent = watchState;
+  document.getElementById('netSampleBridgeDetail').textContent = sampleBridge;
+  document.getElementById('netFailureDetail').textContent = failureReason;
 
   // System checks
   document.getElementById('checkAccel').textContent = validation.watch_has_accelerometer ? 'ok' : 'missing';
@@ -373,15 +423,55 @@ function startTimer() {
 // ════════════════════════════════════════════════════════════
 async function toggleSession() {
   if (S.sessionActive) {
-    await api('/session/stop', 'POST');
+    const res = await api('/session/stop', 'POST');
     toast('Session stopped');
+    if (res?.command_id) console.info('Stop command_id', res.command_id);
     S.chartMax = 0;
   } else {
     const pid = document.getElementById('personId').value.trim() || 'unknown';
     const description = document.getElementById('sessionDescription').value.trim();
-    const res = await api('/session/start', 'POST', { person_id: pid, description });
+    const preflight = await runStartPreflight();
+    if (!preflight.canStart) return;
+
+    const res = await api('/session/start', 'POST', {
+      person_id: pid,
+      description,
+      force_preflight: preflight.force,
+    });
+    if (res?.preflight && !res.session_id) {
+      showPreflightResult(res.preflight);
+      return;
+    }
     if (res?.session_id) toast(`▶ Session ${res.session_id} started`);
   }
+}
+
+async function runStartPreflight() {
+  const preflight = await api('/session/preflight');
+  if (!preflight) return { canStart: false, force: false };
+  if (preflight.blockers?.length) {
+    showPreflightResult(preflight);
+    document.querySelector('.nav-item[data-page="connections"]')?.click();
+    return { canStart: false, force: false };
+  }
+  if (preflight.warnings?.length) {
+    showPreflightResult(preflight);
+    const lines = preflight.warnings.map(item => `• ${item.message || item.code}`).join('\n');
+    const proceed = window.confirm(`Preflight warning:\n${lines}\n\nStart session anyway?`);
+    return { canStart: proceed, force: proceed };
+  }
+  return { canStart: true, force: false };
+}
+
+function showPreflightResult(preflight) {
+  const blockers = preflight.blockers || [];
+  const warnings = preflight.warnings || [];
+  const first = blockers[0] || warnings[0];
+  if (!first) {
+    toast('Preflight OK');
+    return;
+  }
+  toast(`${blockers.length ? 'Blocked' : 'Warning'}: ${first.code || first.message}`);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -651,11 +741,29 @@ async function api(path, method = 'GET', body = null) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(path, opts);
-    return await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) data.http_status = res.status;
+    return data;
   } catch (e) {
     toast('⚠ Server unreachable');
     return null;
   }
+}
+
+async function downloadDebugPackage() {
+  const pkg = await api('/debug/package');
+  if (!pkg) return;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ml4scs_debug_${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  toast('Debug package exported');
 }
 
 function fmtDuration(sec) {
@@ -709,7 +817,8 @@ function fmtClock(ms) {
 function fmtCommand(cmd) {
   if (!cmd || !cmd.command) return '–';
   const ok = cmd.ok === true ? 'ok' : (cmd.ok === false ? 'failed' : 'pending');
-  return `${cmd.command} · ${ok}`;
+  const id = cmd.command_id ? ` · ${cmd.command_id}` : '';
+  return `${cmd.command} · ${ok}${id}`;
 }
 
 function fmtUptime(sec) {

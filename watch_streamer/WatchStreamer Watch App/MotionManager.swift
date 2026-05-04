@@ -6,8 +6,10 @@ import WatchConnectivity
 
 class MotionManager: NSObject, ObservableObject {
     private enum Config {
-        static let sampleRateHz = 50.0
-        static let batchSize = 10
+        /// Request higher than any known hardware cap so CMMotionManager always runs at its maximum.
+        /// The actual delivered rate is measured in actualSampleRateHz and reported in each batch envelope.
+        static let requestedHz = 200.0
+        static let batchSize = 5
         static let maxBufferedSamples = 3000
     }
 
@@ -17,11 +19,13 @@ class MotionManager: NSObject, ObservableObject {
 
     private var buffer: [[String: Any]] = []
     private var nextSequence = 0
-    private var runStartedAt: Date?
     private var workoutSession: HKWorkoutSession?
     private var workoutBuilder: HKLiveWorkoutBuilder?
     private var finishingWorkout = false
     private var lastWorkoutRestartAttempt: Date?
+    private var commandPollTimer: Timer?
+    private var commandPollInFlight = false
+    private var lastHandledCommandKey: String?
 
     @Published private(set) var sampleCount = 0
     @Published private(set) var deliveredSampleCount = 0
@@ -30,10 +34,13 @@ class MotionManager: NSObject, ObservableObject {
     @Published private(set) var droppedSampleCount = 0
     @Published private(set) var queuedSampleCount = 0
     @Published private(set) var isRunning = false
+    @Published private(set) var runStartedAt: Date?
     @Published private(set) var isReachable = false
     @Published private(set) var serverSessionId: String?
     @Published private(set) var uploadMode = "Offline"
     @Published private(set) var workoutStatus = "Workout idle"
+    @Published private(set) var lastCommandPollStatus = "No poll yet"
+    @Published private(set) var lastCommandId: String?
     @Published private(set) var actualSampleRateHz = 0.0
     @Published private(set) var lastAccelerationMagnitude = 0.0
     @Published private(set) var lastGyroscopeMagnitude = 0.0
@@ -43,6 +50,11 @@ class MotionManager: NSObject, ObservableObject {
         super.init()
         WCSession.default.delegate = self
         WCSession.default.activate()
+        startCommandPolling()
+    }
+
+    deinit {
+        commandPollTimer?.invalidate()
     }
 
     func start(sessionId newServerSessionId: String? = nil) {
@@ -60,8 +72,8 @@ class MotionManager: NSObject, ObservableObject {
         isRunning = true
         runStartedAt = Date()
         status = "Recording"
-        uploadMode = isReachable ? "Bridge" : "Offline"
-        cm.deviceMotionUpdateInterval = 1.0 / Config.sampleRateHz
+        uploadMode = isReachable ? "Bridge" : "Bridge (polling)"
+        cm.deviceMotionUpdateInterval = 1.0 / Config.requestedHz
         cm.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let self, let motion else { return }
             let ts = Self.currentTimestampMillis()
@@ -101,6 +113,7 @@ class MotionManager: NSObject, ObservableObject {
         guard isRunning || workoutSession != nil else { return }
         cm.stopDeviceMotionUpdates()
         isRunning = false
+        runStartedAt = nil
         flushBuffer(force: true)
         if buffer.isEmpty {
             status = "Stopped"
@@ -120,6 +133,7 @@ class MotionManager: NSObject, ObservableObject {
         actualSampleRateHz = 0
         lastAccelerationMagnitude = 0
         lastGyroscopeMagnitude = 0
+        runStartedAt = nil
     }
 
     private func flushBuffer(force: Bool) {
@@ -145,52 +159,127 @@ class MotionManager: NSObject, ObservableObject {
             "type": "watch_motion_batch",
             "sessionId": serverSessionId ?? sessionId,
             "sequence": nextSequence,
-            "sampleRateHz": Config.sampleRateHz,
+            "sampleRateHz": actualSampleRateHz > 1.0 ? actualSampleRateHz : Config.requestedHz,
             "watchSentAt": Self.currentTimestampMillis(),
             "source": "watch_phone_bridge",
             "transport": "watchconnectivity",
+            "commandId": lastCommandId ?? "",
             "samples": samples
         ]
     }
 
     @discardableResult
     private func sendViaBridge(envelope: [String: Any], samples: [[String: Any]]) -> Bool {
+        guard WCSession.default.activationState == .activated else {
+            return false
+        }
         guard let payloadData = try? JSONSerialization.data(withJSONObject: envelope) else {
             return false
         }
         let message: [String: Any] = ["payload": payloadData]
         backgroundQueuedSampleCount += samples.count
 
-        if WCSession.default.isReachable {
-            uploadMode = "Bridge"
-            WCSession.default.sendMessage(message, replyHandler: { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.deliveredSampleCount += samples.count
-                    self?.backgroundQueuedSampleCount -= samples.count
-                    self?.status = self?.isRunning == true ? "Recording" : "Stopped"
-                    self?.uploadMode = "Bridge"
-                }
-            }, errorHandler: { [weak self] error in
-                DispatchQueue.main.async {
-                    self?.handleBridgeFailure(samples: samples, reason: error.localizedDescription)
-                }
-            })
-        } else {
-            WCSession.default.transferUserInfo(message)
-            uploadMode = "Bridge (queued)"
-            status = "Queued for bridge"
-        }
+        WCSession.default.sendMessage(message, replyHandler: { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.deliveredSampleCount += samples.count
+                self.backgroundQueuedSampleCount = max(0, self.backgroundQueuedSampleCount - samples.count)
+                self.status = self.isRunning ? "Recording" : "Stopped"
+                self.uploadMode = "Bridge"
+            }
+        }, errorHandler: { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.queueBridgeTransfer(message, reason: error.localizedDescription)
+            }
+        })
         return true
     }
 
-    private func handleBridgeFailure(samples: [[String: Any]], reason: String) {
-        failedBatchCount += 1
-        backgroundQueuedSampleCount -= samples.count
-        status = reason
-        uploadMode = "Offline"
-        buffer.insert(contentsOf: samples, at: 0)
-        trimBufferIfNeeded()
-        queuedSampleCount = buffer.count
+    private func queueBridgeTransfer(_ message: [String: Any], reason: String) {
+        let pending = WCSession.default.outstandingUserInfoTransfers.count
+        guard pending < 8 else {
+            // Queue full — drop this batch rather than letting it grow unbounded.
+            // At 100 Hz / batch 5 a full queue = 40 s of already-buffered data.
+            let n = Self.sampleCount(from: message)
+            droppedSampleCount += n
+            backgroundQueuedSampleCount = max(0, backgroundQueuedSampleCount - n)
+            uploadMode = "Bridge (queue full)"
+            return
+        }
+        WCSession.default.transferUserInfo(message)
+        uploadMode = pending > 0 ? "Bridge (queued \(pending + 1))" : "Bridge (queued)"
+        status = "Queued for bridge: \(reason)"
+    }
+
+    private func startCommandPolling() {
+        commandPollTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.pollPhoneForCommand()
+        }
+        commandPollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        pollPhoneForCommand()
+    }
+
+    private func pollPhoneForCommand() {
+        guard WCSession.default.activationState == .activated, !commandPollInFlight else { return }
+        commandPollInFlight = true
+        let message: [String: Any] = [
+            "type": "command_poll",
+            "is_running": isRunning,
+            "session_id": serverSessionId ?? "",
+            "sample_count": sampleCount,
+            "queued_samples": queuedSampleCount,
+            "delivered_samples": deliveredSampleCount,
+            "failed_batches": failedBatchCount,
+            "last_command_id": lastCommandId ?? "",
+            "upload_mode": uploadMode
+        ]
+
+        WCSession.default.sendMessage(message, replyHandler: { [weak self] reply in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.commandPollInFlight = false
+                self.isReachable = true
+                self.lastCommandPollStatus = "Phone replied"
+                _ = self.handleCommand(reply)
+                if self.isRunning && self.status.hasPrefix("Phone bridge") {
+                    self.status = "Recording"
+                }
+            }
+        }, errorHandler: { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.commandPollInFlight = false
+                self.isReachable = false
+                self.lastCommandPollStatus = error.localizedDescription
+                if !self.isRunning {
+                    self.status = "Phone bridge unavailable: \(error.localizedDescription)"
+                }
+            }
+        })
+    }
+
+    private func noteFinishedBackgroundTransfer(_ userInfo: [String: Any], error: Error?) {
+        let sampleCount = Self.sampleCount(from: userInfo)
+        if let error {
+            failedBatchCount += 1
+            status = "Queued bridge failed: \(error.localizedDescription)"
+            return
+        }
+        deliveredSampleCount += sampleCount
+        backgroundQueuedSampleCount = max(0, backgroundQueuedSampleCount - sampleCount)
+        uploadMode = isReachable ? "Bridge" : "Bridge (queued)"
+        status = isRunning ? "Recording" : "Stopped"
+    }
+
+    private static func sampleCount(from userInfo: [String: Any]) -> Int {
+        guard let payloadData = userInfo["payload"] as? Data,
+              let decoded = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any],
+              let samples = decoded["samples"] as? [[String: Any]]
+        else { return 0 }
+        return samples.count
     }
 
     private func trimBufferIfNeeded() {
@@ -224,8 +313,11 @@ extension MotionManager: WCSessionDelegate {
     }
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        // Server IP context updates from iPhone — no action needed on watch-only bridge mode
-        _ = applicationContext
+        DispatchQueue.main.async {
+            if applicationContext["command"] != nil {
+                _ = self.handleCommand(applicationContext)
+            }
+        }
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
@@ -237,23 +329,70 @@ extension MotionManager: WCSessionDelegate {
     }
 
     @discardableResult
-    private func handleCommand(_ message: [String: Any]) -> [String: Any] {
+    fileprivate func handleCommand(_ message: [String: Any]) -> [String: Any] {
         guard let command = message["command"] as? String else {
             return ["ok": false, "error": "Missing command"]
         }
+        let sid = message["session_id"] as? String
+        let commandId = message["command_id"] as? String
+        let commandKey = "\(command)|\(sid ?? "")|\(commandId ?? "")"
+        if lastHandledCommandKey == commandKey {
+            let alreadyApplied =
+                (command == "start" && isRunning && (sid == nil || sid == serverSessionId)) ||
+                (command == "stop" && !isRunning)
+            if alreadyApplied {
+                return [
+                    "ok": true,
+                    "command": command,
+                    "command_id": lastCommandId ?? "",
+                    "duplicate": true,
+                    "isRunning": isRunning,
+                    "session_id": serverSessionId ?? "",
+                    "sampleCount": sampleCount,
+                    "uploadMode": uploadMode
+                ]
+            }
+        }
+
         switch command {
         case "start":
-            let sid = message["session_id"] as? String
-            start(sessionId: sid)
+            if isRunning, let sid, !sid.isEmpty, sid != serverSessionId {
+                stop()
+            }
+            if !isRunning {
+                start(sessionId: sid)
+            } else if let sid, !sid.isEmpty {
+                serverSessionId = sid
+            }
         case "stop":
             stop()
             serverSessionId = nil
         default:
             return ["ok": false, "error": "Unknown command", "command": command]
         }
+        let applied =
+            (command == "start" && isRunning && (sid == nil || sid == serverSessionId)) ||
+            (command == "stop" && !isRunning)
+        guard applied else {
+            return [
+                "ok": false,
+                "command": command,
+                "command_id": commandId ?? "",
+                "isRunning": isRunning,
+                "session_id": serverSessionId ?? "",
+                "sampleCount": sampleCount,
+                "uploadMode": uploadMode,
+                "error": status
+            ]
+        }
+        if let commandId, !commandId.isEmpty {
+            lastCommandId = commandId
+        }
+        lastHandledCommandKey = commandKey
         return [
             "ok": true,
             "command": command,
+            "command_id": lastCommandId ?? "",
             "isRunning": isRunning,
             "session_id": serverSessionId ?? "",
             "sampleCount": sampleCount,
@@ -271,6 +410,14 @@ extension MotionManager: WCSessionDelegate {
         DispatchQueue.main.async {
             let reply = self.handleCommand(message)
             replyHandler(reply)
+        }
+    }
+
+    func session(_ session: WCSession,
+                 didFinish userInfoTransfer: WCSessionUserInfoTransfer,
+                 error: Error?) {
+        DispatchQueue.main.async {
+            self.noteFinishedBackgroundTransfer(userInfoTransfer.userInfo, error: error)
         }
     }
 }

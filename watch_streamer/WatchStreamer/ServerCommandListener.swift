@@ -10,11 +10,38 @@ class ServerCommandListener: NSObject, ObservableObject {
     @Published var isConnected = false
     @Published var currentSessionId: String?
     @Published var currentPersonId: String?
+    @Published var currentCommandId: String?
     @Published var lastWatchCommandStatus = "No command sent"
+    @Published var lastWatchPollStatus = "No Watch poll yet"
+    @Published var watchPolling = false
+    @Published var watchPollAgeMs: Int?
+    @Published var watchRunning = false
+    @Published var watchSessionId = ""
+    @Published var watchSampleCount = 0
+    @Published var watchQueuedSamples = 0
+    @Published var watchDeliveredSamples = 0
+    @Published var watchFailedBatches = 0
+    @Published var watchLastCommandId = ""
+    @Published var watchUploadMode = "Offline"
+    @Published var watchActualHz: Double = 0
 
     private var task: URLSessionWebSocketTask?
     private var reconnectWorkItem: DispatchWorkItem?
+    private var pollAgeTimer: Timer?
     private var sentHello = false
+    private var lastPollAckKey: String?
+    // Protected by pollStateLock — written from WCSession bg thread, read from main-thread timer.
+    private let pollStateLock = NSLock()
+    private var _lastWatchPollAt: Date?
+    private var _lastWatchSnapshot: [String: Any] = [:]
+    private var lastWatchPollAt: Date? {
+        get { pollStateLock.withLock { _lastWatchPollAt } }
+        set { pollStateLock.withLock { _lastWatchPollAt = newValue } }
+    }
+    private var lastWatchSnapshot: [String: Any] {
+        get { pollStateLock.withLock { _lastWatchSnapshot } }
+        set { pollStateLock.withLock { _lastWatchSnapshot = newValue } }
+    }
     private var serverIP: String { UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147" }
     private var serverWebSocketURL: URL? {
         let trimmed = serverIP
@@ -33,6 +60,7 @@ class ServerCommandListener: NSObject, ObservableObject {
     private override init() {
         super.init()
         connect()
+        startPollAgeTimer()
     }
 
     func connect() {
@@ -85,24 +113,48 @@ class ServerCommandListener: NSObject, ObservableObject {
             if type == "start" {
                 let sid = json["session_id"] as? String
                 let pid = json["person_id"] as? String
+                let commandId = self.extractCommandId(from: json)
                 self.currentSessionId = sid
                 self.currentPersonId  = pid
-                self.forwardToWatch(self.watchPayload(command: "start", sessionId: sid, personId: pid))
+                self.currentCommandId = commandId
+                self.forwardToWatch(self.watchPayload(command: "start",
+                                                      sessionId: sid,
+                                                      personId: pid,
+                                                      commandId: commandId))
             } else if type == "stop" {
-                self.forwardToWatch(["command": "stop"])
+                let commandId = self.extractCommandId(from: json)
+                self.currentCommandId = commandId
+                self.forwardToWatch(self.watchPayload(command: "stop",
+                                                      sessionId: json["session_id"] as? String,
+                                                      personId: nil,
+                                                      commandId: commandId))
                 self.currentSessionId = nil
                 self.currentPersonId  = nil
             } else if type == "status" {
                 let active = json["session_active"] as? Bool ?? false
+                let commandId = self.extractCommandId(from: json)
+                if let hz = json["watch_rate_hz"] as? Double, hz > 0 {
+                    self.watchActualHz = hz
+                }
                 if active, let sid = json["session_id"] as? String {
                     let pid = json["person_id"] as? String
-                    if self.currentSessionId != sid {
-                        self.forwardToWatch(self.watchPayload(command: "start", sessionId: sid, personId: pid))
+                    let shouldForward = self.currentSessionId != sid ||
+                        (commandId != nil && commandId != self.currentCommandId)
+                    if shouldForward {
+                        self.currentCommandId = commandId
+                        self.forwardToWatch(self.watchPayload(command: "start",
+                                                              sessionId: sid,
+                                                              personId: pid,
+                                                              commandId: commandId))
                     }
                     self.currentSessionId = sid
                     self.currentPersonId = pid
                 } else if self.currentSessionId != nil {
-                    self.forwardToWatch(["command": "stop"])
+                    self.currentCommandId = commandId
+                    self.forwardToWatch(self.watchPayload(command: "stop",
+                                                          sessionId: self.currentSessionId,
+                                                          personId: nil,
+                                                          commandId: commandId))
                     self.currentSessionId = nil
                     self.currentPersonId = nil
                 }
@@ -111,54 +163,185 @@ class ServerCommandListener: NSObject, ObservableObject {
         }
     }
 
-    private func watchPayload(command: String, sessionId: String?, personId: String?) -> [String: Any] {
+    private func extractCommandId(from json: [String: Any]) -> String? {
+        if let commandId = json["command_id"] as? String, !commandId.isEmpty {
+            return commandId
+        }
+        if let watchCommand = json["watch_command"] as? [String: Any],
+           let commandId = watchCommand["command_id"] as? String,
+           !commandId.isEmpty {
+            return commandId
+        }
+        return nil
+    }
+
+    private func watchPayload(command: String,
+                              sessionId: String?,
+                              personId: String?,
+                              commandId: String?) -> [String: Any] {
         var payload: [String: Any] = ["command": command, "server_ip": serverIP]
         if let sessionId, !sessionId.isEmpty { payload["session_id"] = sessionId }
         if let personId, !personId.isEmpty { payload["person_id"] = personId }
+        if let commandId, !commandId.isEmpty { payload["command_id"] = commandId }
         return payload
     }
 
-    private func forwardToWatch(_ payload: [String: Any]) {
-        let command = payload["command"] as? String ?? "unknown"
-        let sessionId = payload["session_id"] as? String
+    func currentWatchCommandPayload() -> [String: Any] {
+        if let currentSessionId {
+            return watchPayload(command: "start",
+                                sessionId: currentSessionId,
+                                personId: currentPersonId,
+                                commandId: currentCommandId)
+        }
+        return watchPayload(command: "stop",
+                            sessionId: nil,
+                            personId: nil,
+                            commandId: currentCommandId)
+    }
 
-        if WCSession.default.isReachable {
-            // Fast path: Watch app is in foreground, deliver immediately.
-            WCSession.default.sendMessage(payload, replyHandler: { [weak self] reply in
-                DispatchQueue.main.async {
-                    self?.lastWatchCommandStatus = "\(command): acknowledged"
-                    self?.sendServerEvent([
-                        "type": "watch_ack",
-                        "ok": true,
-                        "command": command,
-                        "session_id": sessionId ?? "",
-                        "detail": "Watch acknowledged command",
-                        "reply": reply
-                    ])
-                }
-            }, errorHandler: { [weak self] error in
-                DispatchQueue.main.async {
-                    // sendMessage failed despite isReachable — queue as fallback.
-                    self?.transferUserInfoToWatch(payload, command: command, sessionId: sessionId)
-                }
-            })
-        } else {
-            // Slow path: Watch app is backgrounded or not running.
-            // transferUserInfo is queued and delivered reliably when the app next becomes active.
-            transferUserInfoToWatch(payload, command: command, sessionId: sessionId)
+    func handleWatchCommandPoll(_ message: [String: Any]) -> [String: Any] {
+        lastWatchPollAt = Date()
+        lastWatchSnapshot = message
+        var payload = currentWatchCommandPayload()
+        let command = payload["command"] as? String ?? "unknown"
+        let watchRunning = message["is_running"] as? Bool ?? false
+        let watchSessionId = message["session_id"] as? String ?? ""
+        let watchLastCommandId = message["last_command_id"] as? String ?? ""
+        payload["ok"] = true
+        payload["source"] = "iphone_command_poll"
+        payload["server_connected"] = isConnected
+        let pollStatus = "poll \(command)"
+        DispatchQueue.main.async {
+            self.lastWatchPollStatus = pollStatus
+        }
+        updatePublishedWatchStatus(from: message, pollAgeMs: 0)
+        confirmCommandFromWatchPoll(command: command,
+                                    watchRunning: watchRunning,
+                                    watchSessionId: watchSessionId,
+                                    watchLastCommandId: watchLastCommandId)
+        sendServerEvent([
+            "type": "phone_status",
+            "watch_reachable": true,
+            "watch_polling": true,
+            "watch_running": watchRunning,
+            "watch_session_id": watchSessionId,
+            "watch_samples": message["sample_count"] as? Int ?? 0,
+            "watch_queued_samples": message["queued_samples"] as? Int ?? 0,
+            "watch_delivered_samples": message["delivered_samples"] as? Int ?? 0,
+            "watch_failed_batches": message["failed_batches"] as? Int ?? 0,
+            "watch_upload_mode": message["upload_mode"] as? String ?? "",
+            "current_session_id": currentSessionId ?? "",
+            "current_command_id": currentCommandId ?? "",
+            "watch_last_command_id": watchLastCommandId,
+            "last_watch_command_status": lastWatchCommandStatus,
+            "last_watch_poll_status": pollStatus
+        ])
+        return payload
+    }
+
+    func refreshWatchContext() {
+        forwardToWatch(currentWatchCommandPayload())
+    }
+
+    func reconnectAndRefresh() {
+        connect()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            self.refreshWatchContext()
+            self.sendPhoneStatus()
         }
     }
 
-    private func transferUserInfoToWatch(_ payload: [String: Any], command: String, sessionId: String?) {
-        WCSession.default.transferUserInfo(payload)
-        lastWatchCommandStatus = "\(command): queued (Watch not reachable)"
+    private func updatePublishedWatchStatus(from message: [String: Any], pollAgeMs: Int?) {
+        DispatchQueue.main.async {
+            self.watchPolling = (pollAgeMs ?? 0) < 3000
+            self.watchPollAgeMs = pollAgeMs
+            self.watchRunning = message["is_running"] as? Bool ?? false
+            self.watchSessionId = message["session_id"] as? String ?? ""
+            self.watchSampleCount = message["sample_count"] as? Int ?? 0
+            self.watchQueuedSamples = message["queued_samples"] as? Int ?? 0
+            self.watchDeliveredSamples = message["delivered_samples"] as? Int ?? 0
+            self.watchFailedBatches = message["failed_batches"] as? Int ?? 0
+            self.watchLastCommandId = message["last_command_id"] as? String ?? ""
+            self.watchUploadMode = message["upload_mode"] as? String ?? "Offline"
+        }
+    }
+
+    private func confirmCommandFromWatchPoll(command: String,
+                                             watchRunning: Bool,
+                                             watchSessionId: String,
+                                             watchLastCommandId: String) {
+        let expectedSessionId = currentSessionId ?? ""
+        let expectedCommandId = currentCommandId ?? ""
+        let commandIdMatches = expectedCommandId.isEmpty || watchLastCommandId == expectedCommandId
+        let commandApplied = commandIdMatches && (
+            (command == "start" && watchRunning && watchSessionId == expectedSessionId) ||
+            (command == "stop" && !watchRunning)
+        )
+        guard commandApplied else { return }
+
+        let ackKey = "\(command)|\(expectedSessionId)|\(watchRunning)|\(expectedCommandId)"
+        guard ackKey != lastPollAckKey else { return }
+        lastPollAckKey = ackKey
+        let status = "\(command): confirmed by Watch poll"
+        DispatchQueue.main.async {
+            self.lastWatchCommandStatus = status
+        }
         sendServerEvent([
             "type": "watch_ack",
-            "ok": false,
+            "ok": true,
             "command": command,
-            "session_id": sessionId ?? "",
-            "detail": "Watch not reachable – command queued via transferUserInfo"
+            "session_id": expectedSessionId,
+            "command_id": expectedCommandId,
+            "detail": "Watch confirmed command via iPhone poll",
+            "reply": [
+                "isRunning": watchRunning,
+                "session_id": watchSessionId,
+                "last_command_id": watchLastCommandId
+            ]
         ])
+    }
+
+    func forwardToWatch(_ payload: [String: Any]) {
+        let command = payload["command"] as? String ?? "unknown"
+        let sessionId = payload["session_id"] as? String
+        let commandId = payload["command_id"] as? String
+
+        // Push when possible, but the MVP does not depend on this path:
+        // the Watch also pulls the latest command via command_poll.
+        do {
+            try WCSession.default.updateApplicationContext(payload)
+        } catch {
+            lastWatchCommandStatus = "\(command): context failed"
+        }
+
+        WCSession.default.sendMessage(payload, replyHandler: { [weak self] reply in
+            DispatchQueue.main.async {
+                let replyOk = reply["ok"] as? Bool ?? true
+                self?.lastWatchCommandStatus = replyOk ? "\(command): acknowledged" : "\(command): failed"
+                self?.sendServerEvent([
+                    "type": "watch_ack",
+                    "ok": replyOk,
+                    "command": command,
+                    "session_id": sessionId ?? "",
+                    "command_id": commandId ?? "",
+                    "detail": replyOk ? "Watch acknowledged command" : "Watch rejected command",
+                    "reply": reply
+                ])
+                self?.sendPhoneStatus()
+            }
+        }, errorHandler: { [weak self] error in
+            DispatchQueue.main.async {
+                self?.transferUserInfoToWatch(payload,
+                                              command: command)
+            }
+        })
+    }
+
+    private func transferUserInfoToWatch(_ payload: [String: Any],
+                                         command: String) {
+        WCSession.default.transferUserInfo(payload)
+        lastWatchCommandStatus = "\(command): waiting for Watch poll"
+        sendPhoneStatus()
     }
 
     private func sendServerEvent(_ payload: [String: Any]) {
@@ -174,12 +357,26 @@ class ServerCommandListener: NSObject, ObservableObject {
         }
     }
 
-    private func sendPhoneStatus() {
+    func sendPhoneStatus() {
+        let pollAgeMs = lastWatchPollAt.map { Int(Date().timeIntervalSince($0) * 1000) }
+        let watchPolling = pollAgeMs.map { $0 < 3000 } ?? false
         sendServerEvent([
             "type": "phone_status",
-            "watch_reachable": WCSession.default.isReachable,
+            "watch_reachable": WCSession.default.isReachable || watchPolling,
+            "watch_polling": watchPolling,
+            "watch_poll_age_ms": pollAgeMs ?? -1,
+            "watch_running": lastWatchSnapshot["is_running"] as? Bool ?? false,
+            "watch_session_id": lastWatchSnapshot["session_id"] as? String ?? "",
+            "watch_samples": lastWatchSnapshot["sample_count"] as? Int ?? 0,
+            "watch_queued_samples": lastWatchSnapshot["queued_samples"] as? Int ?? 0,
+            "watch_delivered_samples": lastWatchSnapshot["delivered_samples"] as? Int ?? 0,
+            "watch_failed_batches": lastWatchSnapshot["failed_batches"] as? Int ?? 0,
+            "watch_upload_mode": lastWatchSnapshot["upload_mode"] as? String ?? "",
             "current_session_id": currentSessionId ?? "",
-            "last_watch_command_status": lastWatchCommandStatus
+            "current_command_id": currentCommandId ?? "",
+            "watch_last_command_id": lastWatchSnapshot["last_command_id"] as? String ?? "",
+            "last_watch_command_status": lastWatchCommandStatus,
+            "last_watch_poll_status": lastWatchPollStatus
         ])
     }
 
@@ -187,5 +384,18 @@ class ServerCommandListener: NSObject, ObservableObject {
         let item = DispatchWorkItem { [weak self] in self?.connect() }
         reconnectWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: item)
+    }
+
+    private func startPollAgeTimer() {
+        pollAgeTimer?.invalidate()
+        pollAgeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            let age = self.lastWatchPollAt.map { Int(Date().timeIntervalSince($0) * 1000) }
+            let isFresh = age.map { $0 < 3000 } ?? false
+            DispatchQueue.main.async {
+                self.watchPollAgeMs = age
+                self.watchPolling = isFresh
+            }
+        }
     }
 }
