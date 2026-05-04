@@ -257,6 +257,42 @@ td.bold { font-weight: 600; }
 .ep-path { font-family: var(--mono); font-size: 12px; color: var(--text); }
 .ep-desc { font-size: 11px; color: var(--text3); margin-left: auto; }
 
+/* ─── Live network map ─────────────────────────────────────── */
+.network-map { display: grid; grid-template-columns: 1fr 86px 1fr 86px 1fr; align-items: center; gap: 10px; }
+.network-node {
+  min-height: 112px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 8px; padding: 13px; display: flex; flex-direction: column; gap: 8px;
+  justify-content: center; align-items: center; text-align: center;
+}
+.network-node .node-icon {
+  width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  font-size: 18px; background: oklch(0.650 0.018 58 / 0.12); color: var(--text3);
+}
+.network-node.ok .node-icon { background: oklch(0.580 0.130 148 / 0.15); color: var(--green); }
+.network-node.warn .node-icon { background: oklch(0.720 0.135 88 / 0.15); color: var(--yellow); }
+.network-node.err .node-icon { background: oklch(0.575 0.175 24 / 0.12); color: var(--red); }
+.node-title { font-weight: 700; font-size: 13px; }
+.node-status { font-family: var(--mono); font-size: 11px; color: var(--text2); min-height: 16px; }
+.network-link { display: flex; flex-direction: column; gap: 6px; align-items: center; color: var(--text3); font-family: var(--mono); font-size: 10px; }
+.network-line {
+  position: relative; width: 100%; height: 4px; border-radius: 999px;
+  background: var(--border2); overflow: hidden;
+}
+.network-line.ok { background: oklch(0.580 0.130 148 / 0.24); }
+.network-line.warn { background: oklch(0.720 0.135 88 / 0.22); }
+.network-line.ok::after,
+.network-line.warn::after {
+  content: ""; position: absolute; top: -2px; width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor; color: inherit; animation: networkFlow 1.15s ease-in-out infinite alternate;
+}
+.network-line.ok { color: var(--green); }
+.network-line.warn { color: var(--yellow); }
+@keyframes networkFlow { from { left: 0; } to { left: calc(100% - 8px); } }
+.network-detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
+.network-detail { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+.network-detail .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.network-detail .v { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text); margin-top: 4px; word-break: break-word; }
+
 /* ─── Live logs ─────────────────────────────────────────────── */
 .log-split { display: grid; grid-template-columns: 1.15fr 1fr; gap: 14px; }
 .log-panel {
@@ -318,6 +354,9 @@ td.bold { font-weight: 600; }
 @media (max-width: 900px) {
   .rec-grid { grid-template-columns: 1fr; }
   .conn-grid, .conn-grid-3, .log-split, .settings-grid { grid-template-columns: 1fr; }
+  .network-map { grid-template-columns: 1fr; }
+  .network-link { min-height: 28px; }
+  .network-detail-grid { grid-template-columns: 1fr 1fr; }
   .health-grid { grid-template-columns: 1fr 1fr; }
   .setting-row { grid-template-columns: 1fr; }
 }
@@ -569,6 +608,47 @@ td.bold { font-weight: 600; }
         <div class="uptime-item"><div class="uptime-key">iPhone Bridge</div><div class="uptime-val" id="uptimeBridge">–</div></div>
       </div>
 
+      <div class="card" style="margin-bottom:16px">
+        <div class="chart-meta">
+          <div class="card-title" style="margin:0">Live Connectivity Map<span>Website → iPhone → Watch → Server</span></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-sm btn-outline" onclick="downloadDebugPackage()">Export debug JSON</button>
+            <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">Reset watch command</button>
+          </div>
+        </div>
+        <div class="network-map">
+          <div class="network-node err" id="netServer">
+            <div class="node-icon">⌁</div>
+            <div class="node-title">Website / Server</div>
+            <div class="node-status" id="netServerStatus">WS reconnecting</div>
+          </div>
+          <div class="network-link">
+            <div class="network-line" id="netLineServerPhone"></div>
+            <div id="netLinkServerPhone">websocket</div>
+          </div>
+          <div class="network-node err" id="netPhone">
+            <div class="node-icon">▯</div>
+            <div class="node-title">iPhone Bridge</div>
+            <div class="node-status" id="netPhoneStatus">not connected</div>
+          </div>
+          <div class="network-link">
+            <div class="network-line" id="netLinePhoneWatch"></div>
+            <div id="netLinkPhoneWatch">command poll</div>
+          </div>
+          <div class="network-node err" id="netWatch">
+            <div class="node-icon">◉</div>
+            <div class="node-title">Apple Watch</div>
+            <div class="node-status" id="netWatchStatus">no poll</div>
+          </div>
+        </div>
+        <div class="network-detail-grid">
+          <div class="network-detail"><div class="k">Watch Poll</div><div class="v" id="netWatchPollDetail">–</div></div>
+          <div class="network-detail"><div class="k">Watch State</div><div class="v" id="netWatchStateDetail">–</div></div>
+          <div class="network-detail"><div class="k">Sample Bridge</div><div class="v" id="netSampleBridgeDetail">–</div></div>
+          <div class="network-detail"><div class="k">Failure Reason</div><div class="v" id="netFailureDetail">–</div></div>
+        </div>
+      </div>
+
       <div class="conn-grid" style="margin-bottom:16px">
         <!-- Pen -->
         <div class="card">
@@ -626,6 +706,8 @@ td.bold { font-weight: 600; }
         <div class="endpoint-list">
           <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/</span><span class="ep-desc">Serve dashboard.html</span></div>
           <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/status</span><span class="ep-desc">Current server + device status (JSON)</span></div>
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/session/preflight</span><span class="ep-desc">Start readiness check for iPhone, Watch polling and Pen</span></div>
+          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/debug/package</span><span class="ep-desc">Export current status, events, clients and recent samples</span></div>
           <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions</span><span class="ep-desc">List all recorded sessions</span></div>
           <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions/quality</span><span class="ep-desc">Read-only quality report per session</span></div>
           <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions/{id}/validation</span><span class="ep-desc">Timeline overlap + source-clock drift estimate</span></div>

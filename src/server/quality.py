@@ -527,7 +527,7 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
             if len(watch_ts_values) > 1 else None
         )
         expected_duration = watch_source_duration or duration_seconds
-        expected_watch_samples = int(expected_duration * 50)
+        expected_watch_samples = int(expected_duration * 100)
 
     session_watch_samples = _as_int(row.get("watch_samples")) or 0
     session_pen_samples = _as_int(row.get("pen_samples")) or 0
@@ -553,8 +553,8 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
         msg = "Watch samples do not contain ax/ay/az accelerometer values."
         add_ml("missing_accelerometer", "warn", msg)
         add_recording("missing_accelerometer", "warn", msg)
-    if watch_est_hz is not None and not (40 <= watch_est_hz <= 60):
-        msg = f"Estimated watch sample rate is {watch_est_hz:.1f} Hz."
+    if watch_est_hz is not None and not (80 <= watch_est_hz <= 120):
+        msg = f"Estimated watch sample rate is {watch_est_hz:.1f} Hz (expected ~100 Hz)."
         add_ml("watch_rate_out_of_range", "warn", msg)
         add_recording("watch_rate_out_of_range", "warn", msg)
     if sequence_gaps:
@@ -588,7 +588,7 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
     if watch_rows and server_time_rows == 0:
         add_recording("legacy_watch_time", "warn", "Watch CSV has no server_received_ms column.")
     if not is_active_session and expected_watch_samples and watch_rows < expected_watch_samples * 0.7:
-        msg = "Watch rows are far below expected 50 Hz device/session duration."
+        msg = "Watch rows are far below expected 100 Hz device/session duration."
         add_ml("low_watch_coverage", "warn", msg)
         add_recording("low_watch_coverage", "warn", msg)
     if start and pen_timestamp_years and start.year not in pen_timestamp_years and pen_server_time_rows == 0:
@@ -639,7 +639,7 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
         "description": row.get("description", ""),
         "status": row.get("status", ""),
         "duration_seconds": round(duration_seconds, 1) if duration_seconds is not None else None,
-        "expected_watch_samples_50hz": expected_watch_samples,
+        "expected_watch_samples_100hz": expected_watch_samples,
         "clock_model": {
             "canonical_ml_timeline": "device_relative_ms",
             "watch_device_timestamp": "ts",
@@ -696,7 +696,7 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
                 "pen_count_tolerance": pen_count_tolerance,
             },
             "coverage": {
-                "expected_watch_samples_50hz": expected_watch_samples,
+                "expected_watch_samples_100hz": expected_watch_samples,
                 "pen_dots_in_watch_range_pct": round(pen_range_pct, 4)
                 if pen_range_pct is not None else None,
                 "watch_device_duration_seconds": watch_clock.get("device_duration_seconds"),
