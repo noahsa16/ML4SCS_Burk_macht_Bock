@@ -1,13 +1,6 @@
 // WatchView_v2.swift
-// FocusTrack — Apple Watch UI (redesigned)
-// Matches the web dashboard design language adapted for watchOS:
-// dark background, monospace data, orange accent, compact card rows.
-//
-// Integration:
-//   1. Add this file to the WatchKit Extension target in Xcode
-//   2. Delete (or rename) old WatchView.swift
-//   3. MotionManager.swift + StreamMode enum — NO changes needed
-//      StreamMode.allCases must include rawValues: "Auto", "iPhone", "Direct HTTP"
+// FocusTrack — Apple Watch UI
+// Streaming via iPhone bridge (WatchConnectivity) only.
 //
 // Requirements: watchOS 9+, Swift 5.9+
 
@@ -205,8 +198,7 @@ struct WTRecordPage: View {
 
             // ── Connection pills ──────────────────────────────────────────
             HStack(spacing: 14) {
-                WTConnPill(label: "Phone",  ok: motion.isReachable)
-                WTConnPill(label: "Server", ok: motion.serverReachable)
+                WTConnPill(label: "Phone", ok: motion.isReachable)
             }
             .padding(.bottom, 8)
 
@@ -229,7 +221,6 @@ struct WTRecordPage: View {
         .padding(.horizontal, 12)
         .padding(.bottom, 4)
         .onReceive(timer) { _ in if motion.isRunning { elapsed += 1 } }
-        .onAppear { motion.refreshServerStatus() }
     }
 }
 
@@ -318,33 +309,13 @@ struct WTSettingsPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-
-                // ── Stream mode picker ────────────────────────────────────
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Stream via")
-                        .font(WT.sans(11, weight: .bold))
-                        .foregroundColor(.secondary)
-                        .textCase(.uppercase)
-                        .kerning(0.6)
-
-                    Picker("", selection: $motion.preferredMode) {
-                        ForEach(StreamMode.allCases, id: \.self) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.wheel)
-                    .frame(height: 64)
-                    .tint(WT.accent)
-                }
-
-                Divider()
-
-                // ── Status info ───────────────────────────────────────────
-                infoRow("Active mode",  motion.uploadMode,
-                        color: motion.uploadMode == "Direct" ? WT.green : WT.orange)
-                infoRow("BG Session",   motion.workoutStatus,
+                infoRow("Transport",   "Phone Bridge",
+                        color: WT.blue)
+                infoRow("Status",      motion.uploadMode,
+                        color: motion.uploadMode.hasPrefix("Bridge") ? WT.green : WT.orange)
+                infoRow("BG Session",  motion.workoutStatus,
                         color: motion.workoutStatus.contains("active") ? WT.green : .secondary)
-                infoRow("Phone",        motion.isReachable ? "Reachable" : "Offline",
+                infoRow("Phone",       motion.isReachable ? "Reachable" : "Offline",
                         color: motion.isReachable ? WT.green : WT.orange)
             }
             .padding(.horizontal, 12)

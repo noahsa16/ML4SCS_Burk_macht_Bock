@@ -40,15 +40,20 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
                  activationDidCompleteWith state: WCSessionActivationState,
                  error: Error?) {
         DispatchQueue.main.async {
-            self.isConnected = session.isReachable
+            self.isConnected = state == .activated && session.isReachable
             if let error {
                 self.lastError = error.localizedDescription
             }
             self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
         }
     }
-    func sessionDidBecomeInactive(_ session: WCSession) {}
-    func sessionDidDeactivate(_ session: WCSession) { session.activate() }
+    func sessionDidBecomeInactive(_ session: WCSession) {
+        DispatchQueue.main.async { self.isConnected = false }
+    }
+    func sessionDidDeactivate(_ session: WCSession) {
+        DispatchQueue.main.async { self.isConnected = false }
+        session.activate()
+    }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         receivePayload(message, source: "message")
