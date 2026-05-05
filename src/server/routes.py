@@ -16,6 +16,7 @@ from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 
 from .broadcast import _broadcast
+from .models import SessionStartBody
 from .config import (
     DASHBOARD_HTML, DATA_RAW_WATCH, SESSIONS_CSV, SESSIONS_FIELDNAMES,
     WATCH_FIELDNAMES,
@@ -175,17 +176,13 @@ async def get_session_validation(session_id: str):
 
 
 @router.post("/session/start")
-async def session_start(request: Request):
+async def session_start(body: SessionStartBody = SessionStartBody()):
     if state.active:
         return JSONResponse({"error": "Session already active"}, status_code=409)
 
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    person_id = str(body.get("person_id", "unknown")).strip() or "unknown"
-    description = str(body.get("description", "")).strip()
-    force_preflight = bool(body.get("force_preflight"))
+    person_id = body.person_id
+    description = body.description
+    force_preflight = body.force_preflight
     preflight = _session_preflight_payload()
     if preflight["blockers"]:
         return JSONResponse({
@@ -397,7 +394,7 @@ async def receive_watch(request: Request):
     """
     try:
         payload = await request.json()
-    except Exception:
+    except (json.JSONDecodeError, ValueError):
         state.append_event("watch", "error", "Invalid JSON payload")
         return JSONResponse({"error": "Invalid JSON payload"}, status_code=400)
 
