@@ -2,11 +2,12 @@
 Pfade, Feldnamen und CSV-Initialisierung.
 
 Alles hier sind Konstanten — kein State, keine Logik.
-Wird von allen anderen Modulen importiert, darf also selbst nichts importieren.
 """
 
 import csv
 from pathlib import Path
+
+from src.pen_schema import PEN_FIELDNAMES  # noqa: F401 — re-exported for other modules
 
 ROOT = Path(__file__).parents[2]
 DATA_RAW_WATCH = ROOT / "data" / "raw" / "watch"
@@ -23,11 +24,6 @@ WATCH_FIELDNAMES = [
     "local_ts", "local_ts_ms", "session_id", "sequence", "sample_rate_hz",
     "watch_sent_at", "phone_received_at", "server_received_ms", "source",
     "ts", "ax", "ay", "az", "rx", "ry", "rz",
-]
-PEN_FIELDNAMES = [
-    "local_ts", "local_ts_ms",
-    "timestamp", "x", "y", "pressure", "dot_type",
-    "tilt_x", "tilt_y", "section", "owner", "note", "page",
 ]
 SESSIONS_FIELDNAMES = [
     "session_id", "person_id", "description", "start_time", "end_time",

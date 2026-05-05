@@ -6,6 +6,7 @@ sind möglichst dünn — die eigentliche Logik steckt in den anderen Modulen.
 """
 
 import csv
+import dataclasses
 import json
 import math
 import time
@@ -16,20 +17,23 @@ from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 
 from .broadcast import _broadcast
-from .models import SessionStartBody
+from pydantic import ValidationError
+
+from .models import SessionStartBody, WatchEnvelope
 from .config import (
     DASHBOARD_HTML, DATA_RAW_WATCH, SESSIONS_CSV, SESSIONS_FIELDNAMES,
     WATCH_FIELDNAMES,
 )
 from .csv_io import (
     _ensure_csv_header, _next_session_id, _pen_sample_count,
-    _read_session_rows, _update_session_row,
+    _read_session_rows, _update_session_row, close_watch_writer,
+    get_watch_writer,
 )
 from .pen_proc import _start_pen, _stop_pen
 from .quality import _session_quality, _session_validation
-from .state import state
+from .state import ActiveSession, state
 from .status import _status_payload
-from .utils import _as_float, _as_int, _now_ms, _round_or_none, _safe_file_id, _utc_iso_from_ms
+from .utils import _now_ms, _round_or_none, _safe_file_id, _utc_iso_from_ms
 
 router = APIRouter()
 
@@ -100,9 +104,9 @@ async def watch_ping(request: Request):
     state.last_watch_status_time = time.time()
     return {
         "session_active": state.active is not None,
-        "session_id": state.active["session_id"] if state.active else None,
-        "person_id": state.active["person_id"] if state.active else None,
-        "description": state.active.get("description") if state.active else None,
+        "session_id": state.active.session_id if state.active else None,
+        "person_id": state.active.person_id if state.active else None,
+        "description": state.active.description if state.active else None,
     }
 
 
@@ -124,7 +128,7 @@ async def debug_package():
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "preflight": _session_preflight_payload(),
         "status": status,
-        "active_session": state.active,
+        "active_session": dataclasses.asdict(state.active) if state.active else None,
         "watch_command": state.watch_command,
         "connected_clients": list(state.ws_client_meta.values()),
         "recent_events": list(state.event_log)[-200:],
@@ -199,26 +203,13 @@ async def session_start(body: SessionStartBody = SessionStartBody()):
     start_time = datetime.now(timezone.utc).isoformat()
     command_id = _new_command_id("start", session_id)
 
-    state.active = {
-        "session_id": session_id,
-        "person_id": person_id,
-        "description": description,
-        "start_time": start_time,
-    }
-    state.watch_sample_count = 0
-    state.chart_buffer = []
-    state.chart_window_acc_mags = []
-    state.chart_window_gyro_mags = []
-    state.last_watch_sample = None
-    state.last_watch_packet = None
-    state.watch_sequence_last = None
-    state.watch_sequence_gaps = 0
-    state.watch_phone_latency_ms = None
-    state.watch_server_latency_ms = None
-    state.watch_clock_skew_ms = None
-    state.last_pen_dot = None
-    state.last_pen_log_key = None
-    state.sample_log.clear()
+    state.reset_for_session()
+    state.active = ActiveSession(
+        session_id=session_id,
+        person_id=person_id,
+        description=description,
+        start_time=start_time,
+    )
     state.watch_command = {
         "command": "start",
         "ok": None,
@@ -272,7 +263,7 @@ async def session_stop():
     if not state.active:
         return JSONResponse({"error": "No active session"}, status_code=409)
 
-    session_id = state.active["session_id"]
+    session_id = state.active.session_id
     end_time = datetime.now(timezone.utc).isoformat()
     command_id = _new_command_id("stop", session_id)
 
@@ -294,6 +285,7 @@ async def session_stop():
     await _broadcast({"type": "stop", "session_id": session_id, "command_id": command_id})
 
     await _stop_pen()
+    close_watch_writer(DATA_RAW_WATCH / f"{session_id}_watch.csv")
 
     pen_samples = _pen_sample_count(session_id)
     watch_samples = state.watch_sample_count
@@ -323,7 +315,7 @@ async def session_stop():
 async def pen_connect():
     if state.pen_proc and state.pen_proc.returncode is None:
         return JSONResponse({"error": "Pen already running"}, status_code=409)
-    session_id = state.active["session_id"] if state.active else "unsessioned"
+    session_id = state.active.session_id if state.active else "unsessioned"
     result = await _start_pen(session_id)
     if "ok" in result:
         return result
@@ -340,8 +332,8 @@ async def pen_disconnect():
 
 @router.post("/watch/start")
 async def watch_cmd_start():
-    sid = state.active["session_id"] if state.active else None
-    pid = state.active["person_id"] if state.active else "manual"
+    sid = state.active.session_id if state.active else None
+    pid = state.active.person_id if state.active else "manual"
     command_id = _new_command_id("start", sid)
     state.watch_command = {
         "command": "start",
@@ -366,7 +358,7 @@ async def watch_cmd_start():
 
 @router.post("/watch/stop")
 async def watch_cmd_stop():
-    sid = state.active["session_id"] if state.active else None
+    sid = state.active.session_id if state.active else None
     command_id = _new_command_id("stop", sid)
     state.watch_command = {
         "command": "stop",
@@ -393,27 +385,20 @@ async def receive_watch(request: Request):
     Unterstützt sowohl das Envelope-Format {samples: [...], ...} als auch rohe Listen.
     """
     try:
-        payload = await request.json()
+        raw = await request.json()
     except (json.JSONDecodeError, ValueError):
         state.append_event("watch", "error", "Invalid JSON payload")
         return JSONResponse({"error": "Invalid JSON payload"}, status_code=400)
 
-    if isinstance(payload, list):
-        envelope, batch = {}, payload
-    elif isinstance(payload, dict):
-        envelope = payload
-        batch = envelope.get("samples", [])
-    else:
-        state.append_event("watch", "error", "Payload must be an object or a sample list")
-        return JSONResponse({"error": "Payload must be an object or a sample list"}, status_code=422)
-
-    if not isinstance(batch, list):
-        state.append_event("watch", "error", "Watch payload missing samples list")
-        return JSONResponse({"error": "Payload field 'samples' must be a list"}, status_code=422)
+    try:
+        envelope = WatchEnvelope.model_validate(raw)
+    except ValidationError as exc:
+        state.append_event("watch", "error", "Watch payload validation failed")
+        return JSONResponse({"error": "Invalid watch payload", "detail": exc.errors()}, status_code=422)
 
     session_id = (
-        state.active["session_id"] if state.active
-        else envelope.get("sessionId", "unsessioned")
+        state.active.session_id if state.active
+        else (envelope.sessionId or "unsessioned")
     )
     session_id = _safe_file_id(session_id)
     csv_path = DATA_RAW_WATCH / f"{session_id}_watch.csv"
@@ -421,10 +406,10 @@ async def receive_watch(request: Request):
     server_received_ms = _now_ms()
     local_ts = _utc_iso_from_ms(server_received_ms)
     state.last_watch_time = time.time()
-    state.watch_config_rate_hz = _as_float(envelope.get("sampleRateHz")) or state.watch_config_rate_hz
+    state.watch_config_rate_hz = envelope.sampleRateHz or state.watch_config_rate_hz
 
     # Sequenzlücken erkennen und zählen
-    seq = _as_int(envelope.get("sequence"))
+    seq = envelope.sequence
     if seq is not None:
         if (
             state.watch_sequence_last is not None
@@ -439,8 +424,8 @@ async def receive_watch(request: Request):
             })
         state.watch_sequence_last = seq
 
-    watch_sent_at = _as_int(envelope.get("watchSentAt"))
-    phone_received_at = _as_int(envelope.get("phoneReceivedAt"))
+    watch_sent_at = envelope.watchSentAt
+    phone_received_at = envelope.phoneReceivedAt
     state.watch_phone_latency_ms = (
         phone_received_at - watch_sent_at
         if phone_received_at is not None and watch_sent_at is not None
@@ -453,78 +438,64 @@ async def receive_watch(request: Request):
     )
 
     valid_count = 0
-    invalid_count = 0
     first_ts = None
     last_ts = None
     last_sample = None
 
-    _ensure_csv_header(csv_path, WATCH_FIELDNAMES)
-    with open(csv_path, "a", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=WATCH_FIELDNAMES)
-        for s in batch:
-            if not isinstance(s, dict):
-                invalid_count += 1
-                continue
+    w = get_watch_writer(csv_path)
+    for s in envelope.samples:
+        if s.ts is not None:
+            first_ts = s.ts if first_ts is None else first_ts
+            last_ts = s.ts
 
-            sample_ts = _as_int(s.get("ts"))
-            if sample_ts is not None:
-                first_ts = sample_ts if first_ts is None else first_ts
-                last_ts = sample_ts
+        w.writerow({
+            "local_ts":           local_ts,
+            "local_ts_ms":        server_received_ms,
+            "session_id":         session_id,
+            "sequence":           envelope.sequence,
+            "sample_rate_hz":     envelope.sampleRateHz,
+            "watch_sent_at":      envelope.watchSentAt,
+            "phone_received_at":  envelope.phoneReceivedAt,
+            "server_received_ms": server_received_ms,
+            "source":             envelope.source,
+            "ts":  s.ts,
+            "ax":  s.ax,
+            "ay":  s.ay,
+            "az":  s.az,
+            "rx":  s.rx,
+            "ry":  s.ry,
+            "rz":  s.rz,
+        })
+        valid_count += 1
 
-            w.writerow({
-                "local_ts":           local_ts,
-                "local_ts_ms":        server_received_ms,
-                "session_id":         session_id,
-                "sequence":           envelope.get("sequence"),
-                "sample_rate_hz":     envelope.get("sampleRateHz"),
-                "watch_sent_at":      envelope.get("watchSentAt"),
-                "phone_received_at":  envelope.get("phoneReceivedAt"),
-                "server_received_ms": server_received_ms,
-                "source":             envelope.get("source"),
-                "ts":  s.get("ts"),
-                "ax":  s.get("ax"),
-                "ay":  s.get("ay"),
-                "az":  s.get("az"),
-                "rx":  s.get("rx"),
-                "ry":  s.get("ry"),
-                "rz":  s.get("rz"),
-            })
-            valid_count += 1
+        acc_mag = (
+            math.sqrt(s.ax * s.ax + s.ay * s.ay + s.az * s.az)
+            if None not in (s.ax, s.ay, s.az) else None
+        )
+        gyro_mag = (
+            math.sqrt(s.rx * s.rx + s.ry * s.ry + s.rz * s.rz)
+            if None not in (s.rx, s.ry, s.rz) else None
+        )
+        if acc_mag is not None:
+            state.chart_window_acc_mags.append(acc_mag)
+        if gyro_mag is not None:
+            state.chart_window_gyro_mags.append(gyro_mag)
 
-            ax = _as_float(s.get("ax"))
-            ay = _as_float(s.get("ay"))
-            az = _as_float(s.get("az"))
-            rx = _as_float(s.get("rx"))
-            ry = _as_float(s.get("ry"))
-            rz = _as_float(s.get("rz"))
-            acc_mag = (
-                math.sqrt(ax * ax + ay * ay + az * az)
-                if None not in (ax, ay, az) else None
-            )
-            gyro_mag = (
-                math.sqrt(rx * rx + ry * ry + rz * rz)
-                if None not in (rx, ry, rz) else None
-            )
-            if acc_mag is not None:
-                state.chart_window_acc_mags.append(acc_mag)
-            if gyro_mag is not None:
-                state.chart_window_gyro_mags.append(gyro_mag)
-
-            last_sample = {
-                "session_id": session_id,
-                "sequence": seq,
-                "ts": sample_ts,
-                "ax": _round_or_none(ax),
-                "ay": _round_or_none(ay),
-                "az": _round_or_none(az),
-                "rx": _round_or_none(rx),
-                "ry": _round_or_none(ry),
-                "rz": _round_or_none(rz),
-                "acc_mag": _round_or_none(acc_mag),
-                "gyro_mag": _round_or_none(gyro_mag),
-                "server_received_ms": server_received_ms,
-            }
-            state.append_sample("watch", last_sample)
+        last_sample = {
+            "session_id": session_id,
+            "sequence": seq,
+            "ts": s.ts,
+            "ax": _round_or_none(s.ax),
+            "ay": _round_or_none(s.ay),
+            "az": _round_or_none(s.az),
+            "rx": _round_or_none(s.rx),
+            "ry": _round_or_none(s.ry),
+            "rz": _round_or_none(s.rz),
+            "acc_mag": _round_or_none(acc_mag),
+            "gyro_mag": _round_or_none(gyro_mag),
+            "server_received_ms": server_received_ms,
+        }
+        state.append_sample("watch", last_sample)
 
     # Batch-Samplerate aus internen Watch-Timestamps berechnen
     if first_ts is not None and last_ts is not None and valid_count > 1 and last_ts > first_ts:
@@ -539,19 +510,12 @@ async def receive_watch(request: Request):
         "session_id": session_id,
         "sequence": seq,
         "samples": valid_count,
-        "invalid_samples": invalid_count,
-        "source": envelope.get("source"),
+        "source": envelope.source,
         "sample_rate_hz": state.watch_config_rate_hz,
         "server_received_ms": server_received_ms,
         "watch_sent_at": watch_sent_at,
         "phone_received_at": phone_received_at,
     }
-
-    if invalid_count:
-        state.append_event("watch", "warn", "Dropped invalid watch sample(s)", {
-            "invalid_samples": invalid_count,
-            "sequence": seq,
-        })
 
     if state.active:
         state.watch_sample_count += valid_count
@@ -559,9 +523,8 @@ async def receive_watch(request: Request):
     return {
         "ok": True,
         "samples": valid_count,
-        "invalid_samples": invalid_count,
         "session_active": state.active is not None,
-        "session_id": state.active["session_id"] if state.active else None,
+        "session_id": state.active.session_id if state.active else None,
     }
 
 

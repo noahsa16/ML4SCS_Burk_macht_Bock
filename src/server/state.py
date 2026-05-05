@@ -11,14 +11,23 @@ Zirkel-Import zwischen state ↔ csv_io entsteht.
 
 import time
 from collections import deque
+from dataclasses import dataclass
 from typing import Any, Optional
 
 from fastapi import WebSocket
 
 
+@dataclass
+class ActiveSession:
+    session_id: str
+    person_id: str
+    description: str
+    start_time: str
+
+
 class SessionState:
     def __init__(self):
-        self.active: Optional[dict] = None
+        self.active: Optional[ActiveSession] = None
         self.pen_proc = None
         self.pen_log_task: Optional[Any] = None
         self.pen_session_id: Optional[str] = None
@@ -57,6 +66,23 @@ class SessionState:
             "at": None,
             "detail": "No command sent yet",
         }
+
+    def reset_for_session(self) -> None:
+        """Zero out all per-session counters and buffers. Call before setting state.active."""
+        self.watch_sample_count = 0
+        self.chart_buffer = []
+        self.chart_window_acc_mags = []
+        self.chart_window_gyro_mags = []
+        self.last_watch_sample = None
+        self.last_watch_packet = None
+        self.watch_sequence_last = None
+        self.watch_sequence_gaps = 0
+        self.watch_phone_latency_ms = None
+        self.watch_server_latency_ms = None
+        self.watch_clock_skew_ms = None
+        self.last_pen_dot = None
+        self.last_pen_log_key = None
+        self.sample_log.clear()
 
     def append_event(self, source: str, level: str, message: str, data: Optional[dict] = None) -> None:
         entry: dict[str, Any] = {

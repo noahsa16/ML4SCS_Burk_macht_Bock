@@ -7,7 +7,7 @@ laufen hier durch. Schreibt bei Bedarf ins state.event_log via state.append_even
 
 import csv
 from pathlib import Path
-from typing import Any, Optional
+from typing import IO, Any, Optional
 
 from .config import (
     DATA_RAW_PEN, DATA_RAW_WATCH, SESSIONS_CSV, SESSIONS_FIELDNAMES,
@@ -15,6 +15,12 @@ from .config import (
 )
 from .state import state
 from .utils import _as_float, _as_int, _utc_iso_from_ms
+
+# session_id → (file_size_bytes, raw_line_count_including_header)
+_pen_count_cache: dict[str, tuple[int, int]] = {}
+
+# csv_path (str) → (open file handle, DictWriter)
+_watch_writers: dict[str, tuple[IO[str], csv.DictWriter]] = {}
 
 
 def _ensure_csv_header(path: Path, fieldnames: list[str]) -> bool:
@@ -58,25 +64,53 @@ def _next_session_id() -> str:
 
 
 def _pen_sample_count(session_id: str) -> int:
+    """O(new bytes) per call: only counts lines appended since the last check."""
     path = DATA_RAW_PEN / f"{session_id}_pen.csv"
     if not path.exists():
         return 0
     try:
-        with open(path, newline="") as f:
-            return max(0, sum(1 for _ in f) - 1)
+        size = path.stat().st_size
+        cached_size, cached_lines = _pen_count_cache.get(session_id, (0, 0))
+        if size == cached_size:
+            return max(0, cached_lines - 1)
+        if size < cached_size:
+            # File was truncated or rewritten — full recount
+            cached_size, cached_lines = 0, 0
+        with open(path, "rb") as f:
+            f.seek(cached_size)
+            new_lines = f.read().count(b"\n")
+        total = cached_lines + new_lines
+        _pen_count_cache[session_id] = (size, total)
+        return max(0, total - 1)
     except Exception:
         return 0
 
 
+_TAIL_CHUNK = 8192  # bytes to read from the end — enough for any realistic CSV row
+
 def _last_csv_row(path: Path) -> Optional[dict[str, str]]:
+    """O(1): reads only the header + the tail chunk to find the last data row."""
     if not path.exists():
         return None
     try:
-        last = None
-        with open(path, newline="") as f:
-            for row in csv.DictReader(f):
-                last = row
-        return last
+        with open(path, "rb") as f:
+            header_bytes = f.readline()
+            fieldnames = next(csv.reader([header_bytes.decode(errors="replace")]))
+            file_size = f.seek(0, 2)
+            header_size = len(header_bytes)
+            if file_size <= header_size:
+                return None  # only header, no data rows
+            f.seek(max(header_size, file_size - _TAIL_CHUNK))
+            tail = f.read().decode(errors="replace")
+        # Last non-empty line in the tail
+        for line in reversed(tail.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            row = next(csv.reader([line]))
+            if len(row) == len(fieldnames):
+                return dict(zip(fieldnames, row))
+        return None
     except Exception:
         return None
 
@@ -133,11 +167,31 @@ def _read_session_rows() -> list[dict[str, str]]:
         return []
 
 
-def _csv_line_count(path: Path) -> int:
-    if not path.exists():
-        return 0
-    try:
-        with open(path, newline="") as f:
-            return max(0, sum(1 for _ in f) - 1)
-    except Exception:
-        return 0
+def get_watch_writer(path: Path) -> csv.DictWriter:
+    """Gibt einen gecachten DictWriter zurück — öffnet die Datei nur beim ersten Aufruf."""
+    key = str(path)
+    if key not in _watch_writers:
+        _ensure_csv_header(path, WATCH_FIELDNAMES)
+        f: IO[str] = open(path, "a", newline="")
+        _watch_writers[key] = (f, csv.DictWriter(f, fieldnames=WATCH_FIELDNAMES))
+    return _watch_writers[key][1]
+
+
+def close_watch_writer(path: Path) -> None:
+    """Schließt und entfernt den Writer für diese Datei (beim Session-Stop)."""
+    key = str(path)
+    entry = _watch_writers.pop(key, None)
+    if entry:
+        try:
+            entry[0].flush()
+            entry[0].close()
+        except OSError:
+            pass
+
+
+def close_all_watch_writers() -> None:
+    """Schließt alle offenen Watch-Writer (beim Server-Shutdown)."""
+    for key in list(_watch_writers):
+        close_watch_writer(Path(key))
+
+
