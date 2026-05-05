@@ -9,7 +9,7 @@ class MotionManager: NSObject, ObservableObject {
         /// Request higher than any known hardware cap so CMMotionManager always runs at its maximum.
         /// The actual delivered rate is measured in actualSampleRateHz and reported in each batch envelope.
         static let requestedHz = 200.0
-        static let batchSize = 5
+        static let batchSize = 10
         static let maxBufferedSamples = 3000
     }
 
@@ -200,11 +200,12 @@ class MotionManager: NSObject, ObservableObject {
         let pending = WCSession.default.outstandingUserInfoTransfers.count
         guard pending < 8 else {
             // Queue full — drop this batch rather than letting it grow unbounded.
-            // At 100 Hz / batch 5 a full queue = 40 s of already-buffered data.
             let n = Self.sampleCount(from: message)
+            let firstDrop = droppedSampleCount == 0
             droppedSampleCount += n
             backgroundQueuedSampleCount = max(0, backgroundQueuedSampleCount - n)
             uploadMode = "Bridge (queue full)"
+            if firstDrop { WKInterfaceDevice.current().play(.failure) }
             return
         }
         WCSession.default.transferUserInfo(message)
@@ -285,8 +286,13 @@ class MotionManager: NSObject, ObservableObject {
     private func trimBufferIfNeeded() {
         guard buffer.count > Config.maxBufferedSamples else { return }
         let overflow = buffer.count - Config.maxBufferedSamples
+        let firstDrop = droppedSampleCount == 0
         buffer.removeFirst(overflow)
         droppedSampleCount += overflow
+        if firstDrop {
+            // One haptic so the user notices even when not looking at the stats page.
+            WKInterfaceDevice.current().play(.failure)
+        }
     }
 
     private static func currentTimestampMillis() -> Int64 {

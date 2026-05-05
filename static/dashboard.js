@@ -503,26 +503,34 @@ async function loadSessions() {
   S.qualitySummary = quality?.summary || null;
   S.qualityBySession = {};
   (quality?.sessions || []).forEach(q => { S.qualityBySession[q.session_id] = q; });
-  S.validationBySession = {};
-  const validations = await Promise.all((S.allSessions || []).map(s =>
-    api(`/sessions/${encodeURIComponent(s.session_id)}/validation`, 'GET')
-      .then(v => ({ sid: s.session_id, validation: v }))
-  ));
-  validations.forEach(({ sid, validation }) => {
-    if (validation) S.validationBySession[sid] = validation;
-  });
+  if (!S.validationBySession) S.validationBySession = {};
   renderQualitySummary();
   renderSessions(S.allSessions);
-  if (S.selectedSessionId) renderSessionValidation(S.selectedSessionId);
+  if (S.selectedSessionId) await loadValidationIfNeeded(S.selectedSessionId);
 }
 
+async function loadValidationIfNeeded(sessionId) {
+  if (S.validationBySession[sessionId]) {
+    renderSessionValidation(sessionId);
+    return;
+  }
+  renderSessionValidation(sessionId); // show "Loading…" panel immediately
+  const v = await api(`/sessions/${encodeURIComponent(sessionId)}/validation`, 'GET');
+  if (v) S.validationBySession[sessionId] = v;
+  if (S.selectedSessionId === sessionId) renderSessionValidation(sessionId);
+}
+
+let _filterDebounce;
 function filterSessions() {
-  const q = document.getElementById('sessionSearch').value.toLowerCase();
-  renderSessions(S.allSessions.filter(s =>
-    s.session_id?.toLowerCase().includes(q) ||
-    s.person_id?.toLowerCase().includes(q) ||
-    s.description?.toLowerCase().includes(q)
-  ));
+  clearTimeout(_filterDebounce);
+  _filterDebounce = setTimeout(() => {
+    const q = document.getElementById('sessionSearch').value.toLowerCase();
+    renderSessions(S.allSessions.filter(s =>
+      s.session_id?.toLowerCase().includes(q) ||
+      s.person_id?.toLowerCase().includes(q) ||
+      s.description?.toLowerCase().includes(q)
+    ));
+  }, 200);
 }
 
 function renderSessions(rows) {
@@ -582,7 +590,7 @@ function renderQualitySummary() {
 function selectSession(sessionId) {
   S.selectedSessionId = sessionId;
   renderSessions(S.allSessions);
-  renderSessionValidation(sessionId);
+  loadValidationIfNeeded(sessionId);
 }
 
 function renderSessionValidation(sessionId) {

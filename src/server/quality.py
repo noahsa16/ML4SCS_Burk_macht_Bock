@@ -15,6 +15,26 @@ from typing import Any, Optional
 from .config import DATA_RAW_PEN, DATA_RAW_WATCH
 from .utils import _as_float, _as_int, _mad, _parse_iso, _row_local_ms
 
+# ── Sync-Heuristik: Konstanten ────────────────────────────────────────────────
+# Tap-Kandidaten: Striche kürzer als dies gelten als Sync-Taps
+_TAP_MAX_DURATION_MS   = 1400   # maximale Strich-Dauer
+_TAP_MAX_DOTS          = 80     # maximale Dot-Anzahl pro Strich
+# Peak-Erkennung: Mindestabstand zwischen zwei Peaks
+_PEAK_MIN_SEPARATION_MS = 250
+# Tap-Matching: Maximale erlaubte Abweichung zwischen Vorhersage und Peak
+_MATCH_SEARCH_WINDOW_MS = 1600
+# Confidence-Schwellwerte: wie genau muss das Matching sein?
+_CONFIDENCE_HIGH_MIN_MATCHES = 6
+_CONFIDENCE_HIGH_MAX_ERROR   = 350  # ms
+_CONFIDENCE_LOW_MAX_ERROR    = 900  # ms
+# Kandidaten-Trimming: bei mehr als diesem Wert nur Anfang+Ende behalten
+_MAX_CANDIDATES          = 24
+_CANDIDATES_KEEP_EACH    = 12
+
+# ── Quality-Cache ─────────────────────────────────────────────────────────────
+# session_id → ((watch_mtime_ns, pen_mtime_ns), cached_result)
+_quality_cache: dict[str, tuple[tuple[int, int], dict[str, Any]]] = {}
+
 
 # ── Kleine Hilfsfunktionen ────────────────────────────────────────────────────
 
@@ -269,8 +289,7 @@ def _watch_peaks(rows: list[dict[str, Any]], max_peaks: int = 80) -> list[dict[s
         if mag < threshold:
             continue
         source_ts = row["source_ts"]
-        # Innerhalb von 250 ms nur den stärksten Peak behalten
-        if last_ts is not None and source_ts - last_ts < 250:
+        if last_ts is not None and source_ts - last_ts < _PEAK_MIN_SEPARATION_MS:
             if peaks and mag > peaks[-1]["motion_mag"]:
                 peaks[-1] = {"source_ts": source_ts, "motion_mag": round(mag, 6)}
             continue
@@ -327,13 +346,12 @@ def _estimate_sync_drift(
         r for r in pen_rows
         if r.get("dot_type") == "PEN_DOWN" and r.get("source_ts") is not None
     ]
-    # Kurze Striche (≤1400 ms, ≤80 Dots) sind gute Tap-Kandidaten
     short_intervals = [
         i for i in intervals
         if i.get("source_start_ms") is not None
         and i.get("duration_ms") is not None
-        and i["duration_ms"] <= 1400
-        and i.get("dot_count", 9999) <= 80
+        and i["duration_ms"] <= _TAP_MAX_DURATION_MS
+        and i.get("dot_count", 9999) <= _TAP_MAX_DOTS
     ]
     candidate_ts = [i["source_start_ms"] for i in short_intervals] or [
         r["source_ts"] for r in pen_downs
@@ -349,12 +367,11 @@ def _estimate_sync_drift(
         }
 
     candidate_ts = sorted(candidate_ts)
-    if len(candidate_ts) > 24:
-        candidate_ts = candidate_ts[:12] + candidate_ts[-12:]
+    if len(candidate_ts) > _MAX_CANDIDATES:
+        candidate_ts = candidate_ts[:_CANDIDATES_KEEP_EACH] + candidate_ts[-_CANDIDATES_KEEP_EACH:]
 
     peak_by_ts = sorted(peaks, key=lambda p: p["source_ts"])
     matches: list[dict[str, Any]] = []
-    search_window_ms = 1600
     for pen_ts in candidate_ts:
         predicted = pen_ts + approx_pen_to_watch_offset
         nearest = min(
@@ -365,7 +382,7 @@ def _estimate_sync_drift(
         if not nearest:
             continue
         error = nearest["source_ts"] - predicted
-        if abs(error) <= search_window_ms:
+        if abs(error) <= _MATCH_SEARCH_WINDOW_MS:
             matches.append({
                 "pen_source_ms": pen_ts,
                 "watch_peak_source_ms": nearest["source_ts"],
@@ -393,8 +410,9 @@ def _estimate_sync_drift(
     end_offset = median(offsets[split:])
     drift_ms = end_offset - start_offset
     errors = [m["error_from_local_anchor_ms"] for m in matches]
-    confidence = "high" if len(matches) >= 6 and max(abs(e) for e in errors) <= 350 else "medium"
-    if max(abs(e) for e in errors) > 900:
+    max_error = max(abs(e) for e in errors)
+    confidence = "high" if len(matches) >= _CONFIDENCE_HIGH_MIN_MATCHES and max_error <= _CONFIDENCE_HIGH_MAX_ERROR else "medium"
+    if max_error > _CONFIDENCE_LOW_MAX_ERROR:
         confidence = "low"
 
     return {
@@ -406,7 +424,7 @@ def _estimate_sync_drift(
         "start_offset_ms": round(start_offset, 3),
         "end_offset_ms": round(end_offset, 3),
         "estimated_drift_ms": round(drift_ms, 3),
-        "max_abs_error_from_local_anchor_ms": round(max(abs(e) for e in errors), 3),
+        "max_abs_error_from_local_anchor_ms": round(max_error, 3),
         "watch_peaks_found": len(peaks),
         "pen_candidates_found": len(candidate_ts),
         "matched_events": matches,
@@ -424,10 +442,16 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
     - recording_health: Lief die technische Aufnahme sauber?
 
     Sync-/Clock-Heuristiken bleiben Diagnose und verschlechtern keinen Score.
+    Ergebnisse werden per Datei-mtime gecacht — kein Reload solange kein CSV geändert wird.
     """
     sid = row.get("session_id", "")
     watch_path = DATA_RAW_WATCH / f"{sid}_watch.csv"
-    pen_path = DATA_RAW_PEN / f"{sid}_pen.csv"
+    pen_path   = DATA_RAW_PEN   / f"{sid}_pen.csv"
+    watch_mtime = int(watch_path.stat().st_mtime_ns) if watch_path.exists() else 0
+    pen_mtime   = int(pen_path.stat().st_mtime_ns)   if pen_path.exists()   else 0
+    cache_key   = (watch_mtime, pen_mtime)
+    if sid in _quality_cache and _quality_cache[sid][0] == cache_key:
+        return _quality_cache[sid][1]
     ml_issues: list[dict[str, str]] = []
     recording_issues: list[dict[str, str]] = []
     info_issues: list[dict[str, str]] = []
@@ -445,6 +469,11 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
 
     def add_recording(code: str, severity: str, message: str) -> None:
         recording_issues.append({"code": code, "severity": severity, "message": message})
+
+    def add_both(code: str, severity: str, message: str) -> None:
+        issue = {"code": code, "severity": severity, "message": message}
+        ml_issues.append(issue)
+        recording_issues.append(issue)
 
     def add_info(code: str, message: str) -> None:
         info_issues.append({"code": code, "severity": "info", "message": message})
@@ -534,33 +563,24 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
     is_active_session = row.get("status") == "active"
 
     if watch_rows == 0:
-        add_ml("no_watch_samples", "bad", "No watch samples were recorded.")
-        add_recording("no_watch_samples", "bad", "No watch samples were recorded.")
+        add_both("no_watch_samples", "bad", "No watch samples were recorded.")
     if pen_rows == 0:
         add_ml("no_pen_samples", "bad", "No pen dots were recorded for ground truth.")
         add_recording("no_pen_samples", "warn", "No pen dots were recorded for ground truth.")
     if watch_rows and not watch_ts_values:
-        add_ml("watch_no_device_time", "bad", "Watch rows have no usable device timestamp column 'ts'.")
-        add_recording("watch_no_device_time", "bad", "Watch rows have no usable device timestamp column 'ts'.")
+        add_both("watch_no_device_time", "bad", "Watch rows have no usable device timestamp column 'ts'.")
     if pen_rows and not pen_ts_values:
-        add_ml("pen_no_device_time", "bad", "Pen rows have no usable device timestamp column 'timestamp'.")
-        add_recording("pen_no_device_time", "bad", "Pen rows have no usable device timestamp column 'timestamp'.")
+        add_both("pen_no_device_time", "bad", "Pen rows have no usable device timestamp column 'timestamp'.")
     if watch_rows and gyro_rows == 0:
-        msg = "Watch samples do not contain rx/ry/rz gyroscope values."
-        add_ml("missing_gyroscope", "bad", msg)
-        add_recording("missing_gyroscope", "bad", msg)
+        add_both("missing_gyroscope", "bad", "Watch samples do not contain rx/ry/rz gyroscope values.")
     if watch_rows and accel_rows == 0:
-        msg = "Watch samples do not contain ax/ay/az accelerometer values."
-        add_ml("missing_accelerometer", "warn", msg)
-        add_recording("missing_accelerometer", "warn", msg)
+        add_both("missing_accelerometer", "warn", "Watch samples do not contain ax/ay/az accelerometer values.")
     if watch_est_hz is not None and not (80 <= watch_est_hz <= 120):
-        msg = f"Estimated watch sample rate is {watch_est_hz:.1f} Hz (expected ~100 Hz)."
-        add_ml("watch_rate_out_of_range", "warn", msg)
-        add_recording("watch_rate_out_of_range", "warn", msg)
+        add_both("watch_rate_out_of_range", "warn",
+                 f"Estimated watch sample rate is {watch_est_hz:.1f} Hz (expected ~100 Hz).")
     if sequence_gaps:
-        msg = f"Detected {sequence_gaps} missing watch batch sequence(s)."
-        add_ml("sequence_gaps", "warn", msg)
-        add_recording("sequence_gaps", "warn", msg)
+        add_both("sequence_gaps", "warn",
+                 f"Detected {sequence_gaps} missing watch batch sequence(s).")
     watch_count_delta = abs(watch_rows - session_watch_samples)
     watch_count_tolerance = max(5, int(max(watch_rows, session_watch_samples) * 0.01))
     if not is_active_session and watch_rows != session_watch_samples:
@@ -588,9 +608,8 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
     if watch_rows and server_time_rows == 0:
         add_recording("legacy_watch_time", "warn", "Watch CSV has no server_received_ms column.")
     if not is_active_session and expected_watch_samples and watch_rows < expected_watch_samples * 0.7:
-        msg = "Watch rows are far below expected 100 Hz device/session duration."
-        add_ml("low_watch_coverage", "warn", msg)
-        add_recording("low_watch_coverage", "warn", msg)
+        add_both("low_watch_coverage", "warn",
+                 "Watch rows are far below expected 100 Hz device/session duration.")
     if start and pen_timestamp_years and start.year not in pen_timestamp_years and pen_server_time_rows == 0:
         add_info(
             "pen_clock_mismatch",
@@ -633,7 +652,7 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
             continue
         seen_issues.add(key)
         combined_issues.append(issue)
-    return {
+    result = {
         "session_id": sid,
         "person_id": row.get("person_id", ""),
         "description": row.get("description", ""),
@@ -707,6 +726,8 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
         "issues": combined_issues,
         "quality": ml_readiness["status"],
     }
+    _quality_cache[sid] = (cache_key, result)
+    return result
 
 
 # ── Detaillierte Session-Validierung (für /sessions/{id}/validation) ──────────
