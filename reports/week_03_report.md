@@ -96,8 +96,7 @@ Can writing activity and concentration levels be detected using sensor data from
 - Added Pydantic-based session handling and the `/sessions/quality` endpoint with split ML-readiness / recording-health scoring
 - Diagnosed and fixed the WebSocket reconnect storm via a `connectionEpoch` counter; added server-wide logging infrastructure
 - Refactored `quality.py` around `ISSUE_SPECS` + `_session_facts`; fixed three real bugs in the thresholds; added per-session Markdown report export
-- Fixed the live handwriting preview (Moleskine `PEN_DOWN` sentinel coordinate handling); registered the Watch app icon
-- Wrote `CLAUDE.md` and overhauled the README with screenshots and pipeline documentation
+- live handwriting preview (Moleskine `PEN_DOWN` sentinel coordinate handling); registered the Watch app icon
 
 ### Ben
 
