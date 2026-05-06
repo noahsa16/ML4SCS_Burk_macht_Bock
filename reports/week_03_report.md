@@ -41,7 +41,7 @@ Can writing activity and concentration levels be detected using sensor data from
 - **FastAPI server**: session start/stop endpoints, `/watch` ingestion endpoint, WebSocket for live status, dashboard at `/`. Pen logger is spawned as a child subprocess and tied to the active session.
 - **Modularization**: refactored the monolithic `server.py` into a clean `src/server/` package (config, state, csv_io, status, quality, broadcast, pen_proc, routes) with strict dependency direction.
 - **Pydantic models**: introduced typed request/response models for more robust session handling and validation.
-- **Dashboard**: production-ready HTML/JS frontend showing live connection status, sample rates, per-second chart of acc/gyro magnitude and pen writing state, plus a sessions overview with quality metrics.
+- **Dashboard**:  HTML/JS frontend showing live connection status, sample rates, per-second chart of acc/gyro magnitude and pen writing state, plus a sessions overview with quality metrics.
 - **README overhaul**: rewrote with screenshots, project structure and quality-check documentation. Added `CLAUDE.md` to formalize the project context.
 
 ### Technical Work — Stability & Quality Pass (later in the week)
