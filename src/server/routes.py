@@ -97,7 +97,13 @@ def _session_preflight_payload() -> dict:
 
 @router.get("/")
 async def dashboard():
-    return FileResponse(DASHBOARD_HTML)
+    # no-store verhindert, dass der Browser die Dashboard-HTML cached.
+    # CSS/Markup-Änderungen erscheinen damit beim nächsten normalen Reload,
+    # ohne dass wir ständig Cache-Buster ans <script src> hängen müssen.
+    return FileResponse(
+        DASHBOARD_HTML,
+        headers={"Cache-Control": "no-store, must-revalidate"},
+    )
 
 
 # ── Watch-Heartbeat und Status ────────────────────────────────────────────────

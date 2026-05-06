@@ -40,20 +40,165 @@ const pageMeta = {
   system:      { title: 'System & Schema',  sub: 'Data structure · API reference · Project info' },
 };
 
-document.querySelectorAll('.nav-item').forEach(el => {
+document.querySelectorAll('.tab').forEach(el => {
   el.addEventListener('click', () => {
     const p = el.dataset.page;
-    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.querySelectorAll('.tab').forEach(n => n.classList.remove('active'));
     el.classList.add('active');
     document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
     document.getElementById('page-' + p).classList.add('active');
     const m = pageMeta[p];
-    document.getElementById('pageTitle').textContent = m.title;
-    document.getElementById('pageSub').textContent = m.sub;
+    // pageTitle / pageSub gibt es im neuen Topbar-Layout nicht mehr —
+    // der aktive Tab ist die Page-Identität.
+    document.getElementById('pageTitle')?.replaceChildren(document.createTextNode(m.title));
+    document.getElementById('pageSub')?.replaceChildren(document.createTextNode(m.sub));
+    document.title = `${m.title} — Burk macht Bock`;
     if (p === 'sessions') loadSessions();
     if (p === 'connections') updateConnectionsPage();
+    updateTabIndicator();
   });
 });
+
+// Slidender Tab-Underline: misst Position+Breite des aktiven Tabs und
+// translatet ein einzelnes Indicator-Element dahin. CSS macht den Slide.
+function updateTabIndicator() {
+  const indicator = document.getElementById('tabIndicator');
+  const active = document.querySelector('.tab.active');
+  if (!indicator || !active) return;
+  const parentRect = active.parentElement.getBoundingClientRect();
+  const tabRect = active.getBoundingClientRect();
+  // Insets entsprechen dem alten ::after left:14px / right:14px Padding
+  const inset = 14;
+  const left = tabRect.left - parentRect.left + inset;
+  const width = Math.max(0, tabRect.width - inset * 2);
+  indicator.style.transform = `translateX(${left}px)`;
+  indicator.style.width = `${width}px`;
+  indicator.classList.add('ready');
+}
+
+// Initial nach Font-Load (sonst stimmt die Breite nicht), und bei Resize
+window.addEventListener('load', () => requestAnimationFrame(updateTabIndicator));
+if (document.fonts?.ready) {
+  document.fonts.ready.then(updateTabIndicator);
+}
+window.addEventListener('resize', updateTabIndicator);
+
+// Status-Cluster im Topbar → springt direkt zur Connections-Page für Detail-Diagnose
+document.getElementById('statusCluster')?.addEventListener('click', () => {
+  document.querySelector('.tab[data-page="connections"]')?.click();
+});
+
+// ════════════════════════════════════════════════════════════
+//  SMOOTH NUMBER UPDATES (Low-Pass / Exponential Smoothing)
+//  Anzeige strebt kontinuierlich in Richtung Zielwert. Bei jedem
+//  Frame: displayed += (target - displayed) * α(dt). Kein diskreter
+//  Tween, kein Plateau am Ende, kein Restart-Artefakt bei jitterigen
+//  Broadcasts — das ist mathematisch genau das, was du als smooth
+//  empfindest. timeConstant steuert die "Trägheit" (kleiner = schneller).
+// ════════════════════════════════════════════════════════════
+const _numAnim = new Map();
+let _animLoopRunning = false;
+let _animLastFrame = 0;
+// Skeleton: Mindest-Anzeigedauer ab Page-Load, damit der Loader nicht
+// nur für 50 ms aufblitzt bevor die ersten WS-Daten ankommen.
+const _PAGE_LOAD_T0 = performance.now();
+const SKEL_MIN_MS = 600;
+
+function setNumberSmooth(elementId, value, opts = {}) {
+  const el = document.getElementById(elementId);
+  if (!el) return;
+  const fmt = opts.format || ((v) => Math.round(v).toString());
+  const target = Number(value);
+  const timeConstant = opts.timeConstant ?? 350;
+  const wantsSkel = el.dataset.skel !== undefined;
+
+  if (!Number.isFinite(target)) {
+    _numAnim.delete(elementId);
+    // Skeleton nur solange wir noch nie einen echten Wert hatten — vermeidet
+    // dass Werte zwischen Sessions in Loading-State zurückspringen.
+    if (wantsSkel && el.dataset.skelDone === undefined) {
+      el.classList.add('skel-loading');
+    }
+    el.textContent = opts.fallback ?? '–';
+    return;
+  }
+
+  // Wenn Skeleton noch aktiv: Mindestanzeigedauer einhalten, sonst defer
+  if (wantsSkel && el.classList.contains('skel-loading')) {
+    const elapsed = performance.now() - _PAGE_LOAD_T0;
+    if (elapsed < SKEL_MIN_MS) {
+      setTimeout(() => setNumberSmooth(elementId, value, opts), SKEL_MIN_MS - elapsed);
+      return;
+    }
+    el.classList.remove('skel-loading');
+    el.dataset.skelDone = '1';
+  } else if (wantsSkel) {
+    el.dataset.skelDone = '1';
+  }
+
+  let st = _numAnim.get(elementId);
+  if (!st) {
+    // Erste Anzeige: direkt setzen, ohne 0 → real Animation
+    st = { el, fmt, timeConstant, displayed: target, target, lastShownText: '' };
+    _numAnim.set(elementId, st);
+    const txt = fmt(target);
+    el.textContent = txt;
+    el.dataset.numValue = String(target);
+    st.lastShownText = txt;
+    return;
+  }
+
+  st.fmt = fmt;
+  st.timeConstant = timeConstant;
+  st.target = target;
+
+  if (!_animLoopRunning) _startAnimLoop();
+}
+
+function _startAnimLoop() {
+  _animLoopRunning = true;
+  _animLastFrame = performance.now();
+  function tick(now) {
+    const dt = Math.min(100, now - _animLastFrame); // cap to avoid big jumps after tab inactive
+    _animLastFrame = now;
+    let active = false;
+    for (const [, st] of _numAnim) {
+      const diff = st.target - st.displayed;
+      if (Math.abs(diff) < 1e-4) {
+        if (st.displayed !== st.target) {
+          st.displayed = st.target;
+          const txt = st.fmt(st.displayed);
+          if (txt !== st.lastShownText) {
+            st.el.textContent = txt;
+            st.el.dataset.numValue = String(st.displayed);
+            st.lastShownText = txt;
+          }
+        }
+        continue;
+      }
+      active = true;
+      const alpha = 1 - Math.exp(-dt / st.timeConstant);
+      st.displayed += diff * alpha;
+      const txt = st.fmt(st.displayed);
+      if (txt !== st.lastShownText) {
+        st.el.textContent = txt;
+        st.el.dataset.numValue = String(st.displayed);
+        st.lastShownText = txt;
+      }
+    }
+    if (active) requestAnimationFrame(tick);
+    else _animLoopRunning = false;
+  }
+  requestAnimationFrame(tick);
+}
+
+// Format-Helper für die Smooth-Updates
+const _smoothFmt = {
+  hz: (v) => v > 0 ? `${v.toFixed(v >= 10 ? 1 : 2)} Hz` : '– Hz',
+  count: (v) => Math.round(v).toLocaleString('de-DE'),
+  decimal3: (v) => v.toFixed(3),
+  pct: (v) => `${Math.round(v)}%`,
+};
 
 // ════════════════════════════════════════════════════════════
 //  CHART
@@ -175,9 +320,9 @@ function updateChart(chartPts) {
     ? Math.round(S.chartBuffer.filter(b => b.pen_writing).length / S.chartBuffer.length * 100)
     : 0;
 
-  document.getElementById('statMag').textContent = curAcc.toFixed(3);
-  document.getElementById('statGyro').textContent = curGyro.toFixed(3);
-  document.getElementById('statWritePct').textContent = writePct + '%';
+  setNumberSmooth('statMag', curAcc, { format: _smoothFmt.decimal3 });
+  setNumberSmooth('statGyro', curGyro, { format: _smoothFmt.decimal3 });
+  setNumberSmooth('statWritePct', writePct, { format: _smoothFmt.pct });
 }
 
 // ════════════════════════════════════════════════════════════
@@ -241,6 +386,8 @@ function drawPenCanvas() {
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.offsetWidth || 600;
   const cssH = 200;
+  // Empty-State Overlay aus-/einblenden je nach Daten-Lage
+  document.getElementById('penCanvasWrap')?.classList.toggle('has-data', S.penDotBuffer.length > 0);
 
   if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
     canvas.width = Math.round(cssW * dpr);
@@ -343,7 +490,7 @@ function connectWs() {
     const msg = JSON.parse(data);
     if (msg.type === 'status') handleStatus(msg);
     else if (msg.type === 'start') toast(`▶ Session ${msg.session_id} started`);
-    else if (msg.type === 'stop') { toast(`■ Session ${msg.session_id} stopped`); if (document.querySelector('.nav-item.active')?.dataset.page === 'sessions') loadSessions(); }
+    else if (msg.type === 'stop') { toast(`■ Session ${msg.session_id} stopped`); if (document.querySelector('.tab.active')?.dataset.page === 'sessions') loadSessions(); }
   };
 
   ws.onclose = () => {
@@ -355,12 +502,27 @@ function connectWs() {
 }
 
 function setWsStatus(st) {
+  // wsDot / wsLabel waren in der alten Sidebar — im neuen Topbar zeigt der
+  // Server-Dot im Status-Cluster die WS-Verbindung. Defensives null-checking,
+  // damit ältere uptime-Anzeigen weiter laufen.
   const dot = document.getElementById('wsDot');
+  if (dot) {
+    dot.className = 'ws-dot' + (st === 'ok' ? ' ok' : '');
+  }
   const lbl = document.getElementById('wsLabel');
-  dot.className = 'ws-dot';
-  if (st === 'ok') { dot.classList.add('ok'); lbl.textContent = 'WS connected'; }
-  else { lbl.textContent = 'WS reconnecting…'; }
-  document.getElementById('uptimeWs').textContent = st === 'ok' ? 'Connected' : 'Reconnecting';
+  if (lbl) lbl.textContent = st === 'ok' ? 'WS connected' : 'WS reconnecting…';
+  const uptimeWs = document.getElementById('uptimeWs');
+  if (uptimeWs) uptimeWs.textContent = st === 'ok' ? 'Connected' : 'Reconnecting';
+}
+
+// Brand-Klick → zurück zur Recording-Page (Home-Behavior)
+function goHome() {
+  document.querySelector('.tab[data-page="recording"]')?.click();
+}
+
+// Details-Toggle: Sekundär-Metriken auf einer Card ein-/ausklappen
+function toggleCardDetails(btn) {
+  btn.closest('.card')?.classList.toggle('expanded');
 }
 
 function setNetworkNode(id, state, text) {
@@ -421,16 +583,27 @@ function handleStatus(s) {
   S.watchStatusText = watchStatusText;
   S.watchBadgeClass = watchBadgeClass;
 
-  // Pills
-  setPill('pillPen', s.pen_connected, `Pen · ${s.pen_samples} dots`, s.pen_connected ? 'ok' : 'err');
-  setPill('pillWatch', watchUiOnline, `Watch · ${watchStatusText} · ${fmtHz(watchRate)}`, watchStreamActive || watchReachable || watchPolling ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'));
-  setPill('pillServer', true, `Server · ${fmtUptime(s.uptime_seconds)}`, 'ok');
+  // Hero-Card "live"-Modus: aktiviert die Akzent-Stripe + LIVE-Indicator
+  document.getElementById('liveRecordingHero')?.classList.toggle('live', !!s.session_active);
+
+  // Konsolidierter Status-Cluster im Topbar — drei Dots + ein Plaintext-Label
+  const penDotState = s.pen_connected ? 'ok' : 'err';
+  const watchDotState = (watchStreamActive || watchReachable || watchPolling)
+    ? 'ok' : (watchBridgeConnected ? 'warn' : 'err');
+  const serverDotState = 'ok';
+  setStatusCluster({
+    pen: penDotState, watch: watchDotState, server: serverDotState,
+    sessionActive: s.session_active,
+    watchRate, watchStatusText,
+    penDots: s.pen_samples, watchSamples: s.watch_samples,
+    uptime: s.uptime_seconds,
+  });
 
   // Counts
-  document.getElementById('watchCount').textContent = s.watch_samples.toLocaleString();
-  document.getElementById('penCount').textContent = s.pen_samples.toLocaleString();
+  setNumberSmooth('watchCount', s.watch_samples, { format: _smoothFmt.count });
+  setNumberSmooth('penCount', s.pen_samples, { format: _smoothFmt.count });
   document.getElementById('sessionIdDisp').textContent = s.session_id || '—';
-  document.getElementById('watchRateMain').textContent = fmtHz(watchRate);
+  setNumberSmooth('watchRateMain', watchRate, { format: _smoothFmt.hz });
   document.getElementById('personId').disabled = s.session_active;
   document.getElementById('sessionDescription').disabled = s.session_active;
 
@@ -453,9 +626,9 @@ function handleStatus(s) {
   document.getElementById('penBleStatus').textContent = s.pen_connected ? 'Connected' : 'Idle';
   document.getElementById('dotType').textContent = lastPen.dot_type || '–';
   document.getElementById('penLastXY').textContent = lastPen.x != null ? `${fmtNum(lastPen.x)}, ${fmtNum(lastPen.y)}` : '–';
-  document.getElementById('penRateSide').textContent = fmtHz(penRate);
-  document.getElementById('watchRateSide').textContent = fmtHz(watchRate);
-  document.getElementById('watchGyroSide').textContent = lastWatch.gyro_mag != null ? fmtNum(lastWatch.gyro_mag) : '–';
+  setNumberSmooth('penRateSide', penRate, { format: _smoothFmt.hz });
+  setNumberSmooth('watchRateSide', watchRate, { format: _smoothFmt.hz });
+  setNumberSmooth('watchGyroSide', lastWatch.gyro_mag, { format: _smoothFmt.decimal3 });
   document.getElementById('watchLastTs').textContent = s.watch_last_seen_ms_ago != null ? fmtAgo(s.watch_last_seen_ms_ago) : '–';
 
   // Health metrics
@@ -474,7 +647,7 @@ function handleStatus(s) {
   document.getElementById('uptimeSession').textContent = s.session_id || 'None';
   document.getElementById('uptimeBridge').textContent = watchBridgeConnected ? 'Connected' : '–';
   document.getElementById('penPid').textContent = s.pen_pid || '–';
-  document.getElementById('connPenHz').textContent = fmtHz(penRate);
+  setNumberSmooth('connPenHz', penRate, { format: _smoothFmt.hz });
   document.getElementById('connPenLast').textContent = lastPen.dot_type ? `${lastPen.dot_type} · ${fmtNum(lastPen.x)}, ${fmtNum(lastPen.y)}` : '–';
   document.getElementById('connPenClock').textContent = penClockOk ? 'ok' : 'legacy/missing';
   document.getElementById('connWatchBridge').textContent = watchBridgeConnected ? 'connected' : 'not connected';
@@ -482,8 +655,8 @@ function handleStatus(s) {
     ? `polling${s.watch_poll_age_ms != null ? ` · ${fmtAgo(s.watch_poll_age_ms)}` : ''}`
     : (s.watch_reachable === true ? 'yes' : (s.watch_reachable === false ? 'no' : 'unknown'));
   document.getElementById('connWatchStream').textContent = watchStreamActive ? 'active' : 'idle/no samples';
-  document.getElementById('connWatchHz').textContent = fmtHz(watchRate);
-  document.getElementById('connWatchBatchHz').textContent = fmtHz(s.watch_batch_rate_hz || 0);
+  setNumberSmooth('connWatchHz', watchRate, { format: _smoothFmt.hz });
+  setNumberSmooth('connWatchBatchHz', s.watch_batch_rate_hz || 0, { format: _smoothFmt.hz });
   document.getElementById('connWatchGyro').textContent = gyroOk ? 'yes' : 'no';
   document.getElementById('connWatchSkew').textContent = s.watch_clock_skew_ms != null ? `${s.watch_clock_skew_ms} ms` : '–';
   document.getElementById('connWatchGaps').textContent = s.watch_sequence_gaps ?? 0;
@@ -527,6 +700,8 @@ function handleStatus(s) {
 
   // Chart
   if (s.chart) updateChart(s.chart);
+  // Empty-State Overlay aus-/einblenden je nach ob Chart-Daten existieren
+  document.getElementById('chartCanvasWrap')?.classList.toggle('has-data', S.chartBuffer.length > 0);
 
   // Pen handwriting canvas
   if (s.pen_recent_dots) updatePenCanvas(s.pen_recent_dots);
@@ -542,8 +717,56 @@ function handleStatus(s) {
 
 function setPill(id, ok, text, cls) {
   const el = document.getElementById(id);
+  if (!el) return;
   el.className = 'pill ' + (cls || '');
   document.getElementById(id + 'Txt').textContent = text;
+}
+
+function setStatusCluster(s) {
+  const setDot = (id, state) => {
+    const el = document.getElementById(id);
+    if (el) el.className = 'status-dot ' + (state || '');
+  };
+  setDot('clusterDotPen', s.pen);
+  setDot('clusterDotWatch', s.watch);
+  setDot('clusterDotServer', s.server);
+
+  // Primär-Label: Worst-Case zuerst kommunizieren, dann positiv-Bestätigung.
+  let label, meta = '';
+  const issues = [];
+  if (s.pen === 'err')   issues.push('Pen offline');
+  if (s.watch === 'err') issues.push('Watch offline');
+  if (s.server === 'err') issues.push('Server offline');
+  if (s.pen === 'warn')   issues.push('Pen reconnecting');
+  if (s.watch === 'warn') issues.push('Watch reconnecting');
+
+  if (issues.length) {
+    label = issues[0];
+  } else {
+    label = s.sessionActive ? 'Recording live' : 'All systems';
+  }
+  if (s.sessionActive && s.watchRate > 0) {
+    meta = `${s.watchRate.toFixed(s.watchRate >= 10 ? 1 : 2)} Hz`;
+  } else if (!s.sessionActive) {
+    meta = `up ${fmtUptime(s.uptime || 0)}`;
+  }
+
+  const labelEl = document.getElementById('statusClusterLabel');
+  const metaEl = document.getElementById('statusClusterMeta');
+  if (labelEl) labelEl.textContent = label;
+  if (metaEl) metaEl.textContent = meta;
+
+  // Detaillierter Hover-Tooltip für Diagnose
+  const tip = [
+    `Pen: ${s.pen === 'ok' ? 'connected' : 'disconnected'}` +
+      (s.penDots ? ` · ${s.penDots} dots` : ''),
+    `Watch: ${s.watchStatusText || (s.watch === 'ok' ? 'online' : 'offline')}` +
+      (s.watchRate > 0 ? ` · ${s.watchRate.toFixed(1)} Hz` : '') +
+      (s.watchSamples ? ` · ${s.watchSamples} samples` : ''),
+    `Server: ok · uptime ${fmtUptime(s.uptime || 0)}`,
+  ].join('\n');
+  const cluster = document.getElementById('statusCluster');
+  if (cluster) cluster.title = tip;
 }
 
 function setBadge(id, ok, text, cls = null) {
@@ -603,7 +826,7 @@ async function runStartPreflight() {
   if (!preflight) return { canStart: false, force: false };
   if (preflight.blockers?.length) {
     showPreflightResult(preflight);
-    document.querySelector('.nav-item[data-page="connections"]')?.click();
+    document.querySelector('.tab[data-page="connections"]')?.click();
     return { canStart: false, force: false };
   }
   if (preflight.warnings?.length) {
@@ -688,7 +911,14 @@ function filterSessions() {
 function renderSessions(rows) {
   const tbody = document.getElementById('sessionsBody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="14" class="table-empty">No sessions found</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="13">
+      <div class="empty-state">
+        <div class="empty-state-glyph">/</div>
+        <div class="empty-state-title">No recordings yet</div>
+        <div class="empty-state-hint">Once you start a session from the Recording tab, it will appear here with its quality scores and a downloadable report.</div>
+        <button class="empty-state-action" onclick="goHome()">Open Recording →</button>
+      </div>
+    </td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(s => {
@@ -712,9 +942,14 @@ function renderSessions(rows) {
       pen.has_server_time ? 'pen time' : 'legacy pen',
     ].join(' · ');
     const activeRow = S.selectedSessionId === s.session_id ? ' active' : '';
+    const personLabel = (s.person_id || '').trim();
+    const personCell = personLabel
+      ? `<div class="session-person">${esc(personLabel)}</div>
+         <div class="session-caption">${esc(s.session_id)}</div>`
+      : `<div class="session-person anonymous">Anonymous</div>
+         <div class="session-caption">${esc(s.session_id)}</div>`;
     return `<tr class="click-row${activeRow}" onclick="selectSession('${escAttr(s.session_id)}')">
-      <td class="mono bold">${esc(s.session_id)}</td>
-      <td>${esc(s.person_id || '–')}</td>
+      <td class="session-cell">${personCell}</td>
       <td title="${escAttr(s.description || '')}">${esc(s.description || '–')}</td>
       <td class="mono" style="font-size:11px;color:var(--text2)">${startFmt}</td>
       <td class="mono">${dur}</td>
@@ -885,7 +1120,17 @@ function setTheme(theme) {
   S.theme = theme === 'dark' ? 'dark' : 'light';
   localStorage.setItem('theme', S.theme);
   document.body.dataset.theme = S.theme;
-  document.getElementById('themeSelect').value = S.theme;
+  // Optionaler Settings-Select auf der System-Page bleibt synchron
+  const sel = document.getElementById('themeSelect');
+  if (sel) sel.value = S.theme;
+  // Glyph im Topbar-Toggle: zeige das *gegenteilige* Symbol (was man kriegt
+  // wenn man klickt). Light → Mond, Dark → Sonne.
+  const glyph = document.getElementById('themeToggleGlyph');
+  if (glyph) glyph.textContent = S.theme === 'dark' ? '☀' : '☾';
+}
+
+function toggleTheme() {
+  setTheme(S.theme === 'dark' ? 'light' : 'dark');
 }
 
 function setLogRows(value) {
