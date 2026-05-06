@@ -78,18 +78,20 @@ The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 sampl
 ## Project Structure
 
 ```
-server.py                        FastAPI entry point (thin, ~44 lines)
+server.py                        FastAPI entry point (thin, ~50 lines)
 pen_logger.py                    BLE logger for the Moleskine Smart Pen
 dashboard.html                   Single-page session dashboard
 static/dashboard.js              Dashboard frontend logic
 
 src/server/                      Modular server package
-  config.py                        Paths, field names
+  config.py                        Paths, field names, logs/ dir
   state.py                         In-memory session state
   utils.py                         Pure helper functions
-  csv_io.py                        CSV read/write
+  logging_setup.py                 File + stream + event-log handlers
+  csv_io.py                        CSV read/write, live-preview tail
   status.py                        Connection checks + status payload
-  quality.py                       Session quality & validation
+  quality.py                       Session quality, validation, report
+  models.py                        Pydantic request/response models
   broadcast.py                     WebSocket broadcast + 1-s status loop
   pen_proc.py                      Pen logger subprocess management
   routes.py                        All FastAPI endpoints
@@ -143,7 +145,9 @@ Open `http://localhost:8000` — the dashboard loads automatically.
 
 **5. Stop the session** — CSVs are finalized.
 
-**6. Check quality** — dashboard Sessions page shows `ml_readiness` and `recording_health` per session.
+**6. Check quality** — dashboard Sessions page shows `ml_readiness` and `recording_health` per session. The **⤓ md** link in each row downloads a self-explaining Markdown report listing every issue with its check, threshold, observed value, and rationale (`GET /sessions/{id}/report?format=md`).
+
+Server logs go to the terminal *and* `logs/server.log` (rotating). The same log lines also show up in the dashboard's event log panel — useful when debugging connection drops or rate spikes.
 
 ---
 
@@ -171,18 +175,23 @@ Label derivation: `label_writing = 1` if `dot_type ∈ {PEN_DOWN, PEN_MOVE}`, el
 
 ## Quality Checks
 
-Before using a session for modelling:
+Each session is scored against a fixed set of checks defined in `quality.py`. Every issue carries `code`, `check`, `threshold`, `observed`, and a short `rationale` so it's clear *why* a warning fired and what the assumption behind it was — useful when deciding whether the threshold itself needs adjusting.
 
 | Check | Target |
 |-------|--------|
 | Watch has accelerometer (`ax/ay/az`) | Required |
 | Watch has gyroscope (`rx/ry/rz`) | Required |
 | Watch sample rate | 40–60 Hz (target: 50 Hz) |
-| Pen CSV has `local_ts_ms` | Required for time alignment |
+| Pen CSV has `local_ts_ms` | Required for wall-clock anchor |
 | No sequence gaps in watch batches | Recommended |
-| Pen dots fall within watch time range | ≥ 95 % |
+| Pen dots fall within watch time range | ≥ 80 % |
+| `PEN_DOWN` / `PEN_UP` paired | Diagnostic |
 
-The `/sessions/quality` endpoint and dashboard Sessions page report `ml_readiness` (model-relevant issues) and `recording_health` (capture-level issues) separately.
+Two scores are exposed separately: `ml_readiness` (does this session contain usable training material?) and `recording_health` (did the hardware behave during capture?). Sync confidence is reported as a diagnostic only and never downgrades a session score on its own.
+
+The full per-session report is available as JSON at `GET /sessions/{id}/report` or as Markdown at `GET /sessions/{id}/report?format=md`.
+
+> **Open**: pen and watch device clocks do not share an epoch (the Moleskine pen's hardware clock is offset by ~922 days plus an arbitrary time-of-day shift). For session-level overlap and coverage checks this is irrelevant — wall-clock `local_ts_ms` is enough. For sample-level merging at single-millisecond precision, a per-session sync offset is needed; the plan is to add a tap-sync recording protocol (3× tap with the watch hand at session start) and feed the offset from `_estimate_sync_drift` into `merge_pen_watch`.
 
 ---
 
@@ -202,3 +211,4 @@ The `/sessions/quality` endpoint and dashboard Sessions page report `ml_readines
 
 - [Week 1](reports/week01.md)
 - [Week 2](reports/week_02_report.md)
+- [Week 3](reports/week_03_report.md)
