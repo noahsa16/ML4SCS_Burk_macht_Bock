@@ -105,8 +105,4 @@ Can writing activity and concentration levels be detected using sensor data from
 
 ### Taji
 
-- tbd
-
-### Taji
-
 - _to be filled in_
