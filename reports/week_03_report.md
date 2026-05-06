@@ -58,8 +58,6 @@ Can writing activity and concentration levels be detected using sensor data from
 
 **End-to-end pipeline test:** Started a session from the dashboard, connected pen and watch, wrote on the Moleskine and confirmed both CSVs were written under the same `session_id`. Watch samples landed at ~50 Hz, pen samples at ~80 Hz, no sequence gaps over a multi-minute recording.
 
-**Time alignment:** Used `pd.merge_asof` with ±20 ms tolerance on device-relative milliseconds to join watch IMU onto pen rows. Confirmed that the merged dataset preserves both sensor streams aligned around pen events.
-
 **Session quality decoupling:** Split session scoring into `ml_readiness` (is this usable for training?) and `recording_health` (did the hardware behave?). Sync confidence is now only a calibration diagnostic and no longer downgrades sessions on its own.
 
 **Reference session (S018):** the post-firmware test recording is the cleanest session so far — 1,660 watch samples at exactly 50.0 Hz, no sequence gaps, accelerometer + gyroscope present, 590 pen dots all with wall-clock stamps, 100% of pen dots fall within the watch capture window, and `PEN_DOWN`/`PEN_UP` are perfectly paired (19/19). The remaining issue is the expected `source_clocks_not_shared` info message: the Moleskine pen's hardware clock is offset by ~922 days plus ~16.5 hours from wall-clock — irrelevant for current session-level checks, but a TODO for the sample-level merge step.
@@ -85,8 +83,6 @@ Can writing activity and concentration levels be detected using sensor data from
 - Run first multi-subject recording sessions with all team members
 - Add a tap-sync recording protocol (3× tap with the watch hand at session start) and wire `_estimate_sync_drift`'s offset into `merge_pen_watch` for sample-level alignment
 - Start feature engineering on the merged dataset (windowing, rolling statistics on IMU, pen-derived speed/pressure features)
-- First baseline classifier for `label_writing` from watch IMU only
-- Explore concentration labelling protocol for the next experiment round
 
 ---
 
@@ -106,6 +102,10 @@ Can writing activity and concentration levels be detected using sensor data from
 ### Ben
 
 - _to be filled in_
+
+### Taji
+
+- tbd
 
 ### Taji
 
