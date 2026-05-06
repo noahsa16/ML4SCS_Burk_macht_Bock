@@ -15,10 +15,12 @@ DATA_RAW_PEN   = ROOT / "data" / "raw" / "pen"
 SESSIONS_CSV   = ROOT / "data" / "sessions.csv"
 DASHBOARD_HTML = ROOT / "dashboard.html"
 STATIC_DIR     = ROOT / "static"
+LOGS_DIR       = ROOT / "logs"
 
 DATA_RAW_WATCH.mkdir(parents=True, exist_ok=True)
 DATA_RAW_PEN.mkdir(parents=True, exist_ok=True)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
 WATCH_FIELDNAMES = [
     "local_ts", "local_ts_ms", "session_id", "sequence", "sample_rate_hz",

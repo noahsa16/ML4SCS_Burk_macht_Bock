@@ -9,7 +9,7 @@ _status_payload() baut das große JSON das jede Sekunde an alle WS-Clients geht.
 import time
 from typing import Any, Optional
 
-from .csv_io import _pen_last_dot, _pen_sample_count
+from .csv_io import _pen_last_dot, _pen_recent_dots, _pen_sample_count
 from .state import state
 from .utils import _now_ms, _round_or_none
 
@@ -170,4 +170,5 @@ def _status_payload(
         "event_log": list(state.event_log)[-80:],
         "sample_log": list(state.sample_log)[-80:],
         "validation": _validation_payload(last_pen_dot),
+        "pen_recent_dots": _pen_recent_dots(sid) if sid else [],
     }

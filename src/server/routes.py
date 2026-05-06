@@ -8,12 +8,15 @@ sind möglichst dünn — die eigentliche Logik steckt in den anderen Modulen.
 import csv
 import dataclasses
 import json
+import logging
 import math
 import time
 import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
+
+log = logging.getLogger("server.routes")
 from fastapi.responses import FileResponse, JSONResponse
 
 from .broadcast import _broadcast
@@ -30,7 +33,11 @@ from .csv_io import (
     get_watch_writer,
 )
 from .pen_proc import _start_pen, _stop_pen
-from .quality import _session_quality, _session_validation
+from .quality import (
+    _session_quality, _session_validation,
+    _session_report, _session_report_markdown,
+)
+from fastapi.responses import Response
 from .state import ActiveSession, state
 from .status import _status_payload
 from .utils import _now_ms, _round_or_none, _safe_file_id, _utc_iso_from_ms
@@ -177,6 +184,28 @@ async def get_session_validation(session_id: str):
     if any(issue["code"].endswith("missing_or_unreadable") for issue in result["issues"]):
         return JSONResponse(result, status_code=404)
     return result
+
+
+@router.get("/sessions/{session_id}/report")
+async def get_session_report(session_id: str, format: str = "json"):
+    """Pro-Session-Report — JSON oder Markdown.
+
+    `?format=md` liefert Markdown als Download (`session_<id>_report.md`).
+    """
+    rows = _read_session_rows()
+    row = next((r for r in rows if r.get("session_id") == session_id), None)
+    if row is None:
+        return JSONResponse({"error": f"Session {session_id} not found"}, status_code=404)
+    report = _session_report(row)
+    if format.lower() in ("md", "markdown"):
+        body = _session_report_markdown(report)
+        filename = f"session_{session_id}_report.md"
+        return Response(
+            content=body,
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+    return report
 
 
 @router.post("/session/start")
@@ -580,20 +609,34 @@ def _handle_ws_client_message(ws_id: int, text: str) -> None:
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     ws_id = id(websocket)
+    peer = f"{websocket.client.host}:{websocket.client.port}" if websocket.client else "?"
     state.ws_clients.add(websocket)
     state.ws_client_meta[ws_id] = {
         "client": "unknown",
         "connected_at_ms": _now_ms(),
         "last_seen_ms": _now_ms(),
+        "peer": peer,
     }
+    log.info("WS accepted ws_id=%s peer=%s", ws_id, peer)
+    close_reason = "unknown"
     try:
         while True:
             text = await websocket.receive_text()
             _handle_ws_client_message(ws_id, text)
-    except WebSocketDisconnect:
-        pass
+    except WebSocketDisconnect as e:
+        close_reason = f"disconnect code={e.code}"
+    except Exception:
+        close_reason = "exception"
+        log.exception("WS handler exception ws_id=%s peer=%s", ws_id, peer)
     finally:
         meta = state.ws_client_meta.pop(ws_id, {})
-        if meta.get("client") in {"iphone", "watch_bridge"}:
-            state.append_event("phone", "warn", "iPhone bridge WebSocket disconnected")
+        client = meta.get("client", "unknown")
+        connected_ms = _now_ms() - int(meta.get("connected_at_ms") or _now_ms())
+        log.info("WS closed ws_id=%s peer=%s client=%s lived_ms=%s reason=%s",
+                 ws_id, peer, client, connected_ms, close_reason)
+        if client in {"iphone", "watch_bridge"}:
+            state.append_event(
+                "phone", "warn",
+                f"iPhone bridge WebSocket disconnected ({close_reason}, lived {connected_ms} ms)",
+            )
         state.ws_clients.discard(websocket)

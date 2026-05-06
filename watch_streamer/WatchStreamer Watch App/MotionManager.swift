@@ -3,14 +3,13 @@ import CoreMotion
 import Foundation
 import HealthKit
 import WatchConnectivity
+import WatchKit
 
 class MotionManager: NSObject, ObservableObject {
     private enum Config {
-        /// Request higher than any known hardware cap so CMMotionManager always runs at its maximum.
-        /// The actual delivered rate is measured in actualSampleRateHz and reported in each batch envelope.
-        static let requestedHz = 200.0
+        static let requestedHz = 50.0
         static let batchSize = 10
-        static let maxBufferedSamples = 3000
+        static let maxBufferedSamples = 500
     }
 
     private let cm = CMMotionManager()
@@ -25,7 +24,13 @@ class MotionManager: NSObject, ObservableObject {
     private var lastWorkoutRestartAttempt: Date?
     private var commandPollTimer: Timer?
     private var commandPollInFlight = false
+    private var commandPollSentAt: Date?
     private var lastHandledCommandKey: String?
+
+    // Backing counters — updated per sample on main; published to SwiftUI at batch rate only.
+    private var rawSampleCount = 0
+    private var rawLastAccMag = 0.0
+    private var rawLastGyroMag = 0.0
 
     @Published private(set) var sampleCount = 0
     @Published private(set) var deliveredSampleCount = 0
@@ -50,7 +55,19 @@ class MotionManager: NSObject, ObservableObject {
         super.init()
         WCSession.default.delegate = self
         WCSession.default.activate()
+        cancelStaleUserInfoTransfers()
         startCommandPolling()
+    }
+
+    /// Cancel any leftover `transferUserInfo` packets from previous app launches.
+    /// Without this, undelivered transfers (e.g. from a session where the iPhone was off)
+    /// pile up in WCSession's queue and block new uploads with "Bridge (queue full)".
+    private func cancelStaleUserInfoTransfers() {
+        let outstanding = WCSession.default.outstandingUserInfoTransfers
+        guard !outstanding.isEmpty else { return }
+        for transfer in outstanding {
+            transfer.cancel()
+        }
     }
 
     deinit {
@@ -96,15 +113,10 @@ class MotionManager: NSObject, ObservableObject {
                 "ry": motion.rotationRate.y,
                 "rz": motion.rotationRate.z
             ])
-            self.sampleCount += 1
-            self.lastAccelerationMagnitude = accMag
-            self.lastGyroscopeMagnitude = gyroMag
-            if let runStartedAt = self.runStartedAt {
-                let elapsed = max(0.001, Date().timeIntervalSince(runStartedAt))
-                self.actualSampleRateHz = Double(self.sampleCount) / elapsed
-            }
+            self.rawSampleCount += 1
+            self.rawLastAccMag = accMag
+            self.rawLastGyroMag = gyroMag
             self.trimBufferIfNeeded()
-            self.queuedSampleCount = self.buffer.count
             self.flushBuffer(force: false)
         }
     }
@@ -124,6 +136,9 @@ class MotionManager: NSObject, ObservableObject {
     private func resetRunCounters() {
         buffer.removeAll()
         nextSequence = 0
+        rawSampleCount = 0
+        rawLastAccMag = 0
+        rawLastGyroMag = 0
         sampleCount = 0
         deliveredSampleCount = 0
         backgroundQueuedSampleCount = 0
@@ -138,6 +153,15 @@ class MotionManager: NSObject, ObservableObject {
 
     private func flushBuffer(force: Bool) {
         guard buffer.count >= Config.batchSize || (force && !buffer.isEmpty) else { return }
+
+        // Publish UI counters at batch rate (~5 Hz) instead of per-sample.
+        sampleCount = rawSampleCount
+        lastAccelerationMagnitude = rawLastAccMag
+        lastGyroscopeMagnitude = rawLastGyroMag
+        queuedSampleCount = buffer.count
+        if let runStartedAt {
+            actualSampleRateHz = Double(rawSampleCount) / max(0.001, Date().timeIntervalSince(runStartedAt))
+        }
 
         let sampleCountToSend = force ? buffer.count : Config.batchSize
         let samples = Array(buffer.prefix(sampleCountToSend))
@@ -224,8 +248,14 @@ class MotionManager: NSObject, ObservableObject {
     }
 
     private func pollPhoneForCommand() {
+        // Watchdog: if a poll has been in-flight for >3 s without a reply, force-clear the flag.
+        if commandPollInFlight, let sentAt = commandPollSentAt,
+           Date().timeIntervalSince(sentAt) > 3.0 {
+            commandPollInFlight = false
+        }
         guard WCSession.default.activationState == .activated, !commandPollInFlight else { return }
         commandPollInFlight = true
+        commandPollSentAt = Date()
         let message: [String: Any] = [
             "type": "command_poll",
             "is_running": isRunning,
@@ -255,6 +285,13 @@ class MotionManager: NSObject, ObservableObject {
                 self.commandPollInFlight = false
                 self.isReachable = false
                 self.lastCommandPollStatus = error.localizedDescription
+                // Fallback: push status via transferUserInfo (background-safe, doesn't need isReachable).
+                // Throttled by queue size to prevent buildup if iPhone is unreachable for a while.
+                if WCSession.default.outstandingUserInfoTransfers.count < 4 {
+                    var pollUserInfo = message
+                    pollUserInfo["fallback"] = true
+                    WCSession.default.transferUserInfo(pollUserInfo)
+                }
                 if !self.isRunning {
                     self.status = "Phone bridge unavailable: \(error.localizedDescription)"
                 }

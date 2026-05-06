@@ -213,6 +213,14 @@ td.bold { font-weight: 600; }
 .click-row { cursor: pointer; }
 .click-row.active { background: oklch(0.595 0.165 43 / 0.10); }
 
+.export-link {
+  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: var(--text2); text-decoration: none;
+  background: oklch(0.92 0.02 90 / 0.6); border: 1px solid var(--border);
+}
+.export-link:hover { color: var(--text); background: var(--accent-bg); }
+
 /* ─── Session validation timeline ──────────────────────────── */
 .validation-panel { margin-top: 16px; display: none; }
 .validation-panel.active { display: block; }
@@ -349,6 +357,15 @@ td.bold { font-weight: 600; }
   pointer-events: none; white-space: nowrap;
 }
 #toast.show { transform: translateX(-50%) translateY(0); }
+
+/* ─── Pen preview canvas ─────────────────────────────────────── */
+#penCanvas {
+  width: 100% !important; display: block;
+  border-radius: 6px; background: var(--surface2); border: 1px solid var(--border);
+  cursor: crosshair;
+}
+.pen-canvas-meta { display: flex; justify-content: space-between; align-items: baseline; margin-top: 7px; }
+.pen-canvas-info { font-size: 11px; color: var(--text3); font-family: var(--mono); }
 
 /* ─── Responsive tweaks ──────────────────────────────────────── */
 @media (max-width: 900px) {
@@ -511,6 +528,18 @@ td.bold { font-weight: 600; }
           </div>
         </div>
 
+        <!-- Live Handwriting Preview -->
+        <div class="card wide-card" id="penPreviewCard">
+          <div class="chart-meta">
+            <div class="card-title" style="margin:0">Live Handwriting Preview<span>Ncode pen path · last 200 dots</span></div>
+            <button class="btn btn-sm btn-outline" onclick="clearPenPreview()">Clear</button>
+          </div>
+          <canvas id="penCanvas" height="200"></canvas>
+          <div class="pen-canvas-meta">
+            <span class="pen-canvas-info" id="penCanvasInfo">No pen data · connect pen and start a session</span>
+          </div>
+        </div>
+
         <div class="card wide-card">
           <div class="chart-meta">
             <div class="card-title" style="margin:0">Live Validation Log<span>recent samples + server/device events</span></div>
@@ -565,10 +594,11 @@ td.bold { font-weight: 600; }
               <th>Recording</th>
               <th>Diagnostics</th>
               <th>Status</th>
+              <th>Report</th>
             </tr>
           </thead>
           <tbody id="sessionsBody">
-            <tr><td colspan="13" class="table-empty">Loading sessions…</td></tr>
+            <tr><td colspan="14" class="table-empty">Loading sessions…</td></tr>
           </tbody>
         </table>
       </div>
@@ -832,6 +862,6 @@ td.bold { font-weight: 600; }
 
 <div id="toast"></div>
 
-<script src="/static/dashboard.js"></script>
+<script src="/static/dashboard.js?v=20260506-3"></script>
 </body>
 </html>

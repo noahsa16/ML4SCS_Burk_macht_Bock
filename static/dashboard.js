@@ -23,6 +23,8 @@ const S = {
   qualitySummary: null,
   validationBySession: {},
   selectedSessionId: null,
+  penDotBuffer: [],   // {x, y, t, ts} — last ~500 pen dots for canvas
+  penBounds: null,    // {minX, maxX, minY, maxY} — auto-scale bounds
   watchStatusText: 'Offline',
   watchBadgeClass: 'badge-err',
   lastStatus: null,
@@ -179,6 +181,151 @@ function updateChart(chartPts) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  PEN HANDWRITING CANVAS
+// ════════════════════════════════════════════════════════════
+const _penCanvas = document.getElementById('penCanvas');
+const _penCtx = _penCanvas.getContext('2d');
+let _penSeenTs = new Set();   // deduplicate dots by timestamp
+
+function updatePenCanvas(newDots) {
+  if (!newDots || !newDots.length) return;
+
+  // Clear buffer on session change (session_id switches → fresh canvas)
+  // Handled by clearPenPreview() call in handleStatus before this.
+
+  // Composite key — local_ts_ms collisions happen at ~80 Hz when two dots
+  // share the same millisecond, so include dot_type and coords as tiebreakers.
+  const dotKey = (d) => `${d.ts ?? ''}_${d.t ?? ''}_${d.x}_${d.y}`;
+  let added = 0;
+  for (const d of newDots) {
+    const key = dotKey(d);
+    if (_penSeenTs.has(key)) continue;
+    _penSeenTs.add(key);
+    S.penDotBuffer.push(d);
+    added++;
+  }
+  if (!added) return;
+
+  const MAX_DOTS = 2500;
+  if (S.penDotBuffer.length > MAX_DOTS) {
+    const dropped = S.penDotBuffer.splice(0, S.penDotBuffer.length - MAX_DOTS);
+    dropped.forEach(d => _penSeenTs.delete(dotKey(d)));
+  }
+
+  // Update auto-scale bounds
+  for (const d of S.penDotBuffer) {
+    if (!S.penBounds) {
+      S.penBounds = { minX: d.x, maxX: d.x, minY: d.y, maxY: d.y };
+    } else {
+      if (d.x < S.penBounds.minX) S.penBounds.minX = d.x;
+      if (d.x > S.penBounds.maxX) S.penBounds.maxX = d.x;
+      if (d.y < S.penBounds.minY) S.penBounds.minY = d.y;
+      if (d.y > S.penBounds.maxY) S.penBounds.maxY = d.y;
+    }
+  }
+
+  drawPenCanvas();
+}
+
+function clearPenPreview() {
+  S.penDotBuffer = [];
+  S.penBounds = null;
+  _penSeenTs = new Set();
+  drawPenCanvas();
+  document.getElementById('penCanvasInfo').textContent = 'Cleared · waiting for new pen data';
+}
+
+function drawPenCanvas() {
+  const canvas = _penCanvas;
+  const ctx = _penCtx;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.offsetWidth || 600;
+  const cssH = 200;
+
+  if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    canvas.style.height = cssH + 'px';
+  }
+
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  if (!S.penDotBuffer.length || !S.penBounds) {
+    ctx.restore();
+    return;
+  }
+
+  const { minX, maxX, minY, maxY } = S.penBounds;
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  const pad = 20;
+  const scaleX = (cssW - pad * 2) / rangeX;
+  const scaleY = (cssH - pad * 2) / rangeY;
+  const scale = Math.min(scaleX, scaleY);
+  // Centre the drawing in the available space
+  const drawW = rangeX * scale;
+  const drawH = rangeY * scale;
+  const ox = pad + (cssW - pad * 2 - drawW) / 2;
+  const oy = pad + (cssH - pad * 2 - drawH) / 2;
+
+  const toX = (x) => ox + (x - minX) * scale;
+  const toY = (y) => oy + (y - minY) * scale;
+
+  const inkColor = S.theme === 'dark' ? 'oklch(0.87 0.010 80)' : 'oklch(0.22 0.025 55)';
+  ctx.strokeStyle = inkColor;
+  ctx.fillStyle = inkColor;
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // 1. Linien zwischen aufeinanderfolgenden Move-Dots (Strokes).
+  //    Wenn der ursprüngliche PEN_DOWN aus dem Rolling-Window rausgefallen
+  //    ist, starten wir den Stroke beim ersten gesehenen PEN_MOVE.
+  let inStroke = false;
+  for (const dot of S.penDotBuffer) {
+    const cx = toX(dot.x);
+    const cy = toY(dot.y);
+    if (dot.t === 'PEN_DOWN') {
+      if (inStroke) ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      inStroke = true;
+    } else if (dot.t === 'PEN_MOVE') {
+      if (!inStroke) {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        inStroke = true;
+      } else {
+        ctx.lineTo(cx, cy);
+      }
+    } else if (dot.t === 'PEN_UP') {
+      if (inStroke) { ctx.lineTo(cx, cy); ctx.stroke(); }
+      inStroke = false;
+    }
+  }
+  if (inStroke) ctx.stroke();
+
+  // 2. Sicherheitsnetz: kleine Punkte an *jedem* Dot. Selbst wenn die
+  //    Stroke-Logik aus irgendeinem Grund versagt, sieht man dass Daten
+  //    ankommen — dann wissen wir wo wir suchen müssen.
+  for (const dot of S.penDotBuffer) {
+    ctx.beginPath();
+    ctx.arc(toX(dot.x), toY(dot.y), 1.0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  const moveDots = S.penDotBuffer.filter(d => d.t !== 'PEN_UP').length;
+  document.getElementById('penCanvasInfo').textContent =
+    `${moveDots} ink dots · x ${minX.toFixed(1)}–${maxX.toFixed(1)} · y ${minY.toFixed(1)}–${maxY.toFixed(1)}`;
+}
+
+window.addEventListener('resize', drawPenCanvas);
+
+// ════════════════════════════════════════════════════════════
 //  WEBSOCKET
 // ════════════════════════════════════════════════════════════
 let ws, wsReconnectTimer;
@@ -237,6 +384,8 @@ function setNetworkLine(id, state) {
 // ════════════════════════════════════════════════════════════
 function handleStatus(s) {
   S.lastStatus = s;
+  // Clear canvas when session changes so strokes from different sessions don't mix
+  if (s.session_id !== S.sessionId) clearPenPreview();
   S.sessionActive = s.session_active;
   S.sessionId = s.session_id;
   S.personId = s.person_id;
@@ -378,6 +527,9 @@ function handleStatus(s) {
 
   // Chart
   if (s.chart) updateChart(s.chart);
+
+  // Pen handwriting canvas
+  if (s.pen_recent_dots) updatePenCanvas(s.pen_recent_dots);
 
   // Start timer if session active and not already running
   if (s.session_active && !S.timerInterval && S.startTime) {
@@ -536,7 +688,7 @@ function filterSessions() {
 function renderSessions(rows) {
   const tbody = document.getElementById('sessionsBody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="13" class="table-empty">No sessions found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" class="table-empty">No sessions found</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(s => {
@@ -574,6 +726,7 @@ function renderSessions(rows) {
       <td title="${escAttr(scoreTooltip(recording))}">${scoreBadge(recording)}</td>
       <td title="${escAttr(diag.message)}"><span class="status-badge ${diag.cls}">${esc(diag.label)}</span></td>
       <td><span class="status-badge ${statusCls}">${esc(s.status || 'completed')}</span></td>
+      <td><a class="export-link" href="/sessions/${encodeURIComponent(s.session_id)}/report?format=md" onclick="event.stopPropagation()" title="Download Markdown report">⤓ md</a></td>
     </tr>`;
   }).join('');
 }
@@ -623,9 +776,10 @@ function renderSessionValidation(sessionId) {
   document.getElementById('driftWatch').textContent = fmtMs(v.source_clocks?.watch_source_to_local_drift_ms);
   document.getElementById('driftPen').textContent = fmtMs(v.source_clocks?.pen_source_to_local_drift_ms);
   document.getElementById('driftRelative').textContent = fmtMs(v.source_clocks?.relative_pen_vs_watch_clock_drift_ms);
-  document.getElementById('driftSyncOffset').textContent = v.source_clocks?.source_clock_offset_gap_ms != null
-    ? fmtMs(v.source_clocks.source_clock_offset_gap_ms)
-    : (v.sync_estimate?.usable ? fmtMs(v.sync_estimate.median_offset_ms) : 'not estimated');
+  document.getElementById('driftSyncOffset').textContent = fmtClockGap(
+    v.source_clocks?.source_clock_offset_gap_ms,
+    v.sync_estimate
+  );
 
   document.getElementById('validationTimeline').innerHTML = renderTimeline(v);
   const intervals = v.timeline_for_chart?.pen_events?.length || 0;
@@ -789,6 +943,19 @@ function fmtHz(value) {
 function fmtNum(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(3) : '–';
+}
+
+// Pen- und Watch-Geräteuhren teilen sich keine Epoche — bei großem Versatz
+// zeigen wir das kategorisch statt als alarmierende Tage-Zahl. Für die
+// session-level Overlap-Checks irrelevant; Sample-Level-Merge braucht
+// separat einen Sync-Offset (Tap-Event o.ä.).
+function fmtClockGap(gapMs, syncEstimate) {
+  const n = Number(gapMs);
+  if (Number.isFinite(n)) {
+    if (Math.abs(n) > 300000) return 'different device clocks · sync needed for merge';
+    return fmtMs(n);
+  }
+  return syncEstimate?.usable ? fmtMs(syncEstimate.median_offset_ms) : 'not estimated';
 }
 
 function fmtMs(value) {

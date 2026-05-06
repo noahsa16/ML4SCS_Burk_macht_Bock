@@ -22,6 +22,7 @@ from fastapi.staticfiles import StaticFiles
 from src.server.broadcast import _broadcast, _status_loop
 from src.server.config import STATIC_DIR
 from src.server.csv_io import close_all_watch_writers
+from src.server.logging_setup import setup_logging
 from src.server.pen_proc import _stop_pen
 from src.server.routes import router
 from src.server.state import state
@@ -29,6 +30,7 @@ from src.server.state import state
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()
     state.append_event("server", "info", "FastAPI server started")
     task = asyncio.create_task(_status_loop())
     yield

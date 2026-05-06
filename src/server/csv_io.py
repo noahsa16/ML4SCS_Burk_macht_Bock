@@ -195,3 +195,52 @@ def close_all_watch_writers() -> None:
         close_watch_writer(Path(key))
 
 
+_PEN_PREVIEW_TAIL = 524288  # 512 KB tail (~3000 dots at ~160 B each)
+_PEN_PREVIEW_N = 2500       # max dots returned (~30 s at 80 Hz)
+
+def _pen_recent_dots(session_id: str) -> list[dict[str, Any]]:
+    """Return up to 200 most-recent pen dots for the live canvas preview.
+
+    Each dict has keys: x (float), y (float), t (dot_type str), ts (int|None).
+    Dots without valid x/y or with x==-1/y==-1 are excluded.
+    """
+    path = DATA_RAW_PEN / f"{session_id}_pen.csv"
+    if not path.exists():
+        return []
+    try:
+        with open(path, "rb") as f:
+            header_bytes = f.readline()
+            fieldnames = next(csv.reader([header_bytes.decode(errors="replace")]))
+            file_size = f.seek(0, 2)
+            header_size = len(header_bytes)
+            if file_size <= header_size:
+                return []
+            f.seek(max(header_size, file_size - _PEN_PREVIEW_TAIL))
+            tail = f.read().decode(errors="replace")
+        results: list[dict[str, Any]] = []
+        for line in tail.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            parsed = next(csv.reader([line]), None)
+            if not parsed or len(parsed) != len(fieldnames):
+                continue
+            row = dict(zip(fieldnames, parsed))
+            x = _as_float(row.get("x"))
+            y = _as_float(row.get("y"))
+            if x is None or y is None or x == -1.0 or y == -1.0:
+                continue
+            dot_type = row.get("dot_type", "")
+            if dot_type not in ("PEN_DOWN", "PEN_MOVE", "PEN_UP"):
+                continue
+            results.append({
+                "x": x,
+                "y": y,
+                "t": dot_type,
+                "ts": _as_int(row.get("local_ts_ms")) or _as_int(row.get("timestamp")),
+            })
+        return results[-_PEN_PREVIEW_N:]
+    except Exception:
+        return []
+
+

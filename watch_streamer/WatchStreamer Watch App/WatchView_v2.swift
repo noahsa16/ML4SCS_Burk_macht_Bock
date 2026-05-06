@@ -36,17 +36,9 @@ private enum WT {
 struct WTPulseDot: View {
     let color: Color
     var pulse: Bool = true
-    @State private var dim = false
 
     var body: some View {
         Circle().fill(color).frame(width: 5, height: 5)
-            .opacity(pulse && dim ? 0.2 : 1)
-            .onAppear {
-                guard pulse else { return }
-                withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                    dim = true
-                }
-            }
     }
 }
 
@@ -99,7 +91,6 @@ struct WTStatsRow: View {
 
 struct WTWatchNetworkMap: View {
     @ObservedObject var motion: MotionManager
-    @State private var flow = false
 
     var body: some View {
         VStack(spacing: 8) {
@@ -139,16 +130,6 @@ struct WTWatchNetworkMap: View {
             Capsule()
                 .fill(ok ? WT.green.opacity(0.6) : Color.white.opacity(0.16))
                 .frame(width: 42, height: 3)
-                .overlay(alignment: flow ? .trailing : .leading) {
-                    if ok {
-                        Circle().fill(WT.green).frame(width: 7, height: 7)
-                    }
-                }
-                .onAppear {
-                    withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
-                        flow.toggle()
-                    }
-                }
             Text(label)
                 .font(WT.mono(8))
                 .foregroundColor(ok ? WT.green : .secondary)
@@ -203,7 +184,6 @@ struct WTSparkline: View {
 struct WTRecordPage: View {
     @ObservedObject var motion: MotionManager
     @State private var elapsed = 0
-    @State private var ripple = false
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     // ── Derived state ────────────────────────────────────────────────
@@ -240,21 +220,6 @@ struct WTRecordPage: View {
 
             // ── State indicator ──────────────────────────────────────────
             ZStack {
-                if isRecording {
-                    ForEach([0, 1], id: \.self) { i in
-                        Circle()
-                            .stroke(WT.green.opacity(0.32), lineWidth: 1.5)
-                            .frame(width: 58, height: 58)
-                            .scaleEffect(ripple ? 1.85 : 1.0)
-                            .opacity(ripple ? 0 : 0.75)
-                            .animation(
-                                .easeOut(duration: 1.5)
-                                    .repeatForever(autoreverses: false)
-                                    .delay(Double(i) * 0.55),
-                                value: ripple
-                            )
-                    }
-                }
                 Circle()
                     .fill(stateColor.opacity(0.14))
                     .frame(width: 44, height: 44)
@@ -263,9 +228,7 @@ struct WTRecordPage: View {
                     .foregroundColor(stateColor)
             }
             .frame(height: 54)
-            .onAppear { ripple = motion.isRunning }
             .onChange(of: motion.isRunning) { running in
-                ripple = running
                 if !running { elapsed = 0 }
             }
 

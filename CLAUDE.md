@@ -135,19 +135,24 @@ Root-level `src/preprocessing.py`, `src/train.py`, `src/evaluate.py` are thin re
 Dependency order (von unten nach oben, keine Rückwärts-Imports):
 
 ```
-config.py     Pfade, Feldnamen, SESSIONS_CSV-Initialisierung
-utils.py      reine Hilfsfunktionen (_now_ms, _as_float, _mad, …)
-state.py      SessionState-Klasse + globales state-Objekt;
-              append_event() / append_sample() als Methoden
-csv_io.py     CSV lesen/schreiben (Watch, Pen, Sessions)
-status.py     Verbindungsstatus (_pen_connected, _watch_connected …)
-              + _status_payload() für WS-Broadcasts
-quality.py    Session-Qualität (_session_quality) und detaillierte
-              Validierung (_session_validation) — kein state-Import,
-              reine read-only Analyse der CSV-Dateien
-broadcast.py  _broadcast() + _status_loop() (1-s-Tick)
-pen_proc.py   Pen-Logger Subprozess starten/stoppen
-routes.py     alle FastAPI-Endpunkte als APIRouter
+config.py          Pfade, Feldnamen, SESSIONS_CSV-Initialisierung,
+                   LOGS_DIR-Anlage
+utils.py           reine Hilfsfunktionen (_now_ms, _as_float, _mad, …)
+state.py           SessionState-Klasse + globales state-Objekt;
+                   append_event() / append_sample() als Methoden
+logging_setup.py   setup_logging(): Rotating-FileHandler + EventLog-
+                   Handler hängen an root, uvicorn, fastapi
+csv_io.py          CSV lesen/schreiben (Watch, Pen, Sessions);
+                   _pen_recent_dots() für Live-Preview
+status.py          Verbindungsstatus (_pen_connected, _watch_connected …)
+                   + _status_payload() für WS-Broadcasts
+quality.py         Session-Qualität: ISSUE_SPECS-Tabelle,
+                   _session_facts() als Single-Source-of-Truth,
+                   _session_quality / _session_validation /
+                   _session_report + Markdown-Export
+broadcast.py       _broadcast() + _status_loop() (1-s-Tick)
+pen_proc.py        Pen-Logger Subprozess starten/stoppen
+routes.py          alle FastAPI-Endpunkte als APIRouter
 ```
 
 ## Data Formats
@@ -159,7 +164,13 @@ routes.py     alle FastAPI-Endpunkte als APIRouter
 
 **Merged CSV:** pen rows as base, watch IMU joined on device-relative milliseconds within ±20 ms tolerance; pen-derived features `dt`, `dx`, `dy`, `distance`, `speed` added during preprocessing. Server/local timestamps are capture metadata, not the canonical ML timeline.
 
-**Session quality:** `/sessions/quality` exposes separate `ml_readiness` and `recording_health` scores. Sync confidence is only a calibration diagnostic and must not downgrade a session by itself.
+**Session quality:** `/sessions/quality` exposes separate `ml_readiness` and `recording_health` scores. Issues come from `ISSUE_SPECS` in `quality.py` — each issue carries `code`, `check`, `threshold`, `observed`, `rationale`, plus per-score severities (`ml_severity`, `recording_severity`). Sync confidence is only a calibration diagnostic and must not downgrade a session by itself.
+
+**Per-session reports:** `GET /sessions/{id}/report` returns the full quality + validation bundle as JSON. `GET /sessions/{id}/report?format=md` returns it as a Markdown file (with the `Content-Disposition: attachment` header) — used by the "⤓ md" link in the dashboard sessions table.
+
+**Sample rate target:** Watch streams at 50 Hz (`MotionManager.Config.requestedHz`). The quality check accepts 40–60 Hz; coverage check expects ~50 samples/s. If the watch app is ever reconfigured to 100 Hz, `_TARGET_WATCH_HZ` in `quality.py` is the single place to update.
+
+**Sample-level merge alignment:** Pen and watch device clocks do not share an epoch (typical Moleskine pen offset: ~922 days plus arbitrary time-of-day shift). For coarse session-level checks (overlap, coverage) wall-clock `local_ts_ms` is used, with the limitation that watch packets arrive ~100–300 ms later than pen dots due to BLE/WC batching. Sample-level merge needs a per-session sync offset — TODO is to add a tap-sync protocol (3× tap on the pen with the watch hand at session start; cross-correlation between PEN_DOWN events and watch motion peaks gives the offset). The heuristic is already implemented in `_estimate_sync_drift`; only the recording protocol is missing.
 
 ## Path Convention
 
@@ -193,9 +204,13 @@ A single `SessionState` dataclass instance (`state`) holds all runtime state: ac
 - `POST /session/start` and `/session/stop` — manage sessions, write to `data/sessions.csv`
 - `POST /watch` — receives IMU batches from the iPhone bridge; supports both flat list and `{samples: [...]}` envelope formats
 - `GET /sessions/quality` — runs quality checks on every session's CSVs
+- `GET /sessions/{id}/validation` — deep validation of a single session (timeline, drift, sync estimate)
+- `GET /sessions/{id}/report?format=json|md` — full per-session report; Markdown form is downloadable
 - `WebSocket /ws` — used by dashboard (status updates every 1 s) and iPhone bridge (`hello`/`watch_ack`/`phone_status` messages)
 
 The `_status_loop` coroutine broadcasts `_status_payload()` over WebSocket every second, updates rolling Hz estimates, and maintains a 60-point chart buffer (one point per second: acc magnitude, gyro magnitude, pen writing state).
+
+**Server logging:** `setup_logging()` (in `src/server/logging_setup.py`, called from the lifespan startup) installs a `RotatingFileHandler` writing to `logs/server.log` (2 MB × 5 backups), a `StreamHandler` for the terminal, and a custom `EventLogHandler` that pushes every log record into `state.event_log` so it appears in `/status/debug` and on the dashboard's event log panel. The `/ws` endpoint logs `accepted` / `closed` with peer, lived-ms, and close reason — used to diagnose WebSocket reconnect issues.
 
 ### iOS/watchOS App (`watch_streamer/`)
 
@@ -204,6 +219,8 @@ Two targets in the Xcode project:
 - **WatchStreamer (iPhone)** (`PhoneBridge.swift`): receives WatchConnectivity messages, normalizes payload (handles both raw and `Data`-encoded envelopes), queues HTTP POSTs to `http://{serverIP}:8000/watch`. Retries on failure with a 2-second delay. Server IP is stored in `UserDefaults` (key: `"serverIP"`, default `192.168.178.147`).
 
 Watch and iPhone communicate start/stop commands via WatchConnectivity messages. The server broadcasts `{type: "start"/"stop", session_id: ...}` JSON over WebSocket; the iPhone bridge listens and forwards commands to the watch.
+
+**WebSocket connection epoch (`ServerCommandListener.swift`):** Each `connect()` bumps `connectionEpoch`. Receive- and send-callbacks capture the epoch at registration; if it has moved on by the time a callback fires, the callback returns silently — preventing a cancelled task's `.failure` from scheduling a reconnect that would kill the live connection. This was the root cause of the ~3 s reconnect storm we saw before — the old task's failure handler kept stacking `scheduleReconnect()` calls, each closing the new task with code 1001 (Going Away).
 
 ### ML Pipeline (`src/`)
 

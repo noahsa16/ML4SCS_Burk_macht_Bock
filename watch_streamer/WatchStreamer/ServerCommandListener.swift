@@ -29,6 +29,11 @@ class ServerCommandListener: NSObject, ObservableObject {
     private var reconnectWorkItem: DispatchWorkItem?
     private var pollAgeTimer: Timer?
     private var sentHello = false
+    /// Identifies the current WebSocket "generation". Each connect() bumps this.
+    /// Stale receive/send callbacks check their captured epoch and bail out if
+    /// the current epoch has moved on — so a cancelled task's failure handler
+    /// can never schedule a reconnect against the live connection.
+    private var connectionEpoch: Int = 0
     private var lastPollAckKey: String?
     // Protected by pollStateLock — written from WCSession bg thread, read from main-thread timer.
     private let pollStateLock = NSLock()
@@ -65,19 +70,22 @@ class ServerCommandListener: NSObject, ObservableObject {
 
     func connect() {
         reconnectWorkItem?.cancel()
+        reconnectWorkItem = nil
+        connectionEpoch &+= 1
         task?.cancel(with: .goingAway, reason: nil)
 
         guard let url = serverWebSocketURL else { return }
+        let epoch = connectionEpoch
         task = URLSession.shared.webSocketTask(with: url)
         task?.resume()
         isConnected = false
         sentHello = false
-        listenLoop()
+        listenLoop(epoch: epoch)
     }
 
-    private func listenLoop() {
+    private func listenLoop(epoch: Int) {
         task?.receive { [weak self] result in
-            guard let self else { return }
+            guard let self, epoch == self.connectionEpoch else { return }
             switch result {
             case .failure:
                 DispatchQueue.main.async { self.isConnected = false }
@@ -90,7 +98,7 @@ class ServerCommandListener: NSObject, ObservableObject {
                     self.sendPhoneStatus()
                 }
                 self.handle(msg)
-                self.listenLoop()
+                self.listenLoop(epoch: epoch)
             }
         }
     }
@@ -349,11 +357,11 @@ class ServerCommandListener: NSObject, ObservableObject {
               let text = String(data: data, encoding: .utf8)
         else { return }
 
+        let epoch = connectionEpoch
         task?.send(.string(text)) { [weak self] error in
-            if error != nil {
-                DispatchQueue.main.async { self?.isConnected = false }
-                self?.scheduleReconnect()
-            }
+            guard let self, error != nil, epoch == self.connectionEpoch else { return }
+            DispatchQueue.main.async { self.isConnected = false }
+            self.scheduleReconnect()
         }
     }
 
@@ -381,6 +389,7 @@ class ServerCommandListener: NSObject, ObservableObject {
     }
 
     private func scheduleReconnect() {
+        reconnectWorkItem?.cancel()
         let item = DispatchWorkItem { [weak self] in self?.connect() }
         reconnectWorkItem = item
         DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: item)

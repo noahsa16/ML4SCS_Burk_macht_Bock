@@ -107,6 +107,13 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        // Watch falls back to transferUserInfo for command_poll when sendMessage fails.
+        // Process those polls here so iPhone status stays in sync even when WCSession
+        // reachability is flaky.
+        if userInfo["type"] as? String == "command_poll" {
+            _ = ServerCommandListener.shared.handleWatchCommandPoll(userInfo)
+            return
+        }
         receivePayload(userInfo, source: "background")
     }
 
