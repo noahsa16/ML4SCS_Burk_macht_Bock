@@ -87,11 +87,7 @@ DOT_UP    = 2
 DOT_HOVER = 3
 LABEL = {DOT_DOWN: "PEN_DOWN", DOT_MOVE: "PEN_MOVE",
          DOT_UP:   "PEN_UP",   DOT_HOVER: "PEN_HOVER"}
-PEN_FIELDNAMES = [
-    "local_ts", "local_ts_ms",
-    "timestamp", "x", "y", "pressure", "dot_type",
-    "tilt_x", "tilt_y", "section", "owner", "note", "page",
-]
+from src.pen_schema import PEN_FIELDNAMES
 
 
 # ── Packet builder ────────────────────────────────────────────────────────────
@@ -188,6 +184,9 @@ class Parser:
         self._page      = -1
         self._prev_dot  = None   # (ts, x, y, pressure, tx, ty) of last PEN_MOVE
         self._has_paper = False  # True once PAPER_INFO received for current stroke
+        # Diagnostics
+        self.parse_errors = 0
+        self.dropped      = 0
 
     # ── byte-level framing ────────────────────────────────────────────────────
 
@@ -236,7 +235,7 @@ class Parser:
         try:
             self._q.put_nowait(("event", name))
         except asyncio.QueueFull:
-            pass
+            self.dropped += 1
 
     def _dot(self, dtype: int, ts: int, x: float, y: float,
              pressure: int, tx: int, ty: int) -> None:
@@ -249,7 +248,7 @@ class Parser:
                 "note": self._note, "page": self._page,
             }))
         except asyncio.QueueFull:
-            pass
+            self.dropped += 1
 
     # ── command handlers ──────────────────────────────────────────────────────
 
@@ -363,7 +362,7 @@ class Parser:
                           0, 0, 0)
 
         except (IndexError, struct.error):
-            pass   # truncated / malformed packet — silently discard
+            self.parse_errors += 1
 
 
 # ── BLE scanner ───────────────────────────────────────────────────────────────
@@ -442,8 +441,8 @@ async def run(password: str = "0000", output_path: str | None = None) -> None:
 
     loop = asyncio.get_running_loop()
     stop = loop.create_future()
-    signal.signal(signal.SIGINT,
-                  lambda *_: stop.done() or loop.call_soon_threadsafe(stop.set_result, None))
+    loop.add_signal_handler(signal.SIGINT,
+                            lambda: stop.done() or stop.set_result(None))
 
     # ── Scan ──────────────────────────────────────────────────────────────────
     device = await find_pen()
@@ -612,6 +611,10 @@ async def run(password: str = "0000", output_path: str | None = None) -> None:
             except Exception:
                 pass
 
+    if parser.parse_errors:
+        print(f"[WARN] {parser.parse_errors} malformed BLE packet(s) discarded")
+    if parser.dropped:
+        print(f"[WARN] {parser.dropped} event(s) dropped (queue full)")
     csvf.close()
     print(f"\nSaved → {fname}")
 

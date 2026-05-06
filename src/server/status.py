@@ -9,7 +9,7 @@ _status_payload() baut das große JSON das jede Sekunde an alle WS-Clients geht.
 import time
 from typing import Any, Optional
 
-from .csv_io import _pen_last_dot, _pen_sample_count
+from .csv_io import _pen_last_dot, _pen_recent_dots, _pen_sample_count
 from .state import state
 from .utils import _now_ms, _round_or_none
 
@@ -36,15 +36,27 @@ def _watch_bridge_connected() -> bool:
     )
 
 
-def _watch_reachable() -> Optional[bool]:
-    statuses = [
-        meta.get("phone_status")
-        for meta in state.ws_client_meta.values()
-        if meta.get("client") in {"iphone", "watch_bridge"} and meta.get("phone_status")
-    ]
-    if not statuses:
+def _latest_phone_status() -> Optional[dict[str, Any]]:
+    latest: Optional[dict[str, Any]] = None
+    latest_seen = -1
+    for meta in state.ws_client_meta.values():
+        if meta.get("client") not in {"iphone", "watch_bridge"}:
+            continue
+        phone_status = meta.get("phone_status")
+        if not isinstance(phone_status, dict):
+            continue
+        seen = int(meta.get("last_seen_ms") or 0)
+        if seen >= latest_seen:
+            latest = phone_status
+            latest_seen = seen
+    return latest
+
+
+def _watch_reachable(phone_status: Optional[dict[str, Any]] = None) -> Optional[bool]:
+    status = phone_status if phone_status is not None else _latest_phone_status()
+    if not status:
         return None
-    return any(bool(status.get("watch_reachable")) for status in statuses)
+    return bool(status.get("watch_reachable") or status.get("watch_polling"))
 
 
 def _connected_clients() -> dict[str, int]:
@@ -77,7 +89,7 @@ def _status_payload(
     pen_samples: Optional[int] = None,
     last_pen_dot: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
-    sid = state.active["session_id"] if state.active else None
+    sid = state.active.session_id if state.active else None
     if pen_samples is None:
         pen_samples = _pen_sample_count(sid) if sid else 0
     if last_pen_dot is None and sid:
@@ -99,15 +111,17 @@ def _status_payload(
     watch_stream_active = _watch_connected()
     watch_direct_connected = _watch_direct_status_connected()
     watch_bridge_connected = _watch_bridge_connected()
-    watch_reachable = _watch_reachable()
+    phone_status = _latest_phone_status()
+    watch_reachable = _watch_reachable(phone_status)
+    watch_polling = bool(phone_status and phone_status.get("watch_polling"))
 
     return {
         "type": "status",
         "session_active": state.active is not None,
         "session_id": sid,
-        "person_id": state.active["person_id"] if state.active else None,
-        "description": state.active.get("description") if state.active else None,
-        "start_time": state.active["start_time"] if state.active else None,
+        "person_id": state.active.person_id if state.active else None,
+        "description": state.active.description if state.active else None,
+        "start_time": state.active.start_time if state.active else None,
         "watch_samples": state.watch_sample_count,
         "watch_total_samples": state.watch_total_sample_count,
         "pen_samples": pen_samples,
@@ -118,11 +132,26 @@ def _status_payload(
         "pen_writing": pen_writing,
         "pen_last_dot": last_pen_dot,
         "pen_last_seen_ms_ago": pen_seen_ms,
-        "watch_connected": watch_stream_active or watch_direct_connected or watch_reachable is True,
+        "watch_connected": (
+            watch_stream_active or watch_direct_connected or
+            watch_reachable is True or watch_polling
+        ),
         "watch_direct_connected": watch_direct_connected,
         "watch_stream_active": watch_stream_active,
         "watch_bridge_connected": watch_bridge_connected,
         "watch_reachable": watch_reachable,
+        "watch_polling": watch_polling,
+        "watch_poll_age_ms": phone_status.get("watch_poll_age_ms") if phone_status else None,
+        "watch_running": phone_status.get("watch_running") if phone_status else None,
+        "watch_bridge_session_id": phone_status.get("watch_session_id") if phone_status else None,
+        "watch_bridge_samples": phone_status.get("watch_samples") if phone_status else None,
+        "watch_bridge_queued_samples": phone_status.get("watch_queued_samples") if phone_status else None,
+        "watch_bridge_delivered_samples": phone_status.get("watch_delivered_samples") if phone_status else None,
+        "watch_bridge_failed_batches": phone_status.get("watch_failed_batches") if phone_status else None,
+        "watch_bridge_upload_mode": phone_status.get("watch_upload_mode") if phone_status else None,
+        "watch_last_command_id": phone_status.get("watch_last_command_id") if phone_status else None,
+        "watch_current_command_id": phone_status.get("current_command_id") if phone_status else None,
+        "phone_status": phone_status,
         "watch_rate_hz": round(state.watch_rate_hz, 1),
         "watch_config_rate_hz": _round_or_none(state.watch_config_rate_hz, 1),
         "watch_batch_rate_hz": _round_or_none(state.watch_batch_rate_hz, 1),
@@ -141,4 +170,5 @@ def _status_payload(
         "event_log": list(state.event_log)[-80:],
         "sample_log": list(state.sample_log)[-80:],
         "validation": _validation_payload(last_pen_dot),
+        "pen_recent_dots": _pen_recent_dots(sid) if sid else [],
     }

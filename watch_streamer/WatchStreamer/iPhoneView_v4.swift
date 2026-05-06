@@ -355,6 +355,268 @@ struct ConnectionHalf: View {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MARK: – Connectivity console
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct FTNetworkNode: View {
+    @Environment(\.ft) var t
+    let title: String
+    let subtitle: String
+    let icon: String
+    let ok: Bool
+    let warn: Bool
+
+    private var color: Color {
+        ok ? t.green : (warn ? t.yellow : t.red)
+    }
+
+    var body: some View {
+        VStack(spacing: 6) {
+            ZStack {
+                Circle().fill(color.opacity(0.14)).frame(width: 42, height: 42)
+                Image(systemName: icon)
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(color)
+            }
+            Text(title)
+                .font(FT.sans(11, weight: .semibold))
+                .foregroundColor(t.text)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text(subtitle)
+                .font(FT.mono(9))
+                .foregroundColor(t.text3)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+struct FTNetworkLink: View {
+    @Environment(\.ft) var t
+    let ok: Bool
+    let label: String
+    @State private var phase = false
+
+    var body: some View {
+        VStack(spacing: 4) {
+            Capsule()
+                .fill(ok ? t.green : t.border2)
+                .frame(height: 3)
+                .overlay(alignment: phase ? .trailing : .leading) {
+                    if ok {
+                        Circle()
+                            .fill(t.green)
+                            .frame(width: 8, height: 8)
+                            .shadow(color: t.green.opacity(0.35), radius: 4)
+                    }
+                }
+                .onAppear {
+                    withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                        phase.toggle()
+                    }
+                }
+            Text(label)
+                .font(FT.mono(8))
+                .foregroundColor(ok ? t.green : t.text3)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .frame(width: 52)
+    }
+}
+
+struct FTDiagRow: View {
+    @Environment(\.ft) var t
+    let label: String
+    let value: String
+    let ok: Bool
+    var warn: Bool = false
+
+    private var color: Color {
+        ok ? t.green : (warn ? t.yellow : t.red)
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            FTDot(color: color, pulse: ok)
+            Text(label)
+                .font(FT.sans(11))
+                .foregroundColor(t.text2)
+            Spacer(minLength: 8)
+            Text(value)
+                .font(FT.mono(10, weight: .medium))
+                .foregroundColor(color)
+                .lineLimit(2)
+                .multilineTextAlignment(.trailing)
+                .minimumScaleFactor(0.75)
+        }
+        .padding(.vertical, 5)
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(t.border.opacity(0.55)).frame(height: 1)
+        }
+    }
+}
+
+struct FTConnectivityConsole: View {
+    @Environment(\.ft) var t
+    @ObservedObject private var bridge = PhoneBridge.shared
+    @ObservedObject private var server = ServerCommandListener.shared
+    @AppStorage("ft_showConnectivityDetails") private var showDetails = true
+    var compact = false
+
+    private var serverOk: Bool { server.isConnected }
+    /// Live: WCSession.isReachable (debounced 4 s on drop)
+    private var phoneOk: Bool { bridge.isConnected }
+    /// Structural: paired + Watch app installed
+    private var phonePaired: Bool { bridge.isBridgeCapable }
+    private var watchPollOk: Bool { server.watchPolling }
+    private var uploadOk: Bool { bridge.failedUploadCount == 0 && bridge.lastError.isEmpty }
+    private var streamOk: Bool { server.watchRunning || bridge.receivedSampleCount > 0 }
+
+    private var pollAgeText: String {
+        guard let age = server.watchPollAgeMs else { return "no poll" }
+        return age < 1000 ? "\(age) ms" : String(format: "%.1f s", Double(age) / 1000.0)
+    }
+
+    var body: some View {
+        FTCard {
+            FTCardHeader(title: "Connectivity", trailing: AnyView(
+                FTBadge(label: overallOk ? "Live" : "Check", ok: overallOk)
+            ))
+
+            HStack(spacing: 0) {
+                FTNetworkNode(title: "Website", subtitle: serverOk ? "WS online" : "WS down",
+                              icon: "display", ok: serverOk, warn: false)
+                FTNetworkLink(ok: serverOk, label: "ws")
+                FTNetworkNode(title: "iPhone",
+                              subtitle: phoneOk ? "reachable" : (phonePaired ? "paired · offline" : "not paired"),
+                              icon: "iphone", ok: phoneOk, warn: phonePaired && !phoneOk)
+                FTNetworkLink(ok: phoneOk && watchPollOk, label: "poll")
+                FTNetworkNode(title: "Watch", subtitle: watchPollOk ? pollAgeText : "no poll",
+                              icon: "applewatch", ok: watchPollOk, warn: phoneOk)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .overlay(alignment: .bottom) { Rectangle().fill(t.border).frame(height: 1) }
+
+            if showDetails || !compact {
+                VStack(spacing: 0) {
+                    FTDiagRow(label: "Server WebSocket",
+                              value: serverOk ? "connected" : "not connected",
+                              ok: serverOk)
+                    FTDiagRow(label: "Watch reachable",
+                              value: phoneOk ? "reachable (WCSession live)"
+                                  : (phonePaired ? "paired · not reachable (4 s grace)" : "not paired / app missing"),
+                              ok: phoneOk,
+                              warn: phonePaired && !phoneOk)
+                    FTDiagRow(label: "Watch command poll",
+                              value: watchPollOk ? "\(pollAgeText) ago" : "no command_poll received",
+                              ok: watchPollOk,
+                              warn: phoneOk)
+                    FTDiagRow(label: "Watch state",
+                              value: server.watchRunning ? "running · \(server.watchSessionId)" : "idle",
+                              ok: server.watchRunning || server.currentSessionId == nil,
+                              warn: server.currentSessionId != nil)
+                    FTDiagRow(label: "Samples",
+                              value: "\(server.watchSampleCount) watch · \(bridge.uploadedSampleCount) uploaded",
+                              ok: streamOk || server.currentSessionId == nil,
+                              warn: server.currentSessionId != nil)
+                    FTDiagRow(label: "Upload queue",
+                              value: "\(bridge.queuedBatchCount) queued · \(bridge.failedUploadCount) failed",
+                              ok: uploadOk,
+                              warn: bridge.queuedBatchCount > 0)
+                    if !server.lastWatchCommandStatus.isEmpty {
+                        FTDiagRow(label: "Last command",
+                                  value: server.lastWatchCommandStatus,
+                                  ok: server.lastWatchCommandStatus.contains("confirmed") ||
+                                      server.lastWatchCommandStatus.contains("acknowledged"),
+                                  warn: server.lastWatchCommandStatus.contains("waiting"))
+                    }
+                    if let commandId = server.currentCommandId, !commandId.isEmpty {
+                        FTDiagRow(label: "Expected command ID",
+                                  value: commandId,
+                                  ok: server.watchLastCommandId == commandId,
+                                  warn: server.watchLastCommandId != commandId)
+                    }
+                    if !server.watchLastCommandId.isEmpty {
+                        FTDiagRow(label: "Watch confirmed ID",
+                                  value: server.watchLastCommandId,
+                                  ok: server.currentCommandId == nil || server.watchLastCommandId == server.currentCommandId)
+                    }
+                    if !bridge.lastError.isEmpty {
+                        FTDiagRow(label: "Last error",
+                                  value: bridge.lastError,
+                                  ok: false)
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+            }
+
+            if !compact {
+                VStack(alignment: .leading, spacing: 10) {
+                    FTSLabel(text: "Repair actions")
+                    HStack {
+                        Toggle("Details", isOn: $showDetails)
+                            .font(FT.sans(12))
+                            .foregroundColor(t.text2)
+                            .tint(t.green)
+                        Spacer()
+                    }
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                        repairButton("Reconnect server", icon: "arrow.triangle.2.circlepath") {
+                            server.reconnectAndRefresh()
+                        }
+                        repairButton("Reactivate bridge", icon: "applewatch.radiowaves.left.and.right") {
+                            bridge.reactivateSession()
+                        }
+                        repairButton("Resync watch", icon: "arrow.up.arrow.down") {
+                            bridge.resyncWatchContext()
+                        }
+                        repairButton("Retry uploads", icon: "tray.and.arrow.up") {
+                            bridge.retryUploadQueue()
+                        }
+                        repairButton("Clear errors", icon: "xmark.circle") {
+                            bridge.clearDiagnostics()
+                        }
+                    }
+                }
+                .padding(12)
+            }
+        }
+    }
+
+    private func repairButton(_ title: String,
+                              icon: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: icon)
+                Text(title)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+            .font(FT.sans(11, weight: .semibold))
+            .foregroundColor(t.accent)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 8)
+            .background(t.accentDim)
+            .cornerRadius(7)
+            .overlay(RoundedRectangle(cornerRadius: 7)
+                .stroke(t.accent.opacity(0.22), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var overallOk: Bool {
+        serverOk && phoneOk && (watchPollOk || server.currentSessionId == nil)
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MARK: – System log card
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -458,10 +720,10 @@ struct DashboardTab: View {
                     IMUChart(active: server.currentSessionId != nil)
                     // Mini stats row
                     HStack(spacing: 0) {
-                        miniStat("Hz",        server.currentSessionId != nil ? "50 Hz" : "— Hz",
+                        miniStat("Hz",    hzLabel(active: server.currentSessionId != nil),
                                  color: server.currentSessionId != nil ? t.green : t.text3)
                         Rectangle().fill(t.border).frame(width: 1)
-                        miniStat("Batch",     server.currentSessionId != nil ? "10 smpl" : "—")
+                        miniStat("Batch", server.currentSessionId != nil ? "5 smpl" : "—")
                         Rectangle().fill(t.border).frame(width: 1)
                         miniStat("Transport", "WCSession")
                     }
@@ -507,25 +769,8 @@ struct DashboardTab: View {
                 .overlay(RoundedRectangle(cornerRadius: 10)
                     .stroke(hasSession ? t.green.opacity(0.25) : t.border, lineWidth: 1))
 
-                // ── Connections card ────────────────────────────────────────
-                FTCard {
-                    HStack(spacing: 0) {
-                        ConnectionHalf(label: "Server", ok: server.isConnected,
-                                       detail: server.isConnected ? "ws://…:8000/ws" : "Connection refused")
-                        Rectangle().fill(t.border).frame(width: 1)
-                        ConnectionHalf(label: "Apple Watch", ok: bridge.isConnected,
-                                       detail: bridge.isConnected ? "WatchConnectivity" : "Not reachable")
-                    }
-                    .overlay(alignment: .bottom) { Rectangle().fill(t.border).frame(height: 1) }
-                    // IP row
-                    HStack(spacing: 8) {
-                        Text("Server IP").font(FT.sans(10, weight: .semibold))
-                            .textCase(.uppercase).kerning(0.6).foregroundColor(t.text3)
-                        Text(serverIP).font(FT.mono(11)).foregroundColor(t.text)
-                        Spacer()
-                    }
-                    .padding(.horizontal, 12).padding(.vertical, 9)
-                }
+                // ── Connectivity console ───────────────────────────────────
+                FTConnectivityConsole(compact: true)
 
                 // ── Upload stats ────────────────────────────────────────────
                 FTCard {
@@ -567,7 +812,8 @@ struct DashboardTab: View {
                         .textCase(.uppercase).kerning(0.6).foregroundColor(t.text3)
                         .fixedSize()
                     Text(cmd).font(FT.mono(11))
-                        .foregroundColor(cmd.contains("acknowledged") ? t.green :
+                        .foregroundColor(cmd.contains("acknowledged") || cmd.contains("confirmed") ? t.green :
+                                        cmd.contains("waiting")      ? t.yellow :
                                         cmd == "No command sent"      ? t.text3 : t.red)
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -609,6 +855,12 @@ struct DashboardTab: View {
                 .foregroundColor(color ?? t.text)
         }
         .padding(10).frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func hzLabel(active: Bool) -> String {
+        guard active else { return "— Hz" }
+        let hz = server.watchActualHz
+        return hz > 1 ? "\(Int(hz.rounded())) Hz" : "max Hz"
     }
 }
 
@@ -662,9 +914,11 @@ struct SessionTab: View {
                         HStack(spacing: 0) {
                             metricCell("Duration",    String(format: "%02d:%02d", elapsed/60, elapsed%60))
                             Rectangle().fill(t.border).frame(width: 1)
-                            metricCell("Sample rate", "50 Hz",  color: t.green)
+                            metricCell("Sample rate",
+                                       server.watchActualHz > 1 ? "\(Int(server.watchActualHz.rounded())) Hz" : "max Hz",
+                                       color: t.green)
                             Rectangle().fill(t.border).frame(width: 1)
-                            metricCell("Batch",       "10 smpl")
+                            metricCell("Batch",       "5 smpl")
                         }
                         .overlay(alignment: .bottom) { Rectangle().fill(t.border).frame(height: 1) }
                     } else {
@@ -806,6 +1060,9 @@ struct SettingsTab: View {
                     .padding(.horizontal, 14).padding(.vertical, 12)
                 }
 
+                sectionHeader("Connectivity Console")
+                FTConnectivityConsole(compact: false)
+
                 // ── Display ──────────────────────────────────────────────────
                 sectionHeader("Display")
                 FTCard {
@@ -819,10 +1076,15 @@ struct SettingsTab: View {
                 sectionHeader("Apple Watch")
                 FTCard {
                     VStack(spacing: 0) {
-                        deviceRow("Status",     bridge.isConnected ? "Reachable" : "Offline",
-                                  color: bridge.isConnected ? t.green : t.red)
-                        deviceRow("IMU rate",   server.currentSessionId != nil ? "50 Hz" : "— Hz")
-                        deviceRow("Batch size", server.currentSessionId != nil ? "10 samples" : "—")
+                        deviceRow("Status",
+                                  bridge.isConnected ? "Reachable"
+                                      : (bridge.isBridgeCapable ? "Paired · offline" : "Not paired"),
+                                  color: bridge.isConnected ? t.green
+                                      : (bridge.isBridgeCapable ? t.yellow : t.red))
+                        deviceRow("IMU rate",
+                                  server.watchActualHz > 1 ? "\(Int(server.watchActualHz.rounded())) Hz (measured)"
+                                      : (server.currentSessionId != nil ? "max Hz" : "— Hz"))
+                        deviceRow("Batch size", server.currentSessionId != nil ? "5 samples" : "—")
                         deviceRow("Transport",  "WatchConnectivity")
                         deviceRow("Last data",  server.currentSessionId != nil ? "just now" : "—", isLast: true)
                     }
@@ -931,10 +1193,16 @@ struct iPhoneView: View {
         }
         .onReceive(server.$lastWatchCommandStatus) { cmd in
             guard !cmd.isEmpty, cmd != "No command sent" else { return }
-            let ok = cmd.contains("acknowledged")
+            let ok = cmd.contains("acknowledged") || cmd.contains("confirmed")
             Task { @MainActor in
-                FTLogStore.shared.add(ok ? "ACK" : "ERR", cmd,
-                    color: ok ? theme.yellow : theme.red)
+                FTLogStore.shared.add(ok ? "ACK" : "CMD", cmd,
+                    color: ok ? theme.green : theme.yellow)
+            }
+        }
+        .onReceive(server.$lastWatchPollStatus) { poll in
+            guard poll != "No Watch poll yet" else { return }
+            Task { @MainActor in
+                FTLogStore.shared.add("POLL", poll, color: theme.blue)
             }
         }
         .onReceive(server.$currentSessionId) { sid in
