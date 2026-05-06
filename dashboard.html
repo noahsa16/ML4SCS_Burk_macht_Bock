@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Burk macht Bock — Dashboard</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,500;1,600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 /* ─── Tokens ─────────────────────────────────────────────────── */
@@ -27,6 +27,10 @@
   --yellow:    oklch(0.720 0.135 88);
   --mono:      'IBM Plex Mono', monospace;
   --sans:      'IBM Plex Sans', system-ui, sans-serif;
+  --radius-xs:   4px;   /* kleine inline tags */
+  --radius-sm:   6px;   /* boxes, buttons, inputs, chips */
+  --radius-md:   10px;  /* cards, panels */
+  --radius-pill: 999px; /* pills, status-badges, bars, timeline */
 }
 body[data-theme="dark"] {
   --bg:        oklch(0.165 0.018 58);
@@ -47,54 +51,150 @@ body[data-theme="dark"] {
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
-body { font-family: var(--sans); background: var(--bg); color: var(--text); display: flex; font-size: 14px; }
+body {
+  font-family: var(--sans); background: var(--bg); color: var(--text);
+  display: flex; flex-direction: column; font-size: 14px;
+  /* Tabular Numerals: alle Ziffern gleichbreit → Live-Werte zappeln nicht mehr beim Update */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
 
 /* ─── Scrollbar ──────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: var(--radius-xs); }
 
-/* ─── Sidebar ────────────────────────────────────────────────── */
-#sidebar {
-  width: 220px; min-width: 220px; background: var(--sidebar);
-  display: flex; flex-direction: column; height: 100vh; overflow: hidden;
-}
-.sb-brand { padding: 24px 20px 20px; border-bottom: 1px solid rgba(255,255,255,0.08); }
-.sb-title { font-size: 15px; font-weight: 600; color: #fff; letter-spacing: -0.01em; line-height: 1.2; }
-.sb-subtitle { font-size: 11px; color: rgba(255,255,255,0.42); margin-top: 4px; font-style: italic; }
-.sb-nav { flex: 1; padding: 12px 10px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
-.sb-group { font-size: 10px; font-weight: 600; color: rgba(255,255,255,0.28); letter-spacing: 0.08em; text-transform: uppercase; padding: 14px 10px 6px; }
-.nav-item {
-  display: flex; align-items: center; gap: 10px;
-  padding: 9px 10px; border-radius: 6px; cursor: pointer;
-  color: rgba(255,255,255,0.58); font-size: 13px; font-weight: 400;
-  transition: background 0.15s, color 0.15s; user-select: none;
-}
-.nav-item:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.85); }
-.nav-item.active { background: rgba(255,255,255,0.12); color: #fff; font-weight: 500; }
-.nav-icon { font-size: 15px; opacity: 0.85; width: 18px; text-align: center; }
-.sb-footer { padding: 14px 16px; border-top: 1px solid rgba(255,255,255,0.08); }
-.ws-status { display: flex; align-items: center; gap: 7px; font-size: 11px; color: rgba(255,255,255,0.38); font-family: var(--mono); }
-.ws-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); transition: background 0.3s; }
-.ws-dot.ok { background: var(--green); }
-.ws-dot.blink { animation: pulse 1s ease-in-out infinite; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
 
-/* ─── Main area ──────────────────────────────────────────────── */
+/* ─── Skeleton Loader: pulsende Box solange noch kein Wert da ist ─── */
+@keyframes skel-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.skel-loading {
+  display: inline-block;
+  color: transparent !important;
+  background: linear-gradient(
+    90deg,
+    var(--surface2) 0%,
+    var(--border) 45%,
+    var(--surface2) 90%
+  );
+  background-size: 220% 100%;
+  border-radius: var(--radius-xs);
+  animation: skel-shimmer 1.6s linear infinite;
+  /* min-width sorgt dafür, dass die Box auch ohne Inhalt sichtbar bleibt */
+  min-width: 3.5ch;
+  user-select: none;
+}
+
+/* ─── Main area (kein Sidebar mehr, alles vertikal) ──────────── */
 #main { flex: 1; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-/* ─── Top bar ────────────────────────────────────────────────── */
+/* ─── Top bar v2: Brand · Tabs · Status ──────────────────────── */
 #topbar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 12px 24px; border-bottom: 1px solid var(--border);
-  background: var(--surface); min-height: 52px; flex-shrink: 0;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 32px;
+  padding: 14px 32px;
+  background: var(--surface);
+  /* feiner Schatten statt harter Border — wirkt produkt-y */
+  box-shadow: 0 1px 0 oklch(0.880 0.018 72 / 0.6);
+  flex-shrink: 0;
+  position: relative; z-index: 5;
 }
-.page-title { font-size: 15px; font-weight: 600; color: var(--text); }
-.page-sub { font-size: 12px; color: var(--text2); margin-top: 1px; }
+
+/* Wordmark — Plex Mono Italic Bold mit Trail-Slash. */
+.brand {
+  position: relative;
+  display: inline-flex; align-items: baseline; gap: 2px;
+  font-family: var(--mono); font-style: italic; font-weight: 600;
+  font-size: 19px; letter-spacing: -0.01em; color: var(--text);
+  background: none; border: none; cursor: pointer; padding: 0;
+  transition: color 0.15s ease, transform 0.08s ease;
+  white-space: nowrap;
+}
+.brand:hover { color: var(--accent); }
+.brand:active { transform: translateY(1px); }
+.brand-slash {
+  font-family: var(--mono); font-style: normal; font-weight: 600;
+  color: var(--accent); margin-left: 4px;
+}
+
+/* Wordmark-Tooltip: zwei Zeilen Mono-Text in einer Pill, fadet beim
+   Hover ein. Ersetzt den nativen browser-title (war stylisch generisch). */
+.brand-tooltip {
+  position: absolute;
+  top: calc(100% + 10px); left: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  box-shadow: 0 6px 22px -10px oklch(0.300 0.025 55 / 0.30);
+  z-index: 20;
+}
+.brand:hover .brand-tooltip {
+  opacity: 1; transform: translateY(0);
+}
+.brand-tooltip-line {
+  font-family: var(--mono); font-style: normal; font-weight: 500;
+  font-size: 11.5px; letter-spacing: 0.02em; color: var(--text);
+}
+.brand-tooltip-line.muted {
+  font-weight: 400; color: var(--text3); font-size: 10.5px;
+}
+
+/* Linear-style tabs — kein Background, dünner Underline auf aktivem. */
+.tabs {
+  display: flex; gap: 6px; align-items: stretch;
+  position: relative;
+  /* Tabs unten am Topbar-Boden ausrichten, damit Underline auf der Bar sitzt */
+  align-self: stretch; padding-top: 4px;
+}
+.tab {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 0 14px;
+  font-family: var(--sans); font-size: 13px; font-weight: 500;
+  color: var(--text3); cursor: pointer; user-select: none;
+  background: none; border: none;
+  position: relative;
+  transition: color 0.15s ease, transform 0.08s ease;
+}
+.tab:hover { color: var(--text); }
+.tab:active { transform: translateY(1px); }
+.tab.active { color: var(--text); font-weight: 600; }
+
+/* Underline slidet zwischen Tabs — ein einziges Element, das von JS
+   zur Position des aktiven Tabs translated wird. Sieht aus wie Linear/Radix. */
+.tab-indicator {
+  position: absolute;
+  bottom: -14px;
+  left: 0;
+  height: 2px;
+  background: var(--text);
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+  opacity: 0;
+  /* transform und width werden von JS gesetzt; cubic-bezier ist ein
+     mildes "easeInOut" — schnell genug, nicht trödelnd. */
+  transition:
+    transform 0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    width     0.32s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity   0.2s  ease;
+}
+.tab-indicator.ready { opacity: 1; }
+
+.page-title, .page-sub { display: none; }
 .pill-row { display: flex; gap: 8px; align-items: center; }
 .pill {
   display: flex; align-items: center; gap: 6px;
-  padding: 5px 11px; border-radius: 20px; font-size: 11.5px;
+  padding: 5px 11px; border-radius: var(--radius-pill); font-size: 11.5px;
   font-family: var(--mono); font-weight: 500; border: 1px solid transparent;
   background: var(--surface2); border-color: var(--border);
 }
@@ -103,19 +203,164 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
 .pill.warn .dot { background: var(--yellow); animation: pulse 1.5s infinite; }
 .pill.err .dot { background: var(--red); }
 
-/* ─── Content ────────────────────────────────────────────────── */
-#content { flex: 1; overflow-y: auto; padding: 20px 24px; }
+/* ─── Konsolidierter Status-Cluster im Topbar ──────────────── */
+.status-cluster {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 5px 14px 5px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  font-family: var(--sans); font-size: 12.5px; color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+}
+.status-cluster:hover {
+  background: var(--surface);
+  border-color: var(--border2);
+}
+.status-cluster:active { transform: translateY(1px); }
+.status-cluster-dots { display: inline-flex; gap: 5px; }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text3);
+  transition: background 0.2s ease;
+}
+.status-dot.ok   { background: var(--green); }
+.status-dot.warn { background: var(--yellow); animation: pulse 1.5s infinite; }
+.status-dot.err  { background: var(--red); }
+.status-cluster-label { font-weight: 600; letter-spacing: -0.005em; }
+.status-cluster-meta {
+  color: var(--text2); font-family: var(--mono); font-size: 11.5px;
+}
+.status-cluster-meta:empty { display: none; }
 
-/* ─── Cards ──────────────────────────────────────────────────── */
+/* Topbar-Right gruppiert Status + Theme-Toggle */
+.topbar-right { display: inline-flex; align-items: center; gap: 8px; }
+
+/* Theme-Toggle: kompakter Icon-Button, gleiche Chrome-Sprache wie Status-Cluster */
+.theme-toggle {
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--surface2); border: 1px solid var(--border);
+  cursor: pointer; padding: 0;
+  color: var(--text2);
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.08s ease, color 0.15s ease;
+}
+.theme-toggle:hover {
+  background: var(--surface);
+  border-color: var(--border2);
+  color: var(--text);
+}
+.theme-toggle:active { transform: translateY(1px); }
+.theme-toggle-glyph {
+  font-family: var(--mono); font-size: 15px; line-height: 1;
+  display: inline-block;
+  transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.theme-toggle:hover .theme-toggle-glyph { transform: rotate(20deg); }
+
+/* ─── Content ────────────────────────────────────────────────── */
+#content { flex: 1; overflow-y: auto; padding: 28px 32px; }
+#content > .page { max-width: 1400px; margin: 0 auto; }
+
+/* ─── Cards: Hierarchie-System (hero / default / muted) ──────── */
 .card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: 10px; padding: 18px 20px; position: relative;
+  border-radius: var(--radius-md); padding: 18px 20px; position: relative;
 }
 .card-title { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text2); margin-bottom: 14px; }
 .card-title span { color: var(--text3); font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; }
 
+/* Hero: das Live-Recording dominiert die Seite. Mehr Padding, akzent-
+   gestreifter Top-Edge der bei aktiver Session "aufleuchtet" → der Eindruck
+   "hier passiert gerade was". Nicht-aktiver Zustand ist ruhig zurückhaltend. */
+.card-hero {
+  padding: 26px 28px;
+  overflow: hidden;
+}
+.card-hero::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 2px; background: var(--border2);
+  transition: background 0.3s ease;
+}
+.card-hero.live::before {
+  background: linear-gradient(90deg,
+    transparent,
+    var(--accent) 20%,
+    var(--accent) 80%,
+    transparent);
+}
+.card-hero .card-title { font-size: 13px; }
+
+.live-indicator {
+  display: none; align-items: center; gap: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--red); margin-left: 10px; vertical-align: middle;
+}
+.live-indicator::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--red); animation: pulse 1.4s infinite ease-in-out;
+}
+.card-hero.live .live-indicator { display: inline-flex; }
+
+/* Muted: Device-Cards spielen die zweite Geige. Weicheres Chrome,
+   weniger Padding, kleinere Titles — aber nicht ausgegraut. */
+.card-muted {
+  padding: 14px 16px;
+  background: var(--surface);
+  border-color: var(--border);
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.card-muted:hover {
+  transform: translateY(-1px);
+  border-color: var(--border2);
+  box-shadow: 0 4px 14px -8px oklch(0.300 0.025 55 / 0.20);
+}
+.card-muted .card-title { font-size: 11px; margin-bottom: 10px; }
+.card-muted .device-row { padding: 3px 0; font-size: 11.5px; }
+
+/* ─── Details-Toggle: Sekundär-Metriken ein-/ausklappen ─────── */
+.card-details {
+  max-height: 0; opacity: 0;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 1px dashed transparent;
+  overflow: hidden;
+  transition:
+    max-height 0.28s ease,
+    opacity 0.18s ease,
+    margin-top 0.2s ease,
+    padding-top 0.2s ease,
+    border-color 0.2s ease;
+}
+.card.expanded > .card-details {
+  /* 600px reicht für unsere kleinen Detail-Blöcke; falls mal mehr,
+     einfach hochsetzen — die Animation skaliert nicht visuell, da overflow hidden. */
+  max-height: 600px; opacity: 1;
+  margin-top: 8px; padding-top: 10px;
+  border-top-color: var(--border);
+}
+.card-details-toggle {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin-top: 10px; padding: 0;
+  background: none; border: none; cursor: pointer;
+  font-family: var(--sans); font-size: 11px; font-weight: 500;
+  color: var(--text3); letter-spacing: 0.02em;
+  transition: color 0.15s ease;
+}
+.card-details-toggle:hover { color: var(--text); }
+.card-details-chevron {
+  font-family: var(--mono); font-size: 13px; line-height: 1;
+  transition: transform 0.2s ease; display: inline-block;
+}
+.card.expanded .card-details-chevron { transform: rotate(90deg); }
+.card.expanded .card-details-label-show { display: none; }
+.card-details-label-hide { display: none; }
+.card.expanded .card-details-label-hide { display: inline; }
+
 /* ─── Recording page grid ───────────────────────────────────── */
-.rec-grid { display: grid; grid-template-columns: 260px 1fr 220px; gap: 16px; }
+.rec-grid { display: grid; grid-template-columns: 260px 1fr 220px; gap: 20px; }
 .rec-grid .chart-card { grid-column: 2; }
 .rec-grid .device-col { display: flex; flex-direction: column; gap: 14px; }
 
@@ -124,7 +369,7 @@ body { font-family: var(--sans); background: var(--bg); color: var(--text); disp
 input[type=text],
 textarea {
   width: 100%; padding: 8px 11px; border: 1px solid var(--border);
-  border-radius: 6px; font-family: var(--mono); font-size: 13px;
+  border-radius: var(--radius-sm); font-family: var(--sans); font-size: 13px;
   background: var(--surface2); color: var(--text); outline: none;
   transition: border-color 0.15s;
   resize: vertical;
@@ -133,20 +378,23 @@ input[type=text]:focus,
 textarea:focus { border-color: var(--accent); }
 select {
   width: 100%; padding: 8px 11px; border: 1px solid var(--border);
-  border-radius: 6px; font-family: var(--mono); font-size: 13px;
+  border-radius: var(--radius-sm); font-family: var(--sans); font-size: 13px;
   background: var(--surface2); color: var(--text); outline: none;
 }
 .btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
-  padding: 9px 18px; border-radius: 7px; font-size: 13px; font-weight: 600;
-  cursor: pointer; border: none; outline: none; transition: all 0.15s; letter-spacing: 0.02em;
+  padding: 9px 18px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600;
+  cursor: pointer; border: none; outline: none;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, transform 0.08s ease;
+  letter-spacing: 0.02em;
   font-family: var(--sans);
 }
+.btn:active { transform: translateY(1px); }
 .btn-primary { background: var(--accent); color: #fff; width: 100%; padding: 11px; font-size: 14px; }
 .btn-primary:hover { background: var(--accent-h); }
 .btn-primary.stop { background: var(--red); }
 .btn-primary.stop:hover { background: oklch(0.52 0.18 24); }
-.btn-sm { padding: 6px 12px; font-size: 12px; border-radius: 5px; font-weight: 500; }
+.btn-sm { padding: 6px 12px; font-size: 12px; border-radius: var(--radius-sm); font-weight: 500; }
 .btn-outline { background: transparent; border: 1px solid var(--border2); color: var(--text2); }
 .btn-outline:hover { background: var(--surface2); color: var(--text); border-color: var(--text3); }
 .btn-green { background: var(--green); color: #fff; }
@@ -157,7 +405,7 @@ select {
 .timer-label { font-size: 11px; color: var(--text3); margin-bottom: 14px; }
 
 .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-.stat-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+.stat-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
 .stat-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
 .stat-val { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--text); margin-top: 3px; }
 .stat-val.accent { color: var(--accent); }
@@ -167,14 +415,36 @@ select {
 .chart-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .chart-legend { display: flex; gap: 14px; font-size: 11px; color: var(--text2); align-items: center; }
 .leg-dot { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
-.chart-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
-.chart-stat { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; }
-.chart-stat .val { font-family: var(--mono); font-size: 15px; font-weight: 600; }
-.chart-stat .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); margin-top: 2px; }
+.chart-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+.chart-stat {
+  background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px 16px;
+}
+/* Hero-Stats: Sans-Bold statt Mono — wirkt editorial-er und tabular-nums
+   sorgt trotzdem dafür, dass Werte beim Update nicht zappeln. */
+.chart-stat .val {
+  font-family: var(--sans); font-size: 28px; font-weight: 600;
+  letter-spacing: -0.02em; line-height: 1.05;
+}
+.chart-stat .lbl {
+  font-family: var(--mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text3); margin-top: 6px;
+}
 canvas#imuChart { width: 100% !important; }
+
+/* IMU-Chart Empty-State: gleiche Logik wie beim Pen-Canvas */
+.chart-canvas-wrap { position: relative; }
+.chart-canvas-empty {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.chart-canvas-empty .empty-state { padding: 16px; }
+.chart-canvas-wrap.has-data .chart-canvas-empty { opacity: 0; }
 .wide-card { grid-column: 1 / -1; }
 .health-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
-.health-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+.health-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
 .health-box .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
 .health-box .v { font-family: var(--mono); font-size: 15px; font-weight: 600; color: var(--text); margin-top: 4px; }
 .health-box .v.ok { color: var(--green); }
@@ -185,12 +455,20 @@ canvas#imuChart { width: 100% !important; }
 .device-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
 .device-name { font-size: 13px; font-weight: 600; }
 .status-badge {
+  display: inline-flex; align-items: center; gap: 6px;
   font-size: 10px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
-  padding: 3px 8px; border-radius: 4px; font-family: var(--mono);
+  padding: 3px 9px 3px 7px; border-radius: var(--radius-pill);
+  font-family: var(--mono);
+  background: var(--surface2); color: var(--text2); border: 1px solid var(--border);
 }
-.badge-ok { background: oklch(0.58 0.13 148 / 0.15); color: var(--green); }
-.badge-err { background: oklch(0.575 0.175 24 / 0.12); color: var(--red); }
-.badge-warn { background: oklch(0.72 0.135 88 / 0.15); color: oklch(0.55 0.14 80); }
+.status-badge::before {
+  content: ''; display: block; width: 6px; height: 6px; border-radius: 50%;
+  flex-shrink: 0; background: var(--text3);
+}
+.badge-ok::before { background: var(--green); }
+.badge-err::before { background: var(--red); }
+.badge-warn::before { background: var(--yellow); }
+/* badge-warn: chrome bleibt neutral, nur der Dot ist gelb (siehe ::before-Regel oben) */
 .device-row { display: flex; justify-content: space-between; font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border); color: var(--text2); }
 .device-row:last-of-type { border-bottom: none; }
 .device-row .v { font-family: var(--mono); color: var(--text); font-weight: 500; }
@@ -202,31 +480,90 @@ canvas#imuChart { width: 100% !important; }
 .sessions-toolbar .ml { margin-left: auto; }
 table { width: 100%; border-collapse: collapse; }
 thead th { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text2); padding: 9px 12px; text-align: left; border-bottom: 2px solid var(--border2); background: var(--surface2); }
-thead th:first-child { border-radius: 6px 0 0 0; }
-thead th:last-child { border-radius: 0 6px 0 0; }
+thead th:first-child { border-radius: var(--radius-sm) 0 0 0; }
+thead th:last-child { border-radius: 0 var(--radius-sm) 0 0; }
 tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
-tbody tr:hover { background: var(--surface2); }
+tbody tr {
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+tbody tr:hover {
+  background: var(--surface2);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
 tbody td { padding: 10px 12px; font-size: 13px; }
 td.mono { font-family: var(--mono); font-size: 12px; }
 td.bold { font-weight: 600; }
+
+/* Session-Zelle: Person prominent, ID als Mono-Caption darunter */
+.session-cell { line-height: 1.2; }
+.session-person {
+  font-size: 13.5px; font-weight: 600; color: var(--text);
+  letter-spacing: -0.005em;
+}
+.session-person.anonymous {
+  font-style: italic; color: var(--text2); font-weight: 500;
+}
+.session-caption {
+  font-family: var(--mono); font-size: 10.5px; color: var(--text3);
+  margin-top: 3px; letter-spacing: 0.04em; font-weight: 500;
+}
 .table-empty { text-align: center; padding: 40px; color: var(--text3); font-size: 13px; font-style: italic; }
+
+/* ─── Empty States: einheitliches Pattern für leere Bereiche ─── */
+.empty-state {
+  text-align: center;
+  padding: 56px 24px;
+  color: var(--text3);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.empty-state-glyph {
+  font-family: var(--mono); font-style: italic; font-size: 38px;
+  font-weight: 500; line-height: 1; color: var(--accent);
+  opacity: 0.55;
+  margin-bottom: 14px;
+  letter-spacing: -0.04em;
+}
+.empty-state-title {
+  font-family: var(--sans); font-size: 15px; font-weight: 600;
+  color: var(--text2); letter-spacing: -0.005em;
+  margin-bottom: 4px;
+}
+.empty-state-hint {
+  font-size: 12.5px; line-height: 1.55; color: var(--text3);
+  max-width: 340px;
+}
+.empty-state-action {
+  margin-top: 18px;
+  font-family: var(--sans); font-size: 12px; font-weight: 600;
+  color: var(--text2); background: none; border: 1px solid var(--border2);
+  padding: 8px 16px; border-radius: var(--radius-sm); cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, transform 0.08s ease;
+  letter-spacing: 0.01em;
+}
+.empty-state-action:hover { color: var(--text); border-color: var(--text3); }
+.empty-state-action:active { transform: translateY(1px); }
 .click-row { cursor: pointer; }
 .click-row.active { background: oklch(0.595 0.165 43 / 0.10); }
 
 .export-link {
-  display: inline-block; padding: 2px 8px; border-radius: 4px;
+  display: inline-block; padding: 2px 8px; border-radius: var(--radius-xs);
   font-family: var(--mono); font-size: 11px; font-weight: 600;
   color: var(--text2); text-decoration: none;
   background: oklch(0.92 0.02 90 / 0.6); border: 1px solid var(--border);
+  transition: transform 0.12s ease, color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
 }
-.export-link:hover { color: var(--text); background: var(--accent-bg); }
+.export-link:hover {
+  color: var(--text); background: var(--surface);
+  border-color: var(--text3); transform: translateY(-1px);
+}
+.export-link:active { transform: translateY(0); }
 
 /* ─── Session validation timeline ──────────────────────────── */
 .validation-panel { margin-top: 16px; display: none; }
 .validation-panel.active { display: block; }
 .validation-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
 .validation-title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
-.validation-status { font-family: var(--mono); font-size: 13px; font-weight: 700; }
+.validation-status { font-size: 13px; font-weight: 700; letter-spacing: 0.01em; }
 .validation-metrics { display: flex; gap: 18px; flex-wrap: wrap; margin: 12px 0 16px; color: var(--text2); }
 .validation-metric { font-size: 13px; }
 .validation-metric strong { font-family: var(--mono); color: var(--text); }
@@ -235,30 +572,30 @@ td.bold { font-weight: 600; }
 .axis-tick { position: absolute; top: 4px; transform: translateX(-50%); white-space: nowrap; }
 .timeline-row { display: grid; grid-template-columns: 58px 1fr; gap: 12px; align-items: center; margin: 12px 0; }
 .timeline-label { font-weight: 700; color: var(--text2); text-align: right; }
-.timeline-track { position: relative; height: 36px; border-radius: 8px; background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
-.timeline-bar { position: absolute; top: 7px; height: 20px; border-radius: 999px; min-width: 2px; }
+.timeline-track { position: relative; height: 36px; border-radius: var(--radius-sm); background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
+.timeline-bar { position: absolute; top: 7px; height: 20px; border-radius: var(--radius-pill); min-width: 2px; }
 .bar-watch { background: linear-gradient(90deg, var(--accent), oklch(0.720 0.135 88)); }
 .bar-pen { background: var(--green); }
 .bar-gap { background: oklch(0.650 0.018 58 / 0.18); }
 .drift-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 16px; }
-.drift-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+.drift-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
 .drift-box .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
 .drift-box .v { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--text); margin-top: 4px; }
 .validation-note { color: var(--text3); font-size: 12px; line-height: 1.55; margin-top: 12px; }
 .issue-list { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
-.issue-chip { font-family: var(--mono); font-size: 10px; border-radius: 5px; padding: 4px 7px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
+.issue-chip { font-family: var(--mono); font-size: 10px; border-radius: var(--radius-sm); padding: 4px 7px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
 
 /* ─── Connections page ───────────────────────────────────────── */
 .conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .conn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
-.info-block { background: var(--surface2); border-radius: 6px; padding: 10px 14px; margin-top: 8px; }
+.info-block { background: var(--surface2); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 8px; }
 .info-row { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
 .info-row:last-child { border-bottom: none; }
 .info-key { color: var(--text2); font-size: 11px; }
 .info-val { font-family: var(--mono); font-size: 12px; color: var(--text); font-weight: 500; word-break: break-all; text-align: right; max-width: 60%; }
 .endpoint-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
-.endpoint { display: flex; gap: 8px; align-items: center; padding: 6px 10px; background: var(--surface2); border-radius: 5px; }
-.method { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 3px; min-width: 42px; text-align: center; }
+.endpoint { display: flex; gap: 8px; align-items: center; padding: 6px 10px; background: var(--surface2); border-radius: var(--radius-sm); }
+.method { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: var(--radius-xs); min-width: 42px; text-align: center; }
 .method.get { background: oklch(0.58 0.13 148 / 0.15); color: var(--green); }
 .method.post { background: oklch(0.595 0.165 43 / 0.15); color: var(--accent); }
 .method.ws { background: oklch(0.55 0.15 275 / 0.15); color: oklch(0.60 0.14 275); }
@@ -269,21 +606,24 @@ td.bold { font-weight: 600; }
 .network-map { display: grid; grid-template-columns: 1fr 86px 1fr 86px 1fr; align-items: center; gap: 10px; }
 .network-node {
   min-height: 112px; background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 8px; padding: 13px; display: flex; flex-direction: column; gap: 8px;
+  border-radius: var(--radius-sm); padding: 13px; display: flex; flex-direction: column; gap: 8px;
   justify-content: center; align-items: center; text-align: center;
 }
 .network-node .node-icon {
   width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
-  font-size: 18px; background: oklch(0.650 0.018 58 / 0.12); color: var(--text3);
+  font-size: 18px; background: var(--surface2); color: var(--text3);
+  border: 1.5px solid var(--border2); transition: border-color 0.2s, color 0.2s;
 }
-.network-node.ok .node-icon { background: oklch(0.580 0.130 148 / 0.15); color: var(--green); }
-.network-node.warn .node-icon { background: oklch(0.720 0.135 88 / 0.15); color: var(--yellow); }
-.network-node.err .node-icon { background: oklch(0.575 0.175 24 / 0.12); color: var(--red); }
+/* Icon-Chrome bleibt neutral, der Status-Dot (in der Karte rechts oben) trägt die Farbe.
+   Subtile Akzent-Border deutet den Status an, ohne das ganze Icon einzufärben. */
+.network-node.ok  .node-icon { border-color: oklch(0.580 0.130 148 / 0.55); color: var(--green); }
+.network-node.warn .node-icon { border-color: oklch(0.720 0.135 88 / 0.55); color: var(--yellow); }
+.network-node.err .node-icon { border-color: oklch(0.575 0.175 24 / 0.55); color: var(--red); }
 .node-title { font-weight: 700; font-size: 13px; }
-.node-status { font-family: var(--mono); font-size: 11px; color: var(--text2); min-height: 16px; }
-.network-link { display: flex; flex-direction: column; gap: 6px; align-items: center; color: var(--text3); font-family: var(--mono); font-size: 10px; }
+.node-status { font-size: 11.5px; color: var(--text2); min-height: 16px; }
+.network-link { display: flex; flex-direction: column; gap: 6px; align-items: center; color: var(--text3); font-size: 10.5px; letter-spacing: 0.02em; }
 .network-line {
-  position: relative; width: 100%; height: 4px; border-radius: 999px;
+  position: relative; width: 100%; height: 4px; border-radius: var(--radius-pill);
   background: var(--border2); overflow: hidden;
 }
 .network-line.ok { background: oklch(0.580 0.130 148 / 0.24); }
@@ -297,7 +637,7 @@ td.bold { font-weight: 600; }
 .network-line.warn { color: var(--yellow); }
 @keyframes networkFlow { from { left: 0; } to { left: calc(100% - 8px); } }
 .network-detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
-.network-detail { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 10px 12px; }
+.network-detail { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
 .network-detail .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
 .network-detail .v { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text); margin-top: 4px; word-break: break-word; }
 
@@ -305,7 +645,7 @@ td.bold { font-weight: 600; }
 .log-split { display: grid; grid-template-columns: 1.15fr 1fr; gap: 14px; }
 .log-panel {
   background: oklch(0.145 0.018 55); color: oklch(0.910 0.010 80);
-  border: 1px solid oklch(0.300 0.025 55); border-radius: 8px;
+  border: 1px solid oklch(0.300 0.025 55); border-radius: var(--radius-sm);
   font-family: var(--mono); font-size: 11px; line-height: 1.45;
   max-height: 250px; overflow-y: auto; padding: 10px;
 }
@@ -333,14 +673,14 @@ td.bold { font-weight: 600; }
 .schema-table td:first-child { color: var(--accent); font-weight: 500; }
 .schema-table td:nth-child(2) { color: var(--green); }
 .schema-table tr:last-child td { border-bottom: none; }
-.tag { display: inline-block; padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 600; font-family: var(--mono); }
+.tag { display: inline-block; padding: 2px 7px; border-radius: var(--radius-xs); font-size: 10px; font-weight: 600; font-family: var(--mono); }
 .tag-int { background: oklch(0.58 0.13 275 / 0.14); color: oklch(0.55 0.14 275); }
 .tag-float { background: oklch(0.595 0.165 43 / 0.14); color: var(--accent); }
 .tag-str { background: oklch(0.58 0.13 148 / 0.14); color: var(--green); }
 .tag-bool { background: oklch(0.72 0.135 88 / 0.14); color: oklch(0.55 0.14 80); }
 
 /* ─── Uptime / server bar ────────────────────────────────────── */
-.uptime-bar { display: flex; gap: 20px; padding: 10px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 16px; flex-wrap: wrap; }
+.uptime-bar { display: flex; gap: 20px; padding: 10px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 16px; flex-wrap: wrap; }
 .uptime-item { display: flex; flex-direction: column; gap: 2px; }
 .uptime-key { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
 .uptime-val { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--text); }
@@ -352,7 +692,7 @@ td.bold { font-weight: 600; }
 /* ─── Notification toast ─────────────────────────────────────── */
 #toast {
   position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
-  background: var(--sidebar); color: #fff; padding: 10px 18px; border-radius: 8px;
+  background: var(--sidebar); color: #fff; padding: 10px 18px; border-radius: var(--radius-sm);
   font-size: 13px; font-weight: 500; z-index: 9999; transition: transform 0.3s ease;
   pointer-events: none; white-space: nowrap;
 }
@@ -361,11 +701,23 @@ td.bold { font-weight: 600; }
 /* ─── Pen preview canvas ─────────────────────────────────────── */
 #penCanvas {
   width: 100% !important; display: block;
-  border-radius: 6px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--surface2); border: 1px solid var(--border);
   cursor: crosshair;
 }
 .pen-canvas-meta { display: flex; justify-content: space-between; align-items: baseline; margin-top: 7px; }
-.pen-canvas-info { font-size: 11px; color: var(--text3); font-family: var(--mono); }
+.pen-canvas-info { font-size: 11.5px; color: var(--text3); }
+
+/* Pen-Canvas Empty-State: zentriertes Overlay über dem Canvas, fadet bei
+   ankommenden Daten weg (.has-data Klasse wird vom Renderer gesetzt). */
+.pen-canvas-wrap { position: relative; }
+.pen-canvas-empty {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+.pen-canvas-empty .empty-state { padding: 24px; }
+.pen-canvas-wrap.has-data .pen-canvas-empty { opacity: 0; }
 
 /* ─── Responsive tweaks ──────────────────────────────────────── */
 @media (max-width: 900px) {
@@ -381,48 +733,39 @@ td.bold { font-weight: 600; }
 </head>
 <body>
 
-<!-- ═══════════════════════ SIDEBAR ═══════════════════════════ -->
-<aside id="sidebar">
-  <div class="sb-brand">
-    <div class="sb-title">Burk macht Bock</div>
-    <div class="sb-subtitle">Writing Activity Study · Leuphana</div>
-  </div>
-  <nav class="sb-nav">
-    <div class="sb-group">Experiment</div>
-    <div class="nav-item active" data-page="recording">
-      <span class="nav-icon">⏺</span> Recording
-    </div>
-    <div class="nav-item" data-page="sessions">
-      <span class="nav-icon">📋</span> Sessions
-    </div>
-    <div class="sb-group">Setup</div>
-    <div class="nav-item" data-page="connections">
-      <span class="nav-icon">🔌</span> Connections
-    </div>
-    <div class="nav-item" data-page="system">
-      <span class="nav-icon">⚙️</span> System &amp; Schema
-    </div>
-  </nav>
-  <div class="sb-footer">
-    <div class="ws-status">
-      <div class="ws-dot" id="wsDot"></div>
-      <span id="wsLabel">Connecting…</span>
-    </div>
-  </div>
-</aside>
-
 <!-- ═══════════════════════ MAIN ══════════════════════════════ -->
 <main id="main">
-  <!-- Top bar -->
+  <!-- Top bar: Brand · Tabs · Status -->
   <div id="topbar">
-    <div>
-      <div class="page-title" id="pageTitle">Live Recording</div>
-      <div class="page-sub" id="pageSub">Pen + Watch data capture</div>
-    </div>
-    <div class="pill-row">
-      <div class="pill" id="pillPen"><div class="dot"></div><span id="pillPenTxt">Pen – –</span></div>
-      <div class="pill" id="pillWatch"><div class="dot"></div><span id="pillWatchTxt">Watch – –</span></div>
-      <div class="pill ok" id="pillServer"><div class="dot"></div><span id="pillServerTxt">Server – –</span></div>
+    <button type="button" class="brand" onclick="goHome()">
+      <span>Burk macht Bock</span><span class="brand-slash">/</span>
+      <span class="brand-tooltip" aria-hidden="true">
+        <span class="brand-tooltip-line">ML4SCS · Writing Activity Study</span>
+        <span class="brand-tooltip-line muted">Noah Samel · Ben Kriegsmann · Tajuddin Snasni</span>
+      </span>
+    </button>
+    <nav class="tabs" role="tablist">
+      <button type="button" class="tab active" data-page="recording"   role="tab">Recording</button>
+      <button type="button" class="tab"        data-page="sessions"    role="tab">Sessions</button>
+      <button type="button" class="tab"        data-page="connections" role="tab">Connections</button>
+      <button type="button" class="tab"        data-page="system"      role="tab">System</button>
+      <span class="tab-indicator" id="tabIndicator" aria-hidden="true"></span>
+    </nav>
+    <div class="topbar-right">
+      <button type="button" class="status-cluster" id="statusCluster"
+              title="Click for connection details">
+        <span class="status-cluster-dots">
+          <span class="status-dot" id="clusterDotPen"    aria-label="Pen"></span>
+          <span class="status-dot" id="clusterDotWatch"  aria-label="Watch"></span>
+          <span class="status-dot" id="clusterDotServer" aria-label="Server"></span>
+        </span>
+        <span class="status-cluster-label" id="statusClusterLabel">connecting…</span>
+        <span class="status-cluster-meta" id="statusClusterMeta"></span>
+      </button>
+      <button type="button" class="theme-toggle" id="themeToggle"
+              onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle light / dark">
+        <span class="theme-toggle-glyph" id="themeToggleGlyph">☾</span>
+      </button>
     </div>
   </div>
 
@@ -448,11 +791,11 @@ td.bold { font-weight: 600; }
           <div class="stat-grid">
             <div class="stat-box">
               <div class="stat-label">Watch Samples</div>
-              <div class="stat-val accent" id="watchCount">0</div>
+              <div class="stat-val accent skel-loading" id="watchCount" data-skel>0</div>
             </div>
             <div class="stat-box">
               <div class="stat-label">Pen Dots</div>
-              <div class="stat-val green" id="penCount">0</div>
+              <div class="stat-val green skel-loading" id="penCount" data-skel>0</div>
             </div>
             <div class="stat-box">
               <div class="stat-label">Session ID</div>
@@ -460,15 +803,18 @@ td.bold { font-weight: 600; }
             </div>
             <div class="stat-box">
               <div class="stat-label">Sample Rate</div>
-              <div class="stat-val" id="watchRateMain" style="font-size:16px;font-family:var(--mono)">– Hz</div>
+              <div class="stat-val skel-loading" id="watchRateMain" data-skel style="font-size:16px;font-family:var(--mono)">– Hz</div>
             </div>
           </div>
         </div>
 
-        <!-- Live IMU chart -->
-        <div class="card chart-card">
+        <!-- Live IMU chart (Hero) -->
+        <div class="card card-hero chart-card" id="liveRecordingHero">
           <div class="chart-meta">
-            <div class="card-title" style="margin:0">Live IMU Signal<span>Accelerometer + Gyroscope Magnitudes</span></div>
+            <div class="card-title" style="margin:0">
+              Live IMU Signal<span>Accelerometer + Gyroscope Magnitudes</span>
+              <span class="live-indicator" id="liveIndicator">Live</span>
+            </div>
             <div class="chart-legend">
               <span><span class="leg-dot" style="background:var(--accent);height:2px"></span> Accel |a|</span>
               <span><span class="leg-dot" style="background:var(--yellow);height:2px"></span> Gyro |r|</span>
@@ -476,51 +822,81 @@ td.bold { font-weight: 600; }
               <span><span class="leg-dot" style="background:var(--border2);width:14px"></span> Idle</span>
             </div>
           </div>
-          <canvas id="imuChart" height="160"></canvas>
+          <div class="chart-canvas-wrap" id="chartCanvasWrap">
+            <canvas id="imuChart" height="160"></canvas>
+            <div class="chart-canvas-empty">
+              <div class="empty-state">
+                <div class="empty-state-glyph">/</div>
+                <div class="empty-state-title">Waiting for IMU stream</div>
+                <div class="empty-state-hint">Start a session and accelerometer + gyroscope magnitudes will draw here in real time.</div>
+              </div>
+            </div>
+          </div>
           <div class="chart-stats">
             <div class="chart-stat"><div class="val" id="statMag">–</div><div class="lbl">Current |a|</div></div>
             <div class="chart-stat"><div class="val" id="statGyro">–</div><div class="lbl">Current |r|</div></div>
             <div class="chart-stat"><div class="val" id="statWritePct">–</div><div class="lbl">Writing %</div></div>
           </div>
-          <div class="health-grid">
-            <div class="health-box"><div class="k">Watch actual Hz</div><div class="v" id="watchHz">–</div></div>
-            <div class="health-box"><div class="k">Pen dot Hz</div><div class="v" id="penHz">–</div></div>
-            <div class="health-box"><div class="k">Gyro stream</div><div class="v" id="gyroHealth">–</div></div>
-            <div class="health-box"><div class="k">Clock align</div><div class="v" id="clockHealth">–</div></div>
+          <div class="card-details">
+            <div class="health-grid">
+              <div class="health-box"><div class="k">Watch actual Hz</div><div class="v" id="watchHz">–</div></div>
+              <div class="health-box"><div class="k">Pen dot Hz</div><div class="v" id="penHz">–</div></div>
+              <div class="health-box"><div class="k">Gyro stream</div><div class="v" id="gyroHealth">–</div></div>
+              <div class="health-box"><div class="k">Clock align</div><div class="v" id="clockHealth">–</div></div>
+            </div>
           </div>
+          <button class="card-details-toggle" onclick="toggleCardDetails(this)">
+            <span class="card-details-chevron">›</span>
+            <span class="card-details-label-show">Health diagnostics</span>
+            <span class="card-details-label-hide">Hide diagnostics</span>
+          </button>
         </div>
 
         <!-- Device column -->
         <div class="device-col">
           <!-- Pen device -->
-          <div class="card">
+          <div class="card card-muted">
             <div class="device-header">
               <div class="device-name">Smart Pen</div>
               <div class="status-badge badge-err" id="penBadge">Disconnected</div>
             </div>
-            <div class="device-row"><span>Model</span><span class="v">NWP-F130</span></div>
-            <div class="device-row"><span>Protocol</span><span class="v">NeoSmartpen V2</span></div>
             <div class="device-row"><span>Dot type</span><span class="v" id="dotType">–</span></div>
             <div class="device-row"><span>Last xy</span><span class="v" id="penLastXY">–</span></div>
             <div class="device-row"><span>Dot Hz</span><span class="v" id="penRateSide">–</span></div>
-            <div class="device-row"><span>BLE</span><span class="v" id="penBleStatus">Scanning…</span></div>
+            <div class="card-details">
+              <div class="device-row"><span>Model</span><span class="v">NWP-F130</span></div>
+              <div class="device-row"><span>Protocol</span><span class="v">NeoSmartpen V2</span></div>
+              <div class="device-row"><span>BLE</span><span class="v" id="penBleStatus">Scanning…</span></div>
+            </div>
+            <button class="card-details-toggle" onclick="toggleCardDetails(this)">
+              <span class="card-details-chevron">›</span>
+              <span class="card-details-label-show">Specs</span>
+              <span class="card-details-label-hide">Less</span>
+            </button>
             <div class="device-actions">
               <button class="btn btn-sm btn-green" id="penConnBtn" onclick="penConnect()">Connect</button>
               <button class="btn btn-sm btn-outline" id="penDiscBtn" onclick="penDisconnect()">Disconnect</button>
             </div>
           </div>
           <!-- Watch device -->
-          <div class="card">
+          <div class="card card-muted">
             <div class="device-header">
               <div class="device-name">Apple Watch</div>
               <div class="status-badge badge-err" id="watchBadge">Offline</div>
             </div>
-            <div class="device-row"><span>IMU rate</span><span class="v">50 Hz</span></div>
-            <div class="device-row"><span>Batch size</span><span class="v">10 samples</span></div>
-            <div class="device-row"><span>Transport</span><span class="v">WCSession</span></div>
             <div class="device-row"><span>Actual Hz</span><span class="v" id="watchRateSide">–</span></div>
             <div class="device-row"><span>Last |r|</span><span class="v" id="watchGyroSide">–</span></div>
             <div class="device-row"><span>Last data</span><span class="v mono" id="watchLastTs">–</span></div>
+            <div class="card-details">
+              <div class="device-row"><span>IMU rate</span><span class="v">50 Hz</span></div>
+              <div class="device-row"><span>Batch size</span><span class="v">10 samples</span></div>
+              <div class="device-row"><span>Transport</span><span class="v">WCSession</span></div>
+            </div>
+            <button class="card-details-toggle" onclick="toggleCardDetails(this)">
+              <span class="card-details-chevron">›</span>
+              <span class="card-details-label-show">Specs</span>
+              <span class="card-details-label-hide">Less</span>
+            </button>
             <div class="device-actions">
               <button class="btn btn-sm btn-outline" onclick="watchCmd('start')">▶ Start</button>
               <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">■ Stop</button>
@@ -534,7 +910,16 @@ td.bold { font-weight: 600; }
             <div class="card-title" style="margin:0">Live Handwriting Preview<span>Ncode pen path · last 200 dots</span></div>
             <button class="btn btn-sm btn-outline" onclick="clearPenPreview()">Clear</button>
           </div>
-          <canvas id="penCanvas" height="200"></canvas>
+          <div class="pen-canvas-wrap" id="penCanvasWrap">
+            <canvas id="penCanvas" height="200"></canvas>
+            <div class="pen-canvas-empty" id="penCanvasEmpty">
+              <div class="empty-state">
+                <div class="empty-state-glyph">/</div>
+                <div class="empty-state-title">Waiting for pen strokes</div>
+                <div class="empty-state-hint">Connect the Smart Pen, start a session, and write — strokes will appear here in real time.</div>
+              </div>
+            </div>
+          </div>
           <div class="pen-canvas-meta">
             <span class="pen-canvas-info" id="penCanvasInfo">No pen data · connect pen and start a session</span>
           </div>
@@ -581,8 +966,7 @@ td.bold { font-weight: 600; }
         <table>
           <thead>
             <tr>
-              <th>Session ID</th>
-              <th>Person</th>
+              <th>Session</th>
               <th>Description</th>
               <th>Start Time</th>
               <th>Duration</th>
@@ -598,7 +982,7 @@ td.bold { font-weight: 600; }
             </tr>
           </thead>
           <tbody id="sessionsBody">
-            <tr><td colspan="14" class="table-empty">Loading sessions…</td></tr>
+            <tr><td colspan="13"><div class="empty-state"><div class="empty-state-title">Loading sessions…</div></div></td></tr>
           </tbody>
         </table>
       </div>
@@ -862,6 +1246,6 @@ td.bold { font-weight: 600; }
 
 <div id="toast"></div>
 
-<script src="/static/dashboard.js?v=20260506-3"></script>
+<script src="/static/dashboard.js?v=20260506-20"></script>
 </body>
 </html>
