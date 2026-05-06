@@ -3,44 +3,34 @@ import CoreMotion
 import Foundation
 import HealthKit
 import WatchConnectivity
-
-enum StreamMode: String, CaseIterable {
-    case auto       = "Auto"
-    case directOnly = "Direct"
-    case phoneOnly  = "Phone"
-}
+import WatchKit
 
 class MotionManager: NSObject, ObservableObject {
     private enum Config {
-        static let sampleRateHz = 50.0
+        static let requestedHz = 50.0
         static let batchSize = 10
-        static let maxBufferedSamples = 3000
-        static let defaultServerIP = "192.168.178.147"
-        static let statusPollInterval = 2.0
+        static let maxBufferedSamples = 500
     }
 
     private let cm = CMMotionManager()
     private let healthStore = HKHealthStore()
     private let sessionId = UUID().uuidString
-    private let urlSession: URLSession = {
-        let configuration = URLSessionConfiguration.default
-        configuration.timeoutIntervalForRequest = 4
-        configuration.timeoutIntervalForResource = 8
-        configuration.waitsForConnectivity = false
-        return URLSession(configuration: configuration)
-    }()
 
     private var buffer: [[String: Any]] = []
     private var nextSequence = 0
-    private var runStartedAt: Date?
-    private var directUploadInFlight = false
-    private var pendingForceFlush = false
-    private var statusPollTimer: Timer?
-    private var statusPollInFlight = false
     private var workoutSession: HKWorkoutSession?
     private var workoutBuilder: HKLiveWorkoutBuilder?
     private var finishingWorkout = false
     private var lastWorkoutRestartAttempt: Date?
+    private var commandPollTimer: Timer?
+    private var commandPollInFlight = false
+    private var commandPollSentAt: Date?
+    private var lastHandledCommandKey: String?
+
+    // Backing counters — updated per sample on main; published to SwiftUI at batch rate only.
+    private var rawSampleCount = 0
+    private var rawLastAccMag = 0.0
+    private var rawLastGyroMag = 0.0
 
     @Published private(set) var sampleCount = 0
     @Published private(set) var deliveredSampleCount = 0
@@ -49,33 +39,39 @@ class MotionManager: NSObject, ObservableObject {
     @Published private(set) var droppedSampleCount = 0
     @Published private(set) var queuedSampleCount = 0
     @Published private(set) var isRunning = false
+    @Published private(set) var runStartedAt: Date?
     @Published private(set) var isReachable = false
-    @Published private(set) var serverReachable = false
     @Published private(set) var serverSessionId: String?
-    @Published private(set) var serverIP: String
     @Published private(set) var uploadMode = "Offline"
-    @Published var preferredMode: StreamMode {
-        didSet { UserDefaults.standard.set(preferredMode.rawValue, forKey: "streamMode") }
-    }
     @Published private(set) var workoutStatus = "Workout idle"
+    @Published private(set) var lastCommandPollStatus = "No poll yet"
+    @Published private(set) var lastCommandId: String?
     @Published private(set) var actualSampleRateHz = 0.0
     @Published private(set) var lastAccelerationMagnitude = 0.0
     @Published private(set) var lastGyroscopeMagnitude = 0.0
     @Published private(set) var status = "Idle"
 
     override init() {
-        self.serverIP = UserDefaults.standard.string(forKey: "serverIP") ?? Config.defaultServerIP
-        let rawMode = UserDefaults.standard.string(forKey: "streamMode") ?? StreamMode.auto.rawValue
-        self.preferredMode = StreamMode(rawValue: rawMode) ?? .auto
         super.init()
         WCSession.default.delegate = self
         WCSession.default.activate()
-        startStatusPolling()
+        cancelStaleUserInfoTransfers()
+        startCommandPolling()
+    }
+
+    /// Cancel any leftover `transferUserInfo` packets from previous app launches.
+    /// Without this, undelivered transfers (e.g. from a session where the iPhone was off)
+    /// pile up in WCSession's queue and block new uploads with "Bridge (queue full)".
+    private func cancelStaleUserInfoTransfers() {
+        let outstanding = WCSession.default.outstandingUserInfoTransfers
+        guard !outstanding.isEmpty else { return }
+        for transfer in outstanding {
+            transfer.cancel()
+        }
     }
 
     deinit {
-        statusPollTimer?.invalidate()
-        urlSession.invalidateAndCancel()
+        commandPollTimer?.invalidate()
     }
 
     func start(sessionId newServerSessionId: String? = nil) {
@@ -92,9 +88,9 @@ class MotionManager: NSObject, ObservableObject {
         startWorkoutSessionIfNeeded()
         isRunning = true
         runStartedAt = Date()
-        status = "Research recording active"
-        uploadMode = serverReachable ? "Direct" : "Offline"
-        cm.deviceMotionUpdateInterval = 1.0 / Config.sampleRateHz
+        status = "Recording"
+        uploadMode = isReachable ? "Bridge" : "Bridge (polling)"
+        cm.deviceMotionUpdateInterval = 1.0 / Config.requestedHz
         cm.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let self, let motion else { return }
             let ts = Self.currentTimestampMillis()
@@ -117,15 +113,10 @@ class MotionManager: NSObject, ObservableObject {
                 "ry": motion.rotationRate.y,
                 "rz": motion.rotationRate.z
             ])
-            self.sampleCount += 1
-            self.lastAccelerationMagnitude = accMag
-            self.lastGyroscopeMagnitude = gyroMag
-            if let runStartedAt = self.runStartedAt {
-                let elapsed = max(0.001, Date().timeIntervalSince(runStartedAt))
-                self.actualSampleRateHz = Double(self.sampleCount) / elapsed
-            }
+            self.rawSampleCount += 1
+            self.rawLastAccMag = accMag
+            self.rawLastGyroMag = gyroMag
             self.trimBufferIfNeeded()
-            self.queuedSampleCount = self.buffer.count
             self.flushBuffer(force: false)
         }
     }
@@ -134,8 +125,9 @@ class MotionManager: NSObject, ObservableObject {
         guard isRunning || workoutSession != nil else { return }
         cm.stopDeviceMotionUpdates()
         isRunning = false
+        runStartedAt = nil
         flushBuffer(force: true)
-        if buffer.isEmpty && !directUploadInFlight {
+        if buffer.isEmpty {
             status = "Stopped"
         }
         endWorkoutSessionIfNeeded()
@@ -144,6 +136,9 @@ class MotionManager: NSObject, ObservableObject {
     private func resetRunCounters() {
         buffer.removeAll()
         nextSequence = 0
+        rawSampleCount = 0
+        rawLastAccMag = 0
+        rawLastGyroMag = 0
         sampleCount = 0
         deliveredSampleCount = 0
         backgroundQueuedSampleCount = 0
@@ -153,245 +148,188 @@ class MotionManager: NSObject, ObservableObject {
         actualSampleRateHz = 0
         lastAccelerationMagnitude = 0
         lastGyroscopeMagnitude = 0
-        pendingForceFlush = false
+        runStartedAt = nil
     }
 
     private func flushBuffer(force: Bool) {
-        if directUploadInFlight {
-            pendingForceFlush = pendingForceFlush || force
-            return
+        guard buffer.count >= Config.batchSize || (force && !buffer.isEmpty) else { return }
+
+        // Publish UI counters at batch rate (~5 Hz) instead of per-sample.
+        sampleCount = rawSampleCount
+        lastAccelerationMagnitude = rawLastAccMag
+        lastGyroscopeMagnitude = rawLastGyroMag
+        queuedSampleCount = buffer.count
+        if let runStartedAt {
+            actualSampleRateHz = Double(rawSampleCount) / max(0.001, Date().timeIntervalSince(runStartedAt))
         }
 
-        let shouldForce = force || pendingForceFlush
-        pendingForceFlush = false
-        guard buffer.count >= Config.batchSize || (shouldForce && !buffer.isEmpty) else { return }
-
-        let sampleCountToSend = shouldForce ? buffer.count : Config.batchSize
+        let sampleCountToSend = force ? buffer.count : Config.batchSize
         let samples = Array(buffer.prefix(sampleCountToSend))
         buffer.removeFirst(sampleCountToSend)
         queuedSampleCount = buffer.count
         nextSequence += 1
 
-        if preferredMode == .phoneOnly {
-            let envelope = makeEnvelope(samples: samples, source: "watch_phone_bridge", transport: "watchconnectivity")
-            if !sendViaPhoneFallback(envelope: envelope, samples: samples) {
-                uploadMode = "Offline"
-                buffer.insert(contentsOf: samples, at: 0)
-                trimBufferIfNeeded()
-                queuedSampleCount = buffer.count
-            }
-        } else {
-            let envelope = makeEnvelope(samples: samples, source: "watch_direct", transport: "urlsession")
-            uploadDirect(envelope: envelope, samples: samples)
+        let envelope = makeEnvelope(samples: samples)
+        if !sendViaBridge(envelope: envelope, samples: samples) {
+            uploadMode = "Offline"
+            buffer.insert(contentsOf: samples, at: 0)
+            trimBufferIfNeeded()
+            queuedSampleCount = buffer.count
         }
     }
 
-    private func makeEnvelope(samples: [[String: Any]], source: String, transport: String) -> [String: Any] {
+    private func makeEnvelope(samples: [[String: Any]]) -> [String: Any] {
         [
             "type": "watch_motion_batch",
             "sessionId": serverSessionId ?? sessionId,
             "sequence": nextSequence,
-            "sampleRateHz": Config.sampleRateHz,
+            "sampleRateHz": actualSampleRateHz > 1.0 ? actualSampleRateHz : Config.requestedHz,
             "watchSentAt": Self.currentTimestampMillis(),
-            "source": source,
-            "transport": transport,
+            "source": "watch_phone_bridge",
+            "transport": "watchconnectivity",
+            "commandId": lastCommandId ?? "",
             "samples": samples
         ]
     }
 
-    private func uploadDirect(envelope: [String: Any], samples: [[String: Any]]) {
-        guard let url = serverURL(path: "/watch") else {
-            handleDirectUploadFailure(envelope: envelope, samples: samples, reason: "Invalid server URL")
-            return
-        }
-        guard let body = try? JSONSerialization.data(withJSONObject: envelope) else {
-            handleDirectUploadFailure(envelope: envelope, samples: samples, reason: "Could not encode direct batch")
-            return
-        }
-
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = body
-
-        directUploadInFlight = true
-        uploadMode = "Direct"
-        urlSession.dataTask(with: request) { [weak self] data, response, error in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.directUploadInFlight = false
-
-                if let error {
-                    self.handleDirectUploadFailure(envelope: envelope, samples: samples, reason: error.localizedDescription)
-                    return
-                }
-
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                guard (200..<300).contains(statusCode) else {
-                    self.handleDirectUploadFailure(envelope: envelope, samples: samples, reason: "Server HTTP \(statusCode)")
-                    return
-                }
-
-                self.serverReachable = true
-                self.deliveredSampleCount += samples.count
-                self.status = self.isRunning ? "Direct streaming" : "Stopped"
-                self.uploadMode = "Direct"
-
-                if let data,
-                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                    self.applyRemoteSessionStatus(json)
-                }
-
-                self.flushBuffer(force: self.pendingForceFlush)
-            }
-        }.resume()
-    }
-
-    private func handleDirectUploadFailure(envelope: [String: Any], samples: [[String: Any]], reason: String) {
-        failedBatchCount += 1
-        serverReachable = false
-        status = reason
-
-        if preferredMode != .directOnly {
-            var fallbackEnvelope = envelope
-            fallbackEnvelope["source"] = "watch_phone_fallback"
-            fallbackEnvelope["transport"] = "watchconnectivity_fallback"
-            if sendViaPhoneFallback(envelope: fallbackEnvelope, samples: samples) {
-                flushBuffer(force: pendingForceFlush)
-                return
-            }
-        }
-
-        uploadMode = "Offline"
-        buffer.insert(contentsOf: samples, at: 0)
-        trimBufferIfNeeded()
-        queuedSampleCount = buffer.count
-    }
-
     @discardableResult
-    private func sendViaPhoneFallback(envelope: [String: Any], samples: [[String: Any]]) -> Bool {
+    private func sendViaBridge(envelope: [String: Any], samples: [[String: Any]]) -> Bool {
+        guard WCSession.default.activationState == .activated else {
+            return false
+        }
         guard let payloadData = try? JSONSerialization.data(withJSONObject: envelope) else {
             return false
         }
         let message: [String: Any] = ["payload": payloadData]
-        uploadMode = "Phone fallback"
         backgroundQueuedSampleCount += samples.count
 
-        if WCSession.default.isReachable {
-            WCSession.default.sendMessage(message, replyHandler: { [weak self] _ in
-                DispatchQueue.main.async {
-                    self?.deliveredSampleCount += samples.count
-                    self?.status = self?.isRunning == true ? "Phone fallback" : "Stopped"
-                }
-            }, errorHandler: { [weak self] error in
-                DispatchQueue.main.async {
-                    self?.handlePhoneFallbackFailure(samples: samples, reason: error.localizedDescription)
-                }
-            })
-        } else {
-            WCSession.default.transferUserInfo(message)
-            status = "Queued for phone fallback"
-        }
+        WCSession.default.sendMessage(message, replyHandler: { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.deliveredSampleCount += samples.count
+                self.backgroundQueuedSampleCount = max(0, self.backgroundQueuedSampleCount - samples.count)
+                self.status = self.isRunning ? "Recording" : "Stopped"
+                self.uploadMode = "Bridge"
+            }
+        }, errorHandler: { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.queueBridgeTransfer(message, reason: error.localizedDescription)
+            }
+        })
         return true
     }
 
-    private func handlePhoneFallbackFailure(samples: [[String: Any]], reason: String) {
-        failedBatchCount += 1
-        status = reason
-        uploadMode = "Offline"
-        buffer.insert(contentsOf: samples, at: 0)
-        trimBufferIfNeeded()
-        queuedSampleCount = buffer.count
-    }
-
-    private func startStatusPolling() {
-        statusPollTimer?.invalidate()
-        let timer = Timer(timeInterval: Config.statusPollInterval, repeats: true) { [weak self] _ in
-            self?.fetchServerStatus()
+    private func queueBridgeTransfer(_ message: [String: Any], reason: String) {
+        let pending = WCSession.default.outstandingUserInfoTransfers.count
+        guard pending < 8 else {
+            // Queue full — drop this batch rather than letting it grow unbounded.
+            let n = Self.sampleCount(from: message)
+            let firstDrop = droppedSampleCount == 0
+            droppedSampleCount += n
+            backgroundQueuedSampleCount = max(0, backgroundQueuedSampleCount - n)
+            uploadMode = "Bridge (queue full)"
+            if firstDrop { WKInterfaceDevice.current().play(.failure) }
+            return
         }
-        timer.tolerance = 0.5
-        RunLoop.main.add(timer, forMode: .common)
-        statusPollTimer = timer
-        fetchServerStatus()
+        WCSession.default.transferUserInfo(message)
+        uploadMode = pending > 0 ? "Bridge (queued \(pending + 1))" : "Bridge (queued)"
+        status = "Queued for bridge: \(reason)"
     }
 
-    func refreshServerStatus() { fetchServerStatus() }
+    private func startCommandPolling() {
+        commandPollTimer?.invalidate()
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.pollPhoneForCommand()
+        }
+        commandPollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        pollPhoneForCommand()
+    }
 
-    private func fetchServerStatus() {
-        guard !statusPollInFlight, let url = serverURL(path: "/watch/ping") else { return }
-        statusPollInFlight = true
+    private func pollPhoneForCommand() {
+        // Watchdog: if a poll has been in-flight for >3 s without a reply, force-clear the flag.
+        if commandPollInFlight, let sentAt = commandPollSentAt,
+           Date().timeIntervalSince(sentAt) > 3.0 {
+            commandPollInFlight = false
+        }
+        guard WCSession.default.activationState == .activated, !commandPollInFlight else { return }
+        commandPollInFlight = true
+        commandPollSentAt = Date()
+        let message: [String: Any] = [
+            "type": "command_poll",
+            "is_running": isRunning,
+            "session_id": serverSessionId ?? "",
+            "sample_count": sampleCount,
+            "queued_samples": queuedSampleCount,
+            "delivered_samples": deliveredSampleCount,
+            "failed_batches": failedBatchCount,
+            "last_command_id": lastCommandId ?? "",
+            "upload_mode": uploadMode
+        ]
 
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 3
-
-        urlSession.dataTask(with: request) { [weak self] data, response, error in
+        WCSession.default.sendMessage(message, replyHandler: { [weak self] reply in
             DispatchQueue.main.async {
                 guard let self else { return }
-                self.statusPollInFlight = false
-
-                guard error == nil,
-                      let http = response as? HTTPURLResponse,
-                      (200..<300).contains(http.statusCode),
-                      let data,
-                      let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-                else {
-                    self.serverReachable = false
-                    if !self.isRunning {
-                        self.uploadMode = self.isReachable ? "Phone fallback" : "Offline"
-                    }
-                    return
+                self.commandPollInFlight = false
+                self.isReachable = true
+                self.lastCommandPollStatus = "Phone replied"
+                _ = self.handleCommand(reply)
+                if self.isRunning && self.status.hasPrefix("Phone bridge") {
+                    self.status = "Recording"
                 }
-
-                self.serverReachable = true
-                self.applyRemoteSessionStatus(json)
             }
-        }.resume()
-    }
-
-    private func applyRemoteSessionStatus(_ json: [String: Any]) {
-        let sessionActive = json["session_active"] as? Bool ?? false
-        let remoteSessionId = json["session_id"] as? String
-
-        if sessionActive, let remoteSessionId, !remoteSessionId.isEmpty {
-            if !isRunning {
-                start(sessionId: remoteSessionId)
-            } else if serverSessionId != remoteSessionId {
-                serverSessionId = remoteSessionId
+        }, errorHandler: { [weak self] error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.commandPollInFlight = false
+                self.isReachable = false
+                self.lastCommandPollStatus = error.localizedDescription
+                // Fallback: push status via transferUserInfo (background-safe, doesn't need isReachable).
+                // Throttled by queue size to prevent buildup if iPhone is unreachable for a while.
+                if WCSession.default.outstandingUserInfoTransfers.count < 4 {
+                    var pollUserInfo = message
+                    pollUserInfo["fallback"] = true
+                    WCSession.default.transferUserInfo(pollUserInfo)
+                }
+                if !self.isRunning {
+                    self.status = "Phone bridge unavailable: \(error.localizedDescription)"
+                }
             }
-        } else if isRunning && serverSessionId != nil {
-            stop()
-            serverSessionId = nil
+        })
+    }
+
+    private func noteFinishedBackgroundTransfer(_ userInfo: [String: Any], error: Error?) {
+        let sampleCount = Self.sampleCount(from: userInfo)
+        if let error {
+            failedBatchCount += 1
+            status = "Queued bridge failed: \(error.localizedDescription)"
+            return
         }
+        deliveredSampleCount += sampleCount
+        backgroundQueuedSampleCount = max(0, backgroundQueuedSampleCount - sampleCount)
+        uploadMode = isReachable ? "Bridge" : "Bridge (queued)"
+        status = isRunning ? "Recording" : "Stopped"
     }
 
-    private func updateServerIP(_ newValue: String) {
-        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, trimmed != serverIP else { return }
-        serverIP = trimmed
-        UserDefaults.standard.set(trimmed, forKey: "serverIP")
-        fetchServerStatus()
-    }
-
-    private func serverBaseURLString() -> String {
-        let trimmed = serverIP
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
-            return trimmed
-        }
-        return trimmed.contains(":") ? "http://\(trimmed)" : "http://\(trimmed):8000"
-    }
-
-    private func serverURL(path: String) -> URL? {
-        URL(string: serverBaseURLString() + path)
+    private static func sampleCount(from userInfo: [String: Any]) -> Int {
+        guard let payloadData = userInfo["payload"] as? Data,
+              let decoded = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any],
+              let samples = decoded["samples"] as? [[String: Any]]
+        else { return 0 }
+        return samples.count
     }
 
     private func trimBufferIfNeeded() {
         guard buffer.count > Config.maxBufferedSamples else { return }
         let overflow = buffer.count - Config.maxBufferedSamples
+        let firstDrop = droppedSampleCount == 0
         buffer.removeFirst(overflow)
         droppedSampleCount += overflow
+        if firstDrop {
+            // One haptic so the user notices even when not looking at the stats page.
+            WKInterfaceDevice.current().play(.failure)
+        }
     }
 
     private static func currentTimestampMillis() -> Int64 {
@@ -405,9 +343,6 @@ extension MotionManager: WCSessionDelegate {
                  error: Error?) {
         DispatchQueue.main.async {
             self.isReachable = session.isReachable
-            if let contextIP = session.receivedApplicationContext["server_ip"] as? String {
-                self.updateServerIP(contextIP)
-            }
             if let error {
                 self.status = error.localizedDescription
             }
@@ -422,18 +357,14 @@ extension MotionManager: WCSessionDelegate {
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
         DispatchQueue.main.async {
-            if let serverIP = applicationContext["server_ip"] as? String {
-                self.updateServerIP(serverIP)
+            if applicationContext["command"] != nil {
+                _ = self.handleCommand(applicationContext)
             }
         }
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         DispatchQueue.main.async {
-            if let serverIP = userInfo["server_ip"] as? String {
-                self.updateServerIP(serverIP)
-            }
-            // Handle queued commands (sent via transferUserInfo when Watch was not reachable).
             if userInfo["command"] != nil {
                 _ = self.handleCommand(userInfo)
             }
@@ -441,31 +372,73 @@ extension MotionManager: WCSessionDelegate {
     }
 
     @discardableResult
-    private func handleCommand(_ message: [String: Any]) -> [String: Any] {
-        if let serverIP = message["server_ip"] as? String {
-            updateServerIP(serverIP)
-        }
-
+    fileprivate func handleCommand(_ message: [String: Any]) -> [String: Any] {
         guard let command = message["command"] as? String else {
             return ["ok": false, "error": "Missing command"]
         }
+        let sid = message["session_id"] as? String
+        let commandId = message["command_id"] as? String
+        let commandKey = "\(command)|\(sid ?? "")|\(commandId ?? "")"
+        if lastHandledCommandKey == commandKey {
+            let alreadyApplied =
+                (command == "start" && isRunning && (sid == nil || sid == serverSessionId)) ||
+                (command == "stop" && !isRunning)
+            if alreadyApplied {
+                return [
+                    "ok": true,
+                    "command": command,
+                    "command_id": lastCommandId ?? "",
+                    "duplicate": true,
+                    "isRunning": isRunning,
+                    "session_id": serverSessionId ?? "",
+                    "sampleCount": sampleCount,
+                    "uploadMode": uploadMode
+                ]
+            }
+        }
+
         switch command {
         case "start":
-            let sid = message["session_id"] as? String
-            start(sessionId: sid)
+            if isRunning, let sid, !sid.isEmpty, sid != serverSessionId {
+                stop()
+            }
+            if !isRunning {
+                start(sessionId: sid)
+            } else if let sid, !sid.isEmpty {
+                serverSessionId = sid
+            }
         case "stop":
             stop()
             serverSessionId = nil
         default:
             return ["ok": false, "error": "Unknown command", "command": command]
         }
+        let applied =
+            (command == "start" && isRunning && (sid == nil || sid == serverSessionId)) ||
+            (command == "stop" && !isRunning)
+        guard applied else {
+            return [
+                "ok": false,
+                "command": command,
+                "command_id": commandId ?? "",
+                "isRunning": isRunning,
+                "session_id": serverSessionId ?? "",
+                "sampleCount": sampleCount,
+                "uploadMode": uploadMode,
+                "error": status
+            ]
+        }
+        if let commandId, !commandId.isEmpty {
+            lastCommandId = commandId
+        }
+        lastHandledCommandKey = commandKey
         return [
             "ok": true,
             "command": command,
+            "command_id": lastCommandId ?? "",
             "isRunning": isRunning,
             "session_id": serverSessionId ?? "",
             "sampleCount": sampleCount,
-            "server_ip": serverIP,
             "uploadMode": uploadMode
         ]
     }
@@ -480,6 +453,14 @@ extension MotionManager: WCSessionDelegate {
         DispatchQueue.main.async {
             let reply = self.handleCommand(message)
             replyHandler(reply)
+        }
+    }
+
+    func session(_ session: WCSession,
+                 didFinish userInfoTransfer: WCSessionUserInfoTransfer,
+                 error: Error?) {
+        DispatchQueue.main.async {
+            self.noteFinishedBackgroundTransfer(userInfoTransfer.userInfo, error: error)
         }
     }
 }
@@ -583,8 +564,6 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
                     self.restartWorkoutIfNeeded()
                 }
             case .ended:
-                // Only clear our ref if this is still the session that just ended.
-                // If a restart already created a new session, leave it untouched.
                 if self.workoutSession === workoutSession {
                     self.workoutSession = nil
                     self.workoutBuilder = nil

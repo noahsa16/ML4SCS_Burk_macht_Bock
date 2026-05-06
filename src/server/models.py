@@ -1,0 +1,61 @@
+from typing import Optional
+
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
+
+
+class SessionStartBody(BaseModel):
+    person_id: str = "unknown"
+    description: str = ""
+    force_preflight: bool = False
+
+    @field_validator("person_id", mode="before")
+    @classmethod
+    def normalize_person_id(cls, v: object) -> str:
+        s = str(v).strip() if v is not None else ""
+        return s or "unknown"
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def normalize_description(cls, v: object) -> str:
+        return str(v).strip() if v is not None else ""
+
+
+class WatchSample(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    ts: Optional[int] = None
+    ax: Optional[float] = None
+    ay: Optional[float] = None
+    az: Optional[float] = None
+    rx: Optional[float] = None
+    ry: Optional[float] = None
+    rz: Optional[float] = None
+
+
+class WatchEnvelope(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    samples:          list[WatchSample] = []
+    sequence:         Optional[int]   = None
+    sampleRateHz:     Optional[float] = None
+    watchSentAt:      Optional[int]   = None
+    phoneReceivedAt:  Optional[int]   = None
+    source:           Optional[str]   = None
+    sessionId:        Optional[str]   = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_list_format(cls, v: object) -> object:
+        """Allow a bare list of samples as the entire payload."""
+        if isinstance(v, list):
+            return {"samples": v}
+        return v
+
+    @field_validator("samples", mode="before")
+    @classmethod
+    def drop_non_dict_samples(cls, v: object) -> list:
+        """Silently discard any sample that isn't a dict so one bad entry
+        doesn't reject the whole batch."""
+        if not isinstance(v, list):
+            return []
+        return [s for s in v if isinstance(s, dict)]

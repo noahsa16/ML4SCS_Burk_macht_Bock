@@ -13,6 +13,7 @@ struct WatchStreamerApp: App {
         // Eagerly activate WCSession before any view is created.
         // PhoneBridge.shared sets WCSession.default.delegate and calls activate().
         _ = PhoneBridge.shared
+        _ = ServerCommandListener.shared
     }
 
     var body: some Scene {
