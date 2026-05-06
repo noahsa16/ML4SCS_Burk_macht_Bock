@@ -28,3 +28,6 @@ results/metrics/*.csv
 # Misc
 .env
 
+# Server logs
+logs/
+

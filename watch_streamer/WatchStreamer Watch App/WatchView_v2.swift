@@ -1,13 +1,6 @@
 // WatchView_v2.swift
-// FocusTrack — Apple Watch UI (redesigned)
-// Matches the web dashboard design language adapted for watchOS:
-// dark background, monospace data, orange accent, compact card rows.
-//
-// Integration:
-//   1. Add this file to the WatchKit Extension target in Xcode
-//   2. Delete (or rename) old WatchView.swift
-//   3. MotionManager.swift + StreamMode enum — NO changes needed
-//      StreamMode.allCases must include rawValues: "Auto", "iPhone", "Direct HTTP"
+// FocusTrack — Apple Watch UI
+// Streaming via iPhone bridge (WatchConnectivity) only.
 //
 // Requirements: watchOS 9+, Swift 5.9+
 
@@ -43,17 +36,9 @@ private enum WT {
 struct WTPulseDot: View {
     let color: Color
     var pulse: Bool = true
-    @State private var dim = false
 
     var body: some View {
         Circle().fill(color).frame(width: 5, height: 5)
-            .opacity(pulse && dim ? 0.2 : 1)
-            .onAppear {
-                guard pulse else { return }
-                withAnimation(.easeInOut(duration: 1.5).repeatForever(autoreverses: true)) {
-                    dim = true
-                }
-            }
     }
 }
 
@@ -104,6 +89,68 @@ struct WTStatsRow: View {
     }
 }
 
+struct WTWatchNetworkMap: View {
+    @ObservedObject var motion: MotionManager
+
+    var body: some View {
+        VStack(spacing: 8) {
+            HStack(spacing: 8) {
+                node("Watch", ok: true, icon: "applewatch")
+                link(ok: motion.isReachable, label: "poll")
+                node("Phone", ok: motion.isReachable, icon: "iphone")
+            }
+            info("Command poll", motion.lastCommandPollStatus,
+                 color: motion.isReachable ? WT.green : WT.orange)
+            info("Command ID", motion.lastCommandId ?? "none",
+                 color: motion.lastCommandId == nil ? Color.white.opacity(0.45) : WT.green)
+            info("Upload", motion.uploadMode,
+                 color: motion.uploadMode.hasPrefix("Bridge") ? WT.green : WT.orange)
+            info("Recovery", motion.isReachable ? "automatic" : "open iPhone app",
+                 color: motion.isReachable ? WT.green : WT.orange)
+        }
+    }
+
+    private func node(_ title: String, ok: Bool, icon: String) -> some View {
+        VStack(spacing: 3) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(ok ? WT.green : WT.orange)
+                .frame(width: 28, height: 28)
+                .background((ok ? WT.green : WT.orange).opacity(0.14))
+                .clipShape(Circle())
+            Text(title)
+                .font(WT.sans(9, weight: .semibold))
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func link(ok: Bool, label: String) -> some View {
+        VStack(spacing: 3) {
+            Capsule()
+                .fill(ok ? WT.green.opacity(0.6) : Color.white.opacity(0.16))
+                .frame(width: 42, height: 3)
+            Text(label)
+                .font(WT.mono(8))
+                .foregroundColor(ok ? WT.green : .secondary)
+        }
+    }
+
+    private func info(_ label: String, _ value: String, color: Color) -> some View {
+        HStack {
+            Text(label)
+                .font(WT.sans(9))
+                .foregroundColor(.secondary)
+            Spacer()
+            Text(value)
+                .font(WT.mono(9, weight: .medium))
+                .foregroundColor(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+    }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MARK: – IMU mini sparkline (Canvas)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -136,100 +183,148 @@ struct WTSparkline: View {
 
 struct WTRecordPage: View {
     @ObservedObject var motion: MotionManager
-    @State private var ripple = false
     @State private var elapsed = 0
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
-    private var accentColor: Color { motion.isRunning ? WT.green : .secondary }
+    // ── Derived state ────────────────────────────────────────────────
+    private var isRecording: Bool { motion.isRunning }
+    private var isReady: Bool     { !motion.isRunning && motion.isReachable }
+
+    private var stateColor: Color {
+        if isRecording { return WT.green }
+        if isReady     { return WT.blue  }
+        return WT.orange
+    }
+    private var stateIcon: String {
+        if isRecording { return "waveform" }
+        if isReady     { return "checkmark.circle" }
+        return "exclamationmark.circle"
+    }
+    private var stateLabel: String {
+        if isRecording { return "REC" }
+        if isReady     { return "READY" }
+        return "WAITING"
+    }
+    private var contextLine: String {
+        if let sid = motion.serverSessionId { return sid }
+        if isReady   { return "start from website" }
+        return "open iPhone app"
+    }
+    private var pollLabel: String {
+        guard motion.isReachable else { return "no poll" }
+        return motion.lastCommandPollStatus == "Phone replied" ? "live" : "polling…"
+    }
 
     var body: some View {
         VStack(spacing: 0) {
 
-            // ── Ripple + Icon ─────────────────────────────────────────────
+            // ── State indicator ──────────────────────────────────────────
             ZStack {
-                // Ripple rings
-                if motion.isRunning {
-                    ForEach([0, 1], id: \.self) { i in
-                        Circle()
-                            .stroke(WT.green.opacity(0.3), lineWidth: 1.5)
-                            .frame(width: 68, height: 68)
-                            .scaleEffect(ripple ? 1.7 : 1.0)
-                            .opacity(ripple ? 0 : 0.8)
-                            .animation(
-                                .easeOut(duration: 1.6)
-                                    .repeatForever(autoreverses: false)
-                                    .delay(Double(i) * 0.6),
-                                value: ripple
-                            )
-                    }
-                }
-                // Fill circle
                 Circle()
-                    .fill(motion.isRunning ? WT.green.opacity(0.18) : Color.white.opacity(0.06))
-                    .frame(width: 54, height: 54)
-                // Icon
-                Image(systemName: motion.isRunning ? "waveform" : "waveform.slash")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(accentColor)
+                    .fill(stateColor.opacity(0.14))
+                    .frame(width: 44, height: 44)
+                Image(systemName: stateIcon)
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(stateColor)
             }
-            .frame(height: 72)
+            .frame(height: 54)
             .onChange(of: motion.isRunning) { running in
-                ripple = running
-            }
-            .onAppear { ripple = motion.isRunning }
-
-            // ── Status ────────────────────────────────────────────────────
-            Text(motion.isRunning ? "Recording" : motion.status)
-                .font(WT.sans(14, weight: .semibold))
-                .foregroundColor(motion.isRunning ? WT.green : .primary)
-                .lineLimit(1).minimumScaleFactor(0.8)
-
-            // Session ID
-            if let sid = motion.serverSessionId {
-                Text(sid)
-                    .font(WT.mono(9, weight: .medium))
-                    .foregroundColor(WT.accent)
-                    .lineLimit(1)
-                    .padding(.top, 1)
+                if !running { elapsed = 0 }
             }
 
-            // Duration
-            if motion.isRunning {
-                Text(String(format: "%02d:%02d", elapsed / 60, elapsed % 60))
-                    .font(WT.mono(12))
-                    .foregroundColor(.secondary)
-                    .padding(.top, 2)
+            // ── State label + timer ──────────────────────────────────────
+            HStack(spacing: 5) {
+                Text(stateLabel)
+                    .font(WT.mono(11, weight: .bold))
+                    .foregroundColor(stateColor)
+                    .kerning(0.6)
+                if isRecording {
+                    Text(String(format: "%02d:%02d", elapsed / 60, elapsed % 60))
+                        .font(WT.mono(11))
+                        .foregroundColor(.secondary)
+                        .monospacedDigit()
+                }
             }
+            .padding(.top, 2)
 
-            Spacer()
+            // ── Context line ─────────────────────────────────────────────
+            Text(contextLine)
+                .font(WT.sans(9))
+                .foregroundColor(motion.serverSessionId != nil ? WT.accent : .secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .padding(.top, 1)
 
-            // ── Connection pills ──────────────────────────────────────────
-            HStack(spacing: 14) {
-                WTConnPill(label: "Phone",  ok: motion.isReachable)
-                WTConnPill(label: "Server", ok: motion.serverReachable)
+            Spacer(minLength: 4)
+
+            // ── Connection status bar ────────────────────────────────────
+            HStack(spacing: 0) {
+                connCell(
+                    icon:  "iphone",
+                    label: motion.isReachable ? "reachable" : "offline",
+                    ok:    motion.isReachable
+                )
+                Rectangle().fill(Color.white.opacity(0.14)).frame(width: 0.5)
+                connCell(
+                    icon:  "arrow.2.circlepath",
+                    label: pollLabel,
+                    ok:    motion.isReachable
+                )
+                if let id = motion.lastCommandId, !id.isEmpty {
+                    Rectangle().fill(Color.white.opacity(0.14)).frame(width: 0.5)
+                    connCell(
+                        icon:  "terminal",
+                        label: String(id.prefix(8)),
+                        ok:    true
+                    )
+                }
             }
-            .padding(.bottom, 8)
+            .background(Color.white.opacity(0.07))
+            .cornerRadius(8)
+            .padding(.bottom, 6)
 
-            // ── Start / Stop button ───────────────────────────────────────
+            // ── Start / Stop button ──────────────────────────────────────
             Button {
                 WKInterfaceDevice.current().play(motion.isRunning ? .stop : .start)
-                if motion.isRunning { motion.stop(); elapsed = 0 }
+                if motion.isRunning { motion.stop() }
                 else                { motion.start() }
             } label: {
-                Label(
-                    motion.isRunning ? "Stop"  : "Start",
-                    systemImage: motion.isRunning ? "stop.fill" : "record.circle"
-                )
-                .font(WT.sans(14, weight: .bold))
-                .frame(maxWidth: .infinity)
+                Label(motion.isRunning ? "Stop" : "Start",
+                      systemImage: motion.isRunning ? "stop.fill" : "record.circle")
+                    .font(WT.sans(13, weight: .bold))
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
-            .tint(motion.isRunning ? WT.red : WT.green)
+            .tint(motion.isRunning ? WT.red : (isReady ? WT.green : WT.orange))
+            .padding(.bottom, 2)
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 4)
-        .onReceive(timer) { _ in if motion.isRunning { elapsed += 1 } }
-        .onAppear { motion.refreshServerStatus() }
+        .padding(.horizontal, 10)
+        // Timer: berechne elapsed aus runStartedAt statt zu inkrementieren —
+        // korrekt auch nach Watch-Sleep.
+        .onReceive(timer) { now in
+            guard motion.isRunning, let start = motion.runStartedAt else { return }
+            elapsed = Int(now.timeIntervalSince(start))
+        }
+    }
+
+    @ViewBuilder
+    private func connCell(icon: String, label: String, ok: Bool) -> some View {
+        HStack(spacing: 3) {
+            WTPulseDot(color: ok ? WT.green : WT.orange, pulse: ok)
+            VStack(alignment: .leading, spacing: 0) {
+                Image(systemName: icon)
+                    .font(.system(size: 7, weight: .semibold))
+                    .foregroundColor(.secondary)
+                Text(label)
+                    .font(WT.mono(8))
+                    .foregroundColor(ok ? WT.green : WT.orange)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 5)
+        .padding(.horizontal, 3)
     }
 }
 
@@ -318,33 +413,15 @@ struct WTSettingsPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
-
-                // ── Stream mode picker ────────────────────────────────────
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Stream via")
-                        .font(WT.sans(11, weight: .bold))
-                        .foregroundColor(.secondary)
-                        .textCase(.uppercase)
-                        .kerning(0.6)
-
-                    Picker("", selection: $motion.preferredMode) {
-                        ForEach(StreamMode.allCases, id: \.self) { mode in
-                            Text(mode.rawValue).tag(mode)
-                        }
-                    }
-                    .pickerStyle(.wheel)
-                    .frame(height: 64)
-                    .tint(WT.accent)
-                }
-
-                Divider()
-
-                // ── Status info ───────────────────────────────────────────
-                infoRow("Active mode",  motion.uploadMode,
-                        color: motion.uploadMode == "Direct" ? WT.green : WT.orange)
-                infoRow("BG Session",   motion.workoutStatus,
+                WTWatchNetworkMap(motion: motion)
+                    .padding(.bottom, 4)
+                infoRow("Transport",   "Phone Bridge",
+                        color: WT.blue)
+                infoRow("Status",      motion.uploadMode,
+                        color: motion.uploadMode.hasPrefix("Bridge") ? WT.green : WT.orange)
+                infoRow("BG Session",  motion.workoutStatus,
                         color: motion.workoutStatus.contains("active") ? WT.green : .secondary)
-                infoRow("Phone",        motion.isReachable ? "Reachable" : "Offline",
+                infoRow("Phone",       motion.isReachable ? "Reachable" : "Offline",
                         color: motion.isReachable ? WT.green : WT.orange)
             }
             .padding(.horizontal, 12)

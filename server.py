@@ -14,7 +14,6 @@ Hier passiert bewusst wenig — die eigentliche Logik steckt in src/server/:
 """
 
 import asyncio
-import signal
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -22,6 +21,8 @@ from fastapi.staticfiles import StaticFiles
 
 from src.server.broadcast import _broadcast, _status_loop
 from src.server.config import STATIC_DIR
+from src.server.csv_io import close_all_watch_writers
+from src.server.logging_setup import setup_logging
 from src.server.pen_proc import _stop_pen
 from src.server.routes import router
 from src.server.state import state
@@ -29,14 +30,13 @@ from src.server.state import state
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    setup_logging()
     state.append_event("server", "info", "FastAPI server started")
     task = asyncio.create_task(_status_loop())
     yield
     task.cancel()
-    if state.pen_proc and state.pen_proc.returncode is None:
-        state.pen_proc.send_signal(signal.SIGINT)
-    if state.pen_log_task:
-        state.pen_log_task.cancel()
+    await _stop_pen()
+    close_all_watch_writers()
 
 
 app = FastAPI(lifespan=lifespan)

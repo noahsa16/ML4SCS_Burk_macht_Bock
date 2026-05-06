@@ -23,8 +23,11 @@ const S = {
   qualitySummary: null,
   validationBySession: {},
   selectedSessionId: null,
+  penDotBuffer: [],   // {x, y, t, ts} — last ~500 pen dots for canvas
+  penBounds: null,    // {minX, maxX, minY, maxY} — auto-scale bounds
   watchStatusText: 'Offline',
   watchBadgeClass: 'badge-err',
+  lastStatus: null,
 };
 
 // ════════════════════════════════════════════════════════════
@@ -178,6 +181,151 @@ function updateChart(chartPts) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  PEN HANDWRITING CANVAS
+// ════════════════════════════════════════════════════════════
+const _penCanvas = document.getElementById('penCanvas');
+const _penCtx = _penCanvas.getContext('2d');
+let _penSeenTs = new Set();   // deduplicate dots by timestamp
+
+function updatePenCanvas(newDots) {
+  if (!newDots || !newDots.length) return;
+
+  // Clear buffer on session change (session_id switches → fresh canvas)
+  // Handled by clearPenPreview() call in handleStatus before this.
+
+  // Composite key — local_ts_ms collisions happen at ~80 Hz when two dots
+  // share the same millisecond, so include dot_type and coords as tiebreakers.
+  const dotKey = (d) => `${d.ts ?? ''}_${d.t ?? ''}_${d.x}_${d.y}`;
+  let added = 0;
+  for (const d of newDots) {
+    const key = dotKey(d);
+    if (_penSeenTs.has(key)) continue;
+    _penSeenTs.add(key);
+    S.penDotBuffer.push(d);
+    added++;
+  }
+  if (!added) return;
+
+  const MAX_DOTS = 2500;
+  if (S.penDotBuffer.length > MAX_DOTS) {
+    const dropped = S.penDotBuffer.splice(0, S.penDotBuffer.length - MAX_DOTS);
+    dropped.forEach(d => _penSeenTs.delete(dotKey(d)));
+  }
+
+  // Update auto-scale bounds
+  for (const d of S.penDotBuffer) {
+    if (!S.penBounds) {
+      S.penBounds = { minX: d.x, maxX: d.x, minY: d.y, maxY: d.y };
+    } else {
+      if (d.x < S.penBounds.minX) S.penBounds.minX = d.x;
+      if (d.x > S.penBounds.maxX) S.penBounds.maxX = d.x;
+      if (d.y < S.penBounds.minY) S.penBounds.minY = d.y;
+      if (d.y > S.penBounds.maxY) S.penBounds.maxY = d.y;
+    }
+  }
+
+  drawPenCanvas();
+}
+
+function clearPenPreview() {
+  S.penDotBuffer = [];
+  S.penBounds = null;
+  _penSeenTs = new Set();
+  drawPenCanvas();
+  document.getElementById('penCanvasInfo').textContent = 'Cleared · waiting for new pen data';
+}
+
+function drawPenCanvas() {
+  const canvas = _penCanvas;
+  const ctx = _penCtx;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.offsetWidth || 600;
+  const cssH = 200;
+
+  if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    canvas.style.height = cssH + 'px';
+  }
+
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  if (!S.penDotBuffer.length || !S.penBounds) {
+    ctx.restore();
+    return;
+  }
+
+  const { minX, maxX, minY, maxY } = S.penBounds;
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  const pad = 20;
+  const scaleX = (cssW - pad * 2) / rangeX;
+  const scaleY = (cssH - pad * 2) / rangeY;
+  const scale = Math.min(scaleX, scaleY);
+  // Centre the drawing in the available space
+  const drawW = rangeX * scale;
+  const drawH = rangeY * scale;
+  const ox = pad + (cssW - pad * 2 - drawW) / 2;
+  const oy = pad + (cssH - pad * 2 - drawH) / 2;
+
+  const toX = (x) => ox + (x - minX) * scale;
+  const toY = (y) => oy + (y - minY) * scale;
+
+  const inkColor = S.theme === 'dark' ? 'oklch(0.87 0.010 80)' : 'oklch(0.22 0.025 55)';
+  ctx.strokeStyle = inkColor;
+  ctx.fillStyle = inkColor;
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  // 1. Linien zwischen aufeinanderfolgenden Move-Dots (Strokes).
+  //    Wenn der ursprüngliche PEN_DOWN aus dem Rolling-Window rausgefallen
+  //    ist, starten wir den Stroke beim ersten gesehenen PEN_MOVE.
+  let inStroke = false;
+  for (const dot of S.penDotBuffer) {
+    const cx = toX(dot.x);
+    const cy = toY(dot.y);
+    if (dot.t === 'PEN_DOWN') {
+      if (inStroke) ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      inStroke = true;
+    } else if (dot.t === 'PEN_MOVE') {
+      if (!inStroke) {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        inStroke = true;
+      } else {
+        ctx.lineTo(cx, cy);
+      }
+    } else if (dot.t === 'PEN_UP') {
+      if (inStroke) { ctx.lineTo(cx, cy); ctx.stroke(); }
+      inStroke = false;
+    }
+  }
+  if (inStroke) ctx.stroke();
+
+  // 2. Sicherheitsnetz: kleine Punkte an *jedem* Dot. Selbst wenn die
+  //    Stroke-Logik aus irgendeinem Grund versagt, sieht man dass Daten
+  //    ankommen — dann wissen wir wo wir suchen müssen.
+  for (const dot of S.penDotBuffer) {
+    ctx.beginPath();
+    ctx.arc(toX(dot.x), toY(dot.y), 1.0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  const moveDots = S.penDotBuffer.filter(d => d.t !== 'PEN_UP').length;
+  document.getElementById('penCanvasInfo').textContent =
+    `${moveDots} ink dots · x ${minX.toFixed(1)}–${maxX.toFixed(1)} · y ${minY.toFixed(1)}–${maxY.toFixed(1)}`;
+}
+
+window.addEventListener('resize', drawPenCanvas);
+
+// ════════════════════════════════════════════════════════════
 //  WEBSOCKET
 // ════════════════════════════════════════════════════════════
 let ws, wsReconnectTimer;
@@ -215,10 +363,29 @@ function setWsStatus(st) {
   document.getElementById('uptimeWs').textContent = st === 'ok' ? 'Connected' : 'Reconnecting';
 }
 
+function setNetworkNode(id, state, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('ok', 'warn', 'err');
+  el.classList.add(state);
+  const status = document.getElementById(`${id}Status`);
+  if (status) status.textContent = text;
+}
+
+function setNetworkLine(id, state) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.remove('ok', 'warn', 'err');
+  if (state) el.classList.add(state);
+}
+
 // ════════════════════════════════════════════════════════════
 //  STATUS HANDLER
 // ════════════════════════════════════════════════════════════
 function handleStatus(s) {
+  S.lastStatus = s;
+  // Clear canvas when session changes so strokes from different sessions don't mix
+  if (s.session_id !== S.sessionId) clearPenPreview();
   S.sessionActive = s.session_active;
   S.sessionId = s.session_id;
   S.personId = s.person_id;
@@ -242,19 +409,21 @@ function handleStatus(s) {
   const watchDirectConnected = s.watch_direct_connected === true;
   const watchBridgeConnected = s.watch_bridge_connected || Boolean(clients.iphone || clients.watch_bridge);
   const watchReachable = s.watch_reachable === true;
-  const watchUiOnline = watchStreamActive || watchDirectConnected || watchReachable || watchBridgeConnected;
+  const watchPolling = s.watch_polling === true;
+  const watchUiOnline = watchStreamActive || watchDirectConnected || watchReachable || watchPolling || watchBridgeConnected;
   const watchStatusText = watchStreamActive
     ? 'Streaming'
     : (watchDirectConnected ? 'Direct · Connected'
-    : (watchReachable ? 'Reachable' : (watchBridgeConnected ? 'Bridge ready' : 'Offline')));
-  const watchBadgeClass = watchStreamActive || watchDirectConnected || watchReachable ? 'badge-ok' : (watchBridgeConnected ? 'badge-warn' : 'badge-err');
+    : (watchPolling ? 'Polling via iPhone'
+    : (watchReachable ? 'Reachable' : (watchBridgeConnected ? 'Bridge ready' : 'Offline'))));
+  const watchBadgeClass = watchStreamActive || watchDirectConnected || watchReachable || watchPolling ? 'badge-ok' : (watchBridgeConnected ? 'badge-warn' : 'badge-err');
   S.watchConnected = watchUiOnline;
   S.watchStatusText = watchStatusText;
   S.watchBadgeClass = watchBadgeClass;
 
   // Pills
   setPill('pillPen', s.pen_connected, `Pen · ${s.pen_samples} dots`, s.pen_connected ? 'ok' : 'err');
-  setPill('pillWatch', watchUiOnline, `Watch · ${watchStatusText} · ${fmtHz(watchRate)}`, watchStreamActive || watchReachable ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'));
+  setPill('pillWatch', watchUiOnline, `Watch · ${watchStatusText} · ${fmtHz(watchRate)}`, watchStreamActive || watchReachable || watchPolling ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'));
   setPill('pillServer', true, `Server · ${fmtUptime(s.uptime_seconds)}`, 'ok');
 
   // Counts
@@ -290,7 +459,7 @@ function handleStatus(s) {
   document.getElementById('watchLastTs').textContent = s.watch_last_seen_ms_ago != null ? fmtAgo(s.watch_last_seen_ms_ago) : '–';
 
   // Health metrics
-  setHealth('watchHz', fmtHz(watchRate), watchRate > 40 ? 'ok' : (watchRate > 0 ? 'warn' : 'err'));
+  setHealth('watchHz', fmtHz(watchRate), watchRate > 80 ? 'ok' : (watchRate > 0 ? 'warn' : 'err'));
   setHealth('penHz', fmtHz(penRate), penRate > 0 ? 'ok' : (s.pen_connected ? 'warn' : 'err'));
   setHealth('gyroHealth', gyroOk ? 'present' : 'missing', gyroOk ? 'ok' : 'err');
   setHealth('clockHealth', penClockOk ? 'server time' : 'legacy pen time', penClockOk ? 'ok' : 'warn');
@@ -309,7 +478,9 @@ function handleStatus(s) {
   document.getElementById('connPenLast').textContent = lastPen.dot_type ? `${lastPen.dot_type} · ${fmtNum(lastPen.x)}, ${fmtNum(lastPen.y)}` : '–';
   document.getElementById('connPenClock').textContent = penClockOk ? 'ok' : 'legacy/missing';
   document.getElementById('connWatchBridge').textContent = watchBridgeConnected ? 'connected' : 'not connected';
-  document.getElementById('connWatchReachable').textContent = s.watch_reachable === true ? 'yes' : (s.watch_reachable === false ? 'no' : 'unknown');
+  document.getElementById('connWatchReachable').textContent = watchPolling
+    ? `polling${s.watch_poll_age_ms != null ? ` · ${fmtAgo(s.watch_poll_age_ms)}` : ''}`
+    : (s.watch_reachable === true ? 'yes' : (s.watch_reachable === false ? 'no' : 'unknown'));
   document.getElementById('connWatchStream').textContent = watchStreamActive ? 'active' : 'idle/no samples';
   document.getElementById('connWatchHz').textContent = fmtHz(watchRate);
   document.getElementById('connWatchBatchHz').textContent = fmtHz(s.watch_batch_rate_hz || 0);
@@ -317,6 +488,34 @@ function handleStatus(s) {
   document.getElementById('connWatchSkew').textContent = s.watch_clock_skew_ms != null ? `${s.watch_clock_skew_ms} ms` : '–';
   document.getElementById('connWatchGaps').textContent = s.watch_sequence_gaps ?? 0;
   document.getElementById('connWatchCommand').textContent = fmtCommand(s.watch_command);
+
+  // Live connectivity map
+  const pollDetail = watchPolling
+    ? `polling · ${s.watch_poll_age_ms != null ? fmtAgo(s.watch_poll_age_ms) : 'fresh'}`
+    : 'no command_poll from Watch';
+  const watchState = s.watch_running
+    ? `running · ${s.watch_bridge_session_id || s.session_id || 'session'}`
+    : (s.session_active ? 'expected running, waiting' : 'idle');
+  const sampleBridge = `${s.watch_bridge_samples ?? 0} watch · ${s.watch_bridge_delivered_samples ?? 0} delivered · ${s.watch_bridge_queued_samples ?? 0} queued`;
+  const failureReason = !watchBridgeConnected
+    ? 'iPhone bridge WebSocket is not connected'
+    : (!watchPolling
+      ? 'Watch app has not polled the iPhone yet'
+      : (s.watch_bridge_failed_batches > 0
+        ? `${s.watch_bridge_failed_batches} bridge batch failure(s)`
+        : (watchStreamActive || !s.session_active ? 'none' : 'waiting for first /watch POST')));
+
+  setNetworkNode('netServer', 'ok', 'status online');
+  setNetworkNode('netPhone', watchBridgeConnected ? 'ok' : 'err',
+                 watchBridgeConnected ? 'bridge websocket' : 'no iPhone WS');
+  setNetworkNode('netWatch', watchPolling ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'),
+                 watchPolling ? pollDetail : 'no poll');
+  setNetworkLine('netLineServerPhone', watchBridgeConnected ? 'ok' : 'err');
+  setNetworkLine('netLinePhoneWatch', watchPolling ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'));
+  document.getElementById('netWatchPollDetail').textContent = pollDetail;
+  document.getElementById('netWatchStateDetail').textContent = watchState;
+  document.getElementById('netSampleBridgeDetail').textContent = sampleBridge;
+  document.getElementById('netFailureDetail').textContent = failureReason;
 
   // System checks
   document.getElementById('checkAccel').textContent = validation.watch_has_accelerometer ? 'ok' : 'missing';
@@ -328,6 +527,9 @@ function handleStatus(s) {
 
   // Chart
   if (s.chart) updateChart(s.chart);
+
+  // Pen handwriting canvas
+  if (s.pen_recent_dots) updatePenCanvas(s.pen_recent_dots);
 
   // Start timer if session active and not already running
   if (s.session_active && !S.timerInterval && S.startTime) {
@@ -373,15 +575,55 @@ function startTimer() {
 // ════════════════════════════════════════════════════════════
 async function toggleSession() {
   if (S.sessionActive) {
-    await api('/session/stop', 'POST');
+    const res = await api('/session/stop', 'POST');
     toast('Session stopped');
+    if (res?.command_id) console.info('Stop command_id', res.command_id);
     S.chartMax = 0;
   } else {
     const pid = document.getElementById('personId').value.trim() || 'unknown';
     const description = document.getElementById('sessionDescription').value.trim();
-    const res = await api('/session/start', 'POST', { person_id: pid, description });
+    const preflight = await runStartPreflight();
+    if (!preflight.canStart) return;
+
+    const res = await api('/session/start', 'POST', {
+      person_id: pid,
+      description,
+      force_preflight: preflight.force,
+    });
+    if (res?.preflight && !res.session_id) {
+      showPreflightResult(res.preflight);
+      return;
+    }
     if (res?.session_id) toast(`▶ Session ${res.session_id} started`);
   }
+}
+
+async function runStartPreflight() {
+  const preflight = await api('/session/preflight');
+  if (!preflight) return { canStart: false, force: false };
+  if (preflight.blockers?.length) {
+    showPreflightResult(preflight);
+    document.querySelector('.nav-item[data-page="connections"]')?.click();
+    return { canStart: false, force: false };
+  }
+  if (preflight.warnings?.length) {
+    showPreflightResult(preflight);
+    const lines = preflight.warnings.map(item => `• ${item.message || item.code}`).join('\n');
+    const proceed = window.confirm(`Preflight warning:\n${lines}\n\nStart session anyway?`);
+    return { canStart: proceed, force: proceed };
+  }
+  return { canStart: true, force: false };
+}
+
+function showPreflightResult(preflight) {
+  const blockers = preflight.blockers || [];
+  const warnings = preflight.warnings || [];
+  const first = blockers[0] || warnings[0];
+  if (!first) {
+    toast('Preflight OK');
+    return;
+  }
+  toast(`${blockers.length ? 'Blocked' : 'Warning'}: ${first.code || first.message}`);
 }
 
 // ════════════════════════════════════════════════════════════
@@ -413,32 +655,40 @@ async function loadSessions() {
   S.qualitySummary = quality?.summary || null;
   S.qualityBySession = {};
   (quality?.sessions || []).forEach(q => { S.qualityBySession[q.session_id] = q; });
-  S.validationBySession = {};
-  const validations = await Promise.all((S.allSessions || []).map(s =>
-    api(`/sessions/${encodeURIComponent(s.session_id)}/validation`, 'GET')
-      .then(v => ({ sid: s.session_id, validation: v }))
-  ));
-  validations.forEach(({ sid, validation }) => {
-    if (validation) S.validationBySession[sid] = validation;
-  });
+  if (!S.validationBySession) S.validationBySession = {};
   renderQualitySummary();
   renderSessions(S.allSessions);
-  if (S.selectedSessionId) renderSessionValidation(S.selectedSessionId);
+  if (S.selectedSessionId) await loadValidationIfNeeded(S.selectedSessionId);
 }
 
+async function loadValidationIfNeeded(sessionId) {
+  if (S.validationBySession[sessionId]) {
+    renderSessionValidation(sessionId);
+    return;
+  }
+  renderSessionValidation(sessionId); // show "Loading…" panel immediately
+  const v = await api(`/sessions/${encodeURIComponent(sessionId)}/validation`, 'GET');
+  if (v) S.validationBySession[sessionId] = v;
+  if (S.selectedSessionId === sessionId) renderSessionValidation(sessionId);
+}
+
+let _filterDebounce;
 function filterSessions() {
-  const q = document.getElementById('sessionSearch').value.toLowerCase();
-  renderSessions(S.allSessions.filter(s =>
-    s.session_id?.toLowerCase().includes(q) ||
-    s.person_id?.toLowerCase().includes(q) ||
-    s.description?.toLowerCase().includes(q)
-  ));
+  clearTimeout(_filterDebounce);
+  _filterDebounce = setTimeout(() => {
+    const q = document.getElementById('sessionSearch').value.toLowerCase();
+    renderSessions(S.allSessions.filter(s =>
+      s.session_id?.toLowerCase().includes(q) ||
+      s.person_id?.toLowerCase().includes(q) ||
+      s.description?.toLowerCase().includes(q)
+    ));
+  }, 200);
 }
 
 function renderSessions(rows) {
   const tbody = document.getElementById('sessionsBody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="13" class="table-empty">No sessions found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="14" class="table-empty">No sessions found</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map(s => {
@@ -476,6 +726,7 @@ function renderSessions(rows) {
       <td title="${escAttr(scoreTooltip(recording))}">${scoreBadge(recording)}</td>
       <td title="${escAttr(diag.message)}"><span class="status-badge ${diag.cls}">${esc(diag.label)}</span></td>
       <td><span class="status-badge ${statusCls}">${esc(s.status || 'completed')}</span></td>
+      <td><a class="export-link" href="/sessions/${encodeURIComponent(s.session_id)}/report?format=md" onclick="event.stopPropagation()" title="Download Markdown report">⤓ md</a></td>
     </tr>`;
   }).join('');
 }
@@ -492,7 +743,7 @@ function renderQualitySummary() {
 function selectSession(sessionId) {
   S.selectedSessionId = sessionId;
   renderSessions(S.allSessions);
-  renderSessionValidation(sessionId);
+  loadValidationIfNeeded(sessionId);
 }
 
 function renderSessionValidation(sessionId) {
@@ -525,9 +776,10 @@ function renderSessionValidation(sessionId) {
   document.getElementById('driftWatch').textContent = fmtMs(v.source_clocks?.watch_source_to_local_drift_ms);
   document.getElementById('driftPen').textContent = fmtMs(v.source_clocks?.pen_source_to_local_drift_ms);
   document.getElementById('driftRelative').textContent = fmtMs(v.source_clocks?.relative_pen_vs_watch_clock_drift_ms);
-  document.getElementById('driftSyncOffset').textContent = v.source_clocks?.source_clock_offset_gap_ms != null
-    ? fmtMs(v.source_clocks.source_clock_offset_gap_ms)
-    : (v.sync_estimate?.usable ? fmtMs(v.sync_estimate.median_offset_ms) : 'not estimated');
+  document.getElementById('driftSyncOffset').textContent = fmtClockGap(
+    v.source_clocks?.source_clock_offset_gap_ms,
+    v.sync_estimate
+  );
 
   document.getElementById('validationTimeline').innerHTML = renderTimeline(v);
   const intervals = v.timeline_for_chart?.pen_events?.length || 0;
@@ -651,11 +903,29 @@ async function api(path, method = 'GET', body = null) {
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (body) opts.body = JSON.stringify(body);
     const res = await fetch(path, opts);
-    return await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) data.http_status = res.status;
+    return data;
   } catch (e) {
     toast('⚠ Server unreachable');
     return null;
   }
+}
+
+async function downloadDebugPackage() {
+  const pkg = await api('/debug/package');
+  if (!pkg) return;
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const blob = new Blob([JSON.stringify(pkg, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `ml4scs_debug_${stamp}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  toast('Debug package exported');
 }
 
 function fmtDuration(sec) {
@@ -673,6 +943,19 @@ function fmtHz(value) {
 function fmtNum(value) {
   const n = Number(value);
   return Number.isFinite(n) ? n.toFixed(3) : '–';
+}
+
+// Pen- und Watch-Geräteuhren teilen sich keine Epoche — bei großem Versatz
+// zeigen wir das kategorisch statt als alarmierende Tage-Zahl. Für die
+// session-level Overlap-Checks irrelevant; Sample-Level-Merge braucht
+// separat einen Sync-Offset (Tap-Event o.ä.).
+function fmtClockGap(gapMs, syncEstimate) {
+  const n = Number(gapMs);
+  if (Number.isFinite(n)) {
+    if (Math.abs(n) > 300000) return 'different device clocks · sync needed for merge';
+    return fmtMs(n);
+  }
+  return syncEstimate?.usable ? fmtMs(syncEstimate.median_offset_ms) : 'not estimated';
 }
 
 function fmtMs(value) {
@@ -709,7 +992,8 @@ function fmtClock(ms) {
 function fmtCommand(cmd) {
   if (!cmd || !cmd.command) return '–';
   const ok = cmd.ok === true ? 'ok' : (cmd.ok === false ? 'failed' : 'pending');
-  return `${cmd.command} · ${ok}`;
+  const id = cmd.command_id ? ` · ${cmd.command_id}` : '';
+  return `${cmd.command} · ${ok}${id}`;
 }
 
 function fmtUptime(sec) {
