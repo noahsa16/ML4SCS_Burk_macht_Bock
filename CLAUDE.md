@@ -50,7 +50,7 @@ otherwise to `pen_log_YYYYMMDD_HHMMSS.csv` in the working directory.
 
 **Test the watch HTTP endpoint:**
 ```bash
-./test_server.sh [IP]    # defaults to 127.0.0.1
+./scripts/test_server.sh [IP]    # defaults to 127.0.0.1
 ```
 
 **Preprocess / train / evaluate:**
@@ -164,10 +164,6 @@ no longer vibrates continuously when the server is down.
 - `src/training/train.py` — orchestrates load → merge → save; ML model
   is a TODO.
 - `src/evaluation/evaluate.py` — currently prints label distribution.
-
-Top-level `src/preprocessing.py`, `src/train.py`, `src/evaluate.py` are
-deprecated redirect stubs that raise `ImportError` — use the
-sub-package paths.
 
 ## Data Schemas
 
