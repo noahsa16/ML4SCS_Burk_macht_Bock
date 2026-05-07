@@ -104,4 +104,6 @@ Can writing activity and concentration levels be detected using sensor data from
 
 ### Taji
 
-- _to be filled in_
+- Refined the preprocessing pipeline for both pen and smartwatch data.
+- Implemented separate preparation steps for pen and watch data, plus a merge step.
+- Improved the code structure for later model training.
