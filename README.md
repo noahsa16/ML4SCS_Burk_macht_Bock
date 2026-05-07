@@ -1,5 +1,7 @@
 # Writing Activity Detection via Apple Watch IMU
 
+[![tests](https://github.com/noahsa16/ML4SCS_Burk_macht_Bock/actions/workflows/test.yml/badge.svg)](https://github.com/noahsa16/ML4SCS_Burk_macht_Bock/actions/workflows/test.yml)
+
 **Semester project · Machine Learning for Smart and Connected Systems**  
 Team: Noah Samel · Ben Kriegsmann · Tajuddin Snasni
 
