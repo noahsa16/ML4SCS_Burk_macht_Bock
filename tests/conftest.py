@@ -31,14 +31,19 @@ def data_dirs(tmp_path, monkeypatch):
     import src.server.config as config
     import src.server.csv_io as csv_io
     import src.server.quality as quality
+    import src.server.routes as routes
 
-    for mod in (config, csv_io, quality):
+    for mod in (config, csv_io, quality, routes):
         if hasattr(mod, "DATA_RAW_PEN"):
             monkeypatch.setattr(mod, "DATA_RAW_PEN", pen_dir, raising=False)
         if hasattr(mod, "DATA_RAW_WATCH"):
             monkeypatch.setattr(mod, "DATA_RAW_WATCH", watch_dir, raising=False)
         if hasattr(mod, "SESSIONS_CSV"):
             monkeypatch.setattr(mod, "SESSIONS_CSV", sessions_csv, raising=False)
+
+    # csv_io caches watch CSV writers per path; reset so tests don't see stale handles.
+    csv_io._watch_writers.clear() if hasattr(csv_io, "_watch_writers") else None
+    csv_io._pen_count_cache.clear() if hasattr(csv_io, "_pen_count_cache") else None
 
     # Quality caches results by session id; clear so tests don't see stale facts.
     quality._facts_cache.clear()
