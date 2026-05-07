@@ -51,7 +51,7 @@ def _ensure_csv_header(path: Path, fieldnames: list[str]) -> bool:
 
 def _next_session_id() -> str:
     _ensure_csv_header(SESSIONS_CSV, SESSIONS_FIELDNAMES)
-    nums = []
+    nums: list[int] = []
     try:
         with open(SESSIONS_CSV, newline="") as f:
             for row in csv.DictReader(f):
@@ -60,6 +60,16 @@ def _next_session_id() -> str:
                     nums.append(int(sid[1:]))
     except Exception:
         pass
+    # Also scan raw data folders so a stale pen/watch CSV from a prior run
+    # cannot be silently re-used (would cause old dots to leak into a new session).
+    for folder in (DATA_RAW_PEN, DATA_RAW_WATCH):
+        try:
+            for p in folder.glob("S[0-9][0-9][0-9]_*.csv"):
+                stem = p.stem.split("_", 1)[0]
+                if stem.startswith("S") and stem[1:].isdigit():
+                    nums.append(int(stem[1:]))
+        except Exception:
+            pass
     return f"S{(max(nums) + 1 if nums else 1):03d}"
 
 

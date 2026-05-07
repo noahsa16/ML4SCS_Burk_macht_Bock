@@ -178,6 +178,17 @@ ISSUE_SPECS: dict[str, IssueSpec] = {
         threshold_label="overlap > 0",
         ml_severity="bad", recording_severity="bad",
     ),
+    "data_outside_session_window": IssueSpec(
+        check="Sample-local_ts liegt innerhalb des Session-Start/End-Fensters",
+        rationale=(
+            "Wenn Watch- oder Pen-Daten Zeitstempel weit außerhalb des in sessions.csv "
+            "verzeichneten Zeitfensters tragen, wurden vermutlich Stale-Files einer "
+            "wiederverwendeten Session-ID angehängt. Die Daten gehören dann nicht "
+            "zur aktuellen Session."
+        ),
+        threshold_label="Range innerhalb [start − 60 s, end + 60 s]",
+        ml_severity="bad", recording_severity="bad",
+    ),
     "source_clocks_not_shared": IssueSpec(
         check="Pen- und Watch-Geräteuhren teilen sich eine Epoche",
         rationale=(
@@ -761,6 +772,8 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
         "common_overlap_seconds": common_overlap_seconds,
         "sync_estimate": sync_estimate,
         "start_year": start.year if start else None,
+        "session_start_ms": int(start.timestamp() * 1000) if start else None,
+        "session_end_ms": int(end.timestamp() * 1000) if end else None,
     }
 
     issues = _build_issues(facts)
@@ -864,6 +877,28 @@ def _build_issues(facts: dict[str, Any]) -> list[dict[str, Any]]:
             "pen_dots_outside_watch_range",
             observed=f"{p['in_range_pct']:.1%}",
         ))
+
+    # Stale-File-Detector: Daten-Range außerhalb des Session-Fensters
+    # (typischer Fall: Session-ID wurde recycled und alte CSV wurde appended).
+    s_start = facts.get("session_start_ms")
+    s_end = facts.get("session_end_ms")
+    if not is_active and s_start is not None and s_end is not None:
+        tol_ms = 60_000
+        outliers: list[str] = []
+        for label, clock in (("watch", w["clock"]), ("pen", p["clock"])):
+            cs = clock.get("start_ms")
+            ce = clock.get("end_ms")
+            if cs is None or ce is None:
+                continue
+            if cs < s_start - tol_ms or ce > s_end + tol_ms:
+                lead = max(0, (s_start - cs) // 1000)
+                trail = max(0, (ce - s_end) // 1000)
+                outliers.append(f"{label}: −{lead}s vor / +{trail}s nach Session")
+        if outliers:
+            out.append(_make_issue(
+                "data_outside_session_window",
+                observed="; ".join(outliers),
+            ))
 
     return out
 
