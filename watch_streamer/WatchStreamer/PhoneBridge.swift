@@ -1,9 +1,31 @@
 import Combine
 import Foundation
 import WatchConnectivity
+#if canImport(UIKit)
+import UIKit
+#endif
 
 class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     static let shared = PhoneBridge()
+
+    // MARK: – Tuning constants
+
+    /// Hard limit für die Upload-Queue. Bei 50 Hz und Batches à 5 Samples
+    /// = 200 batches × 5 = 1000 samples = ~20 s Backlog. Reicht für kurze
+    /// Server-Ausfälle, kappt RAM-Wachstum bei längeren.
+    private static let maxQueueSize = 200
+
+    /// Disk-Persistierung — überlebt App-Crash / Force-Quit. Datei landet in
+    /// Documents/, weil das in iCloud-Backups inkludiert ist UND nach App-
+    /// Updates erhalten bleibt (im Gegensatz zu Caches/).
+    private static let queueFileName = "upload_queue.json"
+
+    /// Coalesce-Delay für Disk-Writes. 500 ms Debounce → wir schreiben nicht
+    /// nach jedem einzelnen Batch (50 Hz wäre Overkill), aber bei Crash gehen
+    /// max ~25 Samples verloren.
+    private static let persistDebounce: TimeInterval = 0.5
+
+    // MARK: – Server URL helpers
 
     static var serverBaseURL: String {
         let raw = UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147"
@@ -20,24 +42,70 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         "\(serverBaseURL)/watch"
     }
 
-    /// True while WCSession.isReachable (debounced: 4 s grace period on drop to avoid flicker).
+    // MARK: – Published state
+
     @Published var isConnected = false
-    /// True when the Watch is paired and the Watch app is installed — structural, not live.
     @Published var isBridgeCapable = false
     @Published var receivedSampleCount = 0
     @Published var uploadedSampleCount = 0
     @Published var queuedBatchCount = 0
     @Published var failedUploadCount = 0
+    /// Anzahl Batches, die wegen Queue-Cap gedroppt wurden. Bei >0 fehlen
+    /// uns Daten — wichtig für die Quality-Beurteilung serverseitig.
+    @Published var droppedBatchCount = 0
     @Published var lastError = ""
+
+    // MARK: – Private state
 
     private var uploadQueue: [[String: Any]] = []
     private var isUploading = false
     private var disconnectDebounce: DispatchWorkItem?
 
+    /// Background queue für JSON-Encoding und Magnituden-Berechnung. UserInitiated
+    /// QoS, weil's am Live-Datenpfad hängt — aber wir wollen den Main-Thread
+    /// für UI freihalten.
+    private let workQueue = DispatchQueue(label: "com.watchstreamer.bridge.work",
+                                          qos: .userInitiated)
+
+    /// Serial queue für Disk-IO. Verhindert, dass mehrere Schreibvorgänge
+    /// gleichzeitig die Datei zerschießen.
+    private let persistQueue = DispatchQueue(label: "com.watchstreamer.bridge.persist",
+                                             qos: .utility)
+
+    /// Debounce-Token für Queue-Persistierung. Wird vor dem nächsten Schreiben
+    /// gecancelt → coalescing.
+    private var persistTask: DispatchWorkItem?
+
+    private lazy var queueFileURL: URL = {
+        let docs = FileManager.default.urls(for: .documentDirectory,
+                                            in:  .userDomainMask)[0]
+        return docs.appendingPathComponent(Self.queueFileName)
+    }()
+
+    // MARK: – Lifecycle
+
     private override init() {
         super.init()
         WCSession.default.delegate = self
         WCSession.default.activate()
+
+        // Persistierte Queue von Disk laden (z.B. nach App-Crash).
+        loadPersistedQueue()
+
+        // App-Backgrounding → sofort persistieren, damit nichts verloren geht
+        // wenn iOS uns suspended.
+        #if canImport(UIKit)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(persistImmediately),
+            name: UIApplication.didEnterBackgroundNotification,
+            object: nil)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(persistImmediately),
+            name: UIApplication.willTerminateNotification,
+            object: nil)
+        #endif
     }
 
     // MARK: – Connectivity helpers (must be called on main thread)
@@ -107,9 +175,6 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
-        // Watch falls back to transferUserInfo for command_poll when sendMessage fails.
-        // Process those polls here so iPhone status stays in sync even when WCSession
-        // reachability is flaky.
         if userInfo["type"] as? String == "command_poll" {
             _ = ServerCommandListener.shared.handleWatchCommandPoll(userInfo)
             return
@@ -165,39 +230,59 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     func clearDiagnostics() {
         lastError = ""
         failedUploadCount = 0
+        droppedBatchCount = 0
     }
 
+    // MARK: – Receive (off-main heavy work)
 
     @discardableResult
     private func receivePayload(_ payload: [String: Any], source: String) -> Bool {
-        guard let normalized = normalizePayload(payload, source: source),
-              let samples = normalized["samples"] as? [[String: Any]] else {
-            DispatchQueue.main.async { self.lastError = "Invalid watch payload" }
-            return false
-        }
+        // Heavy parsing + magnitude calc auf workQueue. Kommt zurück mit
+        // (normalized, accValues, gyroValues) und wird auf main verarbeitet.
+        workQueue.async { [weak self] in
+            guard let self else { return }
 
-        DispatchQueue.main.async {
-            self.receivedSampleCount += samples.count
-            self.uploadQueue.append(normalized)
-            self.queuedBatchCount = self.uploadQueue.count
-            self.lastError = ""
+            guard let normalized = self.normalizePayload(payload, source: source),
+                  let samples = normalized["samples"] as? [[String: Any]] else {
+                DispatchQueue.main.async {
+                    self.lastError = "Invalid watch payload"
+                }
+                return
+            }
 
-            // Feed real IMU magnitudes to the live chart.
+            // Magnituden für Live-Chart vorberechnen — vermeidet O(N) Arbeit
+            // auf dem Main-Thread bei jedem Batch.
             let accValues  = samples.map { s -> Double in
                 let ax = s["ax"] as? Double ?? 0
                 let ay = s["ay"] as? Double ?? 0
                 let az = s["az"] as? Double ?? 0
-                return sqrt(ax*ax + ay*ay + az*az)
+                return (ax*ax + ay*ay + az*az).squareRoot()
             }
             let gyroValues = samples.map { s -> Double in
                 let rx = s["rx"] as? Double ?? 0
                 let ry = s["ry"] as? Double ?? 0
                 let rz = s["rz"] as? Double ?? 0
-                return sqrt(rx*rx + ry*ry + rz*rz)
+                return (rx*rx + ry*ry + rz*rz).squareRoot()
             }
-            IMUDataStore.shared.pushBatch(accValues: accValues, gyroValues: gyroValues)
 
-            self.uploadNextIfNeeded()
+            DispatchQueue.main.async {
+                self.receivedSampleCount += samples.count
+
+                // Queue-Cap mit drop-oldest.
+                if self.uploadQueue.count >= Self.maxQueueSize {
+                    let dropCount = self.uploadQueue.count - Self.maxQueueSize + 1
+                    self.uploadQueue.removeFirst(dropCount)
+                    self.droppedBatchCount += dropCount
+                }
+                self.uploadQueue.append(normalized)
+                self.queuedBatchCount = self.uploadQueue.count
+                self.lastError = ""
+
+                IMUDataStore.shared.pushBatch(accValues: accValues, gyroValues: gyroValues)
+
+                self.schedulePersist()
+                self.uploadNextIfNeeded()
+            }
         }
         return true
     }
@@ -222,29 +307,58 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         return normalized
     }
 
+    // MARK: – Upload (off-main JSON encoding)
+
     private func uploadNextIfNeeded() {
         guard !isUploading, let payload = uploadQueue.first else { return }
         guard let url = URL(string: Self.serverAddress) else {
             lastError = "Invalid server URL"
             return
         }
-        guard let body = try? JSONSerialization.data(withJSONObject: payload) else {
-            failedUploadCount += 1
-            lastError = "Could not encode payload"
-            uploadQueue.removeFirst()
-            queuedBatchCount = uploadQueue.count
-            uploadNextIfNeeded()
-            return
-        }
 
         isUploading = true
+
+        // JSON-Encoding off-main — bei großen Backlogs sonst spürbarer Hitch.
+        workQueue.async { [weak self] in
+            guard let self else { return }
+
+            let bodyResult: Result<Data, Error>
+            do {
+                let body = try JSONSerialization.data(withJSONObject: payload)
+                bodyResult = .success(body)
+            } catch {
+                bodyResult = .failure(error)
+            }
+
+            DispatchQueue.main.async {
+                switch bodyResult {
+                case .failure(let error):
+                    self.failedUploadCount += 1
+                    self.lastError = "Encode failed: \(error.localizedDescription)"
+                    if !self.uploadQueue.isEmpty { self.uploadQueue.removeFirst() }
+                    self.queuedBatchCount = self.uploadQueue.count
+                    self.isUploading = false
+                    self.schedulePersist()
+                    self.uploadNextIfNeeded()
+
+                case .success(let body):
+                    self.dispatchUpload(url: url, body: body, payload: payload)
+                }
+            }
+        }
+    }
+
+    /// Muss auf main aufgerufen werden. Setzt URLSessionDataTask ab und
+    /// verarbeitet das Ergebnis auf main.
+    private func dispatchUpload(url: URL, body: Data, payload: [String: Any]) {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = body
 
-        URLSession.shared.dataTask(with: req) { _, response, error in
+        URLSession.shared.dataTask(with: req) { [weak self] _, response, error in
             DispatchQueue.main.async {
+                guard let self else { return }
                 self.isUploading = false
 
                 if let error {
@@ -264,9 +378,10 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
                 let samples = payload["samples"] as? [[String: Any]]
                 self.uploadedSampleCount += samples?.count ?? 0
-                self.uploadQueue.removeFirst()
+                if !self.uploadQueue.isEmpty { self.uploadQueue.removeFirst() }
                 self.queuedBatchCount = self.uploadQueue.count
                 self.lastError = ""
+                self.schedulePersist()
                 self.uploadNextIfNeeded()
             }
         }.resume()
@@ -281,5 +396,74 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
     private static func currentTimestampMillis() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)
+    }
+
+    // MARK: – Disk persistence (debounced)
+
+    /// Auf main thread aufrufen — pausiert vorhandenen pending write und
+    /// schedult einen neuen mit `persistDebounce` Verzögerung. Mehrere Aufrufe
+    /// in kurzer Folge → nur ein Write am Ende.
+    private func schedulePersist() {
+        persistTask?.cancel()
+        let snapshot = uploadQueue
+        let work = DispatchWorkItem { [weak self] in
+            self?.writeQueueToDisk(snapshot)
+        }
+        persistTask = work
+        persistQueue.asyncAfter(deadline: .now() + Self.persistDebounce, execute: work)
+    }
+
+    /// Sofort persistieren — bei Backgrounding / Termination, kein Debounce.
+    @objc private func persistImmediately() {
+        persistTask?.cancel()
+        let snapshot = uploadQueue
+        persistQueue.async { [weak self] in
+            self?.writeQueueToDisk(snapshot)
+        }
+    }
+
+    /// Schreibt die Queue als JSON-Array. Atomic write → entweder vollständig
+    /// alt oder vollständig neu, nie korrupt.
+    private func writeQueueToDisk(_ snapshot: [[String: Any]]) {
+        let url = queueFileURL
+        do {
+            if snapshot.isEmpty {
+                // Datei löschen statt leeres Array schreiben — spart Cycles
+                // beim nächsten Launch (kein Decode).
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
+            let data = try JSONSerialization.data(withJSONObject: snapshot,
+                                                  options: [.fragmentsAllowed])
+            try data.write(to: url, options: [.atomic])
+        } catch {
+            // Persistenz-Fehler sollen den Datenfluss nicht stören. Wir loggen
+            // sie nur, blockieren aber nicht den Upload.
+            DispatchQueue.main.async {
+                self.lastError = "Persist failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    /// Im init() aufgerufen. Synchron — Datei ist klein (max ~50 KB) und wir
+    /// brauchen die Queue, bevor irgendwer pushBatch() aufrufen kann.
+    private func loadPersistedQueue() {
+        let url = queueFileURL
+        guard FileManager.default.fileExists(atPath: url.path) else { return }
+        do {
+            let data = try Data(contentsOf: url)
+            guard let array = try JSONSerialization.jsonObject(with: data,
+                                                               options: [.fragmentsAllowed]) as? [[String: Any]]
+            else { return }
+            uploadQueue = array
+            queuedBatchCount = array.count
+            // Upload sofort triggern, sobald die App initialisiert ist.
+            DispatchQueue.main.async { [weak self] in
+                self?.uploadNextIfNeeded()
+            }
+        } catch {
+            // Korruption → Datei wegwerfen, nicht crashen.
+            try? FileManager.default.removeItem(at: url)
+        }
     }
 }
