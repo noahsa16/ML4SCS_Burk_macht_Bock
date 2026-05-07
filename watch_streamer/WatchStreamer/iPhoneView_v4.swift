@@ -693,6 +693,414 @@ struct FTErrorBanner: View {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MARK: – Session quality models (Phase 3)
+//
+// Spiegelt die Felder aus /sessions/quality und /sessions/{id}/validation.
+// Wir parsen nur das, was wir UI-seitig zeigen — der Rest wird ignoriert.
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct SessionQualityRow: Decodable, Identifiable {
+    let session_id: String
+    let person_id: String?
+    let status: String?           // "active" | "completed"
+    let duration_seconds: Double?
+    let watch: WatchBlock?
+    let ml_readiness: ScoreBlock?
+    let recording_health: ScoreBlock?
+
+    var id: String { session_id }
+    var personOrAnon: String { (person_id?.isEmpty == false ? person_id! : "Anonymous") }
+
+    struct WatchBlock: Decodable {
+        let rows: Int?
+        let estimated_hz: Double?
+    }
+    struct ScoreBlock: Decodable {
+        let status: String?         // "ok" | "warn" | "bad"
+        let score: Double?
+    }
+}
+
+struct SessionsQualityResponse: Decodable {
+    let sessions: [SessionQualityRow]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARK: – Sessions history store (Phase 3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+@MainActor
+final class SessionsHistoryStore: ObservableObject {
+    static let shared = SessionsHistoryStore()
+
+    @Published private(set) var sessions: [SessionQualityRow] = []
+    @Published private(set) var isLoading = false
+    @Published private(set) var lastError: String?
+    @Published private(set) var lastFetched: Date?
+
+    private var inflightTask: Task<Void, Never>?
+
+    func refresh(force: Bool = false) {
+        // Cache: nicht schneller als alle 10 s neu laden, außer force=true.
+        if !force, let last = lastFetched, Date().timeIntervalSince(last) < 10 {
+            return
+        }
+        inflightTask?.cancel()
+        inflightTask = Task { [weak self] in
+            await self?.performFetch()
+        }
+    }
+
+    private func performFetch() async {
+        isLoading = true
+        defer { isLoading = false }
+
+        guard let url = URL(string: PhoneBridge.serverBaseURL + "/sessions/quality") else {
+            lastError = "Invalid server URL"
+            return
+        }
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 8
+            let (data, response) = try await URLSession.shared.data(for: req)
+            if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+                lastError = "HTTP \(http.statusCode)"
+                return
+            }
+            let decoded = try JSONDecoder().decode(SessionsQualityResponse.self, from: data)
+            self.sessions = decoded.sessions
+            self.lastError = nil
+            self.lastFetched = Date()
+        } catch is CancellationError {
+            // ok
+        } catch {
+            lastError = error.localizedDescription
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARK: – Live quality store (Phase 3)
+//
+// Pollt /sessions/{id}/validation alle 5 s während einer aktiven Session.
+// Bei Session-Stop wird der Polling-Task gecancelt.
+// ─────────────────────────────────────────────────────────────────────────────
+
+@MainActor
+final class LiveQualityStore: ObservableObject {
+    static let shared = LiveQualityStore()
+
+    @Published private(set) var driftMs: Double?
+    @Published private(set) var watchHz: Double?
+    @Published private(set) var coveragePct: Double?
+    @Published private(set) var watchRows: Int?
+    @Published private(set) var lastError: String?
+    @Published private(set) var lastUpdated: Date?
+
+    private var pollTask: Task<Void, Never>?
+    private var currentSessionId: String?
+
+    func startPolling(sessionId: String) {
+        guard currentSessionId != sessionId else { return }
+        stopPolling()
+        currentSessionId = sessionId
+
+        pollTask = Task { [weak self] in
+            // Erste Probe leicht verzögert — Server schreibt ggf. erst Daten,
+            // bevor sinnvolle Validation berechnet werden kann.
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            while !Task.isCancelled {
+                await self?.fetchOnce(sessionId: sessionId)
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+            }
+        }
+    }
+
+    func stopPolling() {
+        pollTask?.cancel()
+        pollTask = nil
+        currentSessionId = nil
+        driftMs = nil
+        watchHz = nil
+        coveragePct = nil
+        watchRows = nil
+        lastError = nil
+        lastUpdated = nil
+    }
+
+    private func fetchOnce(sessionId: String) async {
+        guard let url = URL(string: PhoneBridge.serverBaseURL + "/sessions/\(sessionId)/validation") else {
+            return
+        }
+        do {
+            var req = URLRequest(url: url)
+            req.timeoutInterval = 6
+            let (data, response) = try await URLSession.shared.data(for: req)
+            guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+                  let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            else {
+                self.lastError = "validation HTTP \((response as? HTTPURLResponse)?.statusCode ?? 0)"
+                return
+            }
+            // Defensive Extraktion — Validation-Payload ist tief geschachtelt
+            // und wir wollen keine harten Fails wenn ein Feld mal fehlt.
+            let drift  = (json["drift"] as? [String: Any])?["estimated_ms"] as? Double
+            let watch  = json["watch"] as? [String: Any]
+            let hz     = watch?["estimated_hz"] as? Double
+            let rows   = watch?["rows"] as? Int
+            let cov    = (json["coverage"] as? [String: Any])?["percent"] as? Double
+
+            self.driftMs     = drift
+            self.watchHz     = hz
+            self.watchRows   = rows
+            self.coveragePct = cov
+            self.lastError   = nil
+            self.lastUpdated = Date()
+        } catch is CancellationError {
+            // ok
+        } catch {
+            self.lastError = error.localizedDescription
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARK: – Sessions history card (Phase 3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct FTSessionsHistoryCard: View {
+    @Environment(\.ft) var t
+    @ObservedObject private var store = SessionsHistoryStore.shared
+    var maxRows = 5
+
+    var body: some View {
+        FTCard {
+            FTCardHeader(title: "Recent sessions", trailing: AnyView(
+                HStack(spacing: 8) {
+                    if store.isLoading {
+                        ProgressView().scaleEffect(0.7)
+                    } else if let last = store.lastFetched {
+                        Text(timeAgo(last))
+                            .font(FT.mono(9)).foregroundColor(t.text3)
+                    }
+                    Button(action: { store.refresh(force: true) }) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundColor(t.accent)
+                            .padding(5)
+                            .background(t.accentDim)
+                            .cornerRadius(5)
+                    }
+                    .buttonStyle(.plain)
+                }
+            ))
+
+            if let err = store.lastError, store.sessions.isEmpty {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Could not load sessions")
+                        .font(FT.sans(12, weight: .semibold)).foregroundColor(t.red)
+                    Text(err).font(FT.mono(10)).foregroundColor(t.text3)
+                        .lineLimit(2)
+                }
+                .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+            } else if store.sessions.isEmpty {
+                Text(store.isLoading ? "Loading…" : "No sessions yet")
+                    .font(FT.sans(12)).italic().foregroundColor(t.text3)
+                    .padding(14).frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(store.sessions.prefix(maxRows))) { row in
+                        FTSessionHistoryRow(row: row)
+                            .overlay(alignment: .bottom) {
+                                if row.id != store.sessions.prefix(maxRows).last?.id {
+                                    Rectangle().fill(t.border).frame(height: 1)
+                                }
+                            }
+                    }
+                }
+            }
+        }
+        .onAppear { store.refresh() }
+    }
+
+    private func timeAgo(_ date: Date) -> String {
+        let s = Int(Date().timeIntervalSince(date))
+        if s < 60  { return "\(s)s ago" }
+        if s < 3600 { return "\(s/60)m ago" }
+        return "\(s/3600)h ago"
+    }
+}
+
+struct FTSessionHistoryRow: View {
+    @Environment(\.ft) var t
+    let row: SessionQualityRow
+
+    private var mlTone: Color {
+        switch row.ml_readiness?.status ?? "" {
+        case "ok":   return t.green
+        case "warn": return t.yellow
+        case "bad":  return t.red
+        default:     return t.text3
+        }
+    }
+
+    private var samplesText: String {
+        guard let n = row.watch?.rows else { return "—" }
+        if n >= 10_000 { return String(format: "%.1fk", Double(n)/1000) }
+        return "\(n)"
+    }
+
+    private var hzText: String {
+        guard let hz = row.watch?.estimated_hz, hz > 1 else { return "—" }
+        return "\(Int(hz.rounded())) Hz"
+    }
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 10) {
+            // Quality-Akzent-Strip links (mirror der Web-Tabellen-Hover-Akzente)
+            Rectangle().fill(mlTone).frame(width: 3)
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(row.personOrAnon)
+                        .font(FT.sans(13, weight: .semibold))
+                        .foregroundColor(t.text)
+                        .lineLimit(1)
+                    if row.person_id == nil || row.person_id?.isEmpty == true {
+                        Text("anon").font(FT.mono(9)).foregroundColor(t.text3)
+                    }
+                }
+                HStack(spacing: 6) {
+                    Text(row.session_id).font(FT.mono(10)).foregroundColor(t.text3)
+                    if let dur = row.duration_seconds, dur > 0 {
+                        Text("·").foregroundColor(t.text3)
+                        Text(formatDuration(dur))
+                            .font(FT.mono(10)).foregroundColor(t.text3)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: 3) {
+                Text(samplesText)
+                    .font(FT.mono(11, weight: .semibold)).foregroundColor(t.text)
+                Text(hzText).font(FT.mono(9)).foregroundColor(t.text3)
+            }
+            .frame(width: 56, alignment: .trailing)
+
+            FTBadge(label: row.ml_readiness?.status ?? "?",
+                    ok: (row.ml_readiness?.status == "ok"))
+                .opacity(0.95)
+        }
+        .padding(.vertical, 9)
+        .padding(.trailing, 12)
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let s = Int(seconds.rounded())
+        if s < 60 { return "\(s)s" }
+        return "\(s/60)m \(String(format: "%02d", s%60))s"
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MARK: – Live quality card (Phase 3)
+// ─────────────────────────────────────────────────────────────────────────────
+
+struct FTLiveQualityCard: View {
+    @Environment(\.ft) var t
+    @ObservedObject private var live = LiveQualityStore.shared
+
+    private var hasData: Bool {
+        live.driftMs != nil || live.watchHz != nil || live.coveragePct != nil
+    }
+
+    var body: some View {
+        FTCard(accent: hasData) {
+            FTCardHeader(title: "Live quality", trailing: AnyView(
+                Group {
+                    if hasData {
+                        FTBadge(label: "live", ok: true)
+                    } else if let _ = live.lastError {
+                        FTBadge(label: "n/a", ok: false)
+                    } else {
+                        Text("warming up")
+                            .font(FT.mono(10)).italic().foregroundColor(t.text3)
+                    }
+                }
+            ))
+
+            HStack(spacing: 0) {
+                qualityCell("Drift", driftText, color: driftColor)
+                Rectangle().fill(t.border).frame(width: 1)
+                qualityCell("Hz", hzText, color: hzColor)
+                Rectangle().fill(t.border).frame(width: 1)
+                qualityCell("Coverage", coverageText, color: coverageColor)
+            }
+
+            if let err = live.lastError {
+                Text(err).font(FT.mono(9)).foregroundColor(t.text3)
+                    .padding(.horizontal, 14).padding(.bottom, 8)
+                    .lineLimit(1)
+            } else if let last = live.lastUpdated {
+                Text("updated \(secondsAgo(last)) ago · poll every 5 s")
+                    .font(FT.mono(9)).foregroundColor(t.text3)
+                    .padding(.horizontal, 14).padding(.bottom, 8)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func qualityCell(_ label: String, _ value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            FTSLabel(text: label)
+            Text(value)
+                .font(FT.mono(15, weight: .semibold))
+                .foregroundColor(color)
+                .monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.7)
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // ── Drift ────────────────────────────────────────────────────────────
+    private var driftText: String {
+        guard let d = live.driftMs else { return "—" }
+        return abs(d) < 1000 ? "\(Int(d.rounded())) ms" : String(format: "%.1f s", d/1000)
+    }
+    private var driftColor: Color {
+        guard let d = live.driftMs.map({ abs($0) }) else { return t.text3 }
+        return d < 50 ? t.green : (d < 200 ? t.yellow : t.red)
+    }
+
+    // ── Hz ───────────────────────────────────────────────────────────────
+    private var hzText: String {
+        guard let hz = live.watchHz, hz > 1 else { return "—" }
+        return "\(Int(hz.rounded()))"
+    }
+    private var hzColor: Color {
+        guard let hz = live.watchHz else { return t.text3 }
+        return (hz >= 40 && hz <= 60) ? t.green : t.yellow
+    }
+
+    // ── Coverage ─────────────────────────────────────────────────────────
+    private var coverageText: String {
+        guard let c = live.coveragePct else { return "—" }
+        return "\(Int(c.rounded()))%"
+    }
+    private var coverageColor: Color {
+        guard let c = live.coveragePct else { return t.text3 }
+        return c >= 95 ? t.green : (c >= 80 ? t.yellow : t.red)
+    }
+
+    private func secondsAgo(_ date: Date) -> String {
+        let s = Int(Date().timeIntervalSince(date))
+        return "\(s)s"
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MARK: – TAB 1: Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -771,6 +1179,9 @@ struct DashboardTab: View {
 
                 // ── Connectivity console ───────────────────────────────────
                 FTConnectivityConsole(compact: true)
+
+                // ── Sessions history ────────────────────────────────────────
+                FTSessionsHistoryCard(maxRows: 5)
 
                 // ── Upload stats ────────────────────────────────────────────
                 FTCard {
@@ -932,6 +1343,11 @@ struct SessionTab: View {
                 // ── IMU Chart ───────────────────────────────────────────────
                 FTCard {
                     IMUChart(active: hasSession)
+                }
+
+                // ── Live quality (Phase 3) ──────────────────────────────────
+                if hasSession {
+                    FTLiveQualityCard()
                 }
 
                 // ── Sample pipeline ─────────────────────────────────────────
@@ -1207,8 +1623,16 @@ struct iPhoneView: View {
         }
         .onReceive(server.$currentSessionId) { sid in
             Task { @MainActor in
-                if let sid { FTLogStore.shared.add("SESSION", "start → \(sid)", color: theme.green) }
-                else       { FTLogStore.shared.add("SESSION", "stopped",        color: theme.yellow) }
+                if let sid {
+                    FTLogStore.shared.add("SESSION", "start → \(sid)", color: theme.green)
+                    LiveQualityStore.shared.startPolling(sessionId: sid)
+                } else {
+                    FTLogStore.shared.add("SESSION", "stopped", color: theme.yellow)
+                    LiveQualityStore.shared.stopPolling()
+                    // Beim Session-Ende sofort die History neu ziehen — die
+                    // gerade gestoppte Session soll oben in der Liste auftauchen.
+                    SessionsHistoryStore.shared.refresh(force: true)
+                }
             }
         }
     }
