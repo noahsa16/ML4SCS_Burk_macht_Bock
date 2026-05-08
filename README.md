@@ -100,7 +100,9 @@ src/server/                      Modular server package
 
 src/preprocessing/
   preprocessing.py                 prepare_pen_data(), prepare_watch_data(),
-                                   merge_pen_watch() (±20 ms join)
+                                   merge_pen_watch() (±20 ms join, δ-shifted)
+  pen_match.py                     Stroke-variance pen↔IMU clock-offset
+                                   recovery (TH Zürich algorithm)
 src/training/train.py              Load → merge → save (model: TODO)
 src/evaluation/evaluate.py         Label distribution (metrics: TODO)
 
@@ -175,6 +177,32 @@ Label derivation: `label_writing = 1` if `dot_type ∈ {PEN_DOWN, PEN_MOVE}`, el
 
 ---
 
+## Pen ↔ IMU Time Alignment
+
+Pen and watch device clocks do not share an epoch. The Moleskine pen's hardware clock typically lands ~922 days off plus an arbitrary time-of-day shift, so a naïve wall-clock join would smear the labels by hundreds of milliseconds (or worse).
+
+We recover the per-session offset **δ** automatically using a **stroke-window variance-minimization** approach — a port of the TH Zürich method described in [`data/02_Pen_IMU_Timestamp_Alignment.pdf`](data/02_Pen_IMU_Timestamp_Alignment.pdf), implemented in [`src/preprocessing/pen_match.py`](src/preprocessing/pen_match.py).
+
+**Idea.** While the pen is on paper, the wrist holding the watch is comparatively still — strokes are short and constrained. The correct δ shifts the stroke mask onto the calmest portions of the IMU signal, so the right δ shows up as a clear minimum of the mean accelerometer variance under the shifted mask.
+
+```
+                δ wrong                                δ correct
+       ┌────────────────────┐                  ┌────────────────────┐
+ acc   │   ╱╲   ╱╲    ╱╲    │            acc   │       ___      __  │
+ var   │  ╱  ╲ ╱  ╲  ╱  ╲   │            var   │ ___ ╱   ╲ ___ ╱  ╲ │
+       │ ╱    V    ╲╱    ╲  │                  │╱   ╲    │   ╲    │ │
+       └─▲─────▲────▲─────▲─┘                  └─▲────▲────▲────▲──┘
+         strokes overlap motion                  strokes sit on quiet IMU
+```
+
+**Search.** Coarse pass (±20 s @ 0.5 s) handles BLE buffering and clock drift; fine pass (±5 s @ 10 ms) refines around the coarse minimum. Confidence is reported as `sigma_minimal_variance` — a z-score of the minimum vs the search-grid distribution. More negative = stronger alignment.
+
+**Wiring.** `merge_pen_watch()` calls `match_pen_data()`, applies δ to `pen.local_ts_ms`, then runs the `merge_asof` ±20 ms join. When the signal is weak (`sigma > -2`) the shift is skipped and the quality engine surfaces a `low_sync_confidence` (warn) or `sync_failed` (bad) issue.
+
+This replaced an earlier plan to require a tap-sync recording protocol (3× tap with the watch hand at session start). Subjects no longer have to do anything special — alignment is fully post-hoc.
+
+---
+
 ## Quality Checks
 
 Each session is scored against a fixed set of checks defined in `quality.py`. Every issue carries `code`, `check`, `threshold`, `observed`, and a short `rationale` so it's clear *why* a warning fired and what the assumption behind it was — useful when deciding whether the threshold itself needs adjusting.
@@ -193,7 +221,7 @@ Two scores are exposed separately: `ml_readiness` (does this session contain usa
 
 The full per-session report is available as JSON at `GET /sessions/{id}/report` or as Markdown at `GET /sessions/{id}/report?format=md`.
 
-> **Open**: pen and watch device clocks do not share an epoch (the Moleskine pen's hardware clock is offset by ~922 days plus an arbitrary time-of-day shift). For session-level overlap and coverage checks this is irrelevant — wall-clock `local_ts_ms` is enough. For sample-level merging at single-millisecond precision, a per-session sync offset is needed; the plan is to add a tap-sync recording protocol (3× tap with the watch hand at session start) and feed the offset from `_estimate_sync_drift` into `merge_pen_watch`.
+Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside the scores. The pen↔IMU clock offset itself is recovered automatically per session — see [Pen ↔ IMU Time Alignment](#pen--imu-time-alignment) above.
 
 ---
 
@@ -203,6 +231,7 @@ The full per-session report is available as JSON at `GET /sessions/{id}/report` 
 |-------|--------|
 | Data collection | Operational |
 | Preprocessing & merging | Implemented |
+| Pen↔IMU clock alignment | Implemented (stroke-variance, TH Zürich) |
 | Feature engineering | TODO |
 | Model training | TODO |
 | Evaluation & metrics | TODO |
