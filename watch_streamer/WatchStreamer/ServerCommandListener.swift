@@ -129,6 +129,7 @@ class ServerCommandListener: NSObject, ObservableObject {
                                                       sessionId: sid,
                                                       personId: pid,
                                                       commandId: commandId))
+                AirPodsMotionManager.shared.start()
             } else if type == "stop" {
                 let commandId = self.extractCommandId(from: json)
                 self.currentCommandId = commandId
@@ -138,6 +139,11 @@ class ServerCommandListener: NSObject, ObservableObject {
                                                       commandId: commandId))
                 self.currentSessionId = nil
                 self.currentPersonId  = nil
+                AirPodsMotionManager.shared.stop()
+            } else if type == "airpods_start" {
+                AirPodsMotionManager.shared.start()
+            } else if type == "airpods_stop" {
+                AirPodsMotionManager.shared.stop()
             } else if type == "status" {
                 let active = json["session_active"] as? Bool ?? false
                 let commandId = self.extractCommandId(from: json)
@@ -368,6 +374,7 @@ class ServerCommandListener: NSObject, ObservableObject {
     func sendPhoneStatus() {
         let pollAgeMs = lastWatchPollAt.map { Int(Date().timeIntervalSince($0) * 1000) }
         let watchPolling = pollAgeMs.map { $0 < 3000 } ?? false
+        let airpods = AirPodsMotionManager.shared
         sendServerEvent([
             "type": "phone_status",
             "watch_reachable": WCSession.default.isReachable || watchPolling,
@@ -384,7 +391,16 @@ class ServerCommandListener: NSObject, ObservableObject {
             "current_command_id": currentCommandId ?? "",
             "watch_last_command_id": lastWatchSnapshot["last_command_id"] as? String ?? "",
             "last_watch_command_status": lastWatchCommandStatus,
-            "last_watch_poll_status": lastWatchPollStatus
+            "last_watch_poll_status": lastWatchPollStatus,
+            "airpods_available": airpods.isAvailable,
+            "airpods_paired": airpods.isHeadphonesConnected,
+            "airpods_streaming": airpods.isStreaming,
+            "airpods_samples": airpods.sampleCount,
+            "airpods_uploaded": airpods.uploadedCount,
+            "airpods_queued": airpods.queuedBatchCount,
+            "airpods_failed_batches": airpods.failedUploadCount,
+            "airpods_dropped_batches": airpods.droppedBatchCount,
+            "airpods_last_error": airpods.lastError,
         ])
     }
 

@@ -22,6 +22,10 @@ def _watch_connected() -> bool:
     return (time.time() - state.last_watch_time) < 5.0 if state.last_watch_time else False
 
 
+def _airpods_connected() -> bool:
+    return (time.time() - state.last_airpods_time) < 5.0 if state.last_airpods_time else False
+
+
 def _watch_direct_status_connected() -> bool:
     return (
         (time.time() - state.last_watch_status_time) < 5.0
@@ -108,6 +112,11 @@ def _status_payload(
     if state.last_watch_time:
         watch_seen_ms = max(0, int((time.time() - state.last_watch_time) * 1000))
 
+    airpods_seen_ms = None
+    if state.last_airpods_time:
+        airpods_seen_ms = max(0, int((time.time() - state.last_airpods_time) * 1000))
+    airpods_connected = _airpods_connected()
+
     watch_stream_active = _watch_connected()
     watch_direct_connected = _watch_direct_status_connected()
     watch_bridge_connected = _watch_bridge_connected()
@@ -164,6 +173,29 @@ def _status_payload(
         "watch_server_latency_ms": state.watch_server_latency_ms,
         "watch_clock_skew_ms": state.watch_clock_skew_ms,
         "watch_command": state.watch_command,
+        "airpods_connected": airpods_connected,
+        "airpods_paired": phone_status.get("airpods_paired") if phone_status else None,
+        "airpods_streaming": phone_status.get("airpods_streaming") if phone_status else None,
+        "airpods_available": phone_status.get("airpods_available") if phone_status else None,
+        "airpods_phone_queued": phone_status.get("airpods_queued") if phone_status else None,
+        "airpods_phone_uploaded": phone_status.get("airpods_uploaded") if phone_status else None,
+        "airpods_phone_failed": phone_status.get("airpods_failed_batches") if phone_status else None,
+        "airpods_phone_dropped": phone_status.get("airpods_dropped_batches") if phone_status else None,
+        "airpods_phone_last_error": phone_status.get("airpods_last_error") if phone_status else None,
+        "airpods_samples": state.airpods_sample_count,
+        "airpods_total_samples": state.airpods_total_sample_count,
+        "airpods_rate_hz": round(state.airpods_rate_hz, 1),
+        "airpods_config_rate_hz": _round_or_none(state.airpods_config_rate_hz, 1),
+        "airpods_batch_rate_hz": _round_or_none(state.airpods_batch_rate_hz, 1),
+        "airpods_last_seen_ms_ago": airpods_seen_ms,
+        "airpods_last_sample": state.last_airpods_sample,
+        "airpods_last_packet": state.last_airpods_packet,
+        "airpods_sequence": state.airpods_sequence_last,
+        "airpods_sequence_gaps": state.airpods_sequence_gaps,
+        "airpods_phone_latency_ms": state.airpods_phone_latency_ms,
+        "airpods_server_latency_ms": state.airpods_server_latency_ms,
+        "airpods_clock_skew_ms": state.airpods_clock_skew_ms,
+        "airpods_command": state.airpods_command,
         "connected_clients": _connected_clients(),
         "uptime_seconds": int(time.time() - state.server_start),
         "chart": state.chart_buffer[-60:],

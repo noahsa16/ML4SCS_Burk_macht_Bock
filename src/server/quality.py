@@ -20,8 +20,14 @@ from datetime import datetime, timezone
 from statistics import median
 from typing import Any, Optional
 
-from .config import DATA_RAW_PEN, DATA_RAW_WATCH
+from .config import DATA_RAW_AIRPODS, DATA_RAW_PEN, DATA_RAW_WATCH
 from .utils import _as_float, _as_int, _mad, _parse_iso, _row_local_ms
+
+# Confidence threshold on sigma_minimal_variance from pen_match. The Swiss
+# reference treats values <= -2 as a clear well; we use the same.
+_SYNC_SIGMA_OK_MAX  = -2.0   # at or below: trust the alignment
+_SYNC_SIGMA_WEAK_MAX = -1.0  # below: weak signal, warn
+                              # above _SYNC_SIGMA_WEAK_MAX: flat curve, fail
 
 # ── Watch-Konfiguration: Quelle der Wahrheit ──────────────────────────────────
 # Watch streamt CMDeviceMotion bei _TARGET_WATCH_HZ; alle Coverage- und
@@ -30,6 +36,7 @@ from .utils import _as_float, _as_int, _mad, _parse_iso, _row_local_ms
 _TARGET_WATCH_HZ      = 50.0
 _WATCH_HZ_MIN         = 40.0   # ±20% Toleranz
 _WATCH_HZ_MAX         = 60.0
+_TARGET_AIRPODS_HZ    = 25.0   # CMHeadphoneMotionManager: fix bei 25 Hz
 _COVERAGE_PCT_MIN     = 0.7    # Anteil der erwarteten Samples
 _PEN_IN_RANGE_PCT_MIN = 0.80   # vorher 0.95 — lockerer
 _COUNT_TOL_FLOOR      = 20     # absolute Mindesttoleranz
@@ -178,6 +185,71 @@ ISSUE_SPECS: dict[str, IssueSpec] = {
         threshold_label="overlap > 0",
         ml_severity="bad", recording_severity="bad",
     ),
+    "data_outside_session_window": IssueSpec(
+        check="Sample-local_ts liegt innerhalb des Session-Start/End-Fensters",
+        rationale=(
+            "Wenn Watch- oder Pen-Daten Zeitstempel weit außerhalb des in sessions.csv "
+            "verzeichneten Zeitfensters tragen, wurden vermutlich Stale-Files einer "
+            "wiederverwendeten Session-ID angehängt. Die Daten gehören dann nicht "
+            "zur aktuellen Session."
+        ),
+        threshold_label="Range innerhalb [start − 60 s, end + 60 s]",
+        ml_severity="bad", recording_severity="bad",
+    ),
+    "no_airpods_samples": IssueSpec(
+        check="AirPods-CSV enthält Samples",
+        rationale=(
+            "AirPods-Head-Motion ist als optionaler Feature-Stream gedacht. "
+            "Fehlt er, lässt sich das Modell trotzdem trainieren — aber ohne "
+            "Kopf-Information."
+        ),
+        threshold_label="rows > 0",
+        ml_severity=None, recording_severity="warn",  # nur recording, ML egal
+    ),
+    "legacy_airpods_time": IssueSpec(
+        check="AirPods-CSV enthält server_received_ms",
+        rationale="Ohne server_received_ms fehlt der Wall-Clock-Anker zum Mergen mit Pen/Watch.",
+        threshold_label="server_time_rows > 0",
+        ml_severity=None, recording_severity="warn",
+    ),
+    "low_airpods_coverage": IssueSpec(
+        check=f"AirPods-Zeilen vs. erwartete Samples bei {_TARGET_AIRPODS_HZ:.0f} Hz × Dauer",
+        rationale=(
+            f"CMHeadphoneMotionManager streamt fix bei {_TARGET_AIRPODS_HZ:.0f} Hz. "
+            f"Unter {_COVERAGE_PCT_MIN:.0%} weist auf Disconnects oder pausierten Stream hin."
+        ),
+        threshold_label=f"rows ≥ {_COVERAGE_PCT_MIN:.0%} · expected",
+        ml_severity=None, recording_severity="warn",
+    ),
+    "airpods_count_mismatch": IssueSpec(
+        check="AirPods-Zeilen in CSV vs. Eintrag in sessions.csv",
+        rationale="Größere Abweichung deutet auf nicht abgeschlossenes Flushing oder veraltete Session-Buchhaltung.",
+        threshold_label=f"|delta| ≤ max({_COUNT_TOL_FLOOR}, {_COUNT_TOL_PCT:.0%}·rows)",
+        ml_severity=None, recording_severity="warn",
+    ),
+    "low_sync_confidence": IssueSpec(
+        check="Pen↔IMU Variance-Alignment liefert klares Minimum",
+        rationale=(
+            "Der Stroke-Varianz-Algorithmus (Schweizer TH-Zürich-Verfahren) "
+            "liefert ein δ aber das Minimum ist nicht stark vom Mittelwert "
+            "abgesetzt. Sample-level Merge wird ungenauer, session-level "
+            "Overlap aber weiter gültig."
+        ),
+        threshold_label=f"sigma_minimal_variance ≤ {_SYNC_SIGMA_OK_MAX}",
+        ml_severity="warn", recording_severity=None,
+    ),
+    "sync_failed": IssueSpec(
+        check="Pen↔IMU Variance-Alignment findet überhaupt ein Minimum",
+        rationale=(
+            "Die Varianzkurve ist flach — kein zuverlässiger Pen↔IMU "
+            "Zeitversatz erkennbar. Ursachen: zu wenig Strokes, viel "
+            "Armbewegung beim Schreiben (z.B. Seite umblättern mid-Stroke), "
+            "oder Strokes außerhalb des Watch-Capture-Fensters. "
+            "Sample-level Merge sollte nicht verwendet werden."
+        ),
+        threshold_label=f"sigma_minimal_variance ≤ {_SYNC_SIGMA_WEAK_MAX}",
+        ml_severity="bad", recording_severity=None,
+    ),
     "source_clocks_not_shared": IssueSpec(
         check="Pen- und Watch-Geräteuhren teilen sich eine Epoche",
         rationale=(
@@ -290,28 +362,48 @@ def _view_for(issue: dict[str, Any], sev_key: str) -> dict[str, Any]:
 
 
 def _sync_diagnostic(sync: dict[str, Any]) -> dict[str, Any]:
-    if sync.get("usable"):
-        confidence = sync.get("confidence", "unknown")
+    """Human-readable summary of the pen↔IMU variance alignment result."""
+    method = sync.get("method", "")
+    if method != "stroke_variance_minimization":
+        # Legacy / unknown shape — fall through to the older descriptions.
+        if sync.get("usable"):
+            return {"status": "estimated", "label": "estimated",
+                    "message": f"Heuristik-Confidence: {sync.get('confidence', 'unknown')}."}
+        return {"status": "not_required", "label": "not required",
+                "message": sync.get("reason", "Keine Sync-Diagnose verfügbar.")}
+
+    confidence = sync.get("confidence", "none")
+    delta_ms = sync.get("delta_ms")
+    sigma = sync.get("sigma_minimal_variance")
+
+    if confidence == "high":
         return {
-            "status": "estimated",
-            "label": "estimated",
-            "message": f"Optionale Tap-/Peak-Kalibrierung verfügbar. Heuristik-Confidence: {confidence}.",
+            "status": "aligned",
+            "label": "aligned",
+            "message": (
+                f"Pen↔IMU Sync gefunden: δ = {delta_ms:.0f} ms "
+                f"(σ = {sigma:.2f}, klare Senke in der Varianzkurve). "
+                f"Sample-level Merge ist verlässlich."
+            ),
         }
-    reason = sync.get("reason", "")
-    if "Fewer than two" in reason:
+    if confidence == "low":
         return {
-            "status": "needs_explicit_tap_protocol",
-            "label": "needs tap protocol",
-            "message": "Kein zuverlässiges Tap-Muster erkannt. Reine Diagnose, kein Quality-Failure.",
+            "status": "weak_signal",
+            "label": "weak signal",
+            "message": (
+                f"δ = {delta_ms:.0f} ms gefunden, aber σ = {sigma:.2f} ist "
+                f"schwach (Schwelle ≤ {_SYNC_SIGMA_OK_MAX}). Session-level "
+                f"Overlap ok; sample-level Merge mit Vorsicht verwenden."
+            ),
         }
+    reason = sync.get("reason") or (
+        "Varianzkurve ist flach — kein klares δ erkennbar."
+        if sigma is not None else "Algorithmus konnte nicht ausgeführt werden."
+    )
     return {
-        "status": "not_required",
-        "label": "not required",
-        "message": (
-            f"Keine explizite Sync-Kalibrierung nötig. Detail: {reason}"
-            if reason else
-            "Keine explizite Sync-Kalibrierung erkannt; das ist kein Quality-Failure."
-        ),
+        "status": "no_alignment",
+        "label": "no alignment",
+        "message": reason,
     }
 
 
@@ -488,6 +580,118 @@ def _watch_peaks(rows: list[dict[str, Any]], max_peaks: int = 80) -> list[dict[s
     return sorted(peaks, key=lambda r: r["motion_mag"], reverse=True)[:max_peaks]
 
 
+def _estimate_sync_via_pen_match(session_id: str) -> dict[str, Any]:
+    """Variance-minimization pen↔IMU sync (Swiss TH-Zürich algorithm).
+
+    Loads the raw watch and pen CSVs for ``session_id`` and runs
+    :func:`src.preprocessing.pen_match.match_pen_data`. Returns a dict
+    with the same broad shape as the legacy tap-matching result so all
+    existing consumers (``_sync_diagnostic``, reports, frontend) keep
+    working unchanged.
+    """
+    import pandas as pd
+    from src.preprocessing.pen_match import (
+        match_pen_data, reconstruct_watch_wall_clock, strokes_from_dot_types,
+    )
+
+    watch_path = DATA_RAW_WATCH / f"{session_id}_watch.csv"
+    pen_path = DATA_RAW_PEN / f"{session_id}_pen.csv"
+    if not watch_path.exists() or not pen_path.exists():
+        return {
+            "usable": False, "confidence": "none",
+            "method": "stroke_variance_minimization",
+            "reason": "Missing watch or pen CSV.",
+        }
+
+    try:
+        watch_df = pd.read_csv(watch_path)
+        pen_df = pd.read_csv(pen_path)
+    except Exception as exc:
+        return {
+            "usable": False, "confidence": "none",
+            "method": "stroke_variance_minimization",
+            "reason": f"Could not read CSV: {exc}",
+        }
+
+    if (
+        "local_ts_ms" not in watch_df.columns
+        or "ts" not in watch_df.columns
+        or "local_ts_ms" not in pen_df.columns
+    ):
+        return {
+            "usable": False, "confidence": "none",
+            "method": "stroke_variance_minimization",
+            "reason": "Legacy CSV without local_ts_ms / ts — cannot align on wall-clock.",
+        }
+
+    watch_for_match = pd.DataFrame({
+        "timestamp": reconstruct_watch_wall_clock(watch_df),
+        "ax": pd.to_numeric(watch_df.get("ax"), errors="coerce"),
+        "ay": pd.to_numeric(watch_df.get("ay"), errors="coerce"),
+        "az": pd.to_numeric(watch_df.get("az"), errors="coerce"),
+    }).dropna().sort_values("timestamp").reset_index(drop=True)
+
+    pen_for_match = pd.DataFrame({
+        "timestamp": pd.to_datetime(
+            pd.to_numeric(pen_df["local_ts_ms"], errors="coerce"),
+            unit="ms", utc=True,
+        ),
+        "dot_type": pen_df.get("dot_type", ""),
+        "x": pd.to_numeric(pen_df.get("x"), errors="coerce"),
+        "y": pd.to_numeric(pen_df.get("y"), errors="coerce"),
+    }).dropna(subset=["timestamp"])
+    pen_strokes = strokes_from_dot_types(pen_for_match)
+
+    if len(watch_for_match) < 50 or pen_strokes.empty:
+        return {
+            "usable": False, "confidence": "none",
+            "method": "stroke_variance_minimization",
+            "reason": "Too few IMU samples or no pen strokes for alignment.",
+            "n_strokes": int(pen_strokes["StrokeID"].nunique()) if not pen_strokes.empty else 0,
+            "n_imu_samples": int(len(watch_for_match)),
+        }
+
+    result = match_pen_data(watch_for_match, pen_strokes)
+    if result is None:
+        return {
+            "usable": False, "confidence": "none",
+            "method": "stroke_variance_minimization",
+            "reason": "Algorithm returned no result.",
+        }
+
+    sigma = result.sigma_minimal_variance
+    if not math.isfinite(sigma):
+        confidence = "none"
+        usable = False
+    elif sigma <= _SYNC_SIGMA_OK_MAX:
+        confidence = "high"
+        usable = True
+    elif sigma <= _SYNC_SIGMA_WEAK_MAX:
+        confidence = "low"
+        usable = True
+    else:
+        confidence = "none"
+        usable = False
+
+    return {
+        "usable": usable,
+        "confidence": confidence,
+        "method": "stroke_variance_minimization",
+        "delta_sec": round(result.delta_sec, 4),
+        "delta_ms": round(result.delta_sec * 1000.0, 1),
+        "minimal_variance": round(result.minimal_variance, 6),
+        "average_variance": round(result.average_variance, 6),
+        "stddev_variance": round(result.stddev_variance, 6),
+        "sigma_minimal_variance": (
+            round(sigma, 3) if math.isfinite(sigma) else None
+        ),
+        "coarse_delta_sec": round(result.coarse_delta_sec, 3),
+        "n_strokes": result.n_strokes,
+        "n_imu_samples": result.n_imu_samples,
+        "fs_hz": round(result.fs_hz, 2),
+    }
+
+
 def _estimate_sync_drift(
     watch_rows: list[dict[str, Any]],
     pen_rows: list[dict[str, Any]],
@@ -607,6 +811,41 @@ def _estimate_sync_drift(
 _facts_cache: dict[str, tuple[tuple, dict[str, Any]]] = {}
 
 
+def _airpods_summary(session_id: str) -> dict[str, Any]:
+    """Lightweight stats for the AirPods CSV — no full timeline parse.
+
+    Returns row count, server-time row count, and overall server_received_ms
+    range. Enough for coverage / legacy-time / count-mismatch issues.
+    """
+    path = DATA_RAW_AIRPODS / f"{session_id}_airpods.csv"
+    summary: dict[str, Any] = {
+        "path": str(path),
+        "exists": path.exists(),
+        "row_count": 0,
+        "server_time_rows": 0,
+        "server_ms_min": None,
+        "server_ms_max": None,
+        "load_error": None,
+    }
+    if not path.exists():
+        return summary
+    try:
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                summary["row_count"] += 1
+                ms = _as_int(r.get("server_received_ms"))
+                if ms is not None:
+                    summary["server_time_rows"] += 1
+                    if summary["server_ms_min"] is None or ms < summary["server_ms_min"]:
+                        summary["server_ms_min"] = ms
+                    if summary["server_ms_max"] is None or ms > summary["server_ms_max"]:
+                        summary["server_ms_max"] = ms
+    except (OSError, csv.Error) as e:
+        summary["load_error"] = str(e)
+    return summary
+
+
 def _session_facts(row: dict[str, str]) -> dict[str, Any]:
     """
     Berechnet alle abgeleiteten Fakten für eine Session **einmal**.
@@ -615,9 +854,11 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
     sid = row.get("session_id", "")
     watch_path = DATA_RAW_WATCH / f"{sid}_watch.csv"
     pen_path = DATA_RAW_PEN / f"{sid}_pen.csv"
+    airpods_path = DATA_RAW_AIRPODS / f"{sid}_airpods.csv"
     watch_mtime = int(watch_path.stat().st_mtime_ns) if watch_path.exists() else 0
     pen_mtime = int(pen_path.stat().st_mtime_ns) if pen_path.exists() else 0
-    cache_key = (watch_mtime, pen_mtime, hash(tuple(sorted(row.items()))))
+    airpods_mtime = int(airpods_path.stat().st_mtime_ns) if airpods_path.exists() else 0
+    cache_key = (watch_mtime, pen_mtime, airpods_mtime, hash(tuple(sorted(row.items()))))
     if sid in _facts_cache and _facts_cache[sid][0] == cache_key:
         return _facts_cache[sid][1]
 
@@ -713,7 +954,19 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
     pen_count_delta = abs(len(pen_rows) - session_pen_samples)
     pen_count_tolerance = max(_COUNT_TOL_FLOOR, int(max(len(pen_rows), session_pen_samples) * _COUNT_TOL_PCT))
 
-    sync_estimate = _estimate_sync_drift(watch_rows, pen_rows, intervals)
+    sync_estimate = _estimate_sync_via_pen_match(sid)
+
+    # AirPods (lightweight summary; optional stream)
+    airpods_summary = _airpods_summary(sid)
+    session_airpods_samples = _as_int(row.get("airpods_samples")) or 0
+    airpods_count_delta = abs(airpods_summary["row_count"] - session_airpods_samples)
+    airpods_count_tolerance = max(
+        _COUNT_TOL_FLOOR,
+        int(max(airpods_summary["row_count"], session_airpods_samples) * _COUNT_TOL_PCT),
+    )
+    airpods_expected = (
+        int(expected_duration * _TARGET_AIRPODS_HZ) if expected_duration else None
+    )
 
     facts = {
         "session_id": sid,
@@ -758,9 +1011,18 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
             "path": str(pen_path),
             "exists": pen_path.exists(),
         },
+        "airpods": {
+            **airpods_summary,
+            "session_csv_count": session_airpods_samples,
+            "count_delta": airpods_count_delta,
+            "count_tolerance": airpods_count_tolerance,
+            "expected_samples": airpods_expected,
+        },
         "common_overlap_seconds": common_overlap_seconds,
         "sync_estimate": sync_estimate,
         "start_year": start.year if start else None,
+        "session_start_ms": int(start.timestamp() * 1000) if start else None,
+        "session_end_ms": int(end.timestamp() * 1000) if end else None,
     }
 
     issues = _build_issues(facts)
@@ -864,6 +1126,83 @@ def _build_issues(facts: dict[str, Any]) -> list[dict[str, Any]]:
             "pen_dots_outside_watch_range",
             observed=f"{p['in_range_pct']:.1%}",
         ))
+
+    # ── AirPods (optional stream) ────────────────────────────────────────────
+    a = facts.get("airpods", {})
+    if a.get("exists") and a.get("row_count") == 0:
+        out.append(_make_issue("no_airpods_samples", observed=0))
+    if a.get("row_count") and a.get("server_time_rows") == 0:
+        out.append(_make_issue(
+            "legacy_airpods_time",
+            observed="0 rows mit server_received_ms",
+        ))
+    a_expected = a.get("expected_samples")
+    if (
+        not is_active
+        and a.get("exists")
+        and a_expected
+        and a.get("row_count", 0) < a_expected * _COVERAGE_PCT_MIN
+    ):
+        pct = a["row_count"] / a_expected if a_expected else 0
+        out.append(_make_issue(
+            "low_airpods_coverage",
+            observed=f"{a['row_count']} von ~{a_expected} erwartet ({pct:.0%})",
+        ))
+    if (
+        not is_active
+        and a.get("exists")
+        and a.get("row_count") != a.get("session_csv_count")
+        and a.get("count_delta", 0) > a.get("count_tolerance", 0)
+    ):
+        out.append(_make_issue(
+            "airpods_count_mismatch",
+            observed=f"delta={a['count_delta']} (csv={a['row_count']}, sessions.csv={a['session_csv_count']})",
+            threshold=f"|delta| ≤ {a['count_tolerance']}",
+        ))
+
+    # ── Pen↔IMU sync confidence (variance-minimization) ──────────────────────
+    sync = facts.get("sync_estimate", {})
+    if (
+        sync.get("method") == "stroke_variance_minimization"
+        and not is_active
+        # Only complain when the algorithm actually ran (had inputs); a
+        # missing CSV / no strokes is already covered by no_pen_samples
+        # / no_watch_samples and shouldn't double-fire.
+        and sync.get("sigma_minimal_variance") is not None
+    ):
+        sigma = sync["sigma_minimal_variance"]
+        if sigma > _SYNC_SIGMA_WEAK_MAX:
+            out.append(_make_issue(
+                "sync_failed",
+                observed=f"σ = {sigma:.2f}, δ = {sync.get('delta_ms', 0):.0f} ms",
+            ))
+        elif sigma > _SYNC_SIGMA_OK_MAX:
+            out.append(_make_issue(
+                "low_sync_confidence",
+                observed=f"σ = {sigma:.2f}, δ = {sync.get('delta_ms', 0):.0f} ms",
+            ))
+
+    # Stale-File-Detector: Daten-Range außerhalb des Session-Fensters
+    # (typischer Fall: Session-ID wurde recycled und alte CSV wurde appended).
+    s_start = facts.get("session_start_ms")
+    s_end = facts.get("session_end_ms")
+    if not is_active and s_start is not None and s_end is not None:
+        tol_ms = 60_000
+        outliers: list[str] = []
+        for label, clock in (("watch", w["clock"]), ("pen", p["clock"])):
+            cs = clock.get("start_ms")
+            ce = clock.get("end_ms")
+            if cs is None or ce is None:
+                continue
+            if cs < s_start - tol_ms or ce > s_end + tol_ms:
+                lead = max(0, (s_start - cs) // 1000)
+                trail = max(0, (ce - s_end) // 1000)
+                outliers.append(f"{label}: −{lead}s vor / +{trail}s nach Session")
+        if outliers:
+            out.append(_make_issue(
+                "data_outside_session_window",
+                observed="; ".join(outliers),
+            ))
 
     return out
 

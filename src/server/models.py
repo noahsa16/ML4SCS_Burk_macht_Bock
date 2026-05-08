@@ -59,3 +59,48 @@ class WatchEnvelope(BaseModel):
         if not isinstance(v, list):
             return []
         return [s for s in v if isinstance(s, dict)]
+
+
+class AirPodsSample(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    ts: Optional[int] = None
+    ax: Optional[float] = None
+    ay: Optional[float] = None
+    az: Optional[float] = None
+    rx: Optional[float] = None
+    ry: Optional[float] = None
+    rz: Optional[float] = None
+    qw: Optional[float] = None
+    qx: Optional[float] = None
+    qy: Optional[float] = None
+    qz: Optional[float] = None
+    gx: Optional[float] = None
+    gy: Optional[float] = None
+    gz: Optional[float] = None
+
+
+class AirPodsEnvelope(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    samples:          list[AirPodsSample] = []
+    sequence:         Optional[int]   = None
+    sampleRateHz:     Optional[float] = None
+    airpodsSentAt:    Optional[int]   = None
+    phoneReceivedAt:  Optional[int]   = None
+    source:           Optional[str]   = None
+    sessionId:        Optional[str]   = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_list_format(cls, v: object) -> object:
+        if isinstance(v, list):
+            return {"samples": v}
+        return v
+
+    @field_validator("samples", mode="before")
+    @classmethod
+    def drop_non_dict_samples(cls, v: object) -> list:
+        if not isinstance(v, list):
+            return []
+        return [s for s in v if isinstance(s, dict)]

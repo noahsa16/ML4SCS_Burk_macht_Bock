@@ -28,6 +28,13 @@ results/metrics/*.csv
 # Misc
 .env
 
+# Stray pen logs (manual pen_logger.py runs without --session)
+pen_log_*.csv
+
+# Stray markdown reports written outside reports/
+data/session_*_report*.md
+data/raw/**/session_*_report*.md
+
 # Server logs
 logs/
 
