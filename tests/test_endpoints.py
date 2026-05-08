@@ -24,9 +24,21 @@ def client(data_dirs, monkeypatch):
 
     # Patch state references in modules that imported it at module load time.
     import src.server.routes as routes_mod
+    import src.server.routes.airpods as airpods_routes
+    import src.server.routes.dashboard as dashboard_routes
+    import src.server.routes.pen as pen_routes
+    import src.server.routes.sessions as sessions_routes
+    import src.server.routes.watch as watch_routes
+    import src.server.routes.ws as ws_routes
     import src.server.csv_io as csv_io_mod
     import src.server.pen_proc as pen_proc_mod
-    monkeypatch.setattr(routes_mod, "state", state_mod.state)
+    route_modules = (
+        airpods_routes, dashboard_routes, pen_routes,
+        sessions_routes, watch_routes, ws_routes,
+    )
+    for mod in route_modules:
+        if hasattr(mod, "state"):
+            monkeypatch.setattr(mod, "state", state_mod.state)
     monkeypatch.setattr(csv_io_mod, "state", state_mod.state)
     monkeypatch.setattr(pen_proc_mod, "state", state_mod.state)
 
@@ -38,18 +50,20 @@ def client(data_dirs, monkeypatch):
     async def fake_stop_pen():
         state_mod.state.pen_session_id = None
 
-    monkeypatch.setattr(routes_mod, "_start_pen", fake_start_pen)
-    monkeypatch.setattr(routes_mod, "_stop_pen", fake_stop_pen)
+    for mod in (sessions_routes, pen_routes):
+        monkeypatch.setattr(mod, "_start_pen", fake_start_pen)
+        monkeypatch.setattr(mod, "_stop_pen", fake_stop_pen)
 
     # Don't broadcast over a real websocket either.
     async def fake_broadcast(msg):
         pass
-    monkeypatch.setattr(routes_mod, "_broadcast", fake_broadcast)
+    for mod in (sessions_routes, watch_routes, airpods_routes):
+        monkeypatch.setattr(mod, "_broadcast", fake_broadcast)
 
     # Skip the preflight gate (no iPhone bridge / watch in test env).
     def fake_preflight():
         return {"ok": True, "can_start": True, "blockers": [], "warnings": [], "status": {}}
-    monkeypatch.setattr(routes_mod, "_session_preflight_payload", fake_preflight)
+    monkeypatch.setattr(sessions_routes, "_session_preflight_payload", fake_preflight)
 
     app = FastAPI()
     app.include_router(routes_mod.router)
