@@ -35,11 +35,16 @@ def data_dirs(tmp_path, monkeypatch):
     import src.server.config as config
     import src.server.csv_io as csv_io
     import src.server.quality as quality
-    import src.server.routes as routes
+    import src.server.routes.airpods as routes_airpods
+    import src.server.routes.sessions as routes_sessions
+    import src.server.routes.watch as routes_watch
     import src.server.sync as sync_mod
     import src.server.timelines as timelines
 
-    for mod in (config, csv_io, quality, routes, sync_mod, timelines):
+    for mod in (
+        config, csv_io, quality, sync_mod, timelines,
+        routes_airpods, routes_sessions, routes_watch,
+    ):
         if hasattr(mod, "DATA_RAW_PEN"):
             monkeypatch.setattr(mod, "DATA_RAW_PEN", pen_dir, raising=False)
         if hasattr(mod, "DATA_RAW_WATCH"):
