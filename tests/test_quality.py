@@ -243,3 +243,143 @@ def test_legacy_airpods_time_fires(data_dirs):
 
     codes = _issue_codes(_session_facts(row))
     assert "legacy_airpods_time" in codes
+
+
+# ── Pen↔IMU sync (variance minimization) ────────────────────────────────────
+
+def _make_sync_session(
+    data_dirs,
+    sid: str,
+    *,
+    still_windows_sec: list[tuple[float, float]] | None,
+    pen_clock_offset_sec: float,
+    seed: int,
+):
+    """Helper: synthesize a session whose IMU has known still windows and
+    pen strokes that fall on those windows (shifted by ``pen_clock_offset_sec``).
+    Reused by the high/low/no-confidence sync tests."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    start_ms = 1_700_000_000_000
+    duration_sec = 60.0
+    fs = 50.0
+    n_watch = int(duration_sec * fs)
+    watch_rows = []
+    for i in range(n_watch):
+        ts_ms = start_ms + int(i * 1000 / fs)
+        # High-noise baseline; flatten in still windows.
+        sigma = 0.5
+        if still_windows_sec:
+            for s, e in still_windows_sec:
+                if s * fs <= i <= e * fs:
+                    sigma = 0.02
+                    break
+        ax = float(rng.normal(0.0, sigma))
+        ay = float(rng.normal(0.0, sigma))
+        az = float(9.81 + rng.normal(0.0, sigma))
+        watch_rows.append({**_watch_row(ts_ms, sid=sid, seq=i // 25),
+                           "ax": ax, "ay": ay, "az": az})
+    write_watch_csv(data_dirs.watch / f"{sid}_watch.csv", watch_rows)
+
+    # Pen strokes — three PEN_DOWN/MOVE/UP sequences. If still_windows_sec
+    # is given, strokes land on those windows; otherwise they're sprinkled
+    # at arbitrary fixed times so the algorithm has something to chew on
+    # (but won't find a clean well in uniform-noise IMU).
+    stroke_specs = still_windows_sec or [(10.0, 12.0), (25.0, 27.0), (40.0, 42.0)]
+    pen_rows = []
+    for s, e in stroke_specs:
+        stroke_start_ms = start_ms + int(s * 1000) + int(pen_clock_offset_sec * 1000)
+        stroke_end_ms = start_ms + int(e * 1000) + int(pen_clock_offset_sec * 1000)
+        n_dots = max(2, int((e - s) * 80))  # ~80 Hz pen
+        for j in range(n_dots):
+            ts_ms = stroke_start_ms + int((stroke_end_ms - stroke_start_ms) * j / (n_dots - 1))
+            if j == 0:
+                dt = "PEN_DOWN"
+            elif j == n_dots - 1:
+                dt = "PEN_UP"
+            else:
+                dt = "PEN_MOVE"
+            pen_rows.append(_pen_row(ts_ms, dot_type=dt, x=10.0 + j, y=20.0))
+    write_pen_csv(data_dirs.pen / f"{sid}_pen.csv", pen_rows)
+    return _session_row(sid, start_ms, start_ms + int(duration_sec * 1000),
+                        pen_samples=len(pen_rows), watch_samples=len(watch_rows))
+
+
+def test_sync_high_confidence_does_not_fire_issues(data_dirs):
+    """Clean still-window setup → strong well, no sync issues."""
+    from src.server.quality import _session_facts
+
+    row = _make_sync_session(
+        data_dirs, "S020",
+        still_windows_sec=[(10.0, 12.0), (25.0, 27.0), (40.0, 42.0)],
+        pen_clock_offset_sec=0.0,
+        seed=11,
+    )
+    facts = _session_facts(row)
+    sync = facts["sync_estimate"]
+    assert sync["method"] == "stroke_variance_minimization"
+    assert sync["confidence"] == "high", f"got {sync}"
+    codes = _issue_codes(facts)
+    assert "low_sync_confidence" not in codes
+    assert "sync_failed" not in codes
+
+
+def test_sync_diagnostic_shape(data_dirs):
+    """Verify sync_estimate has the new 'stroke_variance_minimization'
+    method tag and exposes the diagnostic fields downstream consumers
+    rely on (delta_ms, sigma, confidence)."""
+    from src.server.quality import _session_facts, _sync_diagnostic
+
+    row = _make_sync_session(
+        data_dirs, "S022",
+        still_windows_sec=[(10.0, 12.0), (25.0, 27.0), (40.0, 42.0)],
+        pen_clock_offset_sec=2.5,
+        seed=33,
+    )
+    facts = _session_facts(row)
+    sync = facts["sync_estimate"]
+    assert sync["method"] == "stroke_variance_minimization"
+    assert "delta_sec" in sync
+    assert "delta_ms" in sync
+    assert "sigma_minimal_variance" in sync
+    assert "n_strokes" in sync
+    diag = _sync_diagnostic(sync)
+    assert diag["status"] in {"aligned", "weak_signal", "no_alignment"}
+    assert diag["label"]
+    assert diag["message"]
+
+
+def test_low_sync_confidence_fires_when_sigma_borderline(data_dirs, monkeypatch):
+    """Inject a borderline sigma into _session_facts and assert the issue
+    fires. This isolates the issue logic from algorithmic randomness."""
+    from src.server.quality import _build_issues
+
+    # Build a minimal facts dict that triggers only the sync check.
+    facts = {
+        "watch": {"row_count": 100, "exists": True, "load_error": None,
+                  "ts_values": [1, 2], "gyro_rows": 100, "accel_rows": 100,
+                  "estimated_hz": 50.0, "sequence_gaps": 0,
+                  "session_csv_count": 100, "count_delta": 0, "count_tolerance": 20,
+                  "server_time_rows": 100, "expected_samples": 100, "clock": {}},
+        "pen": {"row_count": 100, "exists": True, "load_error": None,
+                "ts_values": [1, 2], "session_csv_count": 100, "count_delta": 0,
+                "count_tolerance": 20, "server_time_rows": 100,
+                "timestamp_years": [], "in_range_pct": 1.0, "clock": {}},
+        "airpods": {"exists": False, "row_count": 0},
+        "is_active": False, "start_year": 2026,
+        "session_start_ms": None, "session_end_ms": None,
+        "sync_estimate": {
+            "method": "stroke_variance_minimization",
+            "sigma_minimal_variance": -1.5,  # borderline: > -2 → warn
+            "delta_ms": -3000.0,
+        },
+    }
+    codes = {i["code"] for i in _build_issues(facts)}
+    assert "low_sync_confidence" in codes
+    assert "sync_failed" not in codes
+
+    # Now push sigma above the weak threshold → should escalate to bad.
+    facts["sync_estimate"]["sigma_minimal_variance"] = -0.3
+    codes = {i["code"] for i in _build_issues(facts)}
+    assert "sync_failed" in codes
+    assert "low_sync_confidence" not in codes
