@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from tests.conftest import write_pen_csv, write_watch_csv
+from tests.conftest import write_airpods_csv, write_pen_csv, write_watch_csv
 
 
 def _iso(ts_ms: int) -> str:
@@ -162,3 +162,84 @@ def test_count_mismatch_when_sessions_csv_lies(data_dirs):
 
     codes = _issue_codes(_session_facts(row))
     assert "watch_count_mismatch" in codes
+
+
+def _airpods_row(ts_ms: int, sid: str = "S001", with_server_time: bool = True) -> dict:
+    base = {
+        "local_ts": _iso(ts_ms),
+        "local_ts_ms": ts_ms,
+        "session_id": sid,
+        "sequence": 1,
+        "sample_rate_hz": 25.0,
+        "airpods_sent_at": ts_ms,
+        "phone_received_at": ts_ms,
+        "source": "airpods",
+        "ts": ts_ms - 50,
+        "ax": 0.01, "ay": 0.0, "az": 0.0,
+        "rx": 0.0,  "ry": 0.0, "rz": 0.0,
+        "qw": 1.0,  "qx": 0.0, "qy": 0.0, "qz": 0.0,
+        "gx": 0.0,  "gy": 0.0, "gz": -9.81,
+    }
+    if with_server_time:
+        base["server_received_ms"] = ts_ms
+    return base
+
+
+def test_airpods_absent_does_not_block(data_dirs):
+    """No AirPods CSV at all = optional stream skipped, no issues raised."""
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    watch_rows = [_watch_row(start_ms + i * 20) for i in range(1500)]
+    pen_rows = [_pen_row(start_ms + i * 25) for i in range(1200)]
+    write_watch_csv(data_dirs.watch / "S010_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S010_pen.csv", pen_rows)
+    row = _session_row("S010", start_ms, start_ms + 30_000,
+                       pen_samples=len(pen_rows), watch_samples=len(watch_rows))
+
+    codes = _issue_codes(_session_facts(row))
+    assert "no_airpods_samples" not in codes
+    assert "low_airpods_coverage" not in codes
+    assert "legacy_airpods_time" not in codes
+
+
+def test_low_airpods_coverage_fires(data_dirs):
+    """30 s session at 25 Hz expects ~750 samples; we write only 100."""
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    end_ms = start_ms + 30_000
+    watch_rows = [_watch_row(start_ms + i * 20) for i in range(1500)]
+    pen_rows = [_pen_row(start_ms + i * 25) for i in range(1200)]
+    airpods_rows = [_airpods_row(start_ms + i * 40) for i in range(100)]
+
+    write_watch_csv(data_dirs.watch / "S011_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S011_pen.csv", pen_rows)
+    write_airpods_csv(data_dirs.airpods / "S011_airpods.csv", airpods_rows)
+    row = {**_session_row("S011", start_ms, end_ms,
+                          pen_samples=len(pen_rows), watch_samples=len(watch_rows)),
+           "airpods_samples": len(airpods_rows)}
+
+    codes = _issue_codes(_session_facts(row))
+    assert "low_airpods_coverage" in codes
+
+
+def test_legacy_airpods_time_fires(data_dirs):
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    end_ms = start_ms + 30_000
+    watch_rows = [_watch_row(start_ms + i * 20) for i in range(1500)]
+    pen_rows = [_pen_row(start_ms + i * 25) for i in range(1200)]
+    airpods_rows = [_airpods_row(start_ms + i * 40, with_server_time=False)
+                    for i in range(750)]
+
+    write_watch_csv(data_dirs.watch / "S012_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S012_pen.csv", pen_rows)
+    write_airpods_csv(data_dirs.airpods / "S012_airpods.csv", airpods_rows)
+    row = {**_session_row("S012", start_ms, end_ms,
+                          pen_samples=len(pen_rows), watch_samples=len(watch_rows)),
+           "airpods_samples": len(airpods_rows)}
+
+    codes = _issue_codes(_session_facts(row))
+    assert "legacy_airpods_time" in codes

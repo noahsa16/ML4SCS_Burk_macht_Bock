@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import IO, Any, Optional
 
 from .config import (
-    DATA_RAW_PEN, DATA_RAW_WATCH, SESSIONS_CSV, SESSIONS_FIELDNAMES,
-    WATCH_FIELDNAMES,
+    AIRPODS_FIELDNAMES, DATA_RAW_AIRPODS, DATA_RAW_PEN, DATA_RAW_WATCH,
+    SESSIONS_CSV, SESSIONS_FIELDNAMES, WATCH_FIELDNAMES,
 )
 from .state import state
 from .utils import _as_float, _as_int, _utc_iso_from_ms
@@ -21,6 +21,8 @@ _pen_count_cache: dict[str, tuple[int, int]] = {}
 
 # csv_path (str) → (open file handle, DictWriter)
 _watch_writers: dict[str, tuple[IO[str], csv.DictWriter]] = {}
+_airpods_writers: dict[str, tuple[IO[str], csv.DictWriter]] = {}
+_airpods_count_cache: dict[str, tuple[int, int]] = {}
 
 
 def _ensure_csv_header(path: Path, fieldnames: list[str]) -> bool:
@@ -62,7 +64,7 @@ def _next_session_id() -> str:
         pass
     # Also scan raw data folders so a stale pen/watch CSV from a prior run
     # cannot be silently re-used (would cause old dots to leak into a new session).
-    for folder in (DATA_RAW_PEN, DATA_RAW_WATCH):
+    for folder in (DATA_RAW_PEN, DATA_RAW_WATCH, DATA_RAW_AIRPODS):
         try:
             for p in folder.glob("S[0-9][0-9][0-9]_*.csv"):
                 stem = p.stem.split("_", 1)[0]
@@ -203,6 +205,54 @@ def close_all_watch_writers() -> None:
     """Schließt alle offenen Watch-Writer (beim Server-Shutdown)."""
     for key in list(_watch_writers):
         close_watch_writer(Path(key))
+
+
+def get_airpods_writer(path: Path) -> csv.DictWriter:
+    """Gibt einen gecachten DictWriter für die AirPods-CSV zurück."""
+    key = str(path)
+    if key not in _airpods_writers:
+        _ensure_csv_header(path, AIRPODS_FIELDNAMES)
+        f: IO[str] = open(path, "a", newline="")
+        _airpods_writers[key] = (f, csv.DictWriter(f, fieldnames=AIRPODS_FIELDNAMES))
+    return _airpods_writers[key][1]
+
+
+def close_airpods_writer(path: Path) -> None:
+    key = str(path)
+    entry = _airpods_writers.pop(key, None)
+    if entry:
+        try:
+            entry[0].flush()
+            entry[0].close()
+        except OSError:
+            pass
+
+
+def close_all_airpods_writers() -> None:
+    for key in list(_airpods_writers):
+        close_airpods_writer(Path(key))
+
+
+def _airpods_sample_count(session_id: str) -> int:
+    """Same incremental count strategy as _pen_sample_count."""
+    path = DATA_RAW_AIRPODS / f"{session_id}_airpods.csv"
+    if not path.exists():
+        return 0
+    try:
+        size = path.stat().st_size
+        cached_size, cached_lines = _airpods_count_cache.get(session_id, (0, 0))
+        if size == cached_size:
+            return max(0, cached_lines - 1)
+        if size < cached_size:
+            cached_size, cached_lines = 0, 0
+        with open(path, "rb") as f:
+            f.seek(cached_size)
+            new_lines = f.read().count(b"\n")
+        total = cached_lines + new_lines
+        _airpods_count_cache[session_id] = (size, total)
+        return max(0, total - 1)
+    except Exception:
+        return 0
 
 
 _PEN_PREVIEW_TAIL = 524288  # 512 KB tail (~3000 dots at ~160 B each)

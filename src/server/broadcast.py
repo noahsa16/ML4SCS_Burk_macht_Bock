@@ -58,6 +58,15 @@ async def _status_loop():
         state.last_watch_count_for_rate = state.watch_total_sample_count
         state.last_watch_rate_check = now
 
+        # AirPods-Rate
+        airpods_elapsed = max(0.001, now - state.last_airpods_rate_check)
+        state.airpods_rate_hz = max(
+            0.0,
+            (state.airpods_total_sample_count - state.last_airpods_count_for_rate) / airpods_elapsed,
+        )
+        state.last_airpods_count_for_rate = state.airpods_total_sample_count
+        state.last_airpods_rate_check = now
+
         # Neuen Pen-Dot ins sample_log schreiben, wenn er sich geändert hat
         if last_pen_dot:
             key = (

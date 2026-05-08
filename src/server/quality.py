@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from statistics import median
 from typing import Any, Optional
 
-from .config import DATA_RAW_PEN, DATA_RAW_WATCH
+from .config import DATA_RAW_AIRPODS, DATA_RAW_PEN, DATA_RAW_WATCH
 from .utils import _as_float, _as_int, _mad, _parse_iso, _row_local_ms
 
 # ── Watch-Konfiguration: Quelle der Wahrheit ──────────────────────────────────
@@ -30,6 +30,7 @@ from .utils import _as_float, _as_int, _mad, _parse_iso, _row_local_ms
 _TARGET_WATCH_HZ      = 50.0
 _WATCH_HZ_MIN         = 40.0   # ±20% Toleranz
 _WATCH_HZ_MAX         = 60.0
+_TARGET_AIRPODS_HZ    = 25.0   # CMHeadphoneMotionManager: fix bei 25 Hz
 _COVERAGE_PCT_MIN     = 0.7    # Anteil der erwarteten Samples
 _PEN_IN_RANGE_PCT_MIN = 0.80   # vorher 0.95 — lockerer
 _COUNT_TOL_FLOOR      = 20     # absolute Mindesttoleranz
@@ -188,6 +189,37 @@ ISSUE_SPECS: dict[str, IssueSpec] = {
         ),
         threshold_label="Range innerhalb [start − 60 s, end + 60 s]",
         ml_severity="bad", recording_severity="bad",
+    ),
+    "no_airpods_samples": IssueSpec(
+        check="AirPods-CSV enthält Samples",
+        rationale=(
+            "AirPods-Head-Motion ist als optionaler Feature-Stream gedacht. "
+            "Fehlt er, lässt sich das Modell trotzdem trainieren — aber ohne "
+            "Kopf-Information."
+        ),
+        threshold_label="rows > 0",
+        ml_severity=None, recording_severity="warn",  # nur recording, ML egal
+    ),
+    "legacy_airpods_time": IssueSpec(
+        check="AirPods-CSV enthält server_received_ms",
+        rationale="Ohne server_received_ms fehlt der Wall-Clock-Anker zum Mergen mit Pen/Watch.",
+        threshold_label="server_time_rows > 0",
+        ml_severity=None, recording_severity="warn",
+    ),
+    "low_airpods_coverage": IssueSpec(
+        check=f"AirPods-Zeilen vs. erwartete Samples bei {_TARGET_AIRPODS_HZ:.0f} Hz × Dauer",
+        rationale=(
+            f"CMHeadphoneMotionManager streamt fix bei {_TARGET_AIRPODS_HZ:.0f} Hz. "
+            f"Unter {_COVERAGE_PCT_MIN:.0%} weist auf Disconnects oder pausierten Stream hin."
+        ),
+        threshold_label=f"rows ≥ {_COVERAGE_PCT_MIN:.0%} · expected",
+        ml_severity=None, recording_severity="warn",
+    ),
+    "airpods_count_mismatch": IssueSpec(
+        check="AirPods-Zeilen in CSV vs. Eintrag in sessions.csv",
+        rationale="Größere Abweichung deutet auf nicht abgeschlossenes Flushing oder veraltete Session-Buchhaltung.",
+        threshold_label=f"|delta| ≤ max({_COUNT_TOL_FLOOR}, {_COUNT_TOL_PCT:.0%}·rows)",
+        ml_severity=None, recording_severity="warn",
     ),
     "source_clocks_not_shared": IssueSpec(
         check="Pen- und Watch-Geräteuhren teilen sich eine Epoche",
@@ -618,6 +650,41 @@ def _estimate_sync_drift(
 _facts_cache: dict[str, tuple[tuple, dict[str, Any]]] = {}
 
 
+def _airpods_summary(session_id: str) -> dict[str, Any]:
+    """Lightweight stats for the AirPods CSV — no full timeline parse.
+
+    Returns row count, server-time row count, and overall server_received_ms
+    range. Enough for coverage / legacy-time / count-mismatch issues.
+    """
+    path = DATA_RAW_AIRPODS / f"{session_id}_airpods.csv"
+    summary: dict[str, Any] = {
+        "path": str(path),
+        "exists": path.exists(),
+        "row_count": 0,
+        "server_time_rows": 0,
+        "server_ms_min": None,
+        "server_ms_max": None,
+        "load_error": None,
+    }
+    if not path.exists():
+        return summary
+    try:
+        with open(path, newline="") as f:
+            reader = csv.DictReader(f)
+            for r in reader:
+                summary["row_count"] += 1
+                ms = _as_int(r.get("server_received_ms"))
+                if ms is not None:
+                    summary["server_time_rows"] += 1
+                    if summary["server_ms_min"] is None or ms < summary["server_ms_min"]:
+                        summary["server_ms_min"] = ms
+                    if summary["server_ms_max"] is None or ms > summary["server_ms_max"]:
+                        summary["server_ms_max"] = ms
+    except (OSError, csv.Error) as e:
+        summary["load_error"] = str(e)
+    return summary
+
+
 def _session_facts(row: dict[str, str]) -> dict[str, Any]:
     """
     Berechnet alle abgeleiteten Fakten für eine Session **einmal**.
@@ -626,9 +693,11 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
     sid = row.get("session_id", "")
     watch_path = DATA_RAW_WATCH / f"{sid}_watch.csv"
     pen_path = DATA_RAW_PEN / f"{sid}_pen.csv"
+    airpods_path = DATA_RAW_AIRPODS / f"{sid}_airpods.csv"
     watch_mtime = int(watch_path.stat().st_mtime_ns) if watch_path.exists() else 0
     pen_mtime = int(pen_path.stat().st_mtime_ns) if pen_path.exists() else 0
-    cache_key = (watch_mtime, pen_mtime, hash(tuple(sorted(row.items()))))
+    airpods_mtime = int(airpods_path.stat().st_mtime_ns) if airpods_path.exists() else 0
+    cache_key = (watch_mtime, pen_mtime, airpods_mtime, hash(tuple(sorted(row.items()))))
     if sid in _facts_cache and _facts_cache[sid][0] == cache_key:
         return _facts_cache[sid][1]
 
@@ -726,6 +795,18 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
 
     sync_estimate = _estimate_sync_drift(watch_rows, pen_rows, intervals)
 
+    # AirPods (lightweight summary; optional stream)
+    airpods_summary = _airpods_summary(sid)
+    session_airpods_samples = _as_int(row.get("airpods_samples")) or 0
+    airpods_count_delta = abs(airpods_summary["row_count"] - session_airpods_samples)
+    airpods_count_tolerance = max(
+        _COUNT_TOL_FLOOR,
+        int(max(airpods_summary["row_count"], session_airpods_samples) * _COUNT_TOL_PCT),
+    )
+    airpods_expected = (
+        int(expected_duration * _TARGET_AIRPODS_HZ) if expected_duration else None
+    )
+
     facts = {
         "session_id": sid,
         "row": row,
@@ -768,6 +849,13 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
             "load_error": pen_err,
             "path": str(pen_path),
             "exists": pen_path.exists(),
+        },
+        "airpods": {
+            **airpods_summary,
+            "session_csv_count": session_airpods_samples,
+            "count_delta": airpods_count_delta,
+            "count_tolerance": airpods_count_tolerance,
+            "expected_samples": airpods_expected,
         },
         "common_overlap_seconds": common_overlap_seconds,
         "sync_estimate": sync_estimate,
@@ -876,6 +964,39 @@ def _build_issues(facts: dict[str, Any]) -> list[dict[str, Any]]:
         out.append(_make_issue(
             "pen_dots_outside_watch_range",
             observed=f"{p['in_range_pct']:.1%}",
+        ))
+
+    # ── AirPods (optional stream) ────────────────────────────────────────────
+    a = facts.get("airpods", {})
+    if a.get("exists") and a.get("row_count") == 0:
+        out.append(_make_issue("no_airpods_samples", observed=0))
+    if a.get("row_count") and a.get("server_time_rows") == 0:
+        out.append(_make_issue(
+            "legacy_airpods_time",
+            observed="0 rows mit server_received_ms",
+        ))
+    a_expected = a.get("expected_samples")
+    if (
+        not is_active
+        and a.get("exists")
+        and a_expected
+        and a.get("row_count", 0) < a_expected * _COVERAGE_PCT_MIN
+    ):
+        pct = a["row_count"] / a_expected if a_expected else 0
+        out.append(_make_issue(
+            "low_airpods_coverage",
+            observed=f"{a['row_count']} von ~{a_expected} erwartet ({pct:.0%})",
+        ))
+    if (
+        not is_active
+        and a.get("exists")
+        and a.get("row_count") != a.get("session_csv_count")
+        and a.get("count_delta", 0) > a.get("count_tolerance", 0)
+    ):
+        out.append(_make_issue(
+            "airpods_count_mismatch",
+            observed=f"delta={a['count_delta']} (csv={a['row_count']}, sessions.csv={a['session_csv_count']})",
+            threshold=f"|delta| ≤ {a['count_tolerance']}",
         ))
 
     # Stale-File-Detector: Daten-Range außerhalb des Session-Fensters
