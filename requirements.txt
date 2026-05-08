@@ -8,3 +8,4 @@ bleak
 fastapi
 uvicorn
 websockets
+pytest

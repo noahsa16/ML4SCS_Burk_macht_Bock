@@ -631,6 +631,31 @@ function handleStatus(s) {
   setNumberSmooth('watchGyroSide', lastWatch.gyro_mag, { format: _smoothFmt.decimal3 });
   document.getElementById('watchLastTs').textContent = s.watch_last_seen_ms_ago != null ? fmtAgo(s.watch_last_seen_ms_ago) : '–';
 
+  // AirPods (head motion) — tri-state: Streaming > Paired > Offline.
+  // "paired" comes from the iPhone bridge (CMHeadphoneMotionManagerDelegate),
+  // so the dashboard can show "AirPods on, idle" before any sample arrives.
+  const airpodsRate = Number(s.airpods_rate_hz || 0);
+  const lastAirpods = s.airpods_last_sample || {};
+  const airpodsStreaming = !!s.airpods_connected;
+  const airpodsPaired = s.airpods_paired === true;
+  const airpodsListening = s.airpods_streaming === true;
+  let airpodsBadgeText, airpodsBadgeClass, airpodsUiOnline;
+  if (airpodsStreaming) {
+    airpodsBadgeText = 'Streaming'; airpodsBadgeClass = 'badge-ok'; airpodsUiOnline = true;
+  } else if (airpodsPaired) {
+    airpodsBadgeText = airpodsListening ? 'Paired · listening' : 'Paired · idle';
+    airpodsBadgeClass = 'badge-warn'; airpodsUiOnline = true;
+  } else if (airpodsListening) {
+    airpodsBadgeText = 'Waiting for AirPods'; airpodsBadgeClass = 'badge-warn'; airpodsUiOnline = false;
+  } else {
+    airpodsBadgeText = 'Offline'; airpodsBadgeClass = 'badge-err'; airpodsUiOnline = false;
+  }
+  setBadge('airpodsBadge', airpodsUiOnline, airpodsBadgeText, airpodsBadgeClass);
+  setNumberSmooth('airpodsRateSide', airpodsRate, { format: _smoothFmt.hz });
+  setNumberSmooth('airpodsAccSide', lastAirpods.acc_mag, { format: _smoothFmt.decimal3 });
+  document.getElementById('airpodsLastTs').textContent =
+    s.airpods_last_seen_ms_ago != null ? fmtAgo(s.airpods_last_seen_ms_ago) : '–';
+
   // Health metrics
   setHealth('watchHz', fmtHz(watchRate), watchRate > 80 ? 'ok' : (watchRate > 0 ? 'warn' : 'err'));
   setHealth('penHz', fmtHz(penRate), penRate > 0 ? 'ok' : (s.pen_connected ? 'warn' : 'err'));
@@ -865,6 +890,10 @@ async function watchCmd(cmd) {
   await api(`/watch/${cmd}`, 'POST');
   toast(`Watch command: ${cmd}`);
 }
+async function airpodsCmd(cmd) {
+  await api(`/airpods/${cmd}`, 'POST');
+  toast(`AirPods command: ${cmd}`);
+}
 
 // ════════════════════════════════════════════════════════════
 //  SESSIONS TABLE
@@ -911,7 +940,7 @@ function filterSessions() {
 function renderSessions(rows) {
   const tbody = document.getElementById('sessionsBody');
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="13">
+    tbody.innerHTML = `<tr><td colspan="14">
       <div class="empty-state">
         <div class="empty-state-glyph">/</div>
         <div class="empty-state-title">No recordings yet</div>
@@ -955,6 +984,7 @@ function renderSessions(rows) {
       <td class="mono">${dur}</td>
       <td class="mono">${Number(s.watch_samples || 0).toLocaleString()}</td>
       <td class="mono">${Number(s.pen_samples || 0).toLocaleString()}</td>
+      <td class="mono">${Number(s.airpods_samples || 0).toLocaleString()}</td>
       <td class="mono">${watch.estimated_hz ? fmtHz(watch.estimated_hz) : '–'}</td>
       <td class="mono" title="${esc(signalText)}">${esc(signalText)}</td>
       <td title="${escAttr(scoreTooltip(ml))}">${scoreBadge(ml)}</td>

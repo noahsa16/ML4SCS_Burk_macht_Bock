@@ -66,6 +66,28 @@ class SessionState:
             "at": None,
             "detail": "No command sent yet",
         }
+        # AirPods (head-motion via CMHeadphoneMotionManager) — mirror of watch_*
+        self.airpods_sample_count: int = 0
+        self.airpods_total_sample_count: int = 0
+        self.last_airpods_time: float = 0.0
+        self.last_airpods_sample: Optional[dict[str, Any]] = None
+        self.last_airpods_packet: Optional[dict[str, Any]] = None
+        self.airpods_config_rate_hz: Optional[float] = None
+        self.airpods_batch_rate_hz: Optional[float] = None
+        self.airpods_rate_hz: float = 0.0
+        self.airpods_sequence_last: Optional[int] = None
+        self.airpods_sequence_gaps: int = 0
+        self.airpods_phone_latency_ms: Optional[int] = None
+        self.airpods_server_latency_ms: Optional[int] = None
+        self.airpods_clock_skew_ms: Optional[int] = None
+        self.last_airpods_rate_check: float = time.time()
+        self.last_airpods_count_for_rate: int = 0
+        self.airpods_command: dict[str, Any] = {
+            "command": None,
+            "ok": None,
+            "at": None,
+            "detail": "No command sent yet",
+        }
 
     def reset_for_session(self) -> None:
         """Zero out all per-session counters and buffers. Call before setting state.active."""
@@ -82,6 +104,14 @@ class SessionState:
         self.watch_clock_skew_ms = None
         self.last_pen_dot = None
         self.last_pen_log_key = None
+        self.airpods_sample_count = 0
+        self.last_airpods_sample = None
+        self.last_airpods_packet = None
+        self.airpods_sequence_last = None
+        self.airpods_sequence_gaps = 0
+        self.airpods_phone_latency_ms = None
+        self.airpods_server_latency_ms = None
+        self.airpods_clock_skew_ms = None
         self.sample_log.clear()
 
     def append_event(self, source: str, level: str, message: str, data: Optional[dict] = None) -> None:
