@@ -160,10 +160,22 @@ no longer vibrates continuously when the server is down.
 
 - `src/preprocessing/preprocessing.py` — `prepare_pen_data()`,
   `prepare_watch_data()`, `merge_pen_watch()` (pandas `merge_asof`,
-  ±20 ms nearest-neighbour, on device-relative ms).
+  ±20 ms nearest-neighbour, on device-relative ms, with stroke-variance
+  δ pre-shift applied to `pen.local_ts_ms`).
+- `src/preprocessing/pen_match.py` — `pen_match()`, `match_pen_data()`,
+  `strokes_from_dot_types()`, `reconstruct_watch_wall_clock()`. Recovers
+  the per-session pen↔watch clock offset δ via stroke-window variance
+  minimization (TH Zürich algorithm, see *Sample-level merge alignment*
+  below). Replaces the planned tap-sync recording protocol.
 - `src/training/train.py` — orchestrates load → merge → save; ML model
   is a TODO.
 - `src/evaluation/evaluate.py` — currently prints label distribution.
+
+The merge skips the δ shift when the alignment confidence is weak
+(`sigma_minimal_variance > -2`); the quality engine surfaces this as
+`low_sync_confidence` (warn) and `sync_failed` (bad). Older pen logs
+without `local_ts_ms` cannot be aligned and are flagged as
+`legacy_pen_time`.
 
 ## Data Schemas
 
@@ -226,12 +238,21 @@ If reconfigured, `_TARGET_WATCH_HZ` in `quality.py` is the single
 place to update.
 
 **Sample-level merge alignment:** pen and watch device clocks do not
-share an epoch. Session-level overlap uses wall-clock `local_ts_ms`,
-with the limitation that watch packets arrive ~100–300 ms later than
-pen dots due to BLE/WC batching. A proper sample-level merge needs a
-per-session sync offset — `_estimate_sync_drift` is implemented but
-the recording protocol (3× tap on the pen with the watch hand at
-session start) is still TODO.
+share an epoch (typical Moleskine pen offset: ~922 days plus an
+arbitrary time-of-day shift). Session-level overlap uses wall-clock
+`local_ts_ms`. For sample-level merging the per-session offset δ is
+recovered automatically by the **stroke-variance alignment** in
+`src/preprocessing/pen_match.py` — a port of the TH Zürich algorithm
+(see `data/02_Pen_IMU_Timestamp_Alignment.pdf`). Physical assumption:
+while the pen is on paper, the wrist holding the watch is comparatively
+still, so the correct δ minimizes the mean watch-acceleration variance
+under the shifted stroke mask. The search runs coarse (±20 s @ 0.5 s)
+then fine (±5 s @ 10 ms); confidence is reported as
+`sigma_minimal_variance` (z-score of the minimum vs the search-grid
+distribution — more negative = stronger). `merge_pen_watch()` applies
+δ to `pen.local_ts_ms` before the `merge_asof` join and skips the
+shift when `sigma > -2`. This replaced the planned tap-sync recording
+protocol — no special user action at session start is required.
 
 ## Testing
 

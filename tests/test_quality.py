@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from tests.conftest import write_pen_csv, write_watch_csv
+from tests.conftest import write_airpods_csv, write_pen_csv, write_watch_csv
 
 
 def _iso(ts_ms: int) -> str:
@@ -162,3 +162,224 @@ def test_count_mismatch_when_sessions_csv_lies(data_dirs):
 
     codes = _issue_codes(_session_facts(row))
     assert "watch_count_mismatch" in codes
+
+
+def _airpods_row(ts_ms: int, sid: str = "S001", with_server_time: bool = True) -> dict:
+    base = {
+        "local_ts": _iso(ts_ms),
+        "local_ts_ms": ts_ms,
+        "session_id": sid,
+        "sequence": 1,
+        "sample_rate_hz": 25.0,
+        "airpods_sent_at": ts_ms,
+        "phone_received_at": ts_ms,
+        "source": "airpods",
+        "ts": ts_ms - 50,
+        "ax": 0.01, "ay": 0.0, "az": 0.0,
+        "rx": 0.0,  "ry": 0.0, "rz": 0.0,
+        "qw": 1.0,  "qx": 0.0, "qy": 0.0, "qz": 0.0,
+        "gx": 0.0,  "gy": 0.0, "gz": -9.81,
+    }
+    if with_server_time:
+        base["server_received_ms"] = ts_ms
+    return base
+
+
+def test_airpods_absent_does_not_block(data_dirs):
+    """No AirPods CSV at all = optional stream skipped, no issues raised."""
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    watch_rows = [_watch_row(start_ms + i * 20) for i in range(1500)]
+    pen_rows = [_pen_row(start_ms + i * 25) for i in range(1200)]
+    write_watch_csv(data_dirs.watch / "S010_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S010_pen.csv", pen_rows)
+    row = _session_row("S010", start_ms, start_ms + 30_000,
+                       pen_samples=len(pen_rows), watch_samples=len(watch_rows))
+
+    codes = _issue_codes(_session_facts(row))
+    assert "no_airpods_samples" not in codes
+    assert "low_airpods_coverage" not in codes
+    assert "legacy_airpods_time" not in codes
+
+
+def test_low_airpods_coverage_fires(data_dirs):
+    """30 s session at 25 Hz expects ~750 samples; we write only 100."""
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    end_ms = start_ms + 30_000
+    watch_rows = [_watch_row(start_ms + i * 20) for i in range(1500)]
+    pen_rows = [_pen_row(start_ms + i * 25) for i in range(1200)]
+    airpods_rows = [_airpods_row(start_ms + i * 40) for i in range(100)]
+
+    write_watch_csv(data_dirs.watch / "S011_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S011_pen.csv", pen_rows)
+    write_airpods_csv(data_dirs.airpods / "S011_airpods.csv", airpods_rows)
+    row = {**_session_row("S011", start_ms, end_ms,
+                          pen_samples=len(pen_rows), watch_samples=len(watch_rows)),
+           "airpods_samples": len(airpods_rows)}
+
+    codes = _issue_codes(_session_facts(row))
+    assert "low_airpods_coverage" in codes
+
+
+def test_legacy_airpods_time_fires(data_dirs):
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    end_ms = start_ms + 30_000
+    watch_rows = [_watch_row(start_ms + i * 20) for i in range(1500)]
+    pen_rows = [_pen_row(start_ms + i * 25) for i in range(1200)]
+    airpods_rows = [_airpods_row(start_ms + i * 40, with_server_time=False)
+                    for i in range(750)]
+
+    write_watch_csv(data_dirs.watch / "S012_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S012_pen.csv", pen_rows)
+    write_airpods_csv(data_dirs.airpods / "S012_airpods.csv", airpods_rows)
+    row = {**_session_row("S012", start_ms, end_ms,
+                          pen_samples=len(pen_rows), watch_samples=len(watch_rows)),
+           "airpods_samples": len(airpods_rows)}
+
+    codes = _issue_codes(_session_facts(row))
+    assert "legacy_airpods_time" in codes
+
+
+# ── Pen↔IMU sync (variance minimization) ────────────────────────────────────
+
+def _make_sync_session(
+    data_dirs,
+    sid: str,
+    *,
+    still_windows_sec: list[tuple[float, float]] | None,
+    pen_clock_offset_sec: float,
+    seed: int,
+):
+    """Helper: synthesize a session whose IMU has known still windows and
+    pen strokes that fall on those windows (shifted by ``pen_clock_offset_sec``).
+    Reused by the high/low/no-confidence sync tests."""
+    import numpy as np
+    rng = np.random.default_rng(seed)
+    start_ms = 1_700_000_000_000
+    duration_sec = 60.0
+    fs = 50.0
+    n_watch = int(duration_sec * fs)
+    watch_rows = []
+    for i in range(n_watch):
+        ts_ms = start_ms + int(i * 1000 / fs)
+        # High-noise baseline; flatten in still windows.
+        sigma = 0.5
+        if still_windows_sec:
+            for s, e in still_windows_sec:
+                if s * fs <= i <= e * fs:
+                    sigma = 0.02
+                    break
+        ax = float(rng.normal(0.0, sigma))
+        ay = float(rng.normal(0.0, sigma))
+        az = float(9.81 + rng.normal(0.0, sigma))
+        watch_rows.append({**_watch_row(ts_ms, sid=sid, seq=i // 25),
+                           "ax": ax, "ay": ay, "az": az})
+    write_watch_csv(data_dirs.watch / f"{sid}_watch.csv", watch_rows)
+
+    # Pen strokes — three PEN_DOWN/MOVE/UP sequences. If still_windows_sec
+    # is given, strokes land on those windows; otherwise they're sprinkled
+    # at arbitrary fixed times so the algorithm has something to chew on
+    # (but won't find a clean well in uniform-noise IMU).
+    stroke_specs = still_windows_sec or [(10.0, 12.0), (25.0, 27.0), (40.0, 42.0)]
+    pen_rows = []
+    for s, e in stroke_specs:
+        stroke_start_ms = start_ms + int(s * 1000) + int(pen_clock_offset_sec * 1000)
+        stroke_end_ms = start_ms + int(e * 1000) + int(pen_clock_offset_sec * 1000)
+        n_dots = max(2, int((e - s) * 80))  # ~80 Hz pen
+        for j in range(n_dots):
+            ts_ms = stroke_start_ms + int((stroke_end_ms - stroke_start_ms) * j / (n_dots - 1))
+            if j == 0:
+                dt = "PEN_DOWN"
+            elif j == n_dots - 1:
+                dt = "PEN_UP"
+            else:
+                dt = "PEN_MOVE"
+            pen_rows.append(_pen_row(ts_ms, dot_type=dt, x=10.0 + j, y=20.0))
+    write_pen_csv(data_dirs.pen / f"{sid}_pen.csv", pen_rows)
+    return _session_row(sid, start_ms, start_ms + int(duration_sec * 1000),
+                        pen_samples=len(pen_rows), watch_samples=len(watch_rows))
+
+
+def test_sync_high_confidence_does_not_fire_issues(data_dirs):
+    """Clean still-window setup → strong well, no sync issues."""
+    from src.server.quality import _session_facts
+
+    row = _make_sync_session(
+        data_dirs, "S020",
+        still_windows_sec=[(10.0, 12.0), (25.0, 27.0), (40.0, 42.0)],
+        pen_clock_offset_sec=0.0,
+        seed=11,
+    )
+    facts = _session_facts(row)
+    sync = facts["sync_estimate"]
+    assert sync["method"] == "stroke_variance_minimization"
+    assert sync["confidence"] == "high", f"got {sync}"
+    codes = _issue_codes(facts)
+    assert "low_sync_confidence" not in codes
+    assert "sync_failed" not in codes
+
+
+def test_sync_diagnostic_shape(data_dirs):
+    """Verify sync_estimate has the new 'stroke_variance_minimization'
+    method tag and exposes the diagnostic fields downstream consumers
+    rely on (delta_ms, sigma, confidence)."""
+    from src.server.quality import _session_facts, _sync_diagnostic
+
+    row = _make_sync_session(
+        data_dirs, "S022",
+        still_windows_sec=[(10.0, 12.0), (25.0, 27.0), (40.0, 42.0)],
+        pen_clock_offset_sec=2.5,
+        seed=33,
+    )
+    facts = _session_facts(row)
+    sync = facts["sync_estimate"]
+    assert sync["method"] == "stroke_variance_minimization"
+    assert "delta_sec" in sync
+    assert "delta_ms" in sync
+    assert "sigma_minimal_variance" in sync
+    assert "n_strokes" in sync
+    diag = _sync_diagnostic(sync)
+    assert diag["status"] in {"aligned", "weak_signal", "no_alignment"}
+    assert diag["label"]
+    assert diag["message"]
+
+
+def test_low_sync_confidence_fires_when_sigma_borderline(data_dirs, monkeypatch):
+    """Inject a borderline sigma into _session_facts and assert the issue
+    fires. This isolates the issue logic from algorithmic randomness."""
+    from src.server.quality import _build_issues
+
+    # Build a minimal facts dict that triggers only the sync check.
+    facts = {
+        "watch": {"row_count": 100, "exists": True, "load_error": None,
+                  "ts_values": [1, 2], "gyro_rows": 100, "accel_rows": 100,
+                  "estimated_hz": 50.0, "sequence_gaps": 0,
+                  "session_csv_count": 100, "count_delta": 0, "count_tolerance": 20,
+                  "server_time_rows": 100, "expected_samples": 100, "clock": {}},
+        "pen": {"row_count": 100, "exists": True, "load_error": None,
+                "ts_values": [1, 2], "session_csv_count": 100, "count_delta": 0,
+                "count_tolerance": 20, "server_time_rows": 100,
+                "timestamp_years": [], "in_range_pct": 1.0, "clock": {}},
+        "airpods": {"exists": False, "row_count": 0},
+        "is_active": False, "start_year": 2026,
+        "session_start_ms": None, "session_end_ms": None,
+        "sync_estimate": {
+            "method": "stroke_variance_minimization",
+            "sigma_minimal_variance": -1.5,  # borderline: > -2 → warn
+            "delta_ms": -3000.0,
+        },
+    }
+    codes = {i["code"] for i in _build_issues(facts)}
+    assert "low_sync_confidence" in codes
+    assert "sync_failed" not in codes
+
+    # Now push sigma above the weak threshold → should escalate to bad.
+    facts["sync_estimate"]["sigma_minimal_variance"] = -0.3
+    codes = {i["code"] for i in _build_issues(facts)}
+    assert "sync_failed" in codes
+    assert "low_sync_confidence" not in codes
