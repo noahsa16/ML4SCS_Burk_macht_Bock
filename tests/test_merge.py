@@ -4,7 +4,7 @@ from tests.conftest import write_pen_csv, write_watch_csv
 
 
 def test_merge_aligns_within_tolerance(data_dirs):
-    from src.preprocessing.preprocessing import merge_pen_watch
+    from src.merge import merge_pen_watch
 
     # Pen and watch share local_ts_ms (so anchor lines them up at device-time 0).
     base = 1_700_000_000_000
@@ -43,7 +43,7 @@ def test_merge_aligns_within_tolerance(data_dirs):
 
 def test_label_writing_mapping(data_dirs):
     """PEN_DOWN/PEN_MOVE → 1, everything else → 0."""
-    from src.preprocessing.preprocessing import prepare_pen_data
+    from src.merge import prepare_pen_data
 
     base = 1_700_000_000_000
     rows = [
@@ -73,7 +73,7 @@ def test_label_writing_mapping(data_dirs):
 
 def test_filters_invalid_xy(data_dirs):
     """Pen events at x=-1, y=-1 are framing, not real positions — must be dropped."""
-    from src.preprocessing.preprocessing import prepare_pen_data
+    from src.merge import prepare_pen_data
 
     base = 1_700_000_000_000
     rows = [

@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.preprocessing.pen_match import (
+from src.alignment import (
     DEFAULT_PARAMS,
     match_pen_data,
     pen_match,
