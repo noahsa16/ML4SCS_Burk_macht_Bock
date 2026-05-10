@@ -1,4 +1,13 @@
-"""Modell-Training."""
+"""CLI: Session finden, mergen, als CSV speichern.
+
+Aufruf::
+
+    python -m src.merge              # neueste Session
+    python -m src.merge S025         # spezifische Session
+    python -m src.merge S025 --out custom.csv
+
+Standard-Output: ``data/processed/merged_dataset.csv``.
+"""
 
 from __future__ import annotations
 
@@ -8,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.preprocessing import merge_pen_watch
+from .merge import merge_pen_watch
 
 DATA_RAW  = Path(__file__).parents[2] / "data" / "raw"
 DATA_PROC = Path(__file__).parents[2] / "data" / "processed"
@@ -36,7 +45,7 @@ def _resolve_session(session: str | None) -> tuple[str, Path, Path]:
     return sid, pairs[sid]["pen"], pairs[sid]["watch"]
 
 
-def train(pen_csv: Path, watch_csv: Path, out: Path | None = None) -> pd.DataFrame:
+def run(pen_csv: Path, watch_csv: Path, out: Path | None = None) -> pd.DataFrame:
     df = merge_pen_watch(pen_csv, watch_csv)
     delta = df.attrs.get("pen_clock_offset_sec", 0.0)
     sigma = df.attrs.get("pen_clock_sigma", float("nan"))
@@ -48,11 +57,15 @@ def train(pen_csv: Path, watch_csv: Path, out: Path | None = None) -> pd.DataFra
     return df
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+def main() -> None:
+    parser = argparse.ArgumentParser(prog="python -m src.merge")
     parser.add_argument("session", nargs="?", help="z. B. S027 — default: neueste Session")
     parser.add_argument("--out", type=Path, help="Ausgabepfad (default: data/processed/merged_dataset.csv)")
     args = parser.parse_args()
     sid, pen, watch = _resolve_session(args.session)
     print(f"Session {sid}: {pen.name} + {watch.name}")
-    train(pen, watch, args.out)
+    run(pen, watch, args.out)
+
+
+if __name__ == "__main__":
+    main()

@@ -113,13 +113,13 @@ def _estimate_sync_via_pen_match(session_id: str) -> dict[str, Any]:
     """Variance-minimization pen↔IMU sync (Swiss TH-Zürich algorithm).
 
     Loads the raw watch and pen CSVs for ``session_id`` and runs
-    :func:`src.preprocessing.pen_match.match_pen_data`. Returns a dict
+    :func:`src.alignment.match_pen_data`. Returns a dict
     with the same broad shape as the legacy tap-matching result so all
     existing consumers (``_sync_diagnostic``, reports, frontend) keep
     working unchanged.
     """
     import pandas as pd
-    from src.preprocessing.pen_match import (
+    from src.alignment import (
         match_pen_data, reconstruct_watch_wall_clock, strokes_from_dot_types,
     )
 
