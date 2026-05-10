@@ -15,12 +15,13 @@ env/
 
 # Mac / OS
 .DS_Store
+**/.DS_Store
 
 # Build artifacts
 build/
 
-# Data / outputs
-data/processed/*.csv
+# Data / outputs — regenerierbar (python -m src.merge, plot_alignment.py …)
+data/processed/
 results/plots/*.png
 results/plots/*.jpg
 results/metrics/*.csv
