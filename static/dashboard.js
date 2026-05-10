@@ -22,6 +22,8 @@ const S = {
   qualityBySession: {},
   qualitySummary: null,
   validationBySession: {},
+  alignmentBySession: {},
+  alignmentCharts: { variance: null, timeline: null },
   selectedSessionId: null,
   penDotBuffer: [],   // {x, y, t, ts} — last ~500 pen dots for canvas
   penBounds: null,    // {minX, maxX, minY, maxY} — auto-scale bounds
@@ -939,6 +941,12 @@ function filterSessions() {
 
 function renderSessions(rows) {
   const tbody = document.getElementById('sessionsBody');
+  // Detach the validation panel before we wipe tbody.innerHTML — otherwise
+  // it gets destroyed together with the detail-row that hosts it.
+  const panel = document.getElementById('sessionValidationPanel');
+  if (panel && panel.parentElement && panel.parentElement.classList.contains('session-detail-mount')) {
+    document.getElementById('page-sessions').appendChild(panel);
+  }
   if (!rows.length) {
     tbody.innerHTML = `<tr><td colspan="14">
       <div class="empty-state">
@@ -977,7 +985,7 @@ function renderSessions(rows) {
          <div class="session-caption">${esc(s.session_id)}</div>`
       : `<div class="session-person anonymous">Anonymous</div>
          <div class="session-caption">${esc(s.session_id)}</div>`;
-    return `<tr class="click-row${activeRow}" onclick="selectSession('${escAttr(s.session_id)}')">
+    const rowHtml = `<tr class="click-row${activeRow}" onclick="selectSession('${escAttr(s.session_id)}')">
       <td class="session-cell">${personCell}</td>
       <td title="${escAttr(s.description || '')}">${esc(s.description || '–')}</td>
       <td class="mono" style="font-size:11px;color:var(--text2)">${startFmt}</td>
@@ -993,7 +1001,26 @@ function renderSessions(rows) {
       <td><span class="status-badge ${statusCls}">${esc(s.status || 'completed')}</span></td>
       <td><a class="export-link" href="/sessions/${encodeURIComponent(s.session_id)}/report?format=md" onclick="event.stopPropagation()" title="Download Markdown report">⤓ md</a></td>
     </tr>`;
+    const detailHtml = activeRow
+      ? `<tr class="detail-row" data-detail-for="${escAttr(s.session_id)}"><td colspan="14"><div class="session-detail-mount" id="sessionDetailMount"></div></td></tr>`
+      : '';
+    return rowHtml + detailHtml;
   }).join('');
+
+  _mountValidationPanel();
+}
+
+function _mountValidationPanel() {
+  const panel = document.getElementById('sessionValidationPanel');
+  if (!panel) return;
+  const mount = document.getElementById('sessionDetailMount');
+  if (mount) {
+    if (panel.parentElement !== mount) mount.appendChild(panel);
+  } else if (panel.parentElement && panel.parentElement.classList.contains('session-detail-mount')) {
+    // No row selected — return panel to its original home so it stays in the DOM tree.
+    document.getElementById('page-sessions').appendChild(panel);
+    panel.classList.remove('active');
+  }
 }
 
 function renderQualitySummary() {
@@ -1009,6 +1036,384 @@ function selectSession(sessionId) {
   S.selectedSessionId = sessionId;
   renderSessions(S.allSessions);
   loadValidationIfNeeded(sessionId);
+  loadAlignmentIfNeeded(sessionId);
+}
+
+async function loadAlignmentIfNeeded(sessionId) {
+  if (S.alignmentBySession[sessionId]) {
+    renderAlignment(sessionId);
+    return;
+  }
+  renderAlignment(sessionId); // show loading state
+  const a = await api(`/sessions/${encodeURIComponent(sessionId)}/alignment`, 'GET');
+  if (a) S.alignmentBySession[sessionId] = a;
+  if (S.selectedSessionId === sessionId) renderAlignment(sessionId);
+}
+
+function _alignFmtDelta(d) {
+  if (d == null || !isFinite(d)) return '–';
+  const ms = d * 1000;
+  if (Math.abs(ms) < 1) return '0 ms';
+  if (Math.abs(d) < 1) return `${ms.toFixed(0)} ms`;
+  return `${d.toFixed(2)} s`;
+}
+
+function renderAlignment(sessionId) {
+  const section = document.getElementById('alignmentSection');
+  const empty = document.getElementById('alignmentEmpty');
+  const status = document.getElementById('alignmentStatus');
+  const explainer = document.getElementById('alignmentExplainer');
+  if (!section) return;
+  section.style.display = 'block';
+
+  const a = S.alignmentBySession[sessionId];
+
+  // Loading or unavailable
+  if (!a) {
+    status.textContent = 'Loading…';
+    status.className = 'alignment-status';
+    empty.style.display = 'none';
+    return;
+  }
+  if (a.available === false || a.error) {
+    status.textContent = 'unavailable';
+    status.className = 'alignment-status err';
+    empty.style.display = 'block';
+    document.getElementById('alignDelta').textContent = '–';
+    document.getElementById('alignSigma').textContent = '–';
+    document.getElementById('alignStrokes').textContent = '–';
+    document.getElementById('alignFactor').textContent = '–';
+    _destroyAlignCharts();
+    return;
+  }
+  empty.style.display = 'none';
+
+  if (a.applied) {
+    status.textContent = 'angewandt';
+    status.className = 'alignment-status ok';
+  } else {
+    status.textContent = 'verworfen (σ > −2)';
+    status.className = 'alignment-status skip';
+  }
+
+  document.getElementById('alignDelta').textContent = _alignFmtDelta(a.delta_sec);
+  document.getElementById('alignSigma').textContent =
+    a.sigma == null ? '–' : a.sigma.toFixed(2);
+  document.getElementById('alignStrokes').textContent =
+    a.n_strokes != null ? a.n_strokes.toLocaleString() : '–';
+  document.getElementById('alignFactor').textContent =
+    a.improvement_factor != null ? `${a.improvement_factor.toFixed(1)}×` : '–';
+
+  // Plain-language explainer
+  const factorTxt = a.improvement_factor != null
+    ? `Während der Pen-Striche ist die Hand <strong>${a.improvement_factor.toFixed(1)}× ruhiger</strong> als im Mittel über alle möglichen δ.`
+    : '';
+  let verdict = '';
+  if (a.applied) {
+    verdict = ` Confidence σ = <strong>${a.sigma.toFixed(2)}</strong> (Schwelle ≤ −2 für "anwenden") → der Shift von <strong>${_alignFmtDelta(a.delta_sec)}</strong> wird auf die Pen-Zeitstempel angewandt, bevor gemerged wird.`;
+  } else if (a.sigma != null) {
+    verdict = ` Confidence σ = <strong>${a.sigma.toFixed(2)}</strong> ist über der Schwelle (≤ −2) — die Suchkurve ist zu flach, also wird kein Shift angewandt und der Merge läuft auf den Roh-Zeitstempeln.`;
+  }
+  explainer.innerHTML =
+    `Beim Schreiben hält die schreibende Hand die Uhr ruhig — Pausen und Gesten erzeugen mehr Bewegung. ` +
+    `Der Algorithmus probiert verschiedene Zeitverschiebungen δ aus und wählt die, bei der die Pen-Striche auf die ruhigsten Phasen fallen. ` +
+    factorTxt + verdict;
+
+  _drawAlignVarianceCurve(a);
+  _drawAlignTimeline(a);
+}
+
+function _destroyAlignCharts() {
+  if (S.alignmentCharts.variance) { S.alignmentCharts.variance.destroy(); S.alignmentCharts.variance = null; }
+  if (S.alignmentCharts.timeline) { S.alignmentCharts.timeline.destroy(); S.alignmentCharts.timeline = null; }
+}
+
+function _drawAlignVarianceCurve(a) {
+  const ctx = document.getElementById('alignVarCanvas');
+  if (!ctx || !window.Chart) return;
+  if (S.alignmentCharts.variance) { S.alignmentCharts.variance.destroy(); S.alignmentCharts.variance = null; }
+  const points = (a.variance_curve || []).filter(p => p.v != null).map(p => ({ x: p.d, y: p.v }));
+  if (!points.length) return;
+  const minPt = points.reduce((best, p) => (best == null || p.y < best.y) ? p : best, null);
+  const ys = points.map(p => p.y);
+  const yMin = Math.min(...ys);
+  const yMax = Math.max(...ys);
+  const yPad = (yMax - yMin) * 0.12 || 0.01;
+
+  const mean = a.mean_variance;
+  const min  = a.min_variance;
+  // Acceptance threshold mapped to variance scale: σ ≤ -2 means
+  // variance ≤ mean + threshold*std. Reconstruct std from σ at the min:
+  // σ = (min - mean) / std  ⇒  std = (min - mean) / σ
+  let acceptVar = null;
+  if (a.sigma != null && a.sigma !== 0 && mean != null && min != null) {
+    const std = (min - mean) / a.sigma;
+    if (isFinite(std) && std > 0) acceptVar = mean + a.sigma_threshold * std;
+  }
+
+  const css = getComputedStyle(document.documentElement);
+  const accent = css.getPropertyValue('--accent').trim() || '#c79a3a';
+  const text2  = css.getPropertyValue('--text2').trim() || '#555';
+  const text3  = css.getPropertyValue('--text3').trim() || '#888';
+  const border = css.getPropertyValue('--border').trim() || '#ddd';
+  const okGreen = '#2c8a47';
+  const skipAmber = '#c98c1a';
+  const minColor = a.applied ? okGreen : skipAmber;
+
+  // Annotation lines drawn via a custom plugin (no chartjs-plugin-annotation needed).
+  const overlayPlugin = {
+    id: 'alignVarOverlay',
+    afterDatasetsDraw(chart) {
+      const { ctx, chartArea: ca, scales: { x, y } } = chart;
+      ctx.save();
+      // Mean reference (dashed grey)
+      if (mean != null && mean >= y.min && mean <= y.max) {
+        const yp = y.getPixelForValue(mean);
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = text3;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(ca.left, yp); ctx.lineTo(ca.right, yp); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = text3;
+        ctx.font = '10px system-ui, sans-serif';
+        ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
+        ctx.fillText('Ø Varianz', ca.right - 4, yp - 2);
+      }
+      // Acceptance threshold (dashed red)
+      if (acceptVar != null && acceptVar >= y.min && acceptVar <= y.max) {
+        const yp = y.getPixelForValue(acceptVar);
+        ctx.setLineDash([2, 4]);
+        ctx.strokeStyle = '#c54a4a';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(ca.left, yp); ctx.lineTo(ca.right, yp); ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#c54a4a';
+        ctx.font = '10px system-ui, sans-serif';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText('Akzeptanz σ ≤ −2', ca.left + 4, yp + 2);
+      }
+      // Vertical guide at min δ
+      if (minPt) {
+        const xp = x.getPixelForValue(minPt.x);
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = minColor;
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(xp, ca.top); ctx.lineTo(xp, ca.bottom); ctx.stroke();
+        ctx.setLineDash([]);
+        // Min point dot
+        const yp = y.getPixelForValue(minPt.y);
+        ctx.fillStyle = minColor;
+        ctx.beginPath(); ctx.arc(xp, yp, 5, 0, Math.PI * 2); ctx.fill();
+        // Label
+        ctx.font = '11px system-ui, sans-serif';
+        const label = `δ = ${_alignFmtDelta(minPt.x)}` + (a.sigma != null ? `   σ = ${a.sigma.toFixed(2)}` : '');
+        const tw = ctx.measureText(label).width + 10;
+        const lx = Math.min(xp + 8, ca.right - tw - 4);
+        const ly = Math.max(yp - 22, ca.top + 4);
+        ctx.fillStyle = minColor;
+        ctx.globalAlpha = 0.92;
+        _roundRect(ctx, lx, ly, tw, 18, 4); ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = '#fff';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        ctx.fillText(label, lx + 5, ly + 9);
+      }
+      ctx.restore();
+    },
+  };
+
+  S.alignmentCharts.variance = new Chart(ctx, {
+    type: 'line',
+    data: {
+      datasets: [
+        {
+          label: 'Mittlere Varianz unter Stroke-Maske',
+          data: points,
+          borderColor: accent,
+          backgroundColor: accent + '26',
+          borderWidth: 1.6,
+          pointRadius: 0,
+          tension: 0.25,
+          fill: true,
+        },
+      ],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'nearest', intersect: false },
+      scales: {
+        x: { type: 'linear', title: { display: true, text: 'Zeitverschiebung δ (Sekunden)', color: text2, font: { size: 11 } },
+             ticks: { color: text3, font: { size: 10 }, maxTicksLimit: 9 },
+             grid: { color: border + '40' } },
+        y: { title: { display: true, text: 'Bewegung während Strichen', color: text2, font: { size: 11 } },
+             ticks: { color: text3, font: { size: 10 }, maxTicksLimit: 5 },
+             grid: { color: border + '40' },
+             min: yMin - yPad, suggestedMax: yMax + yPad },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: ([it]) => `δ = ${it.parsed.x.toFixed(3)} s`,
+            label: (it) => `Varianz: ${it.parsed.y.toFixed(4)}`,
+          },
+        },
+      },
+    },
+    plugins: [overlayPlugin],
+  });
+}
+
+function _roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function _drawAlignTimeline(a) {
+  const ctx = document.getElementById('alignTimelineCanvas');
+  if (!ctx || !window.Chart) return;
+  if (S.alignmentCharts.timeline) { S.alignmentCharts.timeline.destroy(); S.alignmentCharts.timeline = null; }
+  const tl = a.timeline || {};
+  const xs = tl.watch_var_t || [];
+  const ys = tl.watch_var_y || [];
+  const rawPoints = xs.map((x, i) => ({ x, y: ys[i] })).filter(p => p.y != null);
+  if (!rawPoints.length) return;
+  const delta = tl.delta_sec_applied || 0;
+  const strokes = tl.strokes_raw || [];
+
+  // Normalize motion intensity to 0..1 so the rails (top/bottom) and the
+  // motion line use a stable shared y-axis regardless of unit.
+  const yVals = rawPoints.map(p => p.y);
+  const yLo = Math.min(...yVals);
+  const yHi = Math.max(...yVals);
+  const yRange = yHi - yLo || 1;
+  const points = rawPoints.map(p => ({ x: p.x, y: (p.y - yLo) / yRange }));
+
+  const css = getComputedStyle(document.documentElement);
+  const text2  = css.getPropertyValue('--text2').trim() || '#555';
+  const text3  = css.getPropertyValue('--text3').trim() || '#888';
+  const border = css.getPropertyValue('--border').trim() || '#ddd';
+  const accent = css.getPropertyValue('--accent').trim() || '#c79a3a';
+
+  const beforeColor = '#c54a4a';
+  const afterColor  = '#2c8a47';
+
+  // Reserve y-bands: rails sit at y in [1.05, 1.18] (red, before)
+  // and [-0.18, -0.05] (green, after). Motion lives in [0, 1].
+  const RAIL_TOP_Y0 = 1.05, RAIL_TOP_Y1 = 1.20;
+  const RAIL_BOT_Y0 = -0.20, RAIL_BOT_Y1 = -0.05;
+
+  const railsPlugin = {
+    id: 'alignRails',
+    afterDatasetsDraw(chart) {
+      const { ctx, chartArea: ca, scales: { x, y } } = chart;
+      ctx.save();
+
+      const drawRail = (start, end, color, yTop, yBottom, alpha) => {
+        const x0 = x.getPixelForValue(start);
+        const x1 = x.getPixelForValue(end);
+        if (x1 < ca.left || x0 > ca.right) return;
+        const yA = y.getPixelForValue(yTop);
+        const yB = y.getPixelForValue(yBottom);
+        ctx.fillStyle = color;
+        ctx.globalAlpha = alpha;
+        ctx.fillRect(
+          Math.max(x0, ca.left), Math.min(yA, yB),
+          Math.max(1.5, Math.min(x1, ca.right) - Math.max(x0, ca.left)),
+          Math.abs(yB - yA),
+        );
+      };
+
+      // Background tracks for rails (so empty regions still read as rails)
+      ctx.fillStyle = beforeColor;
+      ctx.globalAlpha = 0.06;
+      const yT0 = y.getPixelForValue(RAIL_TOP_Y0), yT1 = y.getPixelForValue(RAIL_TOP_Y1);
+      ctx.fillRect(ca.left, Math.min(yT0, yT1), ca.right - ca.left, Math.abs(yT1 - yT0));
+      if (delta) {
+        ctx.fillStyle = afterColor;
+        const yB0 = y.getPixelForValue(RAIL_BOT_Y0), yB1 = y.getPixelForValue(RAIL_BOT_Y1);
+        ctx.fillRect(ca.left, Math.min(yB0, yB1), ca.right - ca.left, Math.abs(yB1 - yB0));
+      }
+      ctx.globalAlpha = 1;
+
+      // Strokes (before shift) on top rail
+      strokes.forEach(s => drawRail(s.start_s, s.end_s, beforeColor, RAIL_TOP_Y0, RAIL_TOP_Y1, 0.85));
+      // Strokes (after shift) on bottom rail — only meaningful if shift applied
+      if (delta) {
+        strokes.forEach(s => drawRail(s.start_s + delta, s.end_s + delta, afterColor, RAIL_BOT_Y0, RAIL_BOT_Y1, 0.85));
+      }
+
+      // Rail labels
+      ctx.fillStyle = beforeColor;
+      ctx.font = '10px system-ui, sans-serif';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      const yTopMid = y.getPixelForValue((RAIL_TOP_Y0 + RAIL_TOP_Y1) / 2);
+      ctx.fillText('Pen-Striche · roh', ca.left + 6, yTopMid);
+      if (delta) {
+        ctx.fillStyle = afterColor;
+        const yBotMid = y.getPixelForValue((RAIL_BOT_Y0 + RAIL_BOT_Y1) / 2);
+        ctx.fillText(`Pen-Striche · nach δ = ${_alignFmtDelta(delta)}`, ca.left + 6, yBotMid);
+      }
+
+      ctx.restore();
+    },
+  };
+
+  const datasets = [
+    {
+      label: 'Watch-Bewegung',
+      data: points,
+      borderColor: accent,
+      backgroundColor: accent + '1f',
+      borderWidth: 1.6,
+      pointRadius: 0,
+      tension: 0.3,
+      fill: 'origin',
+    },
+  ];
+
+  S.alignmentCharts.timeline = new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'nearest', intersect: false },
+      scales: {
+        x: { type: 'linear',
+             title: { display: true, text: 'Zeit seit Watch-Start (s)', color: text2, font: { size: 11 } },
+             ticks: { color: text3, font: { size: 10 }, maxTicksLimit: 8 },
+             grid: { color: border + '40' } },
+        y: { title: { display: true, text: 'Bewegung (normalisiert)', color: text2, font: { size: 11 } },
+             ticks: {
+               color: text3, font: { size: 10 },
+               callback: (v) => (v >= 0 && v <= 1) ? v.toFixed(1) : '',
+               stepSize: 0.25,
+             },
+             grid: { color: border + '40' },
+             min: RAIL_BOT_Y0 - 0.02, max: RAIL_TOP_Y1 + 0.02 },
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          filter: (it) => it.datasetIndex === 0,
+          callbacks: {
+            title: ([it]) => `t = ${it.parsed.x.toFixed(2)} s`,
+            label: (it) => `Bewegung: ${(it.parsed.y * 100).toFixed(0)}%`,
+          },
+        },
+      },
+    },
+    plugins: [railsPlugin],
+  });
 }
 
 function renderSessionValidation(sessionId) {

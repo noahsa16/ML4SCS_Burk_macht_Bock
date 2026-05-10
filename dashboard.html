@@ -585,6 +585,29 @@ td.bold { font-weight: 600; }
 .issue-list { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
 .issue-chip { font-family: var(--mono); font-size: 10px; border-radius: var(--radius-sm); padding: 4px 7px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
 
+/* ─── Inline detail row inside sessions table ──────────────── */
+.sessions-table tr.detail-row > td { padding: 0 !important; background: var(--surface); border-top: none; }
+.sessions-table tr.detail-row .validation-panel { margin: 0; border-radius: 0; border-left: 4px solid var(--accent); }
+.sessions-table tr.detail-row .validation-panel.active { display: block; }
+
+/* ─── Pen ↔ Watch alignment (stroke-variance) ─────────────── */
+.alignment-section { margin-top: 22px; padding-top: 18px; border-top: 1px dashed var(--border2); }
+.alignment-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+.alignment-status { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; padding: 3px 9px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface2); color: var(--text2); }
+.alignment-status.ok  { color: var(--green); border-color: oklch(0.700 0.150 145 / 0.5); }
+.alignment-status.skip { color: var(--warn, #d2a300); border-color: oklch(0.770 0.140 88 / 0.5); }
+.alignment-status.err { color: var(--err, #c54a4a); border-color: oklch(0.620 0.190 25 / 0.5); }
+.alignment-explainer { font-size: 13px; line-height: 1.55; color: var(--text2); margin: 6px 0 14px; }
+.alignment-explainer strong { color: var(--text); }
+.alignment-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+.alignment-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 880px) { .alignment-charts { grid-template-columns: 1fr; } }
+.alignment-chart { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+.alignment-chart-title { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text2); }
+.alignment-chart-help { font-size: 11px; line-height: 1.5; color: var(--text3); margin: 4px 0 8px; }
+.alignment-chart canvas { width: 100% !important; height: 240px !important; }
+.alignment-empty { font-size: 12px; color: var(--text3); padding: 12px 0; }
+
 /* ─── Connections page ───────────────────────────────────────── */
 .conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .conn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
@@ -987,7 +1010,7 @@ td.bold { font-weight: 600; }
         <button class="btn btn-outline btn-sm ml" onclick="loadSessions()">↻ Refresh</button>
       </div>
       <div class="card" style="padding:0;overflow:hidden">
-        <table>
+        <table class="sessions-table">
           <thead>
             <tr>
               <th>Session</th>
@@ -1034,6 +1057,48 @@ td.bold { font-weight: 600; }
         </div>
         <div class="validation-note" id="validationSummary">Click a session row to inspect the timeline.</div>
         <div class="issue-list" id="validationIssues"></div>
+
+        <div class="alignment-section" id="alignmentSection" style="display:none">
+          <div class="alignment-head">
+            <div>
+              <div class="card-title" style="margin-bottom:4px">Pen ↔ Watch Alignment<span>Stroke-Variance Time-Sync</span></div>
+            </div>
+            <div class="alignment-status" id="alignmentStatus">–</div>
+          </div>
+          <div class="alignment-explainer" id="alignmentExplainer">
+            Beim Schreiben hält die schreibende Hand die Uhr ruhig — Pausen und Gesten erzeugen
+            mehr Bewegung. Der Algorithmus probiert verschiedene Zeitverschiebungen δ aus und
+            wählt die, bei der die Pen-Striche auf die ruhigsten Phasen fallen. Je tiefer das
+            Tal in der Suchkurve, desto sicherer der Match.
+          </div>
+          <div class="alignment-metrics">
+            <div class="drift-box"><div class="k">Offset δ</div><div class="v" id="alignDelta">–</div></div>
+            <div class="drift-box"><div class="k">Confidence σ</div><div class="v" id="alignSigma">–</div></div>
+            <div class="drift-box"><div class="k">Striche</div><div class="v" id="alignStrokes">–</div></div>
+            <div class="drift-box"><div class="k">Ruhe-Faktor</div><div class="v" id="alignFactor">–</div></div>
+          </div>
+          <div class="alignment-charts">
+            <div class="alignment-chart">
+              <div class="alignment-chart-title">Varianz-Suchkurve</div>
+              <div class="alignment-chart-help">
+                Für jedes mögliche δ: wie ruhig ist die Hand während der Pen-Striche? Tiefster
+                Punkt = bestes δ. σ misst, wie viel tiefer das Tal verglichen mit dem Rest ist
+                (negativ = scharfes Tal = hohe Confidence; ≤ −2 wird angewandt).
+              </div>
+              <canvas id="alignVarCanvas"></canvas>
+            </div>
+            <div class="alignment-chart">
+              <div class="alignment-chart-title">Pen-Striche auf Watch-Bewegung</div>
+              <div class="alignment-chart-help">
+                Mitte: Watch-Bewegungs-Intensität über die Session. Oben (rot): Pen-Striche an
+                ihrem Roh-Zeitstempel. Unten (grün): dieselben Striche nach Anwendung von δ.
+                Die untere Reihe sollte auf die Täler der Bewegungskurve fallen.
+              </div>
+              <canvas id="alignTimelineCanvas"></canvas>
+            </div>
+          </div>
+          <div class="alignment-empty" id="alignmentEmpty" style="display:none">Alignment ist für diese Session nicht verfügbar (zu wenig Daten oder Legacy-Pen-CSV ohne Wall-Clock).</div>
+        </div>
       </div>
     </div>
 
@@ -1271,6 +1336,6 @@ td.bold { font-weight: 600; }
 
 <div id="toast"></div>
 
-<script src="/static/dashboard.js?v=20260506-20"></script>
+<script src="/static/dashboard.js?v=20260510-23"></script>
 </body>
 </html>
