@@ -114,7 +114,7 @@ body {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-md); padding: var(--space-5); position: relative;
 }
-.card-title { font-size: var(--text-sm); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text2); margin-bottom: 14px; }
+.card-title { font-size: var(--text-sm); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text2); margin-bottom: var(--space-3); }
 .card-title span { color: var(--text3); font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; }
 
 /* Hero: das Live-Recording dominiert die Seite. Mehr Padding, akzent-
@@ -139,7 +139,7 @@ body {
 .card-hero .card-title { font-size: var(--text-base); }
 
 .live-indicator {
-  display: none; align-items: center; gap: 6px;
+  display: none; align-items: center; gap: var(--space-1);
   font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--red); margin-left: 10px; vertical-align: middle;
 }
@@ -168,7 +168,7 @@ body {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-.card-muted .card-title { font-size: var(--text-xs); margin-bottom: 10px; }
+.card-muted .card-title { font-size: var(--text-xs); margin-bottom: var(--space-2); }
 .card-muted .device-row { padding: var(--space-1) 0; font-size: var(--text-xs); }
 
 /* ─── Details-Toggle: Sekundär-Metriken ein-/ausklappen ─────── */
@@ -189,7 +189,7 @@ body {
   /* 600px reicht für unsere kleinen Detail-Blöcke; falls mal mehr,
      einfach hochsetzen — die Animation skaliert nicht visuell, da overflow hidden. */
   max-height: 600px; opacity: 1;
-  margin-top: var(--space-2); padding-top: 10px;
+  margin-top: var(--space-2); padding-top: var(--space-2);
   border-top-color: var(--border);
 }
 .card-details-toggle {
