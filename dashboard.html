@@ -475,9 +475,6 @@ canvas#imuChart { width: 100% !important; }
 .device-actions { display: flex; gap: 7px; margin-top: 12px; }
 
 /* ─── Sessions page ──────────────────────────────────────────── */
-.sessions-toolbar { display: flex; gap: 10px; margin-bottom: 14px; align-items: center; }
-.sessions-toolbar input { max-width: 240px; }
-.sessions-toolbar .ml { margin-left: auto; }
 table { width: 100%; border-collapse: collapse; }
 thead th { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text2); padding: 9px 12px; text-align: left; border-bottom: 2px solid var(--border2); background: var(--surface2); }
 thead th:first-child { border-radius: var(--radius-sm) 0 0 0; }
@@ -584,11 +581,6 @@ td.bold { font-weight: 600; }
 .validation-note { color: var(--text3); font-size: 12px; line-height: 1.55; margin-top: 12px; }
 .issue-list { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
 .issue-chip { font-family: var(--mono); font-size: 10px; border-radius: var(--radius-sm); padding: 4px 7px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
-
-/* ─── Inline detail row inside sessions table ──────────────── */
-.sessions-table tr.detail-row > td { padding: 0 !important; background: var(--surface); border-top: none; }
-.sessions-table tr.detail-row .validation-panel { margin: 0; border-radius: 0; border-left: 4px solid var(--accent); }
-.sessions-table tr.detail-row .validation-panel.active { display: block; }
 
 /* ─── Pen ↔ Watch alignment (stroke-variance) ─────────────── */
 .alignment-section { margin-top: 22px; padding-top: 18px; border-top: 1px dashed var(--border2); }
