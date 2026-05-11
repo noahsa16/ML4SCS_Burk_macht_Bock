@@ -17,6 +17,7 @@
   --red:       oklch(0.575 0.175 24);
   --red-h:     oklch(0.520 0.180 24);
   --yellow:    oklch(0.720 0.135 88);
+  --purple:    oklch(0.55 0.14 275);
   --warn:      var(--yellow);
   --err:       var(--red);
   --text-on-dark: #fff;
@@ -68,6 +69,7 @@ body[data-theme="dark"] {
   --red:       oklch(0.680 0.170 24);
   --red-h:     oklch(0.620 0.175 24);
   --yellow:    oklch(0.790 0.135 88);
+  --purple:    oklch(0.65 0.14 275);
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 html, body { height: 100%; overflow: hidden; }
