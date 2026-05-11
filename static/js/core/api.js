@@ -1,4 +1,4 @@
-import { toast } from '/static/dashboard.js';
+import { toast } from '/static/js/core/toast.js';
 
 export async function api(path, method = 'GET', body = null) {
   try {
