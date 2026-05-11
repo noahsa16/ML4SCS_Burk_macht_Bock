@@ -898,6 +898,49 @@ async function airpodsCmd(cmd) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  SESSION VERDICT — single 3-level summary used by both
+//  the triage list (filter target) and the detail page header.
+// ════════════════════════════════════════════════════════════
+// Thresholds match docs/superpowers/specs/2026-05-11-sessions-tab-redesign-design.md
+// and src/training docs in CLAUDE.md (σ ≤ -3 trainable, ≥ 5 min within-session).
+const VERDICT_TRAINABLE = 'trainable';
+const VERDICT_USABLE    = 'usable';
+const VERDICT_SKIP      = 'skip';
+
+function computeVerdict(quality, alignment, durationSec) {
+  const ml = quality?.ml_readiness?.status || quality?.quality || 'unknown';
+  const issues = [
+    ...(quality?.ml_readiness?.blockers || []),
+    ...(quality?.recording_health?.blockers || []),
+  ].map(i => i.code);
+  if (ml === 'bad' || issues.includes('sync_failed') || issues.includes('streams_do_not_overlap')) {
+    return { level: VERDICT_SKIP, label: 'Skip' };
+  }
+  const sigma = alignment?.sigma_minimal_variance;
+  const dur = Number(durationSec || 0);
+  if (ml === 'ok' && Number.isFinite(sigma) && sigma <= -3 && dur >= 300) {
+    return { level: VERDICT_TRAINABLE, label: 'Trainable' };
+  }
+  return { level: VERDICT_USABLE, label: 'Usable' };
+}
+
+// Filter state persists in localStorage so reloads don't drop user intent.
+const FILTERS_KEY = 'sessionsFilter.v1';
+const DEFAULT_FILTERS = { q: '', ml: 'all', align: 'all', minFive: false };
+
+function loadFilters() {
+  try {
+    const raw = localStorage.getItem(FILTERS_KEY);
+    if (!raw) return { ...DEFAULT_FILTERS };
+    return { ...DEFAULT_FILTERS, ...JSON.parse(raw) };
+  } catch { return { ...DEFAULT_FILTERS }; }
+}
+function saveFilters(f) {
+  try { localStorage.setItem(FILTERS_KEY, JSON.stringify(f)); } catch {}
+}
+function resetFilters() { localStorage.removeItem(FILTERS_KEY); }
+
+// ════════════════════════════════════════════════════════════
 //  SESSIONS TABLE
 // ════════════════════════════════════════════════════════════
 async function loadSessions() {
