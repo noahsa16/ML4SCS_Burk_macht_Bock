@@ -1,0 +1,49 @@
+<!-- ══════════ PAGE: SESSIONS ══════════ -->
+<div class="card" style="margin-bottom:14px">
+  <div class="chart-meta">
+    <div class="card-title" style="margin:0">Data Quality Report<span>model readiness per recording</span></div>
+    <button class="btn btn-outline btn-sm" onclick="loadSessions()">↻ Refresh</button>
+  </div>
+  <div class="health-grid">
+    <div class="health-box"><div class="k">Total Sessions</div><div class="v" id="qualityTotal">–</div></div>
+    <div class="health-box"><div class="k">ML Ready</div><div class="v ok" id="qualityOk">–</div></div>
+    <div class="health-box"><div class="k">ML Warnings</div><div class="v warn" id="qualityWarn">–</div></div>
+    <div class="health-box"><div class="k">ML Blocked</div><div class="v err" id="qualityBad">–</div></div>
+  </div>
+</div>
+
+<div class="filter-bar">
+  <input type="text" id="filterQ" placeholder="Search session, person, or description…">
+  <select id="filterMl" title="ML readiness">
+    <option value="all">ML: all</option>
+    <option value="ok">Ready</option>
+    <option value="warn">Warnings</option>
+    <option value="bad">Blocked</option>
+  </select>
+  <select id="filterAlign" title="Alignment confidence">
+    <option value="all">Alignment: all</option>
+    <option value="s3">σ ≤ −3 (trainable)</option>
+    <option value="s2">σ ≤ −2 (ok)</option>
+    <option value="failed">failed</option>
+    <option value="none">no pen</option>
+  </select>
+  <label class="toggle"><input type="checkbox" id="filterMinFive"> ≥ 5 min</label>
+  <button class="reset-link" id="filterReset" type="button">Reset</button>
+  <span class="spacer"></span>
+</div>
+
+<div class="card" style="padding:0;overflow:hidden">
+  <table class="sessions-table">
+    <thead>
+      <tr>
+        <th>Session</th>
+        <th>Start · Duration</th>
+        <th>ML Status</th>
+        <th>Alignment σ</th>
+      </tr>
+    </thead>
+    <tbody id="sessionsBody">
+      <tr><td colspan="4"><div class="empty-state"><div class="empty-state-title">Loading sessions…</div></div></td></tr>
+    </tbody>
+  </table>
+</div>

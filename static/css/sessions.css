@@ -1,0 +1,272 @@
+/* ─── Sessions page ──────────────────────────────────────────── */
+table { width: 100%; border-collapse: collapse; }
+thead th { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text2); padding: 9px 12px; text-align: left; border-bottom: 2px solid var(--border2); background: var(--surface2); }
+thead th:first-child { border-radius: var(--radius-sm) 0 0 0; }
+thead th:last-child { border-radius: 0 var(--radius-sm) 0 0; }
+tbody tr { border-bottom: 1px solid var(--border); transition: background 0.1s; }
+tbody tr {
+  transition: background 0.12s ease, box-shadow 0.12s ease;
+}
+tbody tr:hover {
+  background: var(--surface2);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+tbody td { padding: 10px 12px; font-size: 13px; }
+td.mono { font-family: var(--mono); font-size: 12px; }
+td.bold { font-weight: 600; }
+
+/* Session-Zelle: Person prominent, ID als Mono-Caption darunter */
+.session-cell { line-height: 1.2; }
+.session-person {
+  font-size: 13.5px; font-weight: 600; color: var(--text);
+  letter-spacing: -0.005em;
+}
+.session-person.anonymous {
+  font-style: italic; color: var(--text2); font-weight: 500;
+}
+.session-caption {
+  font-family: var(--mono); font-size: 10.5px; color: var(--text3);
+  margin-top: 3px; letter-spacing: 0.04em; font-weight: 500;
+}
+.table-empty { text-align: center; padding: 40px; color: var(--text3); font-size: 13px; font-style: italic; }
+
+/* ─── Empty States: einheitliches Pattern für leere Bereiche ─── */
+.empty-state {
+  text-align: center;
+  padding: 56px 24px;
+  color: var(--text3);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.empty-state-glyph {
+  font-family: var(--mono); font-style: italic; font-size: 38px;
+  font-weight: 500; line-height: 1; color: var(--accent);
+  opacity: 0.55;
+  margin-bottom: 14px;
+  letter-spacing: -0.04em;
+}
+.empty-state-title {
+  font-family: var(--sans); font-size: 15px; font-weight: 600;
+  color: var(--text2); letter-spacing: -0.005em;
+  margin-bottom: 4px;
+}
+.empty-state-hint {
+  font-size: 12.5px; line-height: 1.55; color: var(--text3);
+  max-width: 340px;
+}
+.empty-state-action {
+  margin-top: 18px;
+  font-family: var(--sans); font-size: 12px; font-weight: 600;
+  color: var(--text2); background: none; border: 1px solid var(--border2);
+  padding: 8px 16px; border-radius: var(--radius-sm); cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, transform 0.08s ease;
+  letter-spacing: 0.01em;
+}
+.empty-state-action:hover { color: var(--text); border-color: var(--text3); }
+.empty-state-action:active { transform: translateY(1px); }
+.click-row { cursor: pointer; }
+.click-row.active { background: oklch(0.595 0.165 43 / 0.10); }
+
+.export-link {
+  display: inline-block; padding: 2px 8px; border-radius: var(--radius-xs);
+  font-family: var(--mono); font-size: 11px; font-weight: 600;
+  color: var(--text2); text-decoration: none;
+  background: oklch(0.92 0.02 90 / 0.6); border: 1px solid var(--border);
+  transition: transform 0.12s ease, color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.export-link:hover {
+  color: var(--text); background: var(--surface);
+  border-color: var(--text3); transform: translateY(-1px);
+}
+.export-link:active { transform: translateY(0); }
+
+/* ─── Session validation timeline ──────────────────────────── */
+.validation-panel { margin-top: 16px; display: none; }
+.validation-panel.active { display: block; }
+.validation-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+.validation-title { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+.validation-status { font-size: 13px; font-weight: 700; letter-spacing: 0.01em; }
+.validation-metrics { display: flex; gap: 18px; flex-wrap: wrap; margin: 12px 0 16px; color: var(--text2); }
+.validation-metric { font-size: 13px; }
+.validation-metric strong { font-family: var(--mono); color: var(--text); }
+.timeline-wrap { margin-top: 8px; }
+.timeline-axis { position: relative; height: 24px; margin-left: 70px; border-bottom: 1px solid var(--border2); font-family: var(--mono); font-size: 10px; color: var(--text3); }
+.axis-tick { position: absolute; top: 4px; transform: translateX(-50%); white-space: nowrap; }
+.timeline-row { display: grid; grid-template-columns: 58px 1fr; gap: 12px; align-items: center; margin: 12px 0; }
+.timeline-label { font-weight: 700; color: var(--text2); text-align: right; }
+.timeline-track { position: relative; height: 36px; border-radius: var(--radius-sm); background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
+.timeline-bar { position: absolute; top: 7px; height: 20px; border-radius: var(--radius-pill); min-width: 2px; }
+.bar-watch { background: linear-gradient(90deg, var(--accent), oklch(0.720 0.135 88)); }
+.bar-pen { background: var(--green); }
+.bar-gap { background: oklch(0.650 0.018 58 / 0.18); }
+.drift-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 16px; }
+.drift-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
+.drift-box .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.drift-box .v { font-family: var(--mono); font-size: 15px; font-weight: 700; color: var(--text); margin-top: 4px; }
+.validation-note { color: var(--text3); font-size: 12px; line-height: 1.55; margin-top: 12px; }
+.issue-list { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; }
+.issue-chip { font-family: var(--mono); font-size: 10px; border-radius: var(--radius-sm); padding: 4px 7px; background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
+
+/* ─── Pen ↔ Watch alignment (stroke-variance) ─────────────── */
+.alignment-section { margin-top: 22px; padding-top: 18px; border-top: 1px dashed var(--border2); }
+.alignment-head { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+.alignment-status { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; padding: 3px 9px; border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface2); color: var(--text2); }
+.alignment-status.ok  { color: var(--green); border-color: oklch(0.700 0.150 145 / 0.5); }
+.alignment-status.skip { color: var(--warn, #d2a300); border-color: oklch(0.770 0.140 88 / 0.5); }
+.alignment-status.err { color: var(--err, #c54a4a); border-color: oklch(0.620 0.190 25 / 0.5); }
+.alignment-explainer { font-size: 13px; line-height: 1.55; color: var(--text2); margin: 6px 0 14px; }
+.alignment-explainer strong { color: var(--text); }
+.alignment-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 14px; }
+.alignment-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+@media (max-width: 880px) { .alignment-charts { grid-template-columns: 1fr; } }
+.alignment-chart { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 12px 14px; }
+.alignment-chart-title { font-size: 12px; font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text2); }
+.alignment-chart-help { font-size: 11px; line-height: 1.5; color: var(--text3); margin: 4px 0 8px; }
+.alignment-chart canvas { width: 100% !important; height: 240px !important; }
+.alignment-empty { font-size: 12px; color: var(--text3); padding: 12px 0; }
+
+/* ─── Filter bar (new triage UI) ───────────────────────────── */
+.filter-bar {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  margin-bottom: 20px;
+}
+.filter-bar input[type="text"] { max-width: 280px; }
+.filter-bar select,
+.filter-bar input[type="text"] {
+  font-family: var(--sans);
+  font-size: 12.5px; padding: 7px 11px;
+  border: 1px solid var(--border2); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.filter-bar input[type="text"]:focus,
+.filter-bar select:focus {
+  outline: none; border-color: var(--text3);
+}
+/* Native chrome raus, custom chevron rein — Filter-Bar als zusammenhängender Control-Strip */
+.filter-bar select {
+  appearance: none; -webkit-appearance: none; -moz-appearance: none;
+  padding-right: 28px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%237a6f63' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
+/* Aktiver Filter (Wert != "all" / != "") bekommt Accent-Border — sofort sichtbar */
+.filter-bar select.is-active,
+.filter-bar input[type="text"].is-active {
+  border-color: var(--accent); color: var(--text);
+  box-shadow: inset 0 0 0 1px oklch(0.595 0.165 43 / 0.25);
+}
+.filter-bar label.toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text2); cursor: pointer; user-select: none;
+}
+.filter-bar label.toggle:has(input:checked) { color: var(--accent); font-weight: 600; }
+.filter-bar .reset-link {
+  font-size: 12px; color: var(--text3); text-decoration: underline;
+  background: none; border: none; cursor: pointer; padding: 0;
+}
+.filter-bar .reset-link:hover { color: var(--text); }
+.filter-bar .spacer { flex: 1; }
+
+/* ─── Sessions-Pages: editorial Index. Mehr Air, lowercase H2-Treatment
+       für card-titles, Mono nur noch für echte Daten. Recording bleibt
+       unangetastet — die Bühne. ─────────────────────────────────────── */
+#page-sessions .card,
+#page-session-detail .detail-section { margin-bottom: 18px; }
+#page-sessions > .card:first-child { margin-bottom: 22px; }
+
+#page-sessions .card-title,
+#page-session-detail .session-detail-header .title {
+  font-family: var(--sans);
+  font-size: 22px; font-weight: 500;
+  letter-spacing: -0.022em;
+  text-transform: none;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+#page-sessions .card-title span {
+  display: block; margin-left: 0; margin-top: 2px;
+  font-size: 12.5px; color: var(--text3);
+  letter-spacing: 0; font-weight: 400;
+}
+/* Detail-Sections behalten kompakteren Summary-Header — sind Akkordeon, nicht Page-Header */
+#page-session-detail .detail-section > summary { font-size: 15px; }
+
+/* Detail-Header-Pills: Status-Wörter in Plex Sans, σ-Wert bleibt Mono über inline-style */
+#page-session-detail .session-detail-header .pill {
+  font-family: var(--sans);
+  font-size: 12px; letter-spacing: 0;
+}
+
+/* ─── Verdict badge (detail page header) ───────────────────── */
+.verdict-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 220px; padding: 14px 28px;
+  font-family: var(--sans); font-size: 22px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+}
+/* Trainable steht für das User-Goal — Accent statt generisches Grün */
+.verdict-badge.trainable { color: var(--accent); border-color: oklch(0.595 0.165 43 / 0.55); background: oklch(0.595 0.165 43 / 0.08); }
+.verdict-badge.usable    { color: #b08000;        border-color: oklch(0.770 0.140 88 / 0.55); background: oklch(0.770 0.140 88 / 0.10); }
+.verdict-badge.skip      { color: #c54a4a;        border-color: oklch(0.620 0.190 25 / 0.55); background: oklch(0.620 0.190 25 / 0.08); }
+
+.session-detail-header {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 18px 22px; margin-bottom: 18px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.session-detail-header .back-link {
+  font-size: 12px; color: var(--text2); text-decoration: none;
+  background: none; border: none; padding: 0; cursor: pointer; align-self: flex-start;
+}
+.session-detail-header .back-link:hover { color: var(--text); }
+.session-detail-header .title-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.session-detail-header .title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.session-detail-header .subtitle { color: var(--text2); font-size: 13px; margin-top: 4px; }
+.session-detail-header .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.session-detail-header .pill {
+  font-size: 11.5px; font-family: var(--mono); padding: 4px 10px;
+  border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface2); color: var(--text2);
+}
+.session-detail-header .pill.ok  { color: var(--green); border-color: oklch(0.700 0.150 145 / 0.45); }
+.session-detail-header .pill.warn { color: #b08000;     border-color: oklch(0.770 0.140 88 / 0.45); }
+.session-detail-header .pill.err  { color: #c54a4a;     border-color: oklch(0.620 0.190 25 / 0.45); }
+
+/* ─── Collapsible sections (HTML5 <details>) ───────────────── */
+.detail-section {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); margin-bottom: 12px; overflow: hidden;
+}
+.detail-section > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  padding: 14px 20px;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 600; letter-spacing: -0.005em; color: var(--text);
+}
+.detail-section > summary::-webkit-details-marker { display: none; }
+.detail-section > summary::before {
+  content: '▸'; color: var(--text3); font-size: 11px; transition: transform 0.15s ease;
+}
+.detail-section[open] > summary::before { transform: rotate(90deg); }
+.detail-section > summary .count {
+  font-family: var(--mono); font-size: 11px; color: var(--text3);
+  background: var(--surface2); padding: 2px 7px; border-radius: var(--radius-pill);
+  margin-left: 6px;
+}
+.detail-section .section-body { padding: 4px 20px 18px; }
+
+/* Sessions-Pages haben lowercase 22px titles — der Slash skaliert mit, sieht editorial aus */
+#page-sessions .card-title::before,
+#page-session-detail .session-detail-header .title::before {
+  opacity: 0.55;
+  margin-right: 10px;
+}
+#page-session-detail .session-detail-header .title { position: relative; }
+#page-session-detail .session-detail-header .title::before {
+  content: '/';
+  display: inline-block; margin-right: 10px;
+  font-family: var(--mono); font-style: italic; font-weight: 600;
+  color: var(--accent); opacity: 0.55;
+}

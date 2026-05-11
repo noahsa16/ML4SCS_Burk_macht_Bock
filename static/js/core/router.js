@@ -1,10 +1,10 @@
 import { _fmtStripDate } from '/static/js/core/format.js';
 import { S } from '/static/js/core/state.js';
 
-// Why: openSessionDetail and loadSessions live in dashboard.js; router.js
-// needs them for hash-routing and back-navigation. Circular until Task 8
-// splits sessions into its own module.
-import { openSessionDetail, loadSessions } from '/static/dashboard.js';
+// Why: openSessionDetail stays in dashboard.js until Task 12.
+import { openSessionDetail } from '/static/dashboard.js';
+// Temporary: loadSessions moved to pages/sessions.js in Task 11.
+import { loadSessions } from '/static/js/pages/sessions.js';
 
 // ════════════════════════════════════════════════════════════
 //  PAGE METADATA
