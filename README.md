@@ -53,7 +53,7 @@ The session dashboard runs at `http://localhost:8000` and gives a real-time view
 
 **Session overview & live sensor status**
 
-![Dashboard – Session Control](docs/screenshots/dashboard_session.png)
+![Dashboard – Session Control](docs/screenshots/dashboard.png)
 
 ---
 
