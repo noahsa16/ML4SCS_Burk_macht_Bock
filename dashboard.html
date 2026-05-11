@@ -608,6 +608,86 @@ td.bold { font-weight: 600; }
 .alignment-chart canvas { width: 100% !important; height: 240px !important; }
 .alignment-empty { font-size: 12px; color: var(--text3); padding: 12px 0; }
 
+/* ─── Filter bar (new triage UI) ───────────────────────────── */
+.filter-bar {
+  display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+  margin-bottom: 14px;
+}
+.filter-bar input[type="text"] { max-width: 280px; }
+.filter-bar select,
+.filter-bar input[type="text"] {
+  font-size: 12.5px; padding: 6px 9px;
+  border: 1px solid var(--border2); border-radius: var(--radius-sm);
+  background: var(--surface); color: var(--text);
+}
+.filter-bar label.toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text2); cursor: pointer; user-select: none;
+}
+.filter-bar .reset-link {
+  font-size: 12px; color: var(--text3); text-decoration: underline;
+  background: none; border: none; cursor: pointer; padding: 0;
+}
+.filter-bar .reset-link:hover { color: var(--text); }
+.filter-bar .spacer { flex: 1; }
+
+/* ─── Verdict badge (detail page header) ───────────────────── */
+.verdict-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 220px; padding: 14px 28px;
+  font-family: var(--sans); font-size: 22px; font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+}
+.verdict-badge.trainable { color: var(--green); border-color: oklch(0.700 0.150 145 / 0.6); background: oklch(0.700 0.150 145 / 0.08); }
+.verdict-badge.usable    { color: #b08000;        border-color: oklch(0.770 0.140 88 / 0.55); background: oklch(0.770 0.140 88 / 0.10); }
+.verdict-badge.skip      { color: #c54a4a;        border-color: oklch(0.620 0.190 25 / 0.55); background: oklch(0.620 0.190 25 / 0.08); }
+
+.session-detail-header {
+  display: flex; flex-direction: column; gap: 14px;
+  padding: 18px 22px; margin-bottom: 18px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.session-detail-header .back-link {
+  font-size: 12px; color: var(--text2); text-decoration: none;
+  background: none; border: none; padding: 0; cursor: pointer; align-self: flex-start;
+}
+.session-detail-header .back-link:hover { color: var(--text); }
+.session-detail-header .title-row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.session-detail-header .title { font-size: 22px; font-weight: 700; letter-spacing: -0.02em; }
+.session-detail-header .subtitle { color: var(--text2); font-size: 13px; margin-top: 4px; }
+.session-detail-header .pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+.session-detail-header .pill {
+  font-size: 11.5px; font-family: var(--mono); padding: 4px 10px;
+  border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface2); color: var(--text2);
+}
+.session-detail-header .pill.ok  { color: var(--green); border-color: oklch(0.700 0.150 145 / 0.45); }
+.session-detail-header .pill.warn { color: #b08000;     border-color: oklch(0.770 0.140 88 / 0.45); }
+.session-detail-header .pill.err  { color: #c54a4a;     border-color: oklch(0.620 0.190 25 / 0.45); }
+
+/* ─── Collapsible sections (HTML5 <details>) ───────────────── */
+.detail-section {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); margin-bottom: 12px; overflow: hidden;
+}
+.detail-section > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  padding: 14px 20px;
+  display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 600; letter-spacing: -0.005em; color: var(--text);
+}
+.detail-section > summary::-webkit-details-marker { display: none; }
+.detail-section > summary::before {
+  content: '▸'; color: var(--text3); font-size: 11px; transition: transform 0.15s ease;
+}
+.detail-section[open] > summary::before { transform: rotate(90deg); }
+.detail-section > summary .count {
+  font-family: var(--mono); font-size: 11px; color: var(--text3);
+  background: var(--surface2); padding: 2px 7px; border-radius: var(--radius-pill);
+  margin-left: 6px;
+}
+.detail-section .section-body { padding: 4px 20px 18px; }
+
 /* ─── Connections page ───────────────────────────────────────── */
 .conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .conn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
