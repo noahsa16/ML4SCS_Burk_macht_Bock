@@ -1,0 +1,584 @@
+// static/js/pages/recording.js — Recording page module
+//
+// Owns: chart, pen canvas, timer, session control, logs rendering.
+// Chart and pen canvas were previously in status_cluster.js (Task 8 note);
+// they move here in Task 13 so status_cluster.js has no Recording-page DOM deps.
+
+import { api } from '/static/js/core/api.js';
+import { esc } from '/static/js/core/dom.js';
+import { fmtDuration, fmtNum, fmtClock, fmtAgo, fmtHz } from '/static/js/core/format.js';
+import { S } from '/static/js/core/state.js';
+import { setNumberSmooth } from '/static/js/core/anim.js';
+import { toast } from '/static/js/core/toast.js';
+import { setBadge, setHealth } from '/static/js/core/status_cluster.js';
+
+let _mounted = false;
+
+// ════════════════════════════════════════════════════════════
+//  CHART
+// ════════════════════════════════════════════════════════════
+let _imuChart = null;
+
+const _smoothFmt = {
+  hz: (v) => v > 0 ? `${v.toFixed(v >= 10 ? 1 : 2)} Hz` : '– Hz',
+  count: (v) => Math.round(v).toLocaleString('de-DE'),
+  decimal3: (v) => v.toFixed(3),
+  pct: (v) => `${Math.round(v)}%`,
+};
+
+function _initChart() {
+  const canvas = document.getElementById('imuChart');
+  if (!canvas) return;
+  const chartCtx = canvas.getContext('2d');
+  _imuChart = new Chart(chartCtx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [{
+        label: '|a|',
+        data: [],
+        borderColor: 'oklch(0.595 0.165 43)',
+        backgroundColor: (ctx) => {
+          const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 200);
+          gradient.addColorStop(0, 'oklch(0.595 0.165 43 / 0.25)');
+          gradient.addColorStop(1, 'oklch(0.595 0.165 43 / 0.02)');
+          return gradient;
+        },
+        borderWidth: 1.8,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.35,
+        fill: true,
+      }, {
+        label: '|r|',
+        data: [],
+        borderColor: 'oklch(0.720 0.135 88)',
+        backgroundColor: 'oklch(0.720 0.135 88 / 0.06)',
+        borderWidth: 1.5,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        tension: 0.35,
+        fill: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      animation: { duration: 0 },
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: {
+          ticks: {
+            maxTicksLimit: 7,
+            color: 'oklch(0.650 0.018 58)',
+            font: { family: "'IBM Plex Mono', monospace", size: 10 },
+            callback: (_, i, arr) => {
+              const sec = -(arr.length - 1 - i);
+              return sec === 0 ? 'now' : sec + 's';
+            }
+          },
+          grid: { color: 'oklch(0.880 0.018 72)' },
+        },
+        y: {
+          min: 0,
+          ticks: {
+            color: 'oklch(0.650 0.018 58)',
+            font: { family: "'IBM Plex Mono', monospace", size: 10 },
+            maxTicksLimit: 5,
+          },
+          grid: { color: 'oklch(0.880 0.018 72)' },
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'oklch(0.175 0.025 55)',
+          titleFont: { family: "'IBM Plex Mono', monospace", size: 11 },
+          bodyFont: { family: "'IBM Plex Mono', monospace", size: 11 },
+          callbacks: {
+            title: (items) => items[0].label + 's',
+            label: (item) => ` ${item.dataset.label} = ${(item.raw || 0).toFixed(3)}`,
+          }
+        }
+      }
+    },
+    plugins: [{
+      id: 'writingBands',
+      beforeDatasetsDraw(chart) {
+        const { ctx, chartArea: { top, bottom }, scales: { x } } = chart;
+        if (!x || !S.chartBuffer.length) return;
+        ctx.save();
+        S.chartBuffer.forEach((pt, i) => {
+          if (!pt.pen_writing) return;
+          const xPos = x.getPixelForValue(i);
+          const nextX = x.getPixelForValue(i + 1);
+          ctx.fillStyle = 'oklch(0.580 0.130 148 / 0.18)';
+          ctx.fillRect(xPos, top, (nextX || xPos + 8) - xPos, bottom - top);
+        });
+        ctx.restore();
+      }
+    }]
+  });
+}
+
+export function updateChart(chartPts) {
+  if (!chartPts || !chartPts.length || !_imuChart) return;
+  chartPts.forEach(pt => {
+    if (!S.chartBuffer.find(b => b.t === pt.t)) {
+      S.chartBuffer.push(pt);
+    }
+  });
+  if (S.chartBuffer.length > 60) S.chartBuffer = S.chartBuffer.slice(-60);
+
+  const accVals = S.chartBuffer.map(b => Number(b.acc_mag ?? b.mag ?? 0));
+  const gyroVals = S.chartBuffer.map(b => Number(b.gyro_mag ?? 0));
+  _imuChart.data.labels = S.chartBuffer.map((_, i) => i);
+  _imuChart.data.datasets[0].data = accVals;
+  _imuChart.data.datasets[1].data = gyroVals;
+  _imuChart.update('none');
+
+  const curAcc = accVals[accVals.length - 1] || 0;
+  const curGyro = gyroVals[gyroVals.length - 1] || 0;
+  S.chartMax = Math.max(S.chartMax, ...accVals, ...gyroVals);
+  const writePct = S.chartBuffer.length
+    ? Math.round(S.chartBuffer.filter(b => b.pen_writing).length / S.chartBuffer.length * 100)
+    : 0;
+
+  setNumberSmooth('statMag', curAcc, { format: _smoothFmt.decimal3 });
+  setNumberSmooth('statGyro', curGyro, { format: _smoothFmt.decimal3 });
+  setNumberSmooth('statWritePct', writePct, { format: _smoothFmt.pct });
+}
+
+// ════════════════════════════════════════════════════════════
+//  PEN HANDWRITING CANVAS
+// ════════════════════════════════════════════════════════════
+let _penCanvas = null;
+let _penCtx = null;
+let _penSeenTs = new Set();
+
+export function updatePenCanvas(newDots) {
+  if (!newDots || !newDots.length || !_penCanvas) return;
+
+  const dotKey = (d) => `${d.ts ?? ''}_${d.t ?? ''}_${d.x}_${d.y}`;
+  let added = 0;
+  for (const d of newDots) {
+    const key = dotKey(d);
+    if (_penSeenTs.has(key)) continue;
+    _penSeenTs.add(key);
+    S.penDotBuffer.push(d);
+    added++;
+  }
+  if (!added) return;
+
+  const MAX_DOTS = 2500;
+  if (S.penDotBuffer.length > MAX_DOTS) {
+    const dropped = S.penDotBuffer.splice(0, S.penDotBuffer.length - MAX_DOTS);
+    dropped.forEach(d => _penSeenTs.delete(dotKey(d)));
+  }
+
+  for (const d of S.penDotBuffer) {
+    if (!S.penBounds) {
+      S.penBounds = { minX: d.x, maxX: d.x, minY: d.y, maxY: d.y };
+    } else {
+      if (d.x < S.penBounds.minX) S.penBounds.minX = d.x;
+      if (d.x > S.penBounds.maxX) S.penBounds.maxX = d.x;
+      if (d.y < S.penBounds.minY) S.penBounds.minY = d.y;
+      if (d.y > S.penBounds.maxY) S.penBounds.maxY = d.y;
+    }
+  }
+
+  drawPenCanvas();
+}
+
+export function clearPenPreview() {
+  S.penDotBuffer = [];
+  S.penBounds = null;
+  _penSeenTs = new Set();
+  drawPenCanvas();
+  const info = document.getElementById('penCanvasInfo');
+  if (info) info.textContent = 'Cleared - waiting for new pen data';
+}
+
+export function drawPenCanvas() {
+  if (!_penCanvas || !_penCtx) return;
+  const canvas = _penCanvas;
+  const ctx = _penCtx;
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.offsetWidth || 600;
+  const cssH = 200;
+  document.getElementById('penCanvasWrap')?.classList.toggle('has-data', S.penDotBuffer.length > 0);
+
+  if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
+    canvas.width = Math.round(cssW * dpr);
+    canvas.height = Math.round(cssH * dpr);
+    canvas.style.height = cssH + 'px';
+  }
+
+  ctx.save();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  if (!S.penDotBuffer.length || !S.penBounds) {
+    ctx.restore();
+    return;
+  }
+
+  const { minX, maxX, minY, maxY } = S.penBounds;
+  const rangeX = maxX - minX || 1;
+  const rangeY = maxY - minY || 1;
+  const pad = 20;
+  const scaleX = (cssW - pad * 2) / rangeX;
+  const scaleY = (cssH - pad * 2) / rangeY;
+  const scale = Math.min(scaleX, scaleY);
+  const drawW = rangeX * scale;
+  const drawH = rangeY * scale;
+  const ox = pad + (cssW - pad * 2 - drawW) / 2;
+  const oy = pad + (cssH - pad * 2 - drawH) / 2;
+
+  const toX = (x) => ox + (x - minX) * scale;
+  const toY = (y) => oy + (y - minY) * scale;
+
+  const inkColor = S.theme === 'dark' ? 'oklch(0.87 0.010 80)' : 'oklch(0.22 0.025 55)';
+  ctx.strokeStyle = inkColor;
+  ctx.fillStyle = inkColor;
+  ctx.lineWidth = 1.6;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  let inStroke = false;
+  for (const dot of S.penDotBuffer) {
+    const cx = toX(dot.x);
+    const cy = toY(dot.y);
+    if (dot.t === 'PEN_DOWN') {
+      if (inStroke) ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      inStroke = true;
+    } else if (dot.t === 'PEN_MOVE') {
+      if (!inStroke) {
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        inStroke = true;
+      } else {
+        ctx.lineTo(cx, cy);
+      }
+    } else if (dot.t === 'PEN_UP') {
+      if (inStroke) { ctx.lineTo(cx, cy); ctx.stroke(); }
+      inStroke = false;
+    }
+  }
+  if (inStroke) ctx.stroke();
+
+  for (const dot of S.penDotBuffer) {
+    ctx.beginPath();
+    ctx.arc(toX(dot.x), toY(dot.y), 1.0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  const moveDots = S.penDotBuffer.filter(d => d.t !== 'PEN_UP').length;
+  const info = document.getElementById('penCanvasInfo');
+  if (info) info.textContent =
+    `${moveDots} ink dots · x ${minX.toFixed(1)}–${maxX.toFixed(1)} · y ${minY.toFixed(1)}–${maxY.toFixed(1)}`;
+}
+
+// ════════════════════════════════════════════════════════════
+//  TIMER
+// ════════════════════════════════════════════════════════════
+export function startTimer() {
+  S.timerInterval = setInterval(() => {
+    if (!S.startTime) return;
+    const elapsed = Math.floor((Date.now() - S.startTime.getTime()) / 1000);
+    const timerEl = document.getElementById('timer');
+    if (timerEl) timerEl.textContent = fmtDuration(elapsed);
+    const labelEl = document.getElementById('timerLabel');
+    if (labelEl) labelEl.textContent = `Recording session ${S.sessionId || ''}`;
+  }, 1000);
+}
+
+// ════════════════════════════════════════════════════════════
+//  SESSION CONTROL
+// ════════════════════════════════════════════════════════════
+export async function toggleSession() {
+  if (S.sessionActive) {
+    const res = await api('/session/stop', 'POST');
+    toast('Session stopped');
+    if (res?.command_id) console.info('Stop command_id', res.command_id);
+    S.chartMax = 0;
+  } else {
+    const pid = document.getElementById('personId').value.trim() || 'unknown';
+    const description = document.getElementById('sessionDescription').value.trim();
+    const preflight = await runStartPreflight();
+    if (!preflight.canStart) return;
+
+    const res = await api('/session/start', 'POST', {
+      person_id: pid,
+      description,
+      force_preflight: preflight.force,
+    });
+    if (res?.preflight && !res.session_id) {
+      showPreflightResult(res.preflight);
+      return;
+    }
+    if (res?.session_id) toast(`Recording session ${res.session_id} started`);
+  }
+}
+
+async function runStartPreflight() {
+  const preflight = await api('/session/preflight');
+  if (!preflight) return { canStart: false, force: false };
+  if (preflight.blockers?.length) {
+    showPreflightResult(preflight);
+    document.querySelector('.tab[data-page="connections"]')?.click();
+    return { canStart: false, force: false };
+  }
+  if (preflight.warnings?.length) {
+    showPreflightResult(preflight);
+    const lines = preflight.warnings.map(item => `* ${item.message || item.code}`).join('\n');
+    const proceed = window.confirm(`Preflight warning:\n${lines}\n\nStart session anyway?`);
+    return { canStart: proceed, force: proceed };
+  }
+  return { canStart: true, force: false };
+}
+
+function showPreflightResult(preflight) {
+  const blockers = preflight.blockers || [];
+  const warnings = preflight.warnings || [];
+  const first = blockers[0] || warnings[0];
+  if (!first) {
+    toast('Preflight OK');
+    return;
+  }
+  toast(`${blockers.length ? 'Blocked' : 'Warning'}: ${first.code || first.message}`);
+}
+
+// ════════════════════════════════════════════════════════════
+//  PEN / WATCH COMMANDS
+// ════════════════════════════════════════════════════════════
+export async function penConnect() {
+  const r = await api('/pen/connect', 'POST');
+  if (r?.ok) toast('Pen logger started - switch pen on');
+  else toast('Warning: ' + (r?.error || 'Error'));
+}
+
+export async function penDisconnect() {
+  await api('/pen/disconnect', 'POST');
+  toast('Pen disconnected');
+}
+
+export async function watchCmd(cmd) {
+  await api(`/watch/${cmd}`, 'POST');
+  toast(`Watch command: ${cmd}`);
+}
+
+export async function airpodsCmd(cmd) {
+  await api(`/airpods/${cmd}`, 'POST');
+  toast(`AirPods command: ${cmd}`);
+}
+
+// ════════════════════════════════════════════════════════════
+//  CARD DETAILS TOGGLE
+// ════════════════════════════════════════════════════════════
+export function toggleCardDetails(btn) {
+  btn.closest('.card')?.classList.toggle('expanded');
+}
+
+// ════════════════════════════════════════════════════════════
+//  LOG RENDERING + SETTINGS
+// ════════════════════════════════════════════════════════════
+export function renderLogs() {
+  const sampleRows = (S.sampleLog || []).slice(-S.logRows).reverse();
+  const eventRows = (S.eventLog || []).slice(-S.logRows).reverse();
+
+  const sampleLogEl = document.getElementById('sampleLog');
+  const eventLogEl = document.getElementById('eventLog');
+
+  if (sampleLogEl) {
+    sampleLogEl.innerHTML = sampleRows.length
+      ? sampleRows.map(renderSampleRow).join('')
+      : '<div class="log-row sample-row"><span class="log-time">--:--:--</span><span class="sample-pill">idle</span><span class="log-msg">Waiting for pen/watch samples...</span></div>';
+  }
+
+  if (eventLogEl) {
+    eventLogEl.innerHTML = eventRows.length
+      ? eventRows.map(renderEventRow).join('')
+      : '<div class="log-row"><span class="log-time">--:--:--</span><span class="log-src">server</span><span class="log-msg">Waiting for events...</span></div>';
+  }
+}
+
+function renderSampleRow(row) {
+  const d = row.data || {};
+  const msg = row.source === 'watch'
+    ? `acc=(${fmtNum(d.ax)}, ${fmtNum(d.ay)}, ${fmtNum(d.az)}) gyro=(${fmtNum(d.rx)}, ${fmtNum(d.ry)}, ${fmtNum(d.rz)}) |a|=${fmtNum(d.acc_mag)} |r|=${fmtNum(d.gyro_mag)}`
+    : `${d.dot_type || 'dot'} x=${fmtNum(d.x)} y=${fmtNum(d.y)} p=${d.pressure ?? '-'}`;
+  return `<div class="log-row sample-row"><span class="log-time">${fmtClock(row.ts)}</span><span class="sample-pill">${esc(row.source || 'sample')}</span><span class="log-msg">${esc(msg)}</span></div>`;
+}
+
+function renderEventRow(row) {
+  const cls = row.level === 'error' ? 'error' : (row.level === 'warn' ? 'warn' : '');
+  const extra = row.data ? ` ${JSON.stringify(row.data)}` : '';
+  return `<div class="log-row"><span class="log-time">${fmtClock(row.ts)}</span><span class="log-src">${esc(row.source || 'log')}</span><span class="log-msg ${cls}">${esc((row.message || '') + extra)}</span></div>`;
+}
+
+export function clearVisualLogs() {
+  S.sampleLog = [];
+  S.eventLog = [];
+  renderLogs();
+}
+
+export function setLogRows(value) {
+  S.logRows = Number(value) || 24;
+  localStorage.setItem('logRows', String(S.logRows));
+  const sel = document.getElementById('logRowsSelect');
+  if (sel) sel.value = String(S.logRows);
+  renderLogs();
+}
+
+// ════════════════════════════════════════════════════════════
+//  PAGE LIFECYCLE
+// ════════════════════════════════════════════════════════════
+export function mount(container) {
+  if (_mounted) return;
+  _mounted = true;
+
+  // Lazy-init canvas refs now that recording DOM is in the page.
+  _penCanvas = document.getElementById('penCanvas');
+  if (_penCanvas) _penCtx = _penCanvas.getContext('2d');
+
+  // Chart.js chart constructed once DOM is ready.
+  _initChart();
+
+  // Resize redraws pen canvas; wired once after canvas is in DOM.
+  window.addEventListener('resize', drawPenCanvas);
+
+  // Initialise timer display and log rows now that DOM elements exist.
+  const timerEl = document.getElementById('timer');
+  if (timerEl) timerEl.textContent = '00:00:00';
+  setLogRows(S.logRows);
+}
+
+export function onShow() {
+  // Redraw pen canvas in case it was resized while hidden.
+  drawPenCanvas();
+}
+
+export function onHide() {
+  // No rAF loops to cancel - chart and pen canvas updates are synchronous.
+  // Timer keeps running regardless of active tab (session continues in background).
+}
+
+export function onStatus(s) {
+  // Session btn
+  const btn = document.getElementById('sessionBtn');
+  if (btn) {
+    if (s.session_active) {
+      btn.textContent = 'STOP'; btn.classList.add('stop');
+    } else {
+      btn.textContent = 'START'; btn.classList.remove('stop');
+    }
+  }
+
+  // Input disabled state
+  const personIdEl = document.getElementById('personId');
+  const descEl = document.getElementById('sessionDescription');
+  if (personIdEl) personIdEl.disabled = s.session_active;
+  if (descEl) descEl.disabled = s.session_active;
+
+  // Session counters
+  setNumberSmooth('watchCount', s.watch_samples, { format: _smoothFmt.count });
+  setNumberSmooth('penCount', s.pen_samples, { format: _smoothFmt.count });
+  const sessionIdEl = document.getElementById('sessionIdDisp');
+  if (sessionIdEl) sessionIdEl.textContent = s.session_id || '—';
+  setNumberSmooth('watchRateMain', Number(s.watch_rate_hz || 0), { format: _smoothFmt.hz });
+
+  // Hero live mode
+  document.getElementById('liveRecordingHero')?.classList.toggle('live', !!s.session_active);
+
+  // Timer label (idle state only - running timer updates its own label)
+  if (!s.session_active && !S.timerInterval) {
+    const labelEl = document.getElementById('timerLabel');
+    if (labelEl) labelEl.textContent = 'Ready for a new recording';
+  }
+
+  // Timer start/stop
+  if (s.session_active && !S.timerInterval && S.startTime) {
+    startTimer();
+  } else if (!s.session_active && S.timerInterval) {
+    clearInterval(S.timerInterval); S.timerInterval = null;
+    const labelEl = document.getElementById('timerLabel');
+    if (labelEl) labelEl.textContent = 'Session ended';
+  }
+
+  const watchRate = Number(s.watch_rate_hz || 0);
+  const penRate = Number(s.pen_rate_hz || 0);
+  const lastWatch = s.watch_last_sample || {};
+  const lastPen = s.pen_last_dot || {};
+  const validation = s.validation || {};
+  const gyroOk = validation.watch_has_gyroscope === true;
+  const penClockOk = validation.pen_has_server_time === true;
+
+  // Pen badge
+  setBadge('penBadge', s.pen_connected, s.pen_connected ? 'Connected' : 'Disconnected');
+
+  // Watch badge uses values assembled in status_cluster.js handleStatus
+  if (S.watchBadgeClass !== undefined) {
+    setBadge('watchBadge', S.watchConnected, S.watchStatusText, S.watchBadgeClass);
+  }
+
+  // AirPods badge
+  const airpodsRate = Number(s.airpods_rate_hz || 0);
+  const lastAirpods = s.airpods_last_sample || {};
+  const airpodsStreaming = !!s.airpods_connected;
+  const airpodsPaired = s.airpods_paired === true;
+  const airpodsListening = s.airpods_streaming === true;
+  let airpodsBadgeText, airpodsBadgeClass, airpodsUiOnline;
+  if (airpodsStreaming) {
+    airpodsBadgeText = 'Streaming'; airpodsBadgeClass = 'badge-ok'; airpodsUiOnline = true;
+  } else if (airpodsPaired) {
+    airpodsBadgeText = airpodsListening ? 'Paired · listening' : 'Paired · idle';
+    airpodsBadgeClass = 'badge-warn'; airpodsUiOnline = true;
+  } else if (airpodsListening) {
+    airpodsBadgeText = 'Waiting for AirPods'; airpodsBadgeClass = 'badge-warn'; airpodsUiOnline = false;
+  } else {
+    airpodsBadgeText = 'Offline'; airpodsBadgeClass = 'badge-err'; airpodsUiOnline = false;
+  }
+  setBadge('airpodsBadge', airpodsUiOnline, airpodsBadgeText, airpodsBadgeClass);
+
+  // Device side rows
+  const penBleEl = document.getElementById('penBleStatus');
+  if (penBleEl) penBleEl.textContent = s.pen_connected ? 'Connected' : 'Idle';
+  const dotTypeEl = document.getElementById('dotType');
+  if (dotTypeEl) dotTypeEl.textContent = lastPen.dot_type || '–';
+  const penLastXYEl = document.getElementById('penLastXY');
+  if (penLastXYEl) penLastXYEl.textContent = lastPen.x != null ? `${fmtNum(lastPen.x)}, ${fmtNum(lastPen.y)}` : '–';
+  setNumberSmooth('penRateSide', penRate, { format: _smoothFmt.hz });
+  setNumberSmooth('watchRateSide', watchRate, { format: _smoothFmt.hz });
+  setNumberSmooth('watchGyroSide', lastWatch.gyro_mag, { format: _smoothFmt.decimal3 });
+  const watchLastTsEl = document.getElementById('watchLastTs');
+  if (watchLastTsEl) {
+    watchLastTsEl.textContent = s.watch_last_seen_ms_ago != null ? fmtAgo(s.watch_last_seen_ms_ago) : '–';
+  }
+  setNumberSmooth('airpodsRateSide', airpodsRate, { format: _smoothFmt.hz });
+  setNumberSmooth('airpodsAccSide', lastAirpods.acc_mag, { format: _smoothFmt.decimal3 });
+  const airpodsLastTsEl = document.getElementById('airpodsLastTs');
+  if (airpodsLastTsEl) {
+    airpodsLastTsEl.textContent = s.airpods_last_seen_ms_ago != null ? fmtAgo(s.airpods_last_seen_ms_ago) : '–';
+  }
+
+  // Health metrics
+  setHealth('watchHz', fmtHz(watchRate), watchRate > 80 ? 'ok' : (watchRate > 0 ? 'warn' : 'err'));
+  setHealth('penHz', fmtHz(penRate), penRate > 0 ? 'ok' : (s.pen_connected ? 'warn' : 'err'));
+  setHealth('gyroHealth', gyroOk ? 'present' : 'missing', gyroOk ? 'ok' : 'err');
+  setHealth('clockHealth', penClockOk ? 'server time' : 'legacy pen time', penClockOk ? 'ok' : 'warn');
+
+  // Chart
+  if (s.chart) updateChart(s.chart);
+  document.getElementById('chartCanvasWrap')?.classList.toggle('has-data', S.chartBuffer.length > 0);
+
+  // Pen handwriting canvas
+  if (s.pen_recent_dots) updatePenCanvas(s.pen_recent_dots);
+
+  // Logs
+  renderLogs();
+}
