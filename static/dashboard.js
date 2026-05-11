@@ -92,6 +92,7 @@ function closeSessionDetail() {
   }
   document.getElementById('page-session-detail').classList.remove('active');
   document.getElementById('page-sessions').classList.add('active');
+  if (!S._filtersWired) loadSessions();
 }
 
 // Slidender Tab-Underline: misst Position+Breite des aktiven Tabs und
@@ -949,7 +950,7 @@ function computeVerdict(quality, alignment, durationSec) {
   if (ml === 'bad' || issues.includes('sync_failed') || issues.includes('streams_do_not_overlap')) {
     return { level: VERDICT_SKIP, label: 'Skip' };
   }
-  const sigma = alignment?.sigma_minimal_variance;
+  const sigma = alignment?.sigma;
   const dur = Number(durationSec || 0);
   if (ml === 'ok' && Number.isFinite(sigma) && sigma <= -3 && dur >= 300) {
     return { level: VERDICT_TRAINABLE, label: 'Trainable' };
@@ -979,14 +980,21 @@ async function openSessionDetail(sessionId) {
   document.getElementById('detailSubtitle').textContent = 'Loading…';
   document.getElementById('detailReportLink').href = `/sessions/${encodeURIComponent(sessionId)}/report?format=md`;
 
-  // Restore section open-state from localStorage.
+  // Restore section open-state from localStorage. Wire toggle listeners
+  // once per page lifetime so they don't accumulate across detail opens.
   document.querySelectorAll('#page-session-detail details.detail-section').forEach(d => {
     const key = `sessionDetail.section.${d.dataset.section}.open`;
     d.open = localStorage.getItem(key) === '1';
-    d.addEventListener('toggle', () => {
-      try { localStorage.setItem(key, d.open ? '1' : '0'); } catch {}
-    }, { once: false });
   });
+  if (!S._detailTogglesWired) {
+    document.querySelectorAll('#page-session-detail details.detail-section').forEach(d => {
+      const key = `sessionDetail.section.${d.dataset.section}.open`;
+      d.addEventListener('toggle', () => {
+        try { localStorage.setItem(key, d.open ? '1' : '0'); } catch {}
+      });
+    });
+    S._detailTogglesWired = true;
+  }
 
   // Load quality (cached) + validation + alignment in parallel.
   const [validation, alignment] = await Promise.all([
@@ -1036,7 +1044,7 @@ function _renderDetailHeader(session, quality, alignment) {
 
   const mlStatus = quality?.ml_readiness?.status || 'unknown';
   const recStatus = quality?.recording_health?.status || 'unknown';
-  const sigma = alignment?.sigma_minimal_variance;
+  const sigma = alignment?.sigma;
 
   const pillCls = (st) => st === 'ok' ? 'ok' : st === 'warn' ? 'warn' : st === 'bad' ? 'err' : '';
   const mlPill = document.getElementById('detailPillMl');
@@ -1169,7 +1177,7 @@ function _matchesFilters(s, q, filters) {
   // If a session's alignment isn't loaded yet, "all" passes; specific filters
   // exclude it until the bulk fetch completes (which re-applies filters).
   const a = S.alignmentBySession?.[s.session_id];
-  const sigma = a?.sigma_minimal_variance;
+  const sigma = a?.sigma;
   const failed = a?.status === 'failed' || (Number.isFinite(sigma) && sigma > -2);
   const hasPen = !!a && Number.isFinite(sigma);
   if (filters.align === 's3' && !(Number.isFinite(sigma) && sigma <= -3)) return false;
@@ -1200,7 +1208,7 @@ function applyFilters() {
 
 function _sigmaPill(sessionId) {
   const a = S.alignmentBySession?.[sessionId];
-  const sigma = a?.sigma_minimal_variance;
+  const sigma = a?.sigma;
   if (!Number.isFinite(sigma)) {
     if (a?.status === 'failed') return '<span class="status-badge badge-err">failed</span>';
     return '<span class="mono" style="color:var(--text3)">—</span>';
