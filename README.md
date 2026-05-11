@@ -21,21 +21,26 @@ The Moleskine Smart Pen acts as ground truth during data collection: its stroke 
 
 ```
 Apple Watch (IMU)
-  └─ WatchConnectivity ──► iPhone Bridge ──► POST /watch ──► server.py
-                                                                  │
-Moleskine Smart Pen (BLE)                                 │
-  └─ pen_logger.py ────────────────────────────────────────────────┘
-                                                                  │
-                                              data/raw/watch/{session}_watch.csv
-                                              data/raw/pen/{session}_pen.csv
-                                                                  │
-                                              src/preprocessing/preprocessing.py
-                                              (tbd)
-                                                                  │
-                                              data/processed/merged_dataset.csv
-                                                                  │
-                                              src/training/train.py
-                                              src/evaluation/evaluate.py
+  └─ WatchConnectivity ──► iPhone Bridge ──► POST /watch    ──► server.py
+                                                                     │
+AirPods (head-IMU)                                                   │
+  └─ CMHeadphoneMotionManager ─► iPhone ──► POST /airpods ──► server.py
+                                                                     │
+Moleskine Smart Pen (BLE)                                            │
+  └─ pen_logger.py ──────────────────────────────────────────────────┘
+                                                                     │
+                                            data/raw/watch/{session}_watch.csv
+                                            data/raw/pen/{session}_pen.csv
+                                            data/raw/airpods/{session}_airpods.csv
+                                                                     │
+                                  src/alignment/pen_match.py   (recover δ)
+                                  src/merge/                   (±20 ms join)
+                                                                     │
+                                  data/processed/{session}_merged.csv
+                                                                     │
+                                  src/features/   →  src/training/   (TODO)
+                                                                     │
+                                  src/evaluation/evaluate.py
 ```
 
 ---
@@ -62,7 +67,7 @@ The iPhone app bridges Watch ↔ Server: it receives IMU batches via WatchConnec
 
 ### Apple Watch App
 
-The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 samples to the iPhone bridge. The UI shows session state, sample rate, and connection status.
+The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 samples to the iPhone bridge via WatchConnectivity. The UI shows session state, sample rate, and connection status.
 
 ![Watch App](docs/screenshots/watch_app.png)
 
@@ -72,8 +77,9 @@ The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 sampl
 
 | Device | Role | Data |
 |--------|------|------|
-| Apple Watch (Series 6+) | Model input | Accelerometer + Gyroscope  |
-| Moleskine Smart Pen NWP-F130 | Ground truth | x/y/pressure/dot_type  via BLE |
+| Apple Watch (Series 6+) | Model input | Accelerometer + Gyroscope @ 50 Hz |
+| AirPods (Pro / 3rd Gen) | Auxiliary input | Head IMU (accel + gyro + attitude) via `CMHeadphoneMotionManager` |
+| Moleskine Smart Pen NWP-F130 | Ground truth | x/y/pressure/dot_type via BLE |
 
 ---
 
@@ -85,26 +91,46 @@ pen_logger.py                    BLE logger for the Moleskine Smart Pen
 dashboard.html                   Single-page session dashboard
 static/dashboard.js              Dashboard frontend logic
 
+src/pen_schema.py                Shared pen-CSV schema (no deps;
+                                 imported by pen_logger.py and server)
+
 src/server/                      Modular server package
   config.py                        Paths, field names, logs/ dir
   state.py                         In-memory session state
   utils.py                         Pure helper functions
   logging_setup.py                 File + stream + event-log handlers
-  csv_io.py                        CSV read/write, live-preview tail
+  csv_io.py                        CSV read/write (pen + watch + airpods),
+                                   live-preview tail
   status.py                        Connection checks + status payload
+  issues.py                        ISSUE_SPECS table + sample-rate targets
+                                   (single source of truth)
+  sync.py                          Sync-confidence helpers
+  timelines.py                     Per-session timeline reconstruction
   quality.py                       Session quality, validation, report
   models.py                        Pydantic request/response models
   broadcast.py                     WebSocket broadcast + 1-s status loop
   pen_proc.py                      Pen logger subprocess management
-  routes.py                        All FastAPI endpoints
+  routes/                          One APIRouter per concern
+    watch.py, airpods.py, pen.py,
+    sessions.py, dashboard.py, ws.py,
+    _helpers.py                    aggregated in __init__.py
 
-src/preprocessing/
-  preprocessing.py                 prepare_pen_data(), prepare_watch_data(),
-                                   merge_pen_watch() (±20 ms join, δ-shifted)
+src/alignment/
   pen_match.py                     Stroke-variance pen↔IMU clock-offset
                                    recovery (TH Zürich algorithm)
-src/training/train.py              Load → merge → save (model: TODO)
+src/merge/
+  prep.py                          Per-stream cleaning + per-sample features
+  merge.py                         merge_pen_watch() (±20 ms asof, δ-shifted)
+  __main__.py                      CLI: python -m src.merge [SESSION_ID]
+src/features/                      (placeholder — TODO)
+src/training/                      (placeholder — TODO)
 src/evaluation/evaluate.py         Label distribution (metrics: TODO)
+
+scripts/
+  start.sh                         Server + Cloudflare tunnel TTY UI
+  tunnel.sh                        Standalone Cloudflare quick tunnel
+  test_server.sh                   POST a synthetic batch to /watch
+  plot_alignment.py                Render the 4-panel alignment figure
 
 watch_streamer/
   WatchStreamer Watch App/
@@ -118,9 +144,12 @@ watch_streamer/
 data/
   raw/pen/{session}_pen.csv        Raw pen dots per session
   raw/watch/{session}_watch.csv    Raw IMU samples per session
+  raw/airpods/{session}_airpods.csv  Raw head-IMU per session
   sessions.csv                     Session index
   processed/                       Merged datasets (gitignored)
+notebooks/                         Exploration notebooks
 reports/                           Weekly progress reports
+results/plots/                     Generated figures (alignment, etc.)
 ```
 
 ---
@@ -173,6 +202,14 @@ tilt_x, tilt_y, section, owner, note, page
 `dot_type` values: `PEN_DOWN`, `PEN_MOVE`, `PEN_UP`, `PEN_HOVER`.  
 Label derivation: `label_writing = 1` if `dot_type ∈ {PEN_DOWN, PEN_MOVE}`, else `0`.
 
+**AirPods CSV** — one row per head-IMU sample:
+```
+local_ts, local_ts_ms, session_id, sequence, sample_rate_hz,
+airpods_sent_at, phone_received_at, server_received_ms, source,
+ts, ax, ay, az, rx, ry, rz, qw, qx, qy, qz, gx, gy, gz
+```
+Accel + gyro + attitude quaternion (`qw/qx/qy/qz`) + gravity vector (`gx/gy/gz`).
+
 **Merged CSV** — pen rows as base, watch IMU joined at nearest timestamp within ±20 ms. Adds pen-derived features: `dt`, `dx`, `dy`, `distance`, `speed`.
 
 ---
@@ -181,7 +218,7 @@ Label derivation: `label_writing = 1` if `dot_type ∈ {PEN_DOWN, PEN_MOVE}`, el
 
 Pen and watch device clocks do not share an epoch. The Moleskine pen's hardware clock typically lands ~922 days off plus an arbitrary time-of-day shift, so a naïve wall-clock join would smear the labels by hundreds of milliseconds (or worse).
 
-We recover the per-session offset **δ** automatically using a **stroke-window variance-minimization** approach — a port of the TH Zürich method described in [`data/02_Pen_IMU_Timestamp_Alignment.pdf`](data/02_Pen_IMU_Timestamp_Alignment.pdf), implemented in [`src/preprocessing/pen_match.py`](src/preprocessing/pen_match.py).
+We recover the per-session offset **δ** automatically using a **stroke-window variance-minimization** approach — a port of the TH Zürich method described in [`data/02_Pen_IMU_Timestamp_Alignment.pdf`](data/02_Pen_IMU_Timestamp_Alignment.pdf), implemented in [`src/alignment/pen_match.py`](src/alignment/pen_match.py).
 
 **Idea.** While the pen is on paper, the wrist holding the watch is comparatively still — strokes are short and constrained. The correct δ shifts the stroke mask onto the calmest portions of the IMU signal, so the right δ shows up as a clear minimum of the mean accelerometer variance under the shifted mask.
 
@@ -240,6 +277,6 @@ Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside
 
 ## Weekly Reports
 
-- [Week 1](reports/week01.md)
-- [Week 2](reports/week_02_report.md)
-- [Week 3](reports/week_03_report.md)
+- [Week 3](reports/week03.md)
+- [Week 4](reports/week_04_report.md)
+- [Week 5](reports/week_05_report.md)

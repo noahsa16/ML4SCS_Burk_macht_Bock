@@ -1,4 +1,4 @@
-"""CLI: Session finden, mergen, als CSV speichern.
+"""CLI: Session finden, watch-base mergen, als CSV speichern.
 
 Aufruf::
 
@@ -6,7 +6,7 @@ Aufruf::
     python -m src.merge S025         # spezifische Session
     python -m src.merge S025 --out custom.csv
 
-Standard-Output: ``data/processed/merged_dataset.csv``.
+Standard-Output: ``data/processed/{session}_merged.csv``.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .merge import merge_pen_watch
+from .merge import merge_watch_pen
 
 DATA_RAW  = Path(__file__).parents[2] / "data" / "raw"
 DATA_PROC = Path(__file__).parents[2] / "data" / "processed"
@@ -45,12 +45,17 @@ def _resolve_session(session: str | None) -> tuple[str, Path, Path]:
     return sid, pairs[sid]["pen"], pairs[sid]["watch"]
 
 
-def run(pen_csv: Path, watch_csv: Path, out: Path | None = None) -> pd.DataFrame:
-    df = merge_pen_watch(pen_csv, watch_csv)
+def run(sid: str, pen_csv: Path, watch_csv: Path, out: Path | None = None) -> pd.DataFrame:
+    df = merge_watch_pen(pen_csv, watch_csv)
     delta = df.attrs.get("pen_clock_offset_sec", 0.0)
     sigma = df.attrs.get("pen_clock_sigma", float("nan"))
-    print(f"Merged dataset: {len(df)} Zeilen | δ = {delta:.3f} s | σ = {sigma:.2f}")
-    out = out or (DATA_PROC / "merged_dataset.csv")
+    n_writing = int(df["label_writing"].sum())
+    n_idle = len(df) - n_writing
+    print(
+        f"Merged dataset: {len(df)} Watch-Samples | "
+        f"writing={n_writing}, idle={n_idle} | δ = {delta:.3f} s | σ = {sigma:.2f}"
+    )
+    out = out or (DATA_PROC / f"{sid}_merged.csv")
     out.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out, index=False)
     print(f"Gespeichert: {out}")
@@ -60,11 +65,11 @@ def run(pen_csv: Path, watch_csv: Path, out: Path | None = None) -> pd.DataFrame
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m src.merge")
     parser.add_argument("session", nargs="?", help="z. B. S027 — default: neueste Session")
-    parser.add_argument("--out", type=Path, help="Ausgabepfad (default: data/processed/merged_dataset.csv)")
+    parser.add_argument("--out", type=Path, help="Ausgabepfad (default: data/processed/{session}_merged.csv)")
     args = parser.parse_args()
     sid, pen, watch = _resolve_session(args.session)
     print(f"Session {sid}: {pen.name} + {watch.name}")
-    run(pen, watch, args.out)
+    run(sid, pen, watch, args.out)
 
 
 if __name__ == "__main__":
