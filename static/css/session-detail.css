@@ -16,11 +16,10 @@
 .timeline-label { font-weight: 700; color: var(--text2); text-align: right; }
 .timeline-track { position: relative; height: 36px; border-radius: var(--radius-sm); background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
 .timeline-bar { position: absolute; top: 7px; height: 20px; border-radius: var(--radius-pill); min-width: 2px; }
-.bar-watch { background: linear-gradient(90deg, var(--accent), oklch(0.720 0.135 88)); }
+.bar-watch { background: linear-gradient(90deg, var(--accent), var(--yellow)); }
 .bar-pen { background: var(--green); }
 .bar-gap { background: color-mix(in oklch, var(--text3) 18%, transparent); }
-.drift-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); margin-top: var(--space-4); }
-.drift-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3); }
+.drift-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-top: var(--space-4); }
 .drift-box .k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
 .drift-box .v { font-family: var(--mono); font-size: var(--text-base); font-weight: 700; color: var(--text); margin-top: var(--space-1); }
 .validation-note { color: var(--text3); font-size: var(--text-sm); line-height: 1.55; margin-top: var(--space-3); }
@@ -28,18 +27,18 @@
 .issue-chip { font-family: var(--mono); font-size: var(--text-xs); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
 
 /* ─── Pen ↔ Watch alignment (stroke-variance) ─────────────── */
-.alignment-section { margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px dashed var(--border2); }
+/* Lives inside a <details> body; the section context comes from the parent. */
 .alignment-head { display: flex; justify-content: space-between; gap: var(--space-3); align-items: baseline; flex-wrap: wrap; margin-bottom: var(--space-2); }
+.alignment-head .card-title { margin-bottom: var(--space-1); }
 .alignment-status { font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.02em; padding: var(--space-1) var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface2); color: var(--text2); }
-.alignment-status.ok  { color: var(--green); border-color: oklch(0.700 0.150 145 / 0.5); }
+.alignment-status.ok  { color: var(--green); border-color: color-mix(in oklch, var(--green) 50%, transparent); }
 .alignment-status.skip { color: var(--warn); border-color: color-mix(in oklch, var(--yellow) 50%, transparent); }
 .alignment-status.err { color: var(--err); border-color: color-mix(in oklch, var(--red) 50%, transparent); }
 .alignment-explainer { font-size: var(--text-base); line-height: 1.55; color: var(--text2); margin: 6px 0 var(--space-4); }
 .alignment-explainer strong { color: var(--text); }
-.alignment-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); margin-bottom: var(--space-4); }
-.alignment-charts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.alignment-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-4); }
+.alignment-charts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }
 @media (max-width: 880px) { .alignment-charts { grid-template-columns: 1fr; } }
-.alignment-chart { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); }
 .alignment-chart-title { font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text2); }
 .alignment-chart-help { font-size: var(--text-xs); line-height: 1.5; color: var(--text3); margin: var(--space-1) 0 var(--space-2); }
 .alignment-chart canvas { width: 100% !important; height: 240px !important; }
@@ -98,7 +97,7 @@
   font-size: var(--text-xs); font-family: var(--mono); padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface2); color: var(--text2);
 }
-.session-detail-header .pill.ok  { color: var(--green); border-color: oklch(0.700 0.150 145 / 0.45); }
+.session-detail-header .pill.ok  { color: var(--green); border-color: color-mix(in oklch, var(--green) 45%, transparent); }
 .session-detail-header .pill.warn { color: var(--warn);  border-color: color-mix(in oklch, var(--yellow) 45%, transparent); }
 .session-detail-header .pill.err  { color: var(--err);   border-color: color-mix(in oklch, var(--red) 45%, transparent); }
 
