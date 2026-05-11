@@ -394,6 +394,28 @@ export function toggleCardDetails(btn) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  WELCOME CARD
+// ════════════════════════════════════════════════════════════
+function _isWelcomeDismissed() {
+  try { return localStorage.getItem('welcomeDismissed') === '1'; } catch { return false; }
+}
+
+function _updateWelcomeCard(s) {
+  const card = document.getElementById('welcomeCard');
+  if (!card) return;
+  // Predicate: no sessions on disk yet, no devices connected, not dismissed.
+  // S.allSessions is null/undefined until loadSessions() resolves — treat null
+  // as "unknown, keep hidden so we don't flash".
+  const noSessions = Array.isArray(S.allSessions) && S.allSessions.length === 0;
+  const noPen = !s?.pen_connected;
+  const noWatch = !S.watchConnected;
+  const airpodsUiOnline = !!(s?.airpods_connected || s?.airpods_paired || s?.airpods_streaming);
+  const noAirpods = !airpodsUiOnline;
+  const show = noSessions && noPen && noWatch && noAirpods && !_isWelcomeDismissed();
+  card.style.display = show ? '' : 'none';
+}
+
+// ════════════════════════════════════════════════════════════
 //  DEVICE CARD EMPTY STATE
 // ════════════════════════════════════════════════════════════
 function _updateDeviceEmpty(slotId, rowsId, connected, title) {
@@ -493,6 +515,15 @@ export function mount(container) {
   const timerEl = document.getElementById('timer');
   if (timerEl) timerEl.textContent = '00:00:00';
   setLogRows(S.logRows);
+
+  const dismissBtn = document.getElementById('welcomeDismiss');
+  if (dismissBtn) {
+    dismissBtn.addEventListener('click', () => {
+      try { localStorage.setItem('welcomeDismissed', '1'); } catch {}
+      const card = document.getElementById('welcomeCard');
+      if (card) card.style.display = 'none';
+    });
+  }
 }
 
 export function onShow() {
@@ -583,6 +614,7 @@ export function onStatus(s) {
   setBadge('airpodsBadge', airpodsUiOnline, airpodsBadgeText, airpodsBadgeClass);
 
   // Device card empty states
+  _updateWelcomeCard(s);
   _updateDeviceEmpty('penDeviceEmpty', 'penDeviceRows', !!s.pen_connected,
     'Connect the pen to see live dot data.');
   _updateDeviceEmpty('watchDeviceEmpty', 'watchDeviceRows', !!S.watchConnected,
