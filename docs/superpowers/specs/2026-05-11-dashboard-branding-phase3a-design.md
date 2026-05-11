@@ -27,7 +27,7 @@ Add the missing identity layer to the dashboard: a persistent footer with team/s
 New global element appended to `<body>` after `<main>`. Persistent across page navigation (lives outside the page-content `<main>`).
 
 Content (left side · right side):
-- **Left**: team byline · project byline. `Noah Samel · Ben Kriegsmann · Tajuddin Snasni` then a `·` separator then `ML4SCS · Leuphana University · WS 25/26`.
+- **Left**: team byline · project byline. `Noah Samel · Ben Kriegsmann · Tajuddin Snasni` then a `·` separator then `ML4SCS · Leuphana University · SS 26`.
 - **Right**: `github` text link to the repo. Optional commit-short version label (cut if it bloats the design — Noah decides during implementation).
 
 Treatment:
