@@ -38,52 +38,59 @@ export function onStatus(/* s */) {}
 // PUBLIC ENTRY POINT
 
 export async function openSessionDetail(sessionId) {
-  S.selectedSessionId = sessionId;
-  document.getElementById('detailTitle').textContent = `Session ${sessionId}`;
-  document.getElementById('detailSubtitle').textContent = 'Loading…';
-  document.getElementById('detailReportLink').href = `/sessions/${encodeURIComponent(sessionId)}/report?format=md`;
+  const loadingSlot = document.getElementById('pageDetailLoading');
+  if (loadingSlot) loadingSlot.style.display = '';
 
-  // Restore section open-state from localStorage. Wire toggle listeners
-  // once per page lifetime so they don't accumulate across detail opens.
-  document.querySelectorAll('#page-session-detail details.detail-section').forEach(d => {
-    const key = `sessionDetail.section.${d.dataset.section}.open`;
-    d.open = localStorage.getItem(key) === '1';
-  });
-  if (!S._detailTogglesWired) {
+  try {
+    S.selectedSessionId = sessionId;
+    document.getElementById('detailTitle').textContent = `Session ${sessionId}`;
+    document.getElementById('detailSubtitle').textContent = 'Loading…';
+    document.getElementById('detailReportLink').href = `/sessions/${encodeURIComponent(sessionId)}/report?format=md`;
+
+    // Restore section open-state from localStorage. Wire toggle listeners
+    // once per page lifetime so they don't accumulate across detail opens.
     document.querySelectorAll('#page-session-detail details.detail-section').forEach(d => {
       const key = `sessionDetail.section.${d.dataset.section}.open`;
-      d.addEventListener('toggle', () => {
-        try { localStorage.setItem(key, d.open ? '1' : '0'); } catch {}
-      });
+      d.open = localStorage.getItem(key) === '1';
     });
-    S._detailTogglesWired = true;
+    if (!S._detailTogglesWired) {
+      document.querySelectorAll('#page-session-detail details.detail-section').forEach(d => {
+        const key = `sessionDetail.section.${d.dataset.section}.open`;
+        d.addEventListener('toggle', () => {
+          try { localStorage.setItem(key, d.open ? '1' : '0'); } catch {}
+        });
+      });
+      S._detailTogglesWired = true;
+    }
+
+    // Load validation + alignment in parallel.
+    const [validation, alignment] = await Promise.all([
+      S.validationBySession[sessionId]
+        ? Promise.resolve(S.validationBySession[sessionId])
+        : api(`/sessions/${encodeURIComponent(sessionId)}/validation`, 'GET'),
+      S.alignmentBySession[sessionId]
+        ? Promise.resolve(S.alignmentBySession[sessionId])
+        : api(`/sessions/${encodeURIComponent(sessionId)}/alignment`, 'GET'),
+    ]);
+    if (validation) S.validationBySession[sessionId] = validation;
+    if (alignment) S.alignmentBySession[sessionId] = alignment;
+
+    // The session_id may not be in S.allSessions if filters are tight — re-fetch list if missing.
+    if (!S.allSessions?.find(s => s.session_id === sessionId)) {
+      const data = await api('/sessions', 'GET');
+      if (data) S.allSessions = data;
+    }
+    const session = S.allSessions.find(s => s.session_id === sessionId) || {};
+    const quality = S.qualityBySession[sessionId] || {};
+
+    _renderDetailHeader(session, quality, alignment);
+    _renderDetailStreams(session, quality);
+    renderSessionValidation(sessionId);
+    renderAlignment(sessionId);
+    _renderDetailIssues(quality);
+  } finally {
+    if (loadingSlot) loadingSlot.style.display = 'none';
   }
-
-  // Load validation + alignment in parallel.
-  const [validation, alignment] = await Promise.all([
-    S.validationBySession[sessionId]
-      ? Promise.resolve(S.validationBySession[sessionId])
-      : api(`/sessions/${encodeURIComponent(sessionId)}/validation`, 'GET'),
-    S.alignmentBySession[sessionId]
-      ? Promise.resolve(S.alignmentBySession[sessionId])
-      : api(`/sessions/${encodeURIComponent(sessionId)}/alignment`, 'GET'),
-  ]);
-  if (validation) S.validationBySession[sessionId] = validation;
-  if (alignment) S.alignmentBySession[sessionId] = alignment;
-
-  // The session_id may not be in S.allSessions if filters are tight — re-fetch list if missing.
-  if (!S.allSessions?.find(s => s.session_id === sessionId)) {
-    const data = await api('/sessions', 'GET');
-    if (data) S.allSessions = data;
-  }
-  const session = S.allSessions.find(s => s.session_id === sessionId) || {};
-  const quality = S.qualityBySession[sessionId] || {};
-
-  _renderDetailHeader(session, quality, alignment);
-  _renderDetailStreams(session, quality);
-  renderSessionValidation(sessionId);
-  renderAlignment(sessionId);
-  _renderDetailIssues(quality);
 }
 
 // RENDER HELPERS
@@ -197,13 +204,16 @@ export function renderAlignment(sessionId) {
   if (!section) return;
   section.style.display = 'block';
 
+  if (empty) {
+    empty.style.display = '';
+    renderState(empty, 'loading', { title: 'Computing alignment…' });
+  }
+
   const a = S.alignmentBySession[sessionId];
 
   if (!a) {
     status.textContent = 'Loading…';
     status.className = 'alignment-status';
-    empty.style.display = 'none';
-    renderState(empty, 'clear');
     return;
   }
   if (a.available === false || a.error) {
@@ -534,17 +544,37 @@ export function renderSessionValidation(sessionId) {
     document.getElementById('detailTimeline').textContent = 'Validation data loading…';
     return;
   }
-  document.getElementById('driftWatch').textContent = fmtMs(v.source_clocks?.watch_source_to_local_drift_ms);
-  document.getElementById('driftPen').textContent = fmtMs(v.source_clocks?.pen_source_to_local_drift_ms);
-  document.getElementById('driftRelative').textContent = fmtMs(v.source_clocks?.relative_pen_vs_watch_clock_drift_ms);
-  document.getElementById('driftSyncOffset').textContent = fmtClockGap(
-    v.source_clocks?.source_clock_offset_gap_ms,
-    v.sync_estimate
-  );
-  document.getElementById('detailTimeline').innerHTML = renderTimeline(v);
+
+  const hasOverlap = v.overlap?.streams_overlap === true;
+
+  if (!hasOverlap) {
+    ['driftWatch', 'driftPen', 'driftRelative', 'driftSyncOffset'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) renderState(el, 'empty', { title: 'no overlap', inline: true });
+    });
+  } else {
+    document.getElementById('driftWatch').textContent = fmtMs(v.source_clocks?.watch_source_to_local_drift_ms);
+    document.getElementById('driftPen').textContent = fmtMs(v.source_clocks?.pen_source_to_local_drift_ms);
+    document.getElementById('driftRelative').textContent = fmtMs(v.source_clocks?.relative_pen_vs_watch_clock_drift_ms);
+    document.getElementById('driftSyncOffset').textContent = fmtClockGap(
+      v.source_clocks?.source_clock_offset_gap_ms,
+      v.sync_estimate
+    );
+  }
+
+  renderTimeline(v);
 }
 
 export function renderTimeline(v) {
+  const slot = document.getElementById('detailTimeline');
+  if (!slot) return;
+  if (!v || !v.overlap?.streams_overlap) {
+    renderState(slot, 'empty', {
+      title: 'No timeline overlap',
+      hint: 'Pen and watch did not record in the same window for this session.',
+    });
+    return;
+  }
   const tl = v.timeline_for_chart || {};
   const duration = Math.max(1, Number(tl.duration_s || 1));
   const ticks = [0, 0.25, 0.5, 0.75, 1].map(t => {
@@ -562,7 +592,7 @@ export function renderTimeline(v) {
     const width = Math.max(0.2, pct(ev.end_s - ev.start_s, duration));
     return `<span class="timeline-bar bar-pen" title="${esc(fmtSec(ev.duration_s))} · ${Number(ev.dot_count || 0)} dots" style="left:${left}%;width:${width}%"></span>`;
   }).join('');
-  return [
+  slot.innerHTML = [
     `<div class="timeline-axis">${ticks}</div>`,
     '<div class="timeline-row">',
     '  <div class="timeline-label">Watch</div>',
