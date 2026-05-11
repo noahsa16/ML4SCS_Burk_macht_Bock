@@ -1,13 +1,13 @@
 // status_cluster.js — topbar status cluster, chart, pen canvas, and live-status DOM
 // handler.  updateChart / pen-canvas helpers technically belong to Recording (Task 13);
-// they live here for now to avoid a flailing intermediate state.  setNetworkNode /
-// setNetworkLine likewise move to Connections in Task 10.
+// they live here for now to avoid a flailing intermediate state.
 //
 // Back-imports from dashboard.js are marked "Temporary: moves to pages/<X>.js in
 // Task N" and will disappear as those page modules are extracted.
 
 import { S } from '/static/js/core/state.js';
 import * as systemPage from '/static/js/pages/system.js';
+import * as connectionsPage from '/static/js/pages/connections.js';
 import {
   fmtHz, fmtNum, fmtAgo, fmtUptime, fmtCommand,
 } from '/static/js/core/format.js';
@@ -301,25 +301,6 @@ export function drawPenCanvas() {
 window.addEventListener('resize', drawPenCanvas);
 
 // ════════════════════════════════════════════════════════════
-//  NETWORK NODE / LINE helpers (move to Connections in Task 10)
-// ════════════════════════════════════════════════════════════
-export function setNetworkNode(id, state, text) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.classList.remove('ok', 'warn', 'err');
-  el.classList.add(state);
-  const status = document.getElementById(`${id}Status`);
-  if (status) status.textContent = text;
-}
-
-export function setNetworkLine(id, state) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.classList.remove('ok', 'warn', 'err');
-  if (state) el.classList.add(state);
-}
-
-// ════════════════════════════════════════════════════════════
 //  STATUS CLUSTER (topbar)
 // ════════════════════════════════════════════════════════════
 export function setStatusCluster(s) {
@@ -501,58 +482,7 @@ export function handleStatus(s, prevSessionId) {
   setHealth('gyroHealth', gyroOk ? 'present' : 'missing', gyroOk ? 'ok' : 'err');
   setHealth('clockHealth', penClockOk ? 'server time' : 'legacy pen time', penClockOk ? 'ok' : 'warn');
 
-  // Connections page
-  setBadge('connPenBadge', s.pen_connected, s.pen_connected ? 'Connected' : 'Disconnected');
-  setBadge('connWatchBadge', watchUiOnline, watchStatusText, watchBadgeClass);
-  document.getElementById('connWatchLast').textContent = s.watch_last_packet
-    ? `${fmtAgo(Date.now() - s.watch_last_packet.server_received_ms)} · seq ${s.watch_last_packet.sequence ?? '–'}`
-    : '–';
-  document.getElementById('uptimeVal').textContent = fmtUptime(s.uptime_seconds);
-  document.getElementById('uptimeSession').textContent = s.session_id || 'None';
-  document.getElementById('uptimeBridge').textContent = watchBridgeConnected ? 'Connected' : '–';
-  document.getElementById('penPid').textContent = s.pen_pid || '–';
-  setNumberSmooth('connPenHz', penRate, { format: _smoothFmt.hz });
-  document.getElementById('connPenLast').textContent = lastPen.dot_type ? `${lastPen.dot_type} · ${fmtNum(lastPen.x)}, ${fmtNum(lastPen.y)}` : '–';
-  document.getElementById('connPenClock').textContent = penClockOk ? 'ok' : 'legacy/missing';
-  document.getElementById('connWatchBridge').textContent = watchBridgeConnected ? 'connected' : 'not connected';
-  document.getElementById('connWatchReachable').textContent = watchPolling
-    ? `polling${s.watch_poll_age_ms != null ? ` · ${fmtAgo(s.watch_poll_age_ms)}` : ''}`
-    : (s.watch_reachable === true ? 'yes' : (s.watch_reachable === false ? 'no' : 'unknown'));
-  document.getElementById('connWatchStream').textContent = watchStreamActive ? 'active' : 'idle/no samples';
-  setNumberSmooth('connWatchHz', watchRate, { format: _smoothFmt.hz });
-  setNumberSmooth('connWatchBatchHz', s.watch_batch_rate_hz || 0, { format: _smoothFmt.hz });
-  document.getElementById('connWatchGyro').textContent = gyroOk ? 'yes' : 'no';
-  document.getElementById('connWatchSkew').textContent = s.watch_clock_skew_ms != null ? `${s.watch_clock_skew_ms} ms` : '–';
-  document.getElementById('connWatchGaps').textContent = s.watch_sequence_gaps ?? 0;
-  document.getElementById('connWatchCommand').textContent = fmtCommand(s.watch_command);
-
-  // Live connectivity map
-  const pollDetail = watchPolling
-    ? `polling · ${s.watch_poll_age_ms != null ? fmtAgo(s.watch_poll_age_ms) : 'fresh'}`
-    : 'no command_poll from Watch';
-  const watchState = s.watch_running
-    ? `running · ${s.watch_bridge_session_id || s.session_id || 'session'}`
-    : (s.session_active ? 'expected running, waiting' : 'idle');
-  const sampleBridge = `${s.watch_bridge_samples ?? 0} watch · ${s.watch_bridge_delivered_samples ?? 0} delivered · ${s.watch_bridge_queued_samples ?? 0} queued`;
-  const failureReason = !watchBridgeConnected
-    ? 'iPhone bridge WebSocket is not connected'
-    : (!watchPolling
-      ? 'Watch app has not polled the iPhone yet'
-      : (s.watch_bridge_failed_batches > 0
-        ? `${s.watch_bridge_failed_batches} bridge batch failure(s)`
-        : (watchStreamActive || !s.session_active ? 'none' : 'waiting for first /watch POST')));
-
-  setNetworkNode('netServer', 'ok', 'status online');
-  setNetworkNode('netPhone', watchBridgeConnected ? 'ok' : 'err',
-                 watchBridgeConnected ? 'bridge websocket' : 'no iPhone WS');
-  setNetworkNode('netWatch', watchPolling ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'),
-                 watchPolling ? pollDetail : 'no poll');
-  setNetworkLine('netLineServerPhone', watchBridgeConnected ? 'ok' : 'err');
-  setNetworkLine('netLinePhoneWatch', watchPolling ? 'ok' : (watchBridgeConnected ? 'warn' : 'err'));
-  document.getElementById('netWatchPollDetail').textContent = pollDetail;
-  document.getElementById('netWatchStateDetail').textContent = watchState;
-  document.getElementById('netSampleBridgeDetail').textContent = sampleBridge;
-  document.getElementById('netFailureDetail').textContent = failureReason;
+  connectionsPage.onStatus(s);
 
   // System checks
   document.getElementById('checkAccel').textContent = validation.watch_has_accelerometer ? 'ok' : 'missing';

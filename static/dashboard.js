@@ -1,4 +1,5 @@
 import * as systemPage from '/static/js/pages/system.js';
+import * as connectionsPage from '/static/js/pages/connections.js';
 import { esc, escAttr, _roundRect } from '/static/js/core/dom.js';
 import {
   fmtDuration, fmtHz, fmtNum, fmtClockGap, fmtMs, fmtSec, fmtAgo,
@@ -18,7 +19,6 @@ import {
 import { connectWs, setWsStatus } from '/static/js/core/ws.js';
 import {
   handleStatus, setStatusCluster, setPill, setBadge, setHealth,
-  setNetworkNode, setNetworkLine,
   updateChart, updatePenCanvas, clearPenPreview, drawPenCanvas,
 } from '/static/js/core/status_cluster.js';
 
@@ -44,7 +44,7 @@ document.querySelectorAll('.tab').forEach(el => {
     document.getElementById('pageSub')?.replaceChildren(document.createTextNode(m.sub));
     document.title = `${m.title} — Burk macht Bock`;
     if (p === 'sessions') loadSessions();
-    if (p === 'connections') updateConnectionsPage();
+    if (p === 'connections') connectionsPage.onShow();
     updatePageStrip(p);
     updateTabIndicator();
   });
@@ -902,16 +902,6 @@ function pct(value, total) {
 }
 
 // ════════════════════════════════════════════════════════════
-//  CONNECTIONS PAGE
-// ════════════════════════════════════════════════════════════
-function updateConnectionsPage() {
-  setBadge('connPenBadge', S.penConnected, S.penConnected ? 'Connected' : 'Disconnected');
-  setBadge('connWatchBadge', S.watchConnected, S.watchStatusText || (S.watchConnected ? 'Active' : 'Offline'), S.watchBadgeClass);
-  document.getElementById('uptimeVal').textContent = fmtUptime(S.uptime);
-  document.getElementById('uptimeSession').textContent = S.sessionId || 'None';
-}
-
-// ════════════════════════════════════════════════════════════
 //  LOG RENDERING + SETTINGS
 // ════════════════════════════════════════════════════════════
 export function renderLogs() {
@@ -982,6 +972,14 @@ api('/status').then(s => {
 connectWs();
 
 // Temporary eager mount — replaced by Task 14 bootstrap
+fetch('/static/views/connections.html')
+  .then(r => r.text())
+  .then(html => {
+    const slot = document.getElementById('page-connections');
+    injectPartial(slot, html);
+    connectionsPage.mount(slot);
+  });
+
 fetch('/static/views/system.html')
   .then(r => r.text())
   .then(html => {

@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:ital,wght@0,400;0,500;0,600;1,500;1,600&family=IBM+Plex+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<link rel="stylesheet" href="/static/css/connections.css">
 <link rel="stylesheet" href="/static/css/system.css">
 <style>
 /* ─── Tokens ─────────────────────────────────────────────────── */
@@ -734,61 +735,7 @@ td.bold { font-weight: 600; }
 }
 .detail-section .section-body { padding: 4px 20px 18px; }
 
-/* ─── Connections page ───────────────────────────────────────── */
-.conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.conn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
-.info-block { background: var(--surface2); border-radius: var(--radius-sm); padding: 10px 14px; margin-top: 8px; }
-.info-row { display: flex; justify-content: space-between; align-items: baseline; padding: 5px 0; border-bottom: 1px solid var(--border); font-size: 12px; }
-.info-row:last-child { border-bottom: none; }
-.info-key { color: var(--text2); font-size: 11px; }
-.info-val { font-family: var(--mono); font-size: 12px; color: var(--text); font-weight: 500; word-break: break-all; text-align: right; max-width: 60%; }
-.endpoint-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
-.endpoint { display: flex; gap: 8px; align-items: center; padding: 6px 10px; background: var(--surface2); border-radius: var(--radius-sm); }
-.method { font-family: var(--mono); font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: var(--radius-xs); min-width: 42px; text-align: center; }
-.method.get { background: oklch(0.58 0.13 148 / 0.15); color: var(--green); }
-.method.post { background: oklch(0.595 0.165 43 / 0.15); color: var(--accent); }
-.method.ws { background: oklch(0.55 0.15 275 / 0.15); color: oklch(0.60 0.14 275); }
-.ep-path { font-family: var(--mono); font-size: 12px; color: var(--text); }
-.ep-desc { font-size: 11px; color: var(--text3); margin-left: auto; }
-
-/* ─── Live network map ─────────────────────────────────────── */
-.network-map { display: grid; grid-template-columns: 1fr 86px 1fr 86px 1fr; align-items: center; gap: 10px; }
-.network-node {
-  min-height: 112px; background: var(--surface2); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: 13px; display: flex; flex-direction: column; gap: 8px;
-  justify-content: center; align-items: center; text-align: center;
-}
-.network-node .node-icon {
-  width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
-  font-size: 18px; background: var(--surface2); color: var(--text3);
-  border: 1.5px solid var(--border2); transition: border-color 0.2s, color 0.2s;
-}
-/* Icon-Chrome bleibt neutral, der Status-Dot (in der Karte rechts oben) trägt die Farbe.
-   Subtile Akzent-Border deutet den Status an, ohne das ganze Icon einzufärben. */
-.network-node.ok  .node-icon { border-color: oklch(0.580 0.130 148 / 0.55); color: var(--green); }
-.network-node.warn .node-icon { border-color: oklch(0.720 0.135 88 / 0.55); color: var(--yellow); }
-.network-node.err .node-icon { border-color: oklch(0.575 0.175 24 / 0.55); color: var(--red); }
-.node-title { font-weight: 700; font-size: 13px; }
-.node-status { font-size: 11.5px; color: var(--text2); min-height: 16px; }
-.network-link { display: flex; flex-direction: column; gap: 6px; align-items: center; color: var(--text3); font-size: 10.5px; letter-spacing: 0.02em; }
-.network-line {
-  position: relative; width: 100%; height: 4px; border-radius: var(--radius-pill);
-  background: var(--border2); overflow: hidden;
-}
-.network-line.ok { background: oklch(0.580 0.130 148 / 0.24); }
-.network-line.warn { background: oklch(0.720 0.135 88 / 0.22); }
-.network-line.ok::after,
-.network-line.warn::after {
-  content: ""; position: absolute; top: -2px; width: 8px; height: 8px; border-radius: 50%;
-  background: currentColor; color: inherit; animation: networkFlow 1.15s ease-in-out infinite alternate;
-}
-.network-line.ok { color: var(--green); }
-.network-line.warn { color: var(--yellow); }
-@keyframes networkFlow { from { left: 0; } to { left: calc(100% - 8px); } }
-.network-detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 14px; }
-.network-detail { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px 12px; }
-.network-detail .k { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
-.network-detail .v { font-family: var(--mono); font-size: 12px; font-weight: 700; color: var(--text); margin-top: 4px; word-break: break-word; }
+/* Connections page styles moved to static/css/connections.css */
 
 /* ─── Live logs: Editorial-Chronik statt Terminal-Dump ──────── */
 .log-split { display: grid; grid-template-columns: 1.15fr 1fr; gap: 18px; }
@@ -888,11 +835,7 @@ td.bold { font-weight: 600; }
 
 /* Settings and System page styles moved to static/css/system.css */
 
-/* ─── Uptime / server bar ────────────────────────────────────── */
-.uptime-bar { display: flex; gap: 20px; padding: 10px 16px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 16px; flex-wrap: wrap; }
-.uptime-item { display: flex; flex-direction: column; gap: 2px; }
-.uptime-key { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
-.uptime-val { font-family: var(--mono); font-size: 14px; font-weight: 600; color: var(--text); }
+/* Uptime bar styles moved to static/css/connections.css */
 
 /* ─── Page visibility ───────────────────────────────────────── */
 .page { display: none; }
@@ -931,11 +874,9 @@ td.bold { font-weight: 600; }
 /* ─── Responsive tweaks ──────────────────────────────────────── */
 @media (max-width: 900px) {
   .rec-grid { grid-template-columns: 1fr; }
-  .conn-grid, .conn-grid-3, .log-split { grid-template-columns: 1fr; }
-  .network-map { grid-template-columns: 1fr; }
-  .network-link { min-height: 28px; }
-  .network-detail-grid { grid-template-columns: 1fr 1fr; }
+  .log-split { grid-template-columns: 1fr; }
   .health-grid { grid-template-columns: 1fr 1fr; }
+  /* conn-grid / network-* responsive rules moved to static/css/connections.css */
 }
 </style>
 </head>
@@ -1316,127 +1257,7 @@ td.bold { font-weight: 600; }
     </div>
 
     <!-- ══════════ PAGE: CONNECTIONS ══════════ -->
-    <div class="page" id="page-connections">
-      <div class="uptime-bar" id="uptimeBar">
-        <div class="uptime-item"><div class="uptime-key">Server Uptime</div><div class="uptime-val" id="uptimeVal">–</div></div>
-        <div class="uptime-item"><div class="uptime-key">Server Address</div><div class="uptime-val">localhost:8000</div></div>
-        <div class="uptime-item"><div class="uptime-key">WebSocket</div><div class="uptime-val" id="uptimeWs">–</div></div>
-        <div class="uptime-item"><div class="uptime-key">Active Session</div><div class="uptime-val" id="uptimeSession">–</div></div>
-        <div class="uptime-item"><div class="uptime-key">iPhone Bridge</div><div class="uptime-val" id="uptimeBridge">–</div></div>
-      </div>
-
-      <div class="card" style="margin-bottom:16px">
-        <div class="chart-meta">
-          <div class="card-title" style="margin:0">Live Connectivity Map<span>Website → iPhone → Watch → Server</span></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-sm btn-outline" onclick="downloadDebugPackage()">Export debug JSON</button>
-            <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">Reset watch command</button>
-          </div>
-        </div>
-        <div class="network-map">
-          <div class="network-node err" id="netServer">
-            <div class="node-icon">⌁</div>
-            <div class="node-title">Website / Server</div>
-            <div class="node-status" id="netServerStatus">WS reconnecting</div>
-          </div>
-          <div class="network-link">
-            <div class="network-line" id="netLineServerPhone"></div>
-            <div id="netLinkServerPhone">websocket</div>
-          </div>
-          <div class="network-node err" id="netPhone">
-            <div class="node-icon">▯</div>
-            <div class="node-title">iPhone Bridge</div>
-            <div class="node-status" id="netPhoneStatus">not connected</div>
-          </div>
-          <div class="network-link">
-            <div class="network-line" id="netLinePhoneWatch"></div>
-            <div id="netLinkPhoneWatch">command poll</div>
-          </div>
-          <div class="network-node err" id="netWatch">
-            <div class="node-icon">◉</div>
-            <div class="node-title">Apple Watch</div>
-            <div class="node-status" id="netWatchStatus">no poll</div>
-          </div>
-        </div>
-        <div class="network-detail-grid">
-          <div class="network-detail"><div class="k">Watch Poll</div><div class="v" id="netWatchPollDetail">–</div></div>
-          <div class="network-detail"><div class="k">Watch State</div><div class="v" id="netWatchStateDetail">–</div></div>
-          <div class="network-detail"><div class="k">Sample Bridge</div><div class="v" id="netSampleBridgeDetail">–</div></div>
-          <div class="network-detail"><div class="k">Failure Reason</div><div class="v" id="netFailureDetail">–</div></div>
-        </div>
-      </div>
-
-      <div class="conn-grid" style="margin-bottom:16px">
-        <!-- Pen -->
-        <div class="card">
-          <div class="device-header">
-            <div class="card-title" style="margin:0">Pen — NWP-F130 (BLE)</div>
-            <div class="status-badge badge-err" id="connPenBadge">Disconnected</div>
-          </div>
-          <div class="info-block">
-            <div class="info-row"><span class="info-key">Protocol</span><span class="info-val">NeoSmartpen V2 (BLE)</span></div>
-            <div class="info-row"><span class="info-key">Service UUID</span><span class="info-val" style="font-size:10px">4f99f138-9d53-5bfa-9e50-b147491afe68</span></div>
-            <div class="info-row"><span class="info-key">Password</span><span class="info-val">0000 (default)</span></div>
-            <div class="info-row"><span class="info-key">Sample output</span><span class="info-val">x, y, pressure, tilt, dot_type</span></div>
-            <div class="info-row"><span class="info-key">Process PID</span><span class="info-val" id="penPid">–</span></div>
-            <div class="info-row"><span class="info-key">Dot rate</span><span class="info-val" id="connPenHz">–</span></div>
-            <div class="info-row"><span class="info-key">Last dot</span><span class="info-val" id="connPenLast">–</span></div>
-            <div class="info-row"><span class="info-key">Server time column</span><span class="info-val" id="connPenClock">–</span></div>
-          </div>
-          <div class="device-actions" style="margin-top:14px">
-            <button class="btn btn-sm btn-green" onclick="penConnect()">▲ Connect Pen</button>
-            <button class="btn btn-sm btn-red" onclick="penDisconnect()">▼ Disconnect</button>
-          </div>
-        </div>
-        <!-- Watch -->
-        <div class="card">
-          <div class="device-header">
-            <div class="card-title" style="margin:0">Watch — Apple Watch (HTTP)</div>
-            <div class="status-badge badge-err" id="connWatchBadge">Offline</div>
-          </div>
-          <div class="info-block">
-            <div class="info-row"><span class="info-key">Transport</span><span class="info-val">WatchConnectivity + HTTP POST</span></div>
-            <div class="info-row"><span class="info-key">Endpoint</span><span class="info-val">POST /watch</span></div>
-            <div class="info-row"><span class="info-key">iPhone bridge</span><span class="info-val" id="connWatchBridge">–</span></div>
-            <div class="info-row"><span class="info-key">Watch reachability</span><span class="info-val" id="connWatchReachable">–</span></div>
-            <div class="info-row"><span class="info-key">Motion stream</span><span class="info-val" id="connWatchStream">–</span></div>
-            <div class="info-row"><span class="info-key">Batch size</span><span class="info-val">10 samples</span></div>
-            <div class="info-row"><span class="info-key">Sample rate</span><span class="info-val">50 Hz</span></div>
-            <div class="info-row"><span class="info-key">Actual receive rate</span><span class="info-val" id="connWatchHz">–</span></div>
-            <div class="info-row"><span class="info-key">Batch sample rate</span><span class="info-val" id="connWatchBatchHz">–</span></div>
-            <div class="info-row"><span class="info-key">Gyroscope present</span><span class="info-val" id="connWatchGyro">–</span></div>
-            <div class="info-row"><span class="info-key">Clock skew</span><span class="info-val" id="connWatchSkew">–</span></div>
-            <div class="info-row"><span class="info-key">Sequence gaps</span><span class="info-val" id="connWatchGaps">–</span></div>
-            <div class="info-row"><span class="info-key">Last command</span><span class="info-val" id="connWatchCommand">–</span></div>
-            <div class="info-row"><span class="info-key">Last packet</span><span class="info-val" id="connWatchLast">–</span></div>
-          </div>
-          <div class="device-actions" style="margin-top:14px">
-            <button class="btn btn-sm btn-outline" onclick="watchCmd('start')">▶ Send Start Cmd</button>
-            <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">■ Send Stop Cmd</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- API Endpoints -->
-      <div class="card">
-        <div class="card-title">API Endpoints<span>FastAPI server · localhost:8000</span></div>
-        <div class="endpoint-list">
-          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/</span><span class="ep-desc">Serve dashboard.html</span></div>
-          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/status</span><span class="ep-desc">Current server + device status (JSON)</span></div>
-          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/session/preflight</span><span class="ep-desc">Start readiness check for iPhone, Watch polling and Pen</span></div>
-          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/debug/package</span><span class="ep-desc">Export current status, events, clients and recent samples</span></div>
-          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions</span><span class="ep-desc">List all recorded sessions</span></div>
-          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions/quality</span><span class="ep-desc">Read-only quality report per session</span></div>
-          <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions/{id}/validation</span><span class="ep-desc">Timeline overlap + source-clock drift estimate</span></div>
-          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/session/start</span><span class="ep-desc">Start new session · body: {person_id}</span></div>
-          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/session/stop</span><span class="ep-desc">Stop active session + finalize CSV</span></div>
-          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/pen/connect</span><span class="ep-desc">Launch pen_logger.py subprocess</span></div>
-          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/pen/disconnect</span><span class="ep-desc">Kill pen_logger subprocess (SIGINT)</span></div>
-          <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/watch</span><span class="ep-desc">Receive watch IMU batch (from iPhone app)</span></div>
-          <div class="endpoint"><span class="method ws">WS</span><span class="ep-path">/ws</span><span class="ep-desc">Real-time status broadcast (1 Hz)</span></div>
-        </div>
-      </div>
-    </div>
+    <div class="page" id="page-connections" data-view="connections"></div>
 
     <!-- ══════════ PAGE: SYSTEM ══════════ -->
     <div class="page" id="page-system" data-view="system"></div>
