@@ -5,6 +5,7 @@ import { setNumberSmooth } from '/static/js/core/anim.js';
 import {
   fmtUptime, fmtAgo, fmtHz, fmtCommand, fmtNum,
 } from '/static/js/core/format.js';
+import { renderState } from '/static/js/core/states.js';
 
 let _mounted = false;
 let _container = null;
@@ -31,6 +32,18 @@ function setNetworkLine(id, state) {
 const _smoothFmt = {
   hz: (v) => v > 0 ? `${v.toFixed(v >= 10 ? 1 : 2)} Hz` : '– Hz',
 };
+
+function _toggleConnEmpty(slotId, connected, title) {
+  const slot = document.getElementById(slotId);
+  if (!slot) return;
+  if (connected) {
+    slot.style.display = 'none';
+    renderState(slot, 'clear');
+  } else {
+    slot.style.display = '';
+    renderState(slot, 'empty', { title, inline: true });
+  }
+}
 
 // ────────────────────────────────────────────────────────────
 //  PAGE LIFECYCLE
@@ -67,6 +80,10 @@ export function onStatus(s) {
 
   setBadge('connPenBadge', s.pen_connected, s.pen_connected ? 'Connected' : 'Disconnected');
   setBadge('connWatchBadge', watchUiOnline, watchStatusText, watchBadgeClass);
+  _toggleConnEmpty('connPenEmpty', !!s.pen_connected,
+    'Connect the pen to populate live data');
+  _toggleConnEmpty('connWatchEmpty', !!watchUiOnline,
+    'Connect the watch app to populate live data');
   document.getElementById('connWatchLast').textContent = s.watch_last_packet
     ? `${fmtAgo(Date.now() - s.watch_last_packet.server_received_ms)} · seq ${s.watch_last_packet.sequence ?? '–'}`
     : '–';

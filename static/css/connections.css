@@ -85,6 +85,13 @@
 .network-detail .k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
 .network-detail .v { font-family: var(--mono); font-size: var(--text-sm); font-weight: 700; color: var(--text); margin-top: var(--space-1); word-break: break-word; }
 
+/* ─── Device-card empty states ──────────────────────────────── */
+.conn-empty-slot {
+  padding: var(--space-3) 0; margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.conn-empty-slot:empty { display: none !important; }
+
 /* ─── Responsive tweaks (Connections page) ───────────────────── */
 @media (max-width: 900px) {
   .conn-grid, .conn-grid-3 { grid-template-columns: 1fr; }
