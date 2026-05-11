@@ -992,9 +992,44 @@ async function loadSessions() {
   S.qualityBySession = {};
   (quality?.sessions || []).forEach(q => { S.qualityBySession[q.session_id] = q; });
   if (!S.validationBySession) S.validationBySession = {};
+  if (!S.alignmentBySession) S.alignmentBySession = {};
   renderQualitySummary();
-  renderSessions(S.allSessions);
-  if (S.selectedSessionId) await loadValidationIfNeeded(S.selectedSessionId);
+
+  // Bulk-fetch alignment for every session in parallel so the σ filter and
+  // table column have data without per-row lazy loading. Sessions with no pen
+  // data return an alignment payload whose sigma is null/missing — that's the
+  // "no pen" filter category. Re-applies filters when each result lands.
+  const missing = S.allSessions.filter(s => !S.alignmentBySession[s.session_id]);
+  Promise.all(missing.map(s =>
+    api(`/sessions/${encodeURIComponent(s.session_id)}/alignment`, 'GET')
+      .then(a => { if (a) S.alignmentBySession[s.session_id] = a; })
+      .catch(() => {})
+  )).then(() => applyFilters());
+
+  // Restore filter UI from localStorage on first render only.
+  if (!S._filtersWired) {
+    const f = loadFilters();
+    document.getElementById('filterQ').value = f.q;
+    document.getElementById('filterMl').value = f.ml;
+    document.getElementById('filterAlign').value = f.align;
+    document.getElementById('filterMinFive').checked = f.minFive;
+    let deb;
+    const debouncedApply = () => { clearTimeout(deb); deb = setTimeout(applyFilters, 150); };
+    document.getElementById('filterQ').addEventListener('input', debouncedApply);
+    document.getElementById('filterMl').addEventListener('change', applyFilters);
+    document.getElementById('filterAlign').addEventListener('change', applyFilters);
+    document.getElementById('filterMinFive').addEventListener('change', applyFilters);
+    document.getElementById('filterReset').addEventListener('click', () => {
+      resetFilters();
+      document.getElementById('filterQ').value = '';
+      document.getElementById('filterMl').value = 'all';
+      document.getElementById('filterAlign').value = 'all';
+      document.getElementById('filterMinFive').checked = false;
+      applyFilters();
+    });
+    S._filtersWired = true;
+  }
+  applyFilters();
 }
 
 async function loadValidationIfNeeded(sessionId) {
@@ -1008,101 +1043,94 @@ async function loadValidationIfNeeded(sessionId) {
   if (S.selectedSessionId === sessionId) renderSessionValidation(sessionId);
 }
 
-let _filterDebounce;
-function filterSessions() {
-  clearTimeout(_filterDebounce);
-  _filterDebounce = setTimeout(() => {
-    const q = document.getElementById('sessionSearch').value.toLowerCase();
-    renderSessions(S.allSessions.filter(s =>
-      s.session_id?.toLowerCase().includes(q) ||
-      s.person_id?.toLowerCase().includes(q) ||
-      s.description?.toLowerCase().includes(q)
-    ));
-  }, 200);
+function _matchesFilters(s, q, filters) {
+  const txt = filters.q.toLowerCase();
+  if (txt && !(
+    s.session_id?.toLowerCase().includes(txt) ||
+    s.person_id?.toLowerCase().includes(txt) ||
+    s.description?.toLowerCase().includes(txt)
+  )) return false;
+
+  const mlStatus = q?.ml_readiness?.status || q?.quality || 'unknown';
+  if (filters.ml !== 'all' && mlStatus !== filters.ml) return false;
+
+  // Alignment data lives on a separate endpoint; cached in S.alignmentBySession.
+  // If a session's alignment isn't loaded yet, "all" passes; specific filters
+  // exclude it until the bulk fetch completes (which re-applies filters).
+  const a = S.alignmentBySession?.[s.session_id];
+  const sigma = a?.sigma_minimal_variance;
+  const failed = a?.status === 'failed' || (Number.isFinite(sigma) && sigma > -2);
+  const hasPen = !!a && Number.isFinite(sigma);
+  if (filters.align === 's3' && !(Number.isFinite(sigma) && sigma <= -3)) return false;
+  if (filters.align === 's2' && !(Number.isFinite(sigma) && sigma <= -2)) return false;
+  if (filters.align === 'failed' && !failed) return false;
+  if (filters.align === 'none' && hasPen) return false;
+
+  if (filters.minFive) {
+    const dur = s.start_time && s.end_time
+      ? (new Date(s.end_time) - new Date(s.start_time)) / 1000
+      : 0;
+    if (dur < 300) return false;
+  }
+  return true;
 }
 
-function renderSessions(rows) {
-  const tbody = document.getElementById('sessionsBody');
-  // Detach the validation panel before we wipe tbody.innerHTML — otherwise
-  // it gets destroyed together with the detail-row that hosts it.
-  const panel = document.getElementById('sessionValidationPanel');
-  if (panel && panel.parentElement && panel.parentElement.classList.contains('session-detail-mount')) {
-    document.getElementById('page-sessions').appendChild(panel);
+function applyFilters() {
+  const filters = {
+    q: document.getElementById('filterQ').value,
+    ml: document.getElementById('filterMl').value,
+    align: document.getElementById('filterAlign').value,
+    minFive: document.getElementById('filterMinFive').checked,
+  };
+  saveFilters(filters);
+  const rows = (S.allSessions || []).filter(s => _matchesFilters(s, S.qualityBySession[s.session_id], filters));
+  renderSessionsList(rows);
+}
+
+function _sigmaPill(sessionId) {
+  const a = S.alignmentBySession?.[sessionId];
+  const sigma = a?.sigma_minimal_variance;
+  if (!Number.isFinite(sigma)) {
+    if (a?.status === 'failed') return '<span class="status-badge badge-err">failed</span>';
+    return '<span class="mono" style="color:var(--text3)">—</span>';
   }
+  const cls = sigma <= -3 ? 'badge-ok' : sigma <= -2 ? 'badge-warn' : 'badge-err';
+  return `<span class="status-badge ${cls}">${sigma.toFixed(2)}</span>`;
+}
+
+function renderSessionsList(rows) {
+  const tbody = document.getElementById('sessionsBody');
   if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="14">
-      <div class="empty-state">
-        <div class="empty-state-glyph">/</div>
-        <div class="empty-state-title">No recordings yet</div>
-        <div class="empty-state-hint">Once you start a session from the Recording tab, it will appear here with its quality scores and a downloadable report.</div>
-        <button class="empty-state-action" onclick="goHome()">Open Recording →</button>
-      </div>
-    </td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state">
+      <div class="empty-state-glyph">/</div>
+      <div class="empty-state-title">No matching sessions</div>
+      <div class="empty-state-hint">Adjust the filters above, or start a new recording from the Recording tab.</div>
+    </div></td></tr>`;
     return;
   }
   tbody.innerHTML = rows.map(s => {
     const q = S.qualityBySession[s.session_id] || {};
-    const validation = S.validationBySession[s.session_id] || {};
-    const watch = q.watch || {};
-    const pen = q.pen || {};
+    const ml = q.ml_readiness || { status: q.quality || 'unknown' };
+    const mlBadge = scoreBadge(ml);
     const dur = s.start_time && s.end_time
       ? fmtDuration(Math.floor((new Date(s.end_time) - new Date(s.start_time)) / 1000))
       : (s.status === 'active' ? '<em style="color:var(--accent)">live</em>' : '–');
     const startFmt = s.start_time
-      ? new Date(s.start_time).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'medium' })
+      ? new Date(s.start_time).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })
       : '–';
-    const statusCls = s.status === 'active' ? 'badge-warn' : 'badge-ok';
-    const ml = q.ml_readiness || { status: q.quality || 'unknown', blockers: [], warnings: [], info: [] };
-    const recording = q.recording_health || { status: 'unknown', blockers: [], warnings: [], info: [] };
-    const diag = syncDiagnostic(q, validation);
-    const signalText = [
-      watch.has_gyroscope ? 'gyro' : 'no gyro',
-      watch.has_accelerometer ? 'accel' : 'no accel',
-      pen.has_server_time ? 'pen time' : 'legacy pen',
-    ].join(' · ');
-    const activeRow = S.selectedSessionId === s.session_id ? ' active' : '';
     const personLabel = (s.person_id || '').trim();
     const personCell = personLabel
       ? `<div class="session-person">${esc(personLabel)}</div>
-         <div class="session-caption">${esc(s.session_id)}</div>`
+         <div class="session-caption">${esc(s.session_id)}${s.description ? ' · ' + esc(s.description) : ''}</div>`
       : `<div class="session-person anonymous">Anonymous</div>
-         <div class="session-caption">${esc(s.session_id)}</div>`;
-    const rowHtml = `<tr class="click-row${activeRow}" onclick="selectSession('${escAttr(s.session_id)}')">
+         <div class="session-caption">${esc(s.session_id)}${s.description ? ' · ' + esc(s.description) : ''}</div>`;
+    return `<tr class="click-row" onclick="location.hash='#session/${escAttr(s.session_id)}'">
       <td class="session-cell">${personCell}</td>
-      <td title="${escAttr(s.description || '')}">${esc(s.description || '–')}</td>
-      <td class="mono" style="font-size:11px;color:var(--text2)">${startFmt}</td>
-      <td class="mono">${dur}</td>
-      <td class="mono">${Number(s.watch_samples || 0).toLocaleString()}</td>
-      <td class="mono">${Number(s.pen_samples || 0).toLocaleString()}</td>
-      <td class="mono">${Number(s.airpods_samples || 0).toLocaleString()}</td>
-      <td class="mono">${watch.estimated_hz ? fmtHz(watch.estimated_hz) : '–'}</td>
-      <td class="mono" title="${esc(signalText)}">${esc(signalText)}</td>
-      <td title="${escAttr(scoreTooltip(ml))}">${scoreBadge(ml)}</td>
-      <td title="${escAttr(scoreTooltip(recording))}">${scoreBadge(recording)}</td>
-      <td title="${escAttr(diag.message)}"><span class="status-badge ${diag.cls}">${esc(diag.label)}</span></td>
-      <td><span class="status-badge ${statusCls}">${esc(s.status || 'completed')}</span></td>
-      <td><a class="export-link" href="/sessions/${encodeURIComponent(s.session_id)}/report?format=md" onclick="event.stopPropagation()" title="Download Markdown report">⤓ md</a></td>
+      <td class="mono" style="font-size:12px;color:var(--text2)">${startFmt} · ${dur}</td>
+      <td>${mlBadge}</td>
+      <td class="mono">${_sigmaPill(s.session_id)}</td>
     </tr>`;
-    const detailHtml = activeRow
-      ? `<tr class="detail-row" data-detail-for="${escAttr(s.session_id)}"><td colspan="14"><div class="session-detail-mount" id="sessionDetailMount"></div></td></tr>`
-      : '';
-    return rowHtml + detailHtml;
   }).join('');
-
-  _mountValidationPanel();
-}
-
-function _mountValidationPanel() {
-  const panel = document.getElementById('sessionValidationPanel');
-  if (!panel) return;
-  const mount = document.getElementById('sessionDetailMount');
-  if (mount) {
-    if (panel.parentElement !== mount) mount.appendChild(panel);
-  } else if (panel.parentElement && panel.parentElement.classList.contains('session-detail-mount')) {
-    // No row selected — return panel to its original home so it stays in the DOM tree.
-    document.getElementById('page-sessions').appendChild(panel);
-    panel.classList.remove('active');
-  }
 }
 
 function renderQualitySummary() {
@@ -1114,12 +1142,6 @@ function renderQualitySummary() {
   document.getElementById('qualityBad').textContent = ml.bad ?? 0;
 }
 
-function selectSession(sessionId) {
-  S.selectedSessionId = sessionId;
-  renderSessions(S.allSessions);
-  loadValidationIfNeeded(sessionId);
-  loadAlignmentIfNeeded(sessionId);
-}
 
 async function loadAlignmentIfNeeded(sessionId) {
   if (S.alignmentBySession[sessionId]) {
