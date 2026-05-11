@@ -30,6 +30,7 @@ def test_bootstrap_module_served_as_js():
         # Filled in as modules/views/stylesheets are created. Keep alphabetised.
         "/static/css/base.css",
         "/static/css/connections.css",
+        "/static/css/footer.css",
         "/static/css/recording.css",
         "/static/css/session-detail.css",
         "/static/css/sessions.css",
