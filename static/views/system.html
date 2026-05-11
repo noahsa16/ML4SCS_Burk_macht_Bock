@@ -1,4 +1,4 @@
-<div class="settings-grid" style="margin-bottom:16px">
+<div class="settings-grid">
         <div class="card">
           <div class="card-title">Dashboard Settings<span>local browser preferences</span></div>
           <div class="setting-row">
@@ -34,7 +34,7 @@
         </div>
       </div>
 
-      <div class="conn-grid" style="margin-bottom:16px">
+      <div class="conn-grid">
         <div class="card">
           <div class="card-title">Watch CSV Schema<span>data/raw/watch/{session}_watch.csv</span></div>
           <div class="info-block" style="padding:0;overflow:hidden">
@@ -81,21 +81,21 @@
 
       <div class="card">
         <div class="card-title">Project Overview<span>ML4SCS · Leuphana University</span></div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;font-size:13px;line-height:1.65;color:var(--text2)">
+        <div class="system-overview-grid">
           <div>
-            <p style="margin-bottom:8px"><strong style="color:var(--text)">Research question</strong></p>
+            <p><strong>Research question</strong></p>
             <p>Can writing activity and concentration levels of elementary school children be detected and predicted using IMU data from a smartwatch in combination with ground truth data from a Moleskine Smart Pen (NWP-F130)?</p>
           </div>
           <div>
-            <p style="margin-bottom:8px"><strong style="color:var(--text)">Data pipeline</strong></p>
+            <p><strong>Data pipeline</strong></p>
             <p>Apple Watch → WatchStreamer app → iPhone bridge → FastAPI server → watch CSV. Moleskine Pen → BLE (pen_logger.py) → pen CSV. Both streams keep their device timestamps; server receive times are capture metadata and a coarse session anchor.</p>
           </div>
           <div>
-            <p style="margin-bottom:8px"><strong style="color:var(--text)">Team</strong></p>
+            <p><strong>Team</strong></p>
             <p>Noah Samel · Ben Kriegsmann · Tajuddin Snasni</p>
           </div>
           <div>
-            <p style="margin-bottom:8px"><strong style="color:var(--text)">Stack</strong></p>
+            <p><strong>Stack</strong></p>
             <p>Python · FastAPI · Bleak (BLE) · Swift / WatchKit · scikit-learn · pandas · Jupyter</p>
           </div>
         </div>

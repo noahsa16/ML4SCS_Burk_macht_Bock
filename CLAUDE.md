@@ -175,6 +175,59 @@ session start/stop start/stop it automatically.
 rolling Hz estimates, and maintains a 60-point rolling chart buffer
 (acc magnitude, gyro magnitude, pen writing state).
 
+### Dashboard frontend (`dashboard.html` + `static/`)
+
+`dashboard.html` is a thin ~88-line shell: head with stylesheet + module
+preload tags, topbar markup, five empty `<div data-view="..."></div>` page
+slots, and `<script type="module" src="/static/dashboard.js">`.
+
+`static/dashboard.js` is the bootstrap (~165 lines). On `hashchange` it
+calls `showPage(pageId)`, which lazy-fetches the matching partial from
+`static/views/<page>.html` (cached after first fetch), injects it via
+`DOMParser` + `replaceChildren`, calls the page module's `mount(slot)`
+exactly once, then `onShow()`. Switching away calls the previous page's
+`onHide()`. WS ticks go through `setActivePageDispatcher`, which routes
+`onStatus(payload)` to the active page only — hidden pages do no
+per-tick work. Session Detail's `onHide` calls `_destroyAlignCharts()`
+to tear down the alignment-plot canvases when leaving (the main perf
+mechanism, since that page is the heaviest).
+
+Page modules live in `static/js/pages/{recording,sessions,session_detail,
+connections,system}.js` and all export the same four-function contract:
+`mount(container)`, `onStatus(payload)`, `onShow()`, `onHide()`.
+
+Cross-cutting concerns in `static/js/core/`:
+- `state.js` — `S` object + `updateFromStatus(payload)` + named getters
+- `ws.js` — WebSocket connection, reconnect with backoff. On each
+  message: `updateFromStatus(msg)` → `handleStatus(msg, prevSessionId)`.
+  Note the second arg: it carries the pre-update `S.lastStatus.session_id`
+  so cross-session canvas clearing still works after state mutation moved
+  into `state.js`.
+- `status_cluster.js` — `handleStatus` updates the topbar pills/badges
+  and ends with `_activePageDispatch(s)`.
+- `router.js` — hash routing, tab indicator, `closeSessionDetail`.
+  `closeSessionDetail` sets `location.hash = 'sessions'` (not
+  `history.replaceState`) so `hashchange` fires and the bootstrap's
+  `activePage` stays in sync.
+- `api.js`, `dom.js`, `format.js`, `theme.js`, `anim.js`, `toast.js` —
+  pure helpers + leaf services.
+
+Per-page styles live in `static/css/<page>.css`; cross-cutting tokens and
+layout are in `static/css/base.css` + `static/css/topbar.css`.
+
+**Inline `onclick=` handlers in view partials** reference functions as
+`window.foo()`. Since the bootstrap is a module (functions are not global
+by default), `dashboard.js` ends with an explicit
+`Object.assign(window, { ... })` block exposing every handler name. If
+you move or rename a function called from inline HTML, update that block.
+
+**Static-asset HTTP smoke test** at `tests/test_dashboard_static.py`
+parametrises every JS module / view partial / stylesheet path. Catches
+the silent-404 failure mode (browsers serve `text/html` for missing
+`.js` and ES modules fail to parse opaquely). When you add a new file
+under `static/js/`, `static/views/`, or `static/css/`, add the path to
+the parametrise list.
+
 ### iOS / watchOS app (`watch_streamer/`)
 
 Two Xcode targets:
