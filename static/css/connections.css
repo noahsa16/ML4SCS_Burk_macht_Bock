@@ -8,6 +8,23 @@
 .conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
 .conn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
 
+/* Top-level rhythm between sections on Connections page (replaces inline margin-bottom:16px). */
+#page-connections > .card:not(:last-child),
+#page-connections > .conn-grid:not(:last-child) { margin-bottom: var(--space-4); }
+
+/* Card-title sitting flat next to a badge or button row inside a flex parent (replaces inline margin:0). */
+.device-header .card-title,
+.chart-meta .card-title { margin: 0; }
+
+/* Action row in .chart-meta (header of the live network-map card). */
+.chart-meta-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* Long monospace identifiers like service UUIDs (replaces inline font-size:10px). */
+.info-val.is-id { font-size: var(--text-xs); word-break: break-all; }
+
+/* Action row at the bottom of each device card (replaces inline margin-top:14px). */
+.device-actions { margin-top: var(--space-4); display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
 /* ─── API endpoint list ──────────────────────────────────────── */
 .endpoint-list { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); }
 .endpoint { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3); background: var(--surface2); border-radius: var(--radius-sm); }
@@ -47,13 +64,23 @@
 .network-line.ok::after,
 .network-line.warn::after {
   content: ""; position: absolute; top: -2px; width: 8px; height: 8px; border-radius: 50%;
-  background: currentColor; color: inherit; animation: networkFlow 1.15s ease-in-out infinite alternate;
+  background: currentColor; color: inherit; animation: networkFlow 1.6s linear infinite;
 }
 .network-line.ok { color: var(--green); }
 .network-line.warn { color: var(--yellow); }
-@keyframes networkFlow { from { left: 0; } to { left: calc(100% - 8px); } }
-.network-detail-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); margin-top: var(--space-4); }
-.network-detail { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3); }
+/* One-way packet flow: dot enters from the left, fades in, slides across, fades out, repeats.
+   Avoids the pendulum ping-pong reading of an alternate animation. */
+@keyframes networkFlow {
+  0%   { left: -8px;  opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+.network-detail-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4);
+  margin-top: var(--space-4); padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
 .network-detail .k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
 .network-detail .v { font-family: var(--mono); font-size: var(--text-sm); font-weight: 700; color: var(--text); margin-top: var(--space-1); word-break: break-word; }
 

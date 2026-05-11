@@ -6,10 +6,10 @@
         <div class="uptime-item"><div class="uptime-key">iPhone Bridge</div><div class="uptime-val" id="uptimeBridge">–</div></div>
       </div>
 
-      <div class="card" style="margin-bottom:16px">
+      <div class="card">
         <div class="chart-meta">
-          <div class="card-title" style="margin:0">Live Connectivity Map<span>Website → iPhone → Watch → Server</span></div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <div class="card-title">Live Connectivity Map<span>Website → iPhone → Watch → Server</span></div>
+          <div class="chart-meta-actions">
             <button class="btn btn-sm btn-outline" onclick="downloadDebugPackage()">Export debug JSON</button>
             <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">Reset watch command</button>
           </div>
@@ -47,16 +47,16 @@
         </div>
       </div>
 
-      <div class="conn-grid" style="margin-bottom:16px">
+      <div class="conn-grid">
         <!-- Pen -->
         <div class="card">
           <div class="device-header">
-            <div class="card-title" style="margin:0">Pen — NWP-F130 (BLE)</div>
+            <div class="card-title">Pen — NWP-F130 (BLE)</div>
             <div class="status-badge badge-err" id="connPenBadge">Disconnected</div>
           </div>
           <div class="info-block">
             <div class="info-row"><span class="info-key">Protocol</span><span class="info-val">NeoSmartpen V2 (BLE)</span></div>
-            <div class="info-row"><span class="info-key">Service UUID</span><span class="info-val" style="font-size:10px">4f99f138-9d53-5bfa-9e50-b147491afe68</span></div>
+            <div class="info-row"><span class="info-key">Service UUID</span><span class="info-val is-id">4f99f138-9d53-5bfa-9e50-b147491afe68</span></div>
             <div class="info-row"><span class="info-key">Password</span><span class="info-val">0000 (default)</span></div>
             <div class="info-row"><span class="info-key">Sample output</span><span class="info-val">x, y, pressure, tilt, dot_type</span></div>
             <div class="info-row"><span class="info-key">Process PID</span><span class="info-val" id="penPid">–</span></div>
@@ -64,7 +64,7 @@
             <div class="info-row"><span class="info-key">Last dot</span><span class="info-val" id="connPenLast">–</span></div>
             <div class="info-row"><span class="info-key">Server time column</span><span class="info-val" id="connPenClock">–</span></div>
           </div>
-          <div class="device-actions" style="margin-top:14px">
+          <div class="device-actions">
             <button class="btn btn-sm btn-green" onclick="penConnect()">▲ Connect Pen</button>
             <button class="btn btn-sm btn-red" onclick="penDisconnect()">▼ Disconnect</button>
           </div>
@@ -72,7 +72,7 @@
         <!-- Watch -->
         <div class="card">
           <div class="device-header">
-            <div class="card-title" style="margin:0">Watch — Apple Watch (HTTP)</div>
+            <div class="card-title">Watch — Apple Watch (HTTP)</div>
             <div class="status-badge badge-err" id="connWatchBadge">Offline</div>
           </div>
           <div class="info-block">
@@ -91,7 +91,7 @@
             <div class="info-row"><span class="info-key">Last command</span><span class="info-val" id="connWatchCommand">–</span></div>
             <div class="info-row"><span class="info-key">Last packet</span><span class="info-val" id="connWatchLast">–</span></div>
           </div>
-          <div class="device-actions" style="margin-top:14px">
+          <div class="device-actions">
             <button class="btn btn-sm btn-outline" onclick="watchCmd('start')">▶ Send Start Cmd</button>
             <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">■ Send Stop Cmd</button>
           </div>
