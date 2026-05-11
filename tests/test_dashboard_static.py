@@ -31,6 +31,7 @@ def test_bootstrap_module_served_as_js():
         "/static/js/core/api.js",
         "/static/js/core/dom.js",
         "/static/js/core/format.js",
+        "/static/js/core/state.js",
     ],
 )
 def test_static_assets_served(path):
