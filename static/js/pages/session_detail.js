@@ -3,7 +3,7 @@
 // Heaviest page: alignment canvases with rAF/Chart.js state.
 // onHide calls _destroyAlignCharts() — the headline perf-win for this module.
 
-import { api } from '/static/js/core/api.js';
+import { api, apiResult } from '/static/js/core/api.js';
 import { esc, escAttr, _roundRect } from '/static/js/core/dom.js';
 import { renderState } from '/static/js/core/states.js';
 import {
@@ -39,7 +39,16 @@ export function onStatus(/* s */) {}
 
 export async function openSessionDetail(sessionId) {
   const loadingSlot = document.getElementById('pageDetailLoading');
-  if (loadingSlot) loadingSlot.style.display = '';
+  let errorRendered = false;
+  if (loadingSlot) {
+    // Re-render the loading state on every open so a previous error-state
+    // overlay doesn't leak into a retry attempt.
+    loadingSlot.style.display = '';
+    renderState(loadingSlot, 'loading', {
+      title: 'Loading session…',
+      hint: 'Fetching quality, alignment and timeline data.',
+    });
+  }
 
   try {
     S.selectedSessionId = sessionId;
@@ -63,15 +72,23 @@ export async function openSessionDetail(sessionId) {
       S._detailTogglesWired = true;
     }
 
-    // Load validation + alignment in parallel.
-    const [validation, alignment] = await Promise.all([
+    // Load validation + alignment in parallel via typed-result so we can
+    // surface a real error state if either fetch fails.
+    const [vR, aR] = await Promise.all([
       S.validationBySession[sessionId]
-        ? Promise.resolve(S.validationBySession[sessionId])
-        : api(`/sessions/${encodeURIComponent(sessionId)}/validation`, 'GET'),
+        ? Promise.resolve({ ok: true, data: S.validationBySession[sessionId] })
+        : apiResult(`/sessions/${encodeURIComponent(sessionId)}/validation`, 'GET'),
       S.alignmentBySession[sessionId]
-        ? Promise.resolve(S.alignmentBySession[sessionId])
-        : api(`/sessions/${encodeURIComponent(sessionId)}/alignment`, 'GET'),
+        ? Promise.resolve({ ok: true, data: S.alignmentBySession[sessionId] })
+        : apiResult(`/sessions/${encodeURIComponent(sessionId)}/alignment`, 'GET'),
     ]);
+    if (!vR.ok || !aR.ok) {
+      _renderSessionDetailError(sessionId, vR.ok ? aR.error : vR.error);
+      errorRendered = true;
+      return;
+    }
+    const validation = vR.data;
+    const alignment = aR.data;
     if (validation) S.validationBySession[sessionId] = validation;
     if (alignment) S.alignmentBySession[sessionId] = alignment;
 
@@ -89,8 +106,24 @@ export async function openSessionDetail(sessionId) {
     renderAlignment(sessionId);
     _renderDetailIssues(quality);
   } finally {
-    if (loadingSlot) loadingSlot.style.display = 'none';
+    if (loadingSlot && !errorRendered) loadingSlot.style.display = 'none';
   }
+}
+
+function _renderSessionDetailError(sessionId, err) {
+  // The pageDetailLoading overlay is repurposed as the error host so the
+  // page body underneath stays untouched (no stale half-render).
+  const slot = document.getElementById('pageDetailLoading');
+  if (!slot) return;
+  slot.style.display = '';
+  const isNet = err?.kind === 'network';
+  renderState(slot, 'error', {
+    title: isNet ? 'Couldn’t load session' : 'Server error',
+    hint: isNet
+      ? 'Server didn’t respond. Check your connection or try again.'
+      : `The server returned ${err?.status || 'an error'}${err?.message ? ': ' + err.message : ''}.`,
+    action: { label: 'retry', onClick: () => openSessionDetail(sessionId) },
+  });
 }
 
 // RENDER HELPERS

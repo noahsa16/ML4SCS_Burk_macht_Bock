@@ -4,7 +4,7 @@
 // onclick="location.hash='#session/<id>'" which triggers router.js
 // _routeFromHash → openSessionDetail; no direct import needed here.
 
-import { api } from '/static/js/core/api.js';
+import { api, apiResult } from '/static/js/core/api.js';
 import { esc, escAttr } from '/static/js/core/dom.js';
 import { fmtDuration, scoreBadge } from '/static/js/core/format.js';
 import { S } from '/static/js/core/state.js';
@@ -56,10 +56,16 @@ function saveFilters(f) {
 function resetFilters() { localStorage.removeItem(FILTERS_KEY); }
 
 export async function loadSessions() {
-  const [data, quality] = await Promise.all([
-    api('/sessions', 'GET'),
-    api('/sessions/quality', 'GET'),
+  const [sessionsR, qualityR] = await Promise.all([
+    apiResult('/sessions', 'GET'),
+    apiResult('/sessions/quality', 'GET'),
   ]);
+  if (!sessionsR.ok || !qualityR.ok) {
+    _renderSessionsError(sessionsR.ok ? qualityR.error : sessionsR.error);
+    return;
+  }
+  const data = sessionsR.data;
+  const quality = qualityR.data;
   S.allSessions = data || [];
   S.qualitySummary = quality?.summary || null;
   S.qualityBySession = {};
@@ -162,6 +168,24 @@ function _sigmaPill(sessionId) {
   }
   const cls = sigma <= -3 ? 'badge-ok' : sigma <= -2 ? 'badge-warn' : 'badge-err';
   return '<span class="status-badge ' + cls + '">' + sigma.toFixed(2) + '</span>';
+}
+
+function _renderSessionsError(err) {
+  const tbody = document.getElementById('sessionsBody');
+  if (!tbody) return;
+  const row = document.createElement('tr');
+  const cell = document.createElement('td');
+  cell.colSpan = 4;
+  row.appendChild(cell);
+  tbody.replaceChildren(row);
+  const isNet = err?.kind === 'network';
+  renderState(cell, 'error', {
+    title: isNet ? 'Couldn’t load sessions' : 'Server error',
+    hint: isNet
+      ? 'Server didn’t respond. Check your connection or try again.'
+      : `The server returned ${err?.status || 'an error'}${err?.message ? ': ' + err.message : ''}.`,
+    action: { label: 'retry', onClick: loadSessions },
+  });
 }
 
 function renderSessionsList(rows) {
