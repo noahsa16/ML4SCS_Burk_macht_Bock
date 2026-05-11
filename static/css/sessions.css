@@ -157,3 +157,35 @@ td.bold { font-weight: 600; }
   opacity: 0.55;
   margin-right: var(--space-2);
 }
+
+/* Quality summary at top of Sessions: headline strip, not tile grid. */
+#page-sessions .health-grid {
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-5);
+  margin-top: var(--space-4);
+}
+#page-sessions .health-box {
+  background: none; border: none; border-radius: 0; padding: 0;
+}
+#page-sessions .health-box .k {
+  font-size: var(--text-xs); text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--text3);
+}
+#page-sessions .health-box .v {
+  font-family: var(--sans); font-size: var(--text-xl); font-weight: 500;
+  letter-spacing: -0.02em; line-height: 1; color: var(--text);
+  margin-top: var(--space-2);
+}
+#page-sessions .health-box .v.ok   { color: var(--green); }
+#page-sessions .health-box .v.warn { color: var(--yellow); }
+#page-sessions .health-box .v.err  { color: var(--red); }
+
+/* Refresh as text-link, mirroring the .reset-link treatment in the filter bar. */
+.refresh-link {
+  font-family: var(--sans); font-size: var(--text-sm);
+  color: var(--text3); text-decoration: underline;
+  background: none; border: none; cursor: pointer; padding: 0;
+  transition: color var(--dur-fast) var(--ease-default);
+}
+.refresh-link:hover { color: var(--text); }
+.refresh-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
