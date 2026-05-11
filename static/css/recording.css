@@ -55,25 +55,29 @@ select:focus-visible { border-color: var(--accent); }
 .stat-val { font-family: var(--mono); font-size: var(--text-md); font-weight: 600; color: var(--text); margin-top: 3px; }
 .stat-val.accent { color: var(--accent); }
 .stat-val.green { color: var(--green); }
+/* Variant for ID-style values (Session ID, Sample Rate) — smaller mono fits long strings. */
+.stat-val--id { font-size: var(--text-base); }
 
 /* ─── Chart ──────────────────────────────────────────────────── */
 .chart-meta { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .chart-legend { display: flex; gap: var(--space-4); font-size: var(--text-xs); color: var(--text2); align-items: center; }
 .leg-dot { width: 10px; height: 3px; border-radius: var(--radius-xs); display: inline-block; }
-.chart-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); margin-top: var(--space-4); }
-.chart-stat {
-  background: var(--surface2); border: 1px solid var(--border);
-  border-radius: var(--radius-sm); padding: var(--space-4);
-}
-/* Hero-Stats: Sans-Bold statt Mono — wirkt editorial-er und tabular-nums
-   sorgt trotzdem dafür, dass Werte beim Update nicht zappeln. */
+/* Legend variants — replace what used to be inline styles on individual swatches. */
+.leg-dot--accel   { background: var(--accent);  height: 2px; }
+.leg-dot--gyro    { background: var(--yellow);  height: 2px; }
+.leg-dot--writing { background: var(--green);   width: 14px; opacity: 0.6; }
+.leg-dot--idle    { background: var(--border2); width: 14px; }
+
+/* Hero stats below the live chart: 3 headline figures, no per-tile chrome.
+   The chart card itself provides the section frame. */
+.chart-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-5); margin-top: var(--space-5); }
 .chart-stat .val {
-  font-family: var(--sans); font-size: var(--text-lg); font-weight: 600;
-  letter-spacing: -0.02em; line-height: 1.05;
+  font-family: var(--sans); font-size: var(--text-xl); font-weight: 500;
+  letter-spacing: -0.02em; line-height: 1; color: var(--text);
 }
 .chart-stat .lbl {
   font-family: var(--mono); font-size: var(--text-xs); text-transform: uppercase;
-  letter-spacing: 0.06em; color: var(--text3); margin-top: 6px;
+  letter-spacing: 0.06em; color: var(--text3); margin-top: var(--space-2);
 }
 canvas#imuChart { width: 100% !important; }
 
@@ -88,8 +92,9 @@ canvas#imuChart { width: 100% !important; }
 .chart-canvas-empty .empty-state { padding: var(--space-4); }
 .chart-canvas-wrap.has-data .chart-canvas-empty { opacity: 0; }
 .wide-card { grid-column: 1 / -1; }
-.health-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-2); margin-top: var(--space-3); }
-.health-box { background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: var(--space-3); }
+/* Diagnostics health strip (inside expandable diagnostics section) — chromeless,
+   the parent chart card already provides section framing. */
+.health-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-top: var(--space-3); }
 .health-box .k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
 .health-box .v { font-family: var(--mono); font-size: var(--text-base); font-weight: 600; color: var(--text); margin-top: 4px; }
 .health-box .v.ok { color: var(--green); }
