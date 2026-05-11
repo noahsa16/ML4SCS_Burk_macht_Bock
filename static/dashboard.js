@@ -1837,3 +1837,14 @@ setLogRows(S.logRows);
 api('/status').then(s => { if (s) handleStatus({ type: 'status', ...s, chart: [] }); });
 
 connectWs();
+
+// Inline HTML onclick="..." handlers in dashboard.html still reference these as
+// globals. Until the bootstrap rewrite (Task 14) replaces onclick attributes with
+// addEventListener bindings, expose them on `window` explicitly so the module-scoped
+// names remain reachable from the HTML.
+Object.assign(window, {
+  goHome, toggleTheme, toggleSession, toggleCardDetails,
+  penConnect, penDisconnect, watchCmd, airpodsCmd,
+  clearPenPreview, clearVisualLogs, loadSessions, closeSessionDetail,
+  downloadDebugPackage, setTheme, setLogRows,
+});
