@@ -1,8 +1,9 @@
+import { esc, escAttr, _roundRect } from '/static/js/core/dom.js';
 import {
   fmtDuration, fmtHz, fmtNum, fmtClockGap, fmtMs, fmtSec, fmtAgo,
   fmtClock, fmtCommand, fmtUptime,
   statusBadgeClass, scoreBadge, scoreTooltip, syncDiagnostic,
-  _fmtStripDate, esc,
+  _fmtStripDate,
 } from '/static/js/core/format.js';
 
 // ════════════════════════════════════════════════════════════
@@ -1506,15 +1507,6 @@ function _drawAlignVarianceCurve(a) {
   });
 }
 
-function _roundRect(ctx, x, y, w, h, r) {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
-}
 
 function _drawAlignTimeline(a) {
   const ctx = document.getElementById('alignTimelineCanvas');
@@ -1814,9 +1806,6 @@ async function downloadDebugPackage() {
   toast('Debug package exported');
 }
 
-function escAttr(value) {
-  return esc(value).replace(/`/g, '&#096;');
-}
 
 let toastTimer;
 function toast(msg) {

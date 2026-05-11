@@ -1,6 +1,5 @@
 // Pure formatting helpers — no DOM access, no side effects.
-// esc lives here because scoreBadge depends on it; Task 3 will move esc/escAttr
-// into core/dom.js and re-export esc from there.
+import { esc } from '/static/js/core/dom.js';
 
 export function _fmtStripDate(d = new Date()) {
   return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -128,8 +127,3 @@ export function syncDiagnostic(q, validation) {
   };
 }
 
-export function esc(value) {
-  return String(value ?? '').replace(/[&<>"']/g, ch => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
-  }[ch]));
-}

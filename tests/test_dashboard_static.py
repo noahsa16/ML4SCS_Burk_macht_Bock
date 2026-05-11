@@ -28,6 +28,7 @@ def test_bootstrap_module_served_as_js():
     "path",
     [
         # Filled in as modules/views/stylesheets are created. Keep alphabetised.
+        "/static/js/core/dom.js",
         "/static/js/core/format.js",
     ],
 )
