@@ -13,7 +13,9 @@
   --accent:    oklch(0.595 0.165 43);
   --accent-h:  oklch(0.540 0.175 43);
   --green:     oklch(0.580 0.130 148);
+  --green-h:   oklch(0.520 0.135 148);
   --red:       oklch(0.575 0.175 24);
+  --red-h:     oklch(0.520 0.180 24);
   --yellow:    oklch(0.720 0.135 88);
   --text-on-dark: #fff;
   --mono:      'IBM Plex Mono', monospace;
@@ -60,7 +62,9 @@ body[data-theme="dark"] {
   --accent:    oklch(0.690 0.150 48);
   --accent-h:  oklch(0.745 0.150 48);
   --green:     oklch(0.710 0.130 150);
+  --green-h:   oklch(0.650 0.135 150);
   --red:       oklch(0.680 0.170 24);
+  --red-h:     oklch(0.620 0.175 24);
   --yellow:    oklch(0.790 0.135 88);
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
