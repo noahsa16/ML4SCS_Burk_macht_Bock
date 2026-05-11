@@ -303,3 +303,16 @@ body {
   font-size: var(--text-xs); color: var(--text3); margin-bottom: 0;
   font-weight: 500; font-family: var(--sans);
 }
+
+/* Error variant — distinct from empty: ! glyph in --err colour. Reuses the
+   .empty-state-action button styling for retry actions. */
+.empty-state--error .empty-state-glyph {
+  color: var(--err);
+  opacity: 0.85;
+  font-style: normal;
+  font-weight: 600;
+}
+.empty-state--error.empty-state--inline .empty-state-glyph {
+  color: var(--err);
+  opacity: 0.85;
+}
