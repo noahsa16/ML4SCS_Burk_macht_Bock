@@ -103,6 +103,12 @@ canvas#imuChart { width: 100% !important; }
 
 /* ─── Device cards ───────────────────────────────────────────── */
 .device-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3); }
+.device-empty-slot {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm); color: var(--text3); font-style: italic;
+}
+.device-empty-slot:empty { display: none !important; }
 .device-name { font-size: var(--text-base); font-weight: 600; }
 .status-badge {
   /* Why: 6px is a sub-scale icon-to-text micro-gap inside the badge pill. */

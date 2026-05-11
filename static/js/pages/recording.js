@@ -394,25 +394,53 @@ export function toggleCardDetails(btn) {
 }
 
 // ════════════════════════════════════════════════════════════
+//  DEVICE CARD EMPTY STATE
+// ════════════════════════════════════════════════════════════
+function _updateDeviceEmpty(slotId, rowsId, connected, title) {
+  const slot = document.getElementById(slotId);
+  const rows = document.getElementById(rowsId);
+  if (!slot || !rows) return;
+  if (connected) {
+    slot.style.display = 'none';
+    rows.style.display = '';
+    renderState(slot, 'clear');
+  } else {
+    slot.style.display = '';
+    rows.style.display = 'none';
+    renderState(slot, 'empty', { title, inline: true });
+  }
+}
+
+// ════════════════════════════════════════════════════════════
 //  LOG RENDERING + SETTINGS
 // ════════════════════════════════════════════════════════════
 export function renderLogs() {
   const sampleRows = (S.sampleLog || []).slice(-S.logRows).reverse();
   const eventRows = (S.eventLog || []).slice(-S.logRows).reverse();
 
-  const sampleLogEl = document.getElementById('sampleLog');
-  const eventLogEl = document.getElementById('eventLog');
+  const sampleEl = document.getElementById('sampleLog');
+  const eventEl = document.getElementById('eventLog');
 
-  if (sampleLogEl) {
-    sampleLogEl.innerHTML = sampleRows.length
-      ? sampleRows.map(renderSampleRow).join('')
-      : '<div class="log-row sample-row"><span class="log-time">--:--:--</span><span class="sample-pill">idle</span><span class="log-msg">Waiting for pen/watch samples...</span></div>';
+  if (sampleEl) {
+    if (sampleRows.length === 0) {
+      renderState(sampleEl, 'empty', {
+        title: 'No samples yet',
+        hint: 'Sample stream begins once a session is recording.',
+      });
+    } else {
+      sampleEl.innerHTML = sampleRows.map(renderSampleRow).join('');
+    }
   }
 
-  if (eventLogEl) {
-    eventLogEl.innerHTML = eventRows.length
-      ? eventRows.map(renderEventRow).join('')
-      : '<div class="log-row"><span class="log-time">--:--:--</span><span class="log-src">server</span><span class="log-msg">Waiting for events...</span></div>';
+  if (eventEl) {
+    if (eventRows.length === 0) {
+      renderState(eventEl, 'empty', {
+        title: 'No events yet',
+        hint: 'Server and device events will appear here.',
+      });
+    } else {
+      eventEl.innerHTML = eventRows.map(renderEventRow).join('');
+    }
   }
 }
 
@@ -553,6 +581,14 @@ export function onStatus(s) {
     airpodsBadgeText = 'Offline'; airpodsBadgeClass = 'badge-err'; airpodsUiOnline = false;
   }
   setBadge('airpodsBadge', airpodsUiOnline, airpodsBadgeText, airpodsBadgeClass);
+
+  // Device card empty states
+  _updateDeviceEmpty('penDeviceEmpty', 'penDeviceRows', !!s.pen_connected,
+    'Connect the pen to see live dot data.');
+  _updateDeviceEmpty('watchDeviceEmpty', 'watchDeviceRows', !!S.watchConnected,
+    'Start the watch app to see live IMU data.');
+  _updateDeviceEmpty('airpodsDeviceEmpty', 'airpodsDeviceRows', airpodsUiOnline,
+    'Connect AirPods to capture head IMU.');
 
   // Device side rows
   const penBleEl = document.getElementById('penBleStatus');
