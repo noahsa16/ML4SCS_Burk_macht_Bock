@@ -6,8 +6,8 @@ import { S, updateFromStatus } from '/static/js/core/state.js';
 import { handleStatus } from '/static/js/core/status_cluster.js';
 import { toast } from '/static/js/core/toast.js';
 
-// Temporary: loadSessions moves to pages/sessions.js in Task 9
-import { loadSessions } from '/static/dashboard.js';
+// Temporary: loadSessions moved to pages/sessions.js in Task 11.
+import { loadSessions } from '/static/js/pages/sessions.js';
 
 let ws, wsReconnectTimer;
 

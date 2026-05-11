@@ -1,5 +1,7 @@
 import * as systemPage from '/static/js/pages/system.js';
 import * as connectionsPage from '/static/js/pages/connections.js';
+import * as sessionsPage from '/static/js/pages/sessions.js';
+import { loadSessions, computeVerdict } from '/static/js/pages/sessions.js';
 import { esc, escAttr, _roundRect } from '/static/js/core/dom.js';
 import {
   fmtDuration, fmtHz, fmtNum, fmtClockGap, fmtMs, fmtSec, fmtAgo,
@@ -43,7 +45,7 @@ document.querySelectorAll('.tab').forEach(el => {
     document.getElementById('pageTitle')?.replaceChildren(document.createTextNode(m.title));
     document.getElementById('pageSub')?.replaceChildren(document.createTextNode(m.sub));
     document.title = `${m.title} — Burk macht Bock`;
-    if (p === 'sessions') loadSessions();
+    if (p === 'sessions') sessionsPage.onShow();
     if (p === 'connections') connectionsPage.onShow();
     updatePageStrip(p);
     updateTabIndicator();
@@ -153,48 +155,9 @@ async function airpodsCmd(cmd) {
   toast(`AirPods command: ${cmd}`);
 }
 
-// ════════════════════════════════════════════════════════════
-//  SESSION VERDICT — single 3-level summary used by both
-//  the triage list (filter target) and the detail page header.
-// ════════════════════════════════════════════════════════════
-// Thresholds match docs/superpowers/specs/2026-05-11-sessions-tab-redesign-design.md
-// and src/training docs in CLAUDE.md (σ ≤ -3 trainable, ≥ 5 min within-session).
-const VERDICT_TRAINABLE = 'trainable';
-const VERDICT_USABLE    = 'usable';
-const VERDICT_SKIP      = 'skip';
-
-function computeVerdict(quality, alignment, durationSec) {
-  const ml = quality?.ml_readiness?.status || quality?.quality || 'unknown';
-  const issues = [
-    ...(quality?.ml_readiness?.blockers || []),
-    ...(quality?.recording_health?.blockers || []),
-  ].map(i => i.code);
-  if (ml === 'bad' || issues.includes('sync_failed') || issues.includes('streams_do_not_overlap')) {
-    return { level: VERDICT_SKIP, label: 'Skip' };
-  }
-  const sigma = alignment?.sigma;
-  const dur = Number(durationSec || 0);
-  if (ml === 'ok' && Number.isFinite(sigma) && sigma <= -3 && dur >= 300) {
-    return { level: VERDICT_TRAINABLE, label: 'Trainable' };
-  }
-  return { level: VERDICT_USABLE, label: 'Usable' };
-}
-
-// Filter state persists in localStorage so reloads don't drop user intent.
-const FILTERS_KEY = 'sessionsFilter.v1';
-const DEFAULT_FILTERS = { q: '', ml: 'all', align: 'all', minFive: false };
-
-function loadFilters() {
-  try {
-    const raw = localStorage.getItem(FILTERS_KEY);
-    if (!raw) return { ...DEFAULT_FILTERS };
-    return { ...DEFAULT_FILTERS, ...JSON.parse(raw) };
-  } catch { return { ...DEFAULT_FILTERS }; }
-}
-function saveFilters(f) {
-  try { localStorage.setItem(FILTERS_KEY, JSON.stringify(f)); } catch {}
-}
-function resetFilters() { localStorage.removeItem(FILTERS_KEY); }
+// SESSION VERDICT, FILTERS, loadSessions, applyFilters, resetFilters, _matchesFilters,
+// _sigmaPill, renderSessionsList, renderQualitySummary moved to
+// static/js/pages/sessions.js (Task 11).
 
 export async function openSessionDetail(sessionId) {
   S.selectedSessionId = sessionId;
@@ -328,163 +291,6 @@ function _renderDetailIssues(quality) {
   document.getElementById('detailIssuesSummary').textContent = all.length
     ? 'Hover an issue chip to see rationale. Severity is mixed: blockers are red, warnings yellow.'
     : 'Nothing flagged on this session.';
-}
-
-// ════════════════════════════════════════════════════════════
-//  SESSIONS TABLE
-// ════════════════════════════════════════════════════════════
-export async function loadSessions() {
-  const [data, quality] = await Promise.all([
-    api('/sessions', 'GET'),
-    api('/sessions/quality', 'GET'),
-  ]);
-  S.allSessions = data || [];
-  S.qualitySummary = quality?.summary || null;
-  S.qualityBySession = {};
-  (quality?.sessions || []).forEach(q => { S.qualityBySession[q.session_id] = q; });
-  if (!S.validationBySession) S.validationBySession = {};
-  if (!S.alignmentBySession) S.alignmentBySession = {};
-  renderQualitySummary();
-
-  // Bulk-fetch alignment for every session in parallel so the σ filter and
-  // table column have data without per-row lazy loading. Sessions with no pen
-  // data return an alignment payload whose sigma is null/missing — that's the
-  // "no pen" filter category. Re-applies filters when each result lands.
-  const missing = S.allSessions.filter(s => !S.alignmentBySession[s.session_id]);
-  Promise.all(missing.map(s =>
-    api(`/sessions/${encodeURIComponent(s.session_id)}/alignment`, 'GET')
-      .then(a => { if (a) S.alignmentBySession[s.session_id] = a; })
-      .catch(() => {})
-  )).then(() => applyFilters());
-
-  // Restore filter UI from localStorage on first render only.
-  if (!S._filtersWired) {
-    const f = loadFilters();
-    document.getElementById('filterQ').value = f.q;
-    document.getElementById('filterMl').value = f.ml;
-    document.getElementById('filterAlign').value = f.align;
-    document.getElementById('filterMinFive').checked = f.minFive;
-    let deb;
-    const debouncedApply = () => { clearTimeout(deb); deb = setTimeout(applyFilters, 150); };
-    document.getElementById('filterQ').addEventListener('input', debouncedApply);
-    document.getElementById('filterMl').addEventListener('change', applyFilters);
-    document.getElementById('filterAlign').addEventListener('change', applyFilters);
-    document.getElementById('filterMinFive').addEventListener('change', applyFilters);
-    document.getElementById('filterReset').addEventListener('click', () => {
-      resetFilters();
-      document.getElementById('filterQ').value = '';
-      document.getElementById('filterMl').value = 'all';
-      document.getElementById('filterAlign').value = 'all';
-      document.getElementById('filterMinFive').checked = false;
-      applyFilters();
-    });
-    S._filtersWired = true;
-  }
-  applyFilters();
-}
-
-
-function _matchesFilters(s, q, filters) {
-  const txt = filters.q.toLowerCase();
-  if (txt && !(
-    s.session_id?.toLowerCase().includes(txt) ||
-    s.person_id?.toLowerCase().includes(txt) ||
-    s.description?.toLowerCase().includes(txt)
-  )) return false;
-
-  const mlStatus = q?.ml_readiness?.status || q?.quality || 'unknown';
-  if (filters.ml !== 'all' && mlStatus !== filters.ml) return false;
-
-  // Alignment data lives on a separate endpoint; cached in S.alignmentBySession.
-  // If a session's alignment isn't loaded yet, "all" passes; specific filters
-  // exclude it until the bulk fetch completes (which re-applies filters).
-  const a = S.alignmentBySession?.[s.session_id];
-  const sigma = a?.sigma;
-  const failed = a?.status === 'failed' || (Number.isFinite(sigma) && sigma > -2);
-  const hasPen = !!a && Number.isFinite(sigma);
-  if (filters.align === 's3' && !(Number.isFinite(sigma) && sigma <= -3)) return false;
-  if (filters.align === 's2' && !(Number.isFinite(sigma) && sigma <= -2)) return false;
-  if (filters.align === 'failed' && !failed) return false;
-  if (filters.align === 'none' && hasPen) return false;
-
-  if (filters.minFive) {
-    const dur = s.start_time && s.end_time
-      ? (new Date(s.end_time) - new Date(s.start_time)) / 1000
-      : 0;
-    if (dur < 300) return false;
-  }
-  return true;
-}
-
-function applyFilters() {
-  const filters = {
-    q: document.getElementById('filterQ').value,
-    ml: document.getElementById('filterMl').value,
-    align: document.getElementById('filterAlign').value,
-    minFive: document.getElementById('filterMinFive').checked,
-  };
-  saveFilters(filters);
-  // Active-Filter-Hinweis: Inputs mit Non-Default kriegen Accent-Border (CSS handhabt das via .is-active)
-  document.getElementById('filterQ').classList.toggle('is-active', filters.q !== '');
-  document.getElementById('filterMl').classList.toggle('is-active', filters.ml !== 'all');
-  document.getElementById('filterAlign').classList.toggle('is-active', filters.align !== 'all');
-  const rows = (S.allSessions || []).filter(s => _matchesFilters(s, S.qualityBySession[s.session_id], filters));
-  renderSessionsList(rows);
-}
-
-function _sigmaPill(sessionId) {
-  const a = S.alignmentBySession?.[sessionId];
-  const sigma = a?.sigma;
-  if (!Number.isFinite(sigma)) {
-    if (a?.status === 'failed') return '<span class="status-badge badge-err">failed</span>';
-    return '<span class="mono" style="color:var(--text3)">—</span>';
-  }
-  const cls = sigma <= -3 ? 'badge-ok' : sigma <= -2 ? 'badge-warn' : 'badge-err';
-  return `<span class="status-badge ${cls}">${sigma.toFixed(2)}</span>`;
-}
-
-function renderSessionsList(rows) {
-  const tbody = document.getElementById('sessionsBody');
-  if (!rows.length) {
-    tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state">
-      <div class="empty-state-glyph">/</div>
-      <div class="empty-state-title">No matching sessions</div>
-      <div class="empty-state-hint">Adjust the filters above, or start a new recording from the Recording tab.</div>
-    </div></td></tr>`;
-    return;
-  }
-  tbody.innerHTML = rows.map(s => {
-    const q = S.qualityBySession[s.session_id] || {};
-    const ml = q.ml_readiness || { status: q.quality || 'unknown' };
-    const mlBadge = scoreBadge(ml);
-    const dur = s.start_time && s.end_time
-      ? fmtDuration(Math.floor((new Date(s.end_time) - new Date(s.start_time)) / 1000))
-      : (s.status === 'active' ? '<em style="color:var(--accent)">live</em>' : '–');
-    const startFmt = s.start_time
-      ? new Date(s.start_time).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })
-      : '–';
-    const personLabel = (s.person_id || '').trim();
-    const personCell = personLabel
-      ? `<div class="session-person">${esc(personLabel)}</div>
-         <div class="session-caption">${esc(s.session_id)}${s.description ? ' · ' + esc(s.description) : ''}</div>`
-      : `<div class="session-person anonymous">Anonymous</div>
-         <div class="session-caption">${esc(s.session_id)}${s.description ? ' · ' + esc(s.description) : ''}</div>`;
-    return `<tr class="click-row" onclick="location.hash='#session/${escAttr(s.session_id)}'">
-      <td class="session-cell">${personCell}</td>
-      <td class="mono" style="font-size:12px;color:var(--text2)">${startFmt} · ${dur}</td>
-      <td>${mlBadge}</td>
-      <td class="mono">${_sigmaPill(s.session_id)}</td>
-    </tr>`;
-  }).join('');
-}
-
-function renderQualitySummary() {
-  const summary = S.qualitySummary || { total: 0, ok: 0, warn: 0, bad: 0 };
-  const ml = summary.ml_readiness || summary;
-  document.getElementById('qualityTotal').textContent = summary.total ?? 0;
-  document.getElementById('qualityOk').textContent = ml.ok ?? 0;
-  document.getElementById('qualityWarn').textContent = ml.warn ?? 0;
-  document.getElementById('qualityBad').textContent = ml.bad ?? 0;
 }
 
 
@@ -980,6 +786,14 @@ fetch('/static/views/connections.html')
     connectionsPage.mount(slot);
   });
 
+fetch('/static/views/sessions.html')
+  .then(r => r.text())
+  .then(html => {
+    const slot = document.getElementById('page-sessions');
+    injectPartial(slot, html);
+    sessionsPage.mount(slot);
+  });
+
 fetch('/static/views/system.html')
   .then(r => r.text())
   .then(html => {
@@ -992,6 +806,7 @@ fetch('/static/views/system.html')
 // globals. Until the bootstrap rewrite (Task 14) replaces onclick attributes with
 // addEventListener bindings, expose them on `window` explicitly so the module-scoped
 // names remain reachable from the HTML.
+// loadSessions is referenced from sessions.html onclick="loadSessions()" (refresh btn).
 Object.assign(window, {
   goHome, toggleTheme, toggleSession, toggleCardDetails,
   penConnect, penDisconnect, watchCmd, airpodsCmd,

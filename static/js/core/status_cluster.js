@@ -8,6 +8,7 @@
 import { S } from '/static/js/core/state.js';
 import * as systemPage from '/static/js/pages/system.js';
 import * as connectionsPage from '/static/js/pages/connections.js';
+import * as sessionsPage from '/static/js/pages/sessions.js';
 import {
   fmtHz, fmtNum, fmtAgo, fmtUptime, fmtCommand,
 } from '/static/js/core/format.js';
@@ -483,6 +484,7 @@ export function handleStatus(s, prevSessionId) {
   setHealth('clockHealth', penClockOk ? 'server time' : 'legacy pen time', penClockOk ? 'ok' : 'warn');
 
   connectionsPage.onStatus(s);
+  sessionsPage.onStatus(s);
 
   // System checks
   document.getElementById('checkAccel').textContent = validation.watch_has_accelerometer ? 'ok' : 'missing';
