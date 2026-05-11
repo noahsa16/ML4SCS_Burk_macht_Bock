@@ -17,6 +17,8 @@
   --red:       oklch(0.575 0.175 24);
   --red-h:     oklch(0.520 0.180 24);
   --yellow:    oklch(0.720 0.135 88);
+  --warn:      var(--yellow);
+  --err:       var(--red);
   --text-on-dark: #fff;
   --mono:      'IBM Plex Mono', monospace;
   --sans:      'IBM Plex Sans', system-ui, sans-serif;
