@@ -3,14 +3,22 @@
 // as shared globals (window.*) until Task 14 replaces onclick attributes.
 
 import { fmtHz } from '/static/js/core/format.js';
+import { renderState } from '/static/js/core/states.js';
 
 let _mounted = false;
 let _container = null;
+
+const CHECK_IDS = ['checkAccel', 'checkGyro', 'checkPenTime', 'checkRate'];
 
 export function mount(container) {
   if (_mounted) return;
   _container = container;
   _mounted = true;
+
+  CHECK_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) renderState(el, 'empty', { title: 'waiting for status', inline: true });
+  });
 }
 
 export function onStatus(s) {

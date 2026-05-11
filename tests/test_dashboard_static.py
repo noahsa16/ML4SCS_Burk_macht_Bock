@@ -41,6 +41,7 @@ def test_bootstrap_module_served_as_js():
         "/static/js/core/format.js",
         "/static/js/core/router.js",
         "/static/js/core/state.js",
+        "/static/js/core/states.js",
         "/static/js/core/status_cluster.js",
         "/static/js/core/theme.js",
         "/static/js/core/toast.js",

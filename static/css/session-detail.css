@@ -44,6 +44,14 @@
 .alignment-chart canvas { width: 100% !important; height: 240px !important; }
 .alignment-empty { font-size: var(--text-sm); color: var(--text3); padding: var(--space-3) 0; }
 
+/* ─── Page-body loading overlay ────────────────────────────── */
+#page-session-detail { position: relative; }
+.page-detail-loading {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in oklch, var(--bg) 85%, transparent);
+}
+
 /* ─── Session-Detail editorial treatment ───────────────────── */
 #page-session-detail .detail-section { margin-bottom: var(--space-4); }
 
