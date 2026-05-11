@@ -7,7 +7,6 @@
 // Task N" and will disappear as those page modules are extracted.
 
 import { S } from '/static/js/core/state.js';
-import { updateFromStatus } from '/static/js/core/state.js';
 import {
   fmtHz, fmtNum, fmtAgo, fmtUptime, fmtCommand,
 } from '/static/js/core/format.js';

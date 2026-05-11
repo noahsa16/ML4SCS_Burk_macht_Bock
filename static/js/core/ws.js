@@ -2,8 +2,7 @@
 // Drives handleStatus on every 'status' tick and dispatches toast on
 // session start/stop events.
 
-import { S } from '/static/js/core/state.js';
-import { updateFromStatus } from '/static/js/core/state.js';
+import { S, updateFromStatus } from '/static/js/core/state.js';
 import { handleStatus } from '/static/js/core/status_cluster.js';
 import { toast } from '/static/js/core/toast.js';
 
