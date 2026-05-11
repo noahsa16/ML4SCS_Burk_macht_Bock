@@ -21,6 +21,29 @@
   --radius-sm:   6px;   /* boxes, buttons, inputs, chips */
   --radius-md:   10px;  /* cards, panels */
   --radius-pill: 999px; /* pills, status-badges, bars, timeline */
+
+  /* Spacing scale */
+  --space-1:   4px;
+  --space-2:   8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+
+  /* Type scale */
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-base: 14px;
+  --text-md:   18px;
+  --text-lg:   22px;
+  --text-xl:   32px;
+
+  /* Motion */
+  --dur-fast:  140ms;
+  --dur-slow:  240ms;
+  --ease-default: cubic-bezier(0.2, 0.6, 0.2, 1);
 }
 body[data-theme="dark"] {
   --bg:        oklch(0.165 0.018 58);
