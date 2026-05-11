@@ -1,4 +1,4 @@
-"""Pen + Watch CSV-Merge auf gemeinsame Device-Time-Achse.
+"""Watch + Pen CSV-Merge auf Watch-Basis.
 
 Pipeline-Schritt 2:
     raw CSVs  →  alignment  →  [merge]  →  (features)  →  (train)
@@ -6,16 +6,16 @@ Pipeline-Schritt 2:
 Was das Modul macht
 -------------------
 Nimmt eine rohe Pen-CSV und eine rohe Watch-CSV und produziert *einen*
-DataFrame mit Pen-Rows als Basis und nächstgelegenem IMU-Sample (±20 ms)
-in derselben Zeile. Vorher wird die Pen-Uhr mittels δ aus
-:mod:`src.alignment` auf die Watch-Uhr geschoben — falls die Confidence
-schwach ist (σ > -2), wird der Shift verworfen und der Merge läuft auf
-den ungeshifteten Daten.
+DataFrame mit **Watch-Rows als Basis**: jede Zeile = ein Watch-Sample,
+ergänzt um ``label_writing`` ∈ {0,1} basierend auf der Pen-Aktivität im
+selben Moment (±``label_tol_ms``). Watch-Samples in Pen-Lücken bekommen
+Label 0 — sie sind das negative Trainings-Material.
 
-Hauptfunktion: ``merge_pen_watch(pen_path, watch_path)``.
-Zusätzlich wird ``prepare_pen_data`` / ``prepare_watch_data`` exportiert
-— das sind die Pro-Stream-Aufbereitungen, die der Merge intern nutzt
-(siehe :mod:`src.merge.prep`).
+Vorher wird die Pen-Uhr mittels δ aus :mod:`src.alignment` auf die
+Watch-Uhr geschoben; bei schwacher Confidence (σ > -2) wird der Shift
+verworfen.
+
+Hauptfunktion: ``merge_watch_pen(pen_path, watch_path)``.
 
 CLI
 ---
@@ -23,9 +23,11 @@ CLI
 
     python -m src.merge              # neueste Session mergen
     python -m src.merge S027         # spezifische Session
+
+Schreibt nach ``data/processed/{session}_merged.csv``.
 """
 
-from .merge import estimate_pen_imu_offset, merge_pen_watch
+from .merge import estimate_pen_imu_offset, merge_watch_pen
 from .prep import (
     load_csv,
     prepare_pen_data,
@@ -35,7 +37,7 @@ from .prep import (
 
 __all__ = [
     "estimate_pen_imu_offset",
-    "merge_pen_watch",
+    "merge_watch_pen",
     "load_csv",
     "prepare_pen_data",
     "prepare_watch_data",

@@ -1,19 +1,20 @@
-"""ML-Feature-Engineering — *noch leer*.
+"""Sliding-Window-Features auf der watch-base gemergten CSV.
 
-Hier kommen später die Modell-Inputs rein, die auf dem gemergten Datensatz
-aufbauen: Window-Statistics auf IMU (mean/std/min/max pro 0.5-s-Fenster),
-Gradients, FFT-Bins, Stroke-Aggregation usw.
+Sliding-Window-Stats (1 s / 0.5 s Stride, 42 Features) auf den 50 Hz
+Watch-IMU-Stream. Pen-Aktivität liefert das Window-Label.
 
-Aktueller Status
-----------------
-Alles, was heute "feature-haft" ist (distance, speed, label_writing pro
-Pen-Sample), passiert direkt im Merge-Schritt — siehe
-:mod:`src.merge.prep`. Das ist *Daten-Aufbereitung*, kein
-Feature-Engineering im ML-Sinn.
+Hauptfunktion: ``build_windows(merged_df)`` — siehe :mod:`src.features.windows`.
 
-TODO (wenn der Datensatz steht)
--------------------------------
-* Sliding-Window-Stats auf ax/ay/az/rx/ry/rz
-* Spektrale Features (dominante Frequenz, Power-Bands)
-* Stroke-Level-Features (Stroke-Dauer, mittlere Beschleunigung pro Stroke)
+CLI
+---
+::
+
+    python -m src.features              # neueste Session
+    python -m src.features S029         # spezifische Session
+
+Schreibt nach ``data/processed/{session}_windows.csv``.
 """
+
+from .windows import build_windows, load_session_windows
+
+__all__ = ["build_windows", "load_session_windows"]
