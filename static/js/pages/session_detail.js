@@ -5,6 +5,7 @@
 
 import { api } from '/static/js/core/api.js';
 import { esc, escAttr, _roundRect } from '/static/js/core/dom.js';
+import { renderState } from '/static/js/core/states.js';
 import {
   fmtDuration, fmtHz, fmtNum, fmtMs, fmtSec, fmtClock, fmtClockGap,
 } from '/static/js/core/format.js';
@@ -202,12 +203,17 @@ export function renderAlignment(sessionId) {
     status.textContent = 'Loading…';
     status.className = 'alignment-status';
     empty.style.display = 'none';
+    renderState(empty, 'clear');
     return;
   }
   if (a.available === false || a.error) {
     status.textContent = 'unavailable';
     status.className = 'alignment-status err';
-    empty.style.display = 'block';
+    empty.style.display = '';
+    renderState(empty, 'empty', {
+      title: 'No alignment data',
+      hint: 'Pen and watch streams don\'t overlap, or the session was too short to align.',
+    });
     document.getElementById('alignDelta').textContent = '–';
     document.getElementById('alignSigma').textContent = '–';
     document.getElementById('alignStrokes').textContent = '–';
@@ -216,6 +222,7 @@ export function renderAlignment(sessionId) {
     return;
   }
   empty.style.display = 'none';
+  renderState(empty, 'clear');
 
   if (a.applied) {
     status.textContent = 'angewandt';

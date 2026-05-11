@@ -11,6 +11,7 @@ import { S } from '/static/js/core/state.js';
 import { setNumberSmooth } from '/static/js/core/anim.js';
 import { toast } from '/static/js/core/toast.js';
 import { setBadge, setHealth } from '/static/js/core/status_cluster.js';
+import { renderState } from '/static/js/core/states.js';
 
 let _mounted = false;
 
@@ -206,7 +207,15 @@ export function drawPenCanvas() {
   const dpr = window.devicePixelRatio || 1;
   const cssW = canvas.offsetWidth || 600;
   const cssH = 200;
-  document.getElementById('penCanvasWrap')?.classList.toggle('has-data', S.penDotBuffer.length > 0);
+  const penCanvasEmpty = document.getElementById('penCanvasEmpty');
+  if (S.penDotBuffer.length > 0) {
+    renderState(penCanvasEmpty, 'clear');
+  } else {
+    renderState(penCanvasEmpty, 'empty', {
+      title: 'Waiting for pen strokes',
+      hint: 'Connect the Smart Pen, start a session, and write — strokes will appear here in real time.',
+    });
+  }
 
   if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
     canvas.width = Math.round(cssW * dpr);
@@ -574,7 +583,15 @@ export function onStatus(s) {
 
   // Chart
   if (s.chart) updateChart(s.chart);
-  document.getElementById('chartCanvasWrap')?.classList.toggle('has-data', S.chartBuffer.length > 0);
+  const chartCanvasEmpty = document.querySelector('.chart-canvas-empty');
+  if (S.chartBuffer.length > 0) {
+    renderState(chartCanvasEmpty, 'clear');
+  } else {
+    renderState(chartCanvasEmpty, 'empty', {
+      title: 'Waiting for IMU stream',
+      hint: 'Start a session and accelerometer + gyroscope magnitudes will draw here in real time.',
+    });
+  }
 
   // Pen handwriting canvas
   if (s.pen_recent_dots) updatePenCanvas(s.pen_recent_dots);

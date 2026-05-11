@@ -48,7 +48,7 @@
     </div>
     <div class="chart-canvas-wrap" id="chartCanvasWrap">
       <canvas id="imuChart" height="160"></canvas>
-      <div class="chart-canvas-empty">
+      <div class="chart-canvas-empty" data-state-mode="overlay">
         <div class="empty-state">
           <div class="empty-state-glyph">/</div>
           <div class="empty-state-title">Waiting for IMU stream</div>
@@ -160,7 +160,7 @@
     </div>
     <div class="pen-canvas-wrap" id="penCanvasWrap">
       <canvas id="penCanvas" height="200"></canvas>
-      <div class="pen-canvas-empty" id="penCanvasEmpty">
+      <div class="pen-canvas-empty" id="penCanvasEmpty" data-state-mode="overlay">
         <div class="empty-state">
           <div class="empty-state-glyph">/</div>
           <div class="empty-state-title">Waiting for pen strokes</div>
