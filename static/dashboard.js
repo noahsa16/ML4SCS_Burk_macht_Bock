@@ -36,11 +36,23 @@ const S = {
 //  NAVIGATION
 // ════════════════════════════════════════════════════════════
 const pageMeta = {
-  recording:   { title: 'Live Recording',   sub: 'Pen + Watch data capture' },
-  sessions:    { title: 'Session History',  sub: 'All recorded sessions' },
-  connections: { title: 'Connections',      sub: 'Device & server management' },
-  system:      { title: 'System & Schema',  sub: 'Data structure · API reference · Project info' },
+  recording:   { title: 'Live Recording',   sub: 'Pen + Watch data capture',                       strip: 'live capture' },
+  sessions:    { title: 'Session History',  sub: 'All recorded sessions',                          strip: 'session index' },
+  connections: { title: 'Connections',      sub: 'Device & server management',                     strip: 'connectivity' },
+  system:      { title: 'System & Schema',  sub: 'Data structure · API reference · Project info',  strip: 'system & schema' },
 };
+
+// Editorial-Datumsstreifen: Monday · 11 May 2026
+function _fmtStripDate(d = new Date()) {
+  return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+}
+function updatePageStrip(page, customLabel) {
+  const dateEl = document.getElementById('pageStripDate');
+  const labelEl = document.getElementById('pageStripLabel');
+  if (!dateEl || !labelEl) return;
+  dateEl.textContent = _fmtStripDate();
+  labelEl.textContent = customLabel || pageMeta[page]?.strip || page;
+}
 
 document.querySelectorAll('.tab').forEach(el => {
   el.addEventListener('click', () => {
@@ -62,6 +74,7 @@ document.querySelectorAll('.tab').forEach(el => {
     document.title = `${m.title} — Burk macht Bock`;
     if (p === 'sessions') loadSessions();
     if (p === 'connections') updateConnectionsPage();
+    updatePageStrip(p);
     updateTabIndicator();
   });
 });
@@ -76,6 +89,7 @@ function _routeFromHash() {
     document.getElementById('page-session-detail').classList.add('active');
     document.querySelectorAll('.tab').forEach(n => n.classList.toggle('active', n.dataset.page === 'sessions'));
     updateTabIndicator();
+    updatePageStrip('sessions', `sessions / ${id}`);
     openSessionDetail(id);
     return;
   }
@@ -85,6 +99,11 @@ function _routeFromHash() {
 
 window.addEventListener('hashchange', _routeFromHash);
 window.addEventListener('load', _routeFromHash);
+// Initial Page-Strip-Befüllung (vor erstem Tab-Klick). Wenn ein
+// #session/<id> Hash bereits gesetzt ist, übernimmt _routeFromHash.
+if (!location.hash.startsWith('#session/')) {
+  updatePageStrip('recording');
+}
 
 function closeSessionDetail() {
   if (location.hash.startsWith('#session/')) {
@@ -92,6 +111,7 @@ function closeSessionDetail() {
   }
   document.getElementById('page-session-detail').classList.remove('active');
   document.getElementById('page-sessions').classList.add('active');
+  updatePageStrip('sessions');
   if (!S._filtersWired) loadSessions();
 }
 
