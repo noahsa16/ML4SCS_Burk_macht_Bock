@@ -125,7 +125,6 @@ setActivePageDispatcher(payload => {
 // ════════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════════
-document.getElementById('timer').textContent = '00:00:00';
 setTheme(getTheme());
 
 // Font-load indicator measurement after fonts are ready
