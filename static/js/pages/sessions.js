@@ -8,6 +8,7 @@ import { api } from '/static/js/core/api.js';
 import { esc, escAttr } from '/static/js/core/dom.js';
 import { fmtDuration, scoreBadge } from '/static/js/core/format.js';
 import { S } from '/static/js/core/state.js';
+import { renderState } from '/static/js/core/states.js';
 
 let _mounted = false;
 
@@ -167,11 +168,16 @@ function renderSessionsList(rows) {
   const tbody = document.getElementById('sessionsBody');
   if (!tbody) return;
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="4"><div class="empty-state">'
-      + '<div class="empty-state-glyph">/</div>'
-      + '<div class="empty-state-title">No matching sessions</div>'
-      + '<div class="empty-state-hint">Adjust the filters above, or start a new recording from the Recording tab.</div>'
-      + '</div></td></tr>';
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 4;
+    cell.id = 'sessionsEmptySlot';
+    row.appendChild(cell);
+    tbody.replaceChildren(row);
+    renderState(cell, 'empty', {
+      title: 'No matching sessions',
+      hint: 'Adjust the filters above, or start a new recording from the Recording tab.',
+    });
     return;
   }
   tbody.innerHTML = rows.map(s => {
@@ -210,6 +216,7 @@ function renderQualitySummary() {
   if (ok) ok.textContent = ml.ok ?? 0;
   if (warn) warn.textContent = ml.warn ?? 0;
   if (bad) bad.textContent = ml.bad ?? 0;
+  renderState(document.getElementById('healthGridLoading'), 'clear');
 }
 
 // ════════════════════════════════════════════════════════════
@@ -221,6 +228,16 @@ export function mount(container) {
   // (S._filtersWired guard). No additional one-time DOM wiring needed here;
   // the refresh button uses onclick="loadSessions()" exposed via window.
   _mounted = true;
+  const tbody = document.getElementById('sessionsBody');
+  if (tbody) {
+    const row = document.createElement('tr');
+    const cell = document.createElement('td');
+    cell.colSpan = 4;
+    cell.id = 'sessionsTableSlot';
+    row.appendChild(cell);
+    tbody.replaceChildren(row);
+    renderState(cell, 'loading', { title: 'Loading sessions…' });
+  }
 }
 
 export function onStatus(payload) {

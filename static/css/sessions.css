@@ -190,3 +190,13 @@ td.bold { font-weight: 600; }
 }
 .refresh-link:hover { color: var(--text); }
 .refresh-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.health-grid-wrap { position: relative; }
+.health-grid-loading {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in oklch, var(--surface) 80%, transparent);
+  pointer-events: none;
+  transition: opacity var(--dur-slow) var(--ease-default);
+}
+.health-grid-wrap.has-data .health-grid-loading { opacity: 0; }

@@ -4,11 +4,19 @@
     <div class="card-title">Data Quality Report<span>model readiness per recording</span></div>
     <button type="button" class="refresh-link" onclick="loadSessions()">↻ refresh</button>
   </div>
-  <div class="health-grid">
-    <div class="health-box"><div class="k">Total Sessions</div><div class="v" id="qualityTotal">–</div></div>
-    <div class="health-box"><div class="k">ML Ready</div><div class="v ok" id="qualityOk">–</div></div>
-    <div class="health-box"><div class="k">ML Warnings</div><div class="v warn" id="qualityWarn">–</div></div>
-    <div class="health-box"><div class="k">ML Blocked</div><div class="v err" id="qualityBad">–</div></div>
+  <div class="health-grid-wrap">
+    <div class="health-grid">
+      <div class="health-box"><div class="k">Total Sessions</div><div class="v" id="qualityTotal">–</div></div>
+      <div class="health-box"><div class="k">ML Ready</div><div class="v ok" id="qualityOk">–</div></div>
+      <div class="health-box"><div class="k">ML Warnings</div><div class="v warn" id="qualityWarn">–</div></div>
+      <div class="health-box"><div class="k">ML Blocked</div><div class="v err" id="qualityBad">–</div></div>
+    </div>
+    <div class="health-grid-loading" id="healthGridLoading" data-state-mode="overlay">
+      <div class="empty-state empty-state--loading">
+        <div class="empty-state-glyph">/</div>
+        <div class="empty-state-title">Loading…</div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -42,8 +50,6 @@
         <th>Alignment σ</th>
       </tr>
     </thead>
-    <tbody id="sessionsBody">
-      <tr><td colspan="4"><div class="empty-state"><div class="empty-state-title">Loading sessions…</div></div></td></tr>
-    </tbody>
+    <tbody id="sessionsBody"></tbody>
   </table>
 </div>

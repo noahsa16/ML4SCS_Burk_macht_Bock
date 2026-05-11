@@ -48,7 +48,7 @@
     </div>
     <div class="chart-canvas-wrap" id="chartCanvasWrap">
       <canvas id="imuChart" height="160"></canvas>
-      <div class="chart-canvas-empty">
+      <div class="chart-canvas-empty" data-state-mode="overlay">
         <div class="empty-state">
           <div class="empty-state-glyph">/</div>
           <div class="empty-state-title">Waiting for IMU stream</div>
@@ -84,9 +84,12 @@
         <div class="device-name">Smart Pen</div>
         <div class="status-badge badge-err" id="penBadge">Disconnected</div>
       </div>
-      <div class="device-row"><span>Dot type</span><span class="v" id="dotType">–</span></div>
-      <div class="device-row"><span>Last xy</span><span class="v" id="penLastXY">–</span></div>
-      <div class="device-row"><span>Dot Hz</span><span class="v" id="penRateSide">–</span></div>
+      <div class="device-empty-slot" id="penDeviceEmpty" style="display:none"></div>
+      <div class="device-rows" id="penDeviceRows">
+        <div class="device-row"><span>Dot type</span><span class="v" id="dotType">–</span></div>
+        <div class="device-row"><span>Last xy</span><span class="v" id="penLastXY">–</span></div>
+        <div class="device-row"><span>Dot Hz</span><span class="v" id="penRateSide">–</span></div>
+      </div>
       <div class="card-details">
         <div class="device-row"><span>Model</span><span class="v">NWP-F130</span></div>
         <div class="device-row"><span>Protocol</span><span class="v">NeoSmartpen V2</span></div>
@@ -108,9 +111,12 @@
         <div class="device-name">Apple Watch</div>
         <div class="status-badge badge-err" id="watchBadge">Offline</div>
       </div>
-      <div class="device-row"><span>Actual Hz</span><span class="v" id="watchRateSide">–</span></div>
-      <div class="device-row"><span>Last |r|</span><span class="v" id="watchGyroSide">–</span></div>
-      <div class="device-row"><span>Last data</span><span class="v mono" id="watchLastTs">–</span></div>
+      <div class="device-empty-slot" id="watchDeviceEmpty" style="display:none"></div>
+      <div class="device-rows" id="watchDeviceRows">
+        <div class="device-row"><span>Actual Hz</span><span class="v" id="watchRateSide">–</span></div>
+        <div class="device-row"><span>Last |r|</span><span class="v" id="watchGyroSide">–</span></div>
+        <div class="device-row"><span>Last data</span><span class="v mono" id="watchLastTs">–</span></div>
+      </div>
       <div class="card-details">
         <div class="device-row"><span>IMU rate</span><span class="v">50 Hz</span></div>
         <div class="device-row"><span>Batch size</span><span class="v">10 samples</span></div>
@@ -132,9 +138,12 @@
         <div class="device-name">AirPods</div>
         <div class="status-badge badge-err" id="airpodsBadge">Offline</div>
       </div>
-      <div class="device-row"><span>Actual Hz</span><span class="v" id="airpodsRateSide">–</span></div>
-      <div class="device-row"><span>Last |a|</span><span class="v" id="airpodsAccSide">–</span></div>
-      <div class="device-row"><span>Last data</span><span class="v mono" id="airpodsLastTs">–</span></div>
+      <div class="device-empty-slot" id="airpodsDeviceEmpty" style="display:none"></div>
+      <div class="device-rows" id="airpodsDeviceRows">
+        <div class="device-row"><span>Actual Hz</span><span class="v" id="airpodsRateSide">–</span></div>
+        <div class="device-row"><span>Last |a|</span><span class="v" id="airpodsAccSide">–</span></div>
+        <div class="device-row"><span>Last data</span><span class="v mono" id="airpodsLastTs">–</span></div>
+      </div>
       <div class="card-details">
         <div class="device-row"><span>IMU rate</span><span class="v">25 Hz</span></div>
         <div class="device-row"><span>API</span><span class="v">CMHeadphoneMotion</span></div>
@@ -160,7 +169,7 @@
     </div>
     <div class="pen-canvas-wrap" id="penCanvasWrap">
       <canvas id="penCanvas" height="200"></canvas>
-      <div class="pen-canvas-empty" id="penCanvasEmpty">
+      <div class="pen-canvas-empty" id="penCanvasEmpty" data-state-mode="overlay">
         <div class="empty-state">
           <div class="empty-state-glyph">/</div>
           <div class="empty-state-title">Waiting for pen strokes</div>
@@ -181,11 +190,11 @@
     <div class="log-split">
       <div>
         <div class="label">Sample output</div>
-        <div class="log-panel" id="sampleLog"><div class="log-row sample-row"><span class="log-time">--:--:--</span><span class="sample-pill">idle</span><span class="log-msg">Waiting for pen/watch samples…</span></div></div>
+        <div class="log-panel" id="sampleLog"></div>
       </div>
       <div>
         <div class="label">System events</div>
-        <div class="log-panel" id="eventLog"><div class="log-row"><span class="log-time">--:--:--</span><span class="log-src">server</span><span class="log-msg">Waiting for events…</span></div></div>
+        <div class="log-panel" id="eventLog"></div>
       </div>
     </div>
   </div>
