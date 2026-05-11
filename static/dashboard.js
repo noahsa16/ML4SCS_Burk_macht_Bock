@@ -1,3 +1,10 @@
+import {
+  fmtDuration, fmtHz, fmtNum, fmtClockGap, fmtMs, fmtSec, fmtAgo,
+  fmtClock, fmtCommand, fmtUptime,
+  statusBadgeClass, scoreBadge, scoreTooltip, syncDiagnostic,
+  _fmtStripDate, esc,
+} from '/static/js/core/format.js';
+
 // ════════════════════════════════════════════════════════════
 //  STATE
 // ════════════════════════════════════════════════════════════
@@ -42,10 +49,6 @@ const pageMeta = {
   system:      { title: 'System & Schema',  sub: 'Data structure · API reference · Project info',  strip: 'system & schema' },
 };
 
-// Editorial-Datumsstreifen: Monday · 11 May 2026
-function _fmtStripDate(d = new Date()) {
-  return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-}
 function updatePageStrip(page, customLabel) {
   const dateEl = document.getElementById('pageStripDate');
   const labelEl = document.getElementById('pageStripLabel');
@@ -1809,134 +1812,6 @@ async function downloadDebugPackage() {
   a.remove();
   URL.revokeObjectURL(url);
   toast('Debug package exported');
-}
-
-function fmtDuration(sec) {
-  const h = Math.floor(sec / 3600).toString().padStart(2, '0');
-  const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
-  const s = (sec % 60).toString().padStart(2, '0');
-  return `${h}:${m}:${s}`;
-}
-
-function fmtHz(value) {
-  const n = Number(value || 0);
-  return n > 0 ? `${n.toFixed(n >= 10 ? 1 : 2)} Hz` : '– Hz';
-}
-
-function fmtNum(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? n.toFixed(3) : '–';
-}
-
-// Pen- und Watch-Geräteuhren teilen sich keine Epoche — bei großem Versatz
-// zeigen wir das kategorisch statt als alarmierende Tage-Zahl. Für die
-// session-level Overlap-Checks irrelevant; Sample-Level-Merge braucht
-// separat einen Sync-Offset (Tap-Event o.ä.).
-function fmtClockGap(gapMs, syncEstimate) {
-  const n = Number(gapMs);
-  if (Number.isFinite(n)) {
-    if (Math.abs(n) > 300000) return 'different device clocks · sync needed for merge';
-    return fmtMs(n);
-  }
-  return syncEstimate?.usable ? fmtMs(syncEstimate.median_offset_ms) : 'not estimated';
-}
-
-function fmtMs(value) {
-  const n = Number(value);
-  if (!Number.isFinite(n)) return '–';
-  const rounded = `${Math.round(n)}ms`;
-  const abs = Math.abs(n);
-  if (abs >= 86400000) return `${rounded} (~${(n / 86400000).toFixed(1)}d)`;
-  if (abs >= 3600000) return `${rounded} (~${(n / 3600000).toFixed(1)}h)`;
-  if (abs >= 60000) return `${rounded} (~${(n / 60000).toFixed(1)}min)`;
-  if (abs >= 1000) return `${rounded} (~${(n / 1000).toFixed(1)}s)`;
-  return rounded;
-}
-
-function fmtSec(value) {
-  const n = Number(value);
-  return Number.isFinite(n) ? `${Math.round(n)}s` : '–';
-}
-
-function fmtAgo(ms) {
-  const n = Number(ms);
-  if (!Number.isFinite(n)) return '–';
-  if (n < 1200) return 'just now';
-  if (n < 60000) return `${Math.round(n / 1000)}s ago`;
-  return `${Math.round(n / 60000)}m ago`;
-}
-
-function fmtClock(ms) {
-  const n = Number(ms);
-  if (!Number.isFinite(n)) return '--:--:--';
-  return new Date(n).toLocaleTimeString('de-DE', { hour12: false });
-}
-
-function fmtCommand(cmd) {
-  if (!cmd || !cmd.command) return '–';
-  const ok = cmd.ok === true ? 'ok' : (cmd.ok === false ? 'failed' : 'pending');
-  const id = cmd.command_id ? ` · ${cmd.command_id}` : '';
-  return `${cmd.command} · ${ok}${id}`;
-}
-
-function fmtUptime(sec) {
-  if (!sec) return '–';
-  if (sec < 60) return `${sec}s`;
-  if (sec < 3600) return `${Math.floor(sec/60)}m ${sec%60}s`;
-  return `${Math.floor(sec/3600)}h ${Math.floor((sec%3600)/60)}m`;
-}
-
-function statusBadgeClass(status) {
-  if (status === 'ok') return 'badge-ok';
-  if (status === 'bad') return 'badge-err';
-  if (status === 'warn') return 'badge-warn';
-  return 'badge-warn';
-}
-
-function scoreBadge(score) {
-  const status = score?.status || 'unknown';
-  return `<span class="status-badge ${statusBadgeClass(status)}">${esc(status)}</span>`;
-}
-
-function scoreTooltip(score) {
-  const parts = [
-    ...(score?.blockers || []),
-    ...(score?.warnings || []),
-    ...(score?.info || []),
-  ].map(i => i.code);
-  return parts.length ? parts.join(', ') : 'ready';
-}
-
-function syncDiagnostic(q, validation) {
-  const fromQuality = q?.diagnostics?.sync_diagnostic;
-  const fromValidation = validation?.sync_diagnostic;
-  const sync = q?.diagnostics?.sync_estimate || validation?.sync_estimate || {};
-  const diagnostic = fromQuality || fromValidation;
-  if (diagnostic) {
-    return {
-      label: diagnostic.label || diagnostic.status || 'not required',
-      message: diagnostic.message || 'Optional sync diagnostic; not used for quality.',
-      cls: diagnostic.status === 'needs_explicit_tap_protocol' ? 'badge-warn' : 'badge-ok',
-    };
-  }
-  if (sync.usable) {
-    return {
-      label: `estimated (${sync.confidence || 'unknown'})`,
-      message: 'Optional tap/peak calibration estimate is available.',
-      cls: 'badge-ok',
-    };
-  }
-  return {
-    label: 'not required',
-    message: sync.reason || 'No explicit tap/peak calibration pattern was detected; this is not a quality failure.',
-    cls: 'badge-ok',
-  };
-}
-
-function esc(value) {
-  return String(value ?? '').replace(/[&<>"']/g, ch => ({
-    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
-  }[ch]));
 }
 
 function escAttr(value) {
