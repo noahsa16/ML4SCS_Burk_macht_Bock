@@ -7,6 +7,7 @@
 // Task N" and will disappear as those page modules are extracted.
 
 import { S } from '/static/js/core/state.js';
+import * as systemPage from '/static/js/pages/system.js';
 import {
   fmtHz, fmtNum, fmtAgo, fmtUptime, fmtCommand,
 } from '/static/js/core/format.js';
@@ -576,4 +577,6 @@ export function handleStatus(s, prevSessionId) {
     clearInterval(S.timerInterval); S.timerInterval = null;
     document.getElementById('timerLabel').textContent = 'Session ended';
   }
+
+  systemPage.onStatus(s);
 }

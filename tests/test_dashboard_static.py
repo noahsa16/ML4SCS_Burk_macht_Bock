@@ -28,6 +28,7 @@ def test_bootstrap_module_served_as_js():
     "path",
     [
         # Filled in as modules/views/stylesheets are created. Keep alphabetised.
+        "/static/css/system.css",
         "/static/js/core/anim.js",
         "/static/js/core/api.js",
         "/static/js/core/dom.js",
@@ -38,6 +39,8 @@ def test_bootstrap_module_served_as_js():
         "/static/js/core/theme.js",
         "/static/js/core/toast.js",
         "/static/js/core/ws.js",
+        "/static/js/pages/system.js",
+        "/static/views/system.html",
     ],
 )
 def test_static_assets_served(path):

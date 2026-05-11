@@ -1,3 +1,4 @@
+import * as systemPage from '/static/js/pages/system.js';
 import { esc, escAttr, _roundRect } from '/static/js/core/dom.js';
 import {
   fmtDuration, fmtHz, fmtNum, fmtClockGap, fmtMs, fmtSec, fmtAgo,
@@ -955,6 +956,14 @@ function setLogRows(value) {
 
 
 // ════════════════════════════════════════════════════════════
+//  PARTIAL INJECTION
+// ════════════════════════════════════════════════════════════
+function injectPartial(slot, html) {
+  const parsed = new DOMParser().parseFromString(html, 'text/html');
+  slot.replaceChildren(...parsed.body.childNodes);
+}
+
+// ════════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════════
 document.getElementById('timer').textContent = '00:00:00';
@@ -971,6 +980,15 @@ api('/status').then(s => {
 });
 
 connectWs();
+
+// Temporary eager mount — replaced by Task 14 bootstrap
+fetch('/static/views/system.html')
+  .then(r => r.text())
+  .then(html => {
+    const slot = document.getElementById('page-system');
+    injectPartial(slot, html);
+    systemPage.mount(slot);
+  });
 
 // Inline HTML onclick="..." handlers in dashboard.html still reference these as
 // globals. Until the bootstrap rewrite (Task 14) replaces onclick attributes with
