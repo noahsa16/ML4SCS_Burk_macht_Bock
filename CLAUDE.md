@@ -6,19 +6,23 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 
 ML4SCS (Machine Learning for Smart and Connected Systems) — semester
 project by Noah Samel, Ben Kriegsmann, and Tajuddin Snasni. Goal: a
-model that predicts writing activity (and eventually concentration) of
-elementary-school children from **Apple Watch IMU data alone**.
+general writing-activity detector from **Apple Watch IMU data alone** —
+binary classification (writing vs. not writing) on the wrist-worn IMU
+stream, independent of who is wearing the watch or what is being written.
 
 The Moleskine Smart Pen is used **only during data collection** as
 ground truth: pen stroke events (`dot_type`) label the watch samples at
 the matching timestamp. Once trained, the pen is no longer needed —
 inference runs on the watch.
 
-Two sensors during training-data collection:
+Sensors during training-data collection:
 - **Moleskine Smart Pen (NWP-F130)** — ground truth; x/y, pressure,
   tilt at ~80–90 Hz over BLE.
-- **Apple Watch (Series 7)** — model input; accelerometer + gyroscope
-  at 50 Hz via CoreMotion → iPhone bridge → FastAPI server.
+- **Apple Watch (Series 7)** — primary model input; accelerometer +
+  gyroscope at 50 Hz via CoreMotion → iPhone bridge → FastAPI server.
+- **AirPods (Pro / 3rd Gen)** — additional head-IMU stream via
+  `CMHeadphoneMotionManager`, captured alongside the watch through the
+  same iPhone bridge. Currently logged but not yet used by the model.
 
 Status: data collection + preprocessing + merging + quality checks are
 operational. Feature engineering, model training, and evaluation are
@@ -53,12 +57,22 @@ otherwise to `pen_log_YYYYMMDD_HHMMSS.csv` in the working directory.
 ./scripts/test_server.sh [IP]    # defaults to 127.0.0.1
 ```
 
-**Preprocess / train / evaluate:**
+**Convenience scripts:**
+- `scripts/start.sh` — boots the server and (optionally) a Cloudflare
+  tunnel in one TTY UI; Ctrl+C cleans up both.
+- `scripts/tunnel.sh` — standalone Cloudflare quick tunnel
+  (`https://*.trycloudflare.com → localhost:8000`).
+- `scripts/plot_alignment.py` — runs the pen↔IMU alignment for a
+  session and renders the explanatory 4-panel figure (top: variance
+  with stroke overlay raw vs δ-shifted; bottom: J(δ) coarse + fine).
+
+**Merge / train / evaluate:**
 ```bash
-python -m src.preprocessing.preprocessing
-python -m src.training.train       # loads latest pen+watch CSVs, merges, saves to data/processed/merged_dataset.csv
+python -m src.merge                # latest session: load pen+watch, align δ, ±20 ms join, save to data/processed/
+python -m src.merge S007           # specific session ID
 python -m src.evaluation.evaluate  # currently prints label distribution
 ```
+`src/training/` and `src/features/` are placeholders — model code is TODO.
 
 **Run smoke tests:**
 ```bash
@@ -69,21 +83,30 @@ pytest tests/         # ~30 tests, <1 s
 
 ```
 Apple Watch (MotionManager.swift)
-  → batches of 25 samples at 50 Hz via WatchConnectivity
+  → batches of 10 samples at 50 Hz via WatchConnectivity
   → iPhone (PhoneBridge.swift)
   → HTTP POST /watch
   → server.py → data/raw/watch/{session}_watch.csv
+
+AirPods (CMHeadphoneMotionManager on iPhone)
+  → HTTP POST /airpods
+  → server.py → data/raw/airpods/{session}_airpods.csv
 
 Moleskine Smart Pen (BLE)
   → pen_logger.py (subprocess spawned by server.py)
   → data/raw/pen/{session}_pen.csv
                     ↓
-       src/preprocessing/preprocessing.py
-       (load, clean, time-align at ±20 ms tolerance)
+       src/alignment/pen_match.py    (recover per-session δ via
+                                      stroke-variance minimization)
+       src/merge/                    (prep.py: per-stream cleaning;
+                                      merge.py: ±20 ms asof join,
+                                      δ-shifted; __main__.py: CLI)
                     ↓
-         data/processed/merged_dataset.csv
+         data/processed/{session}_merged.csv
                     ↓
-       src/training/train.py → src/evaluation/evaluate.py
+       src/features/   (TODO)  →  src/training/   (TODO)
+                                          ↓
+                                   src/evaluation/evaluate.py
 ```
 
 ### Server (`server.py` + `src/server/`)
@@ -93,20 +116,34 @@ Moleskine Smart Pen (BLE)
 
 ```
 config.py          paths, field names, sessions.csv init
+                   (re-exports PEN_FIELDNAMES from src/pen_schema.py)
 utils.py           pure helpers (_now_ms, _as_float, _mad …)
 state.py           SessionState class + global `state` object
 logging_setup.py   RotatingFileHandler + EventLog handler wiring
-csv_io.py          read/write watch + pen + sessions CSVs;
-                   _next_session_id() (also scans raw/* to avoid ID reuse);
-                   _pen_recent_dots() for the live whiteboard preview
+csv_io.py          read/write watch + pen + airpods + sessions CSVs;
+                   _next_session_id() (scans raw/{pen,watch,airpods}
+                   to avoid ID reuse); _pen_recent_dots() for the live
+                   whiteboard preview
 status.py          connection status + _status_payload() for WS broadcasts
-quality.py         ISSUE_SPECS table; _session_facts() = single source of truth;
+issues.py          ISSUE_SPECS table + _TARGET_WATCH_HZ / _TARGET_AIRPODS_HZ;
+                   single source of truth for issue codes/severities
+sync.py            sync-confidence helpers around the alignment output
+timelines.py       per-session timeline reconstruction for validation views
+quality.py         _session_facts() = single source of truth for facts;
                    _session_quality / _session_validation / _session_report
+                   (re-exports ISSUE_SPECS for external consumers)
 broadcast.py       _broadcast() + _status_loop() (1-s tick)
 pen_proc.py        starts/stops pen_logger.py as a subprocess
-routes.py          all FastAPI endpoints as APIRouter
 models.py          Pydantic schemas (WatchEnvelope, SessionStartBody …)
+routes/            FastAPI endpoint package — one APIRouter per concern
+                   (watch.py, airpods.py, pen.py, sessions.py,
+                    dashboard.py, ws.py, _helpers.py); __init__.py
+                    aggregates them into a single `router`
 ```
+
+`src/pen_schema.py` is a top-level shared module (no deps) so
+`pen_logger.py` can stay a standalone script while still sharing the
+canonical `PEN_FIELDNAMES` with the server.
 
 The pen logger runs as an `asyncio.create_subprocess_exec` child;
 `POST /pen/connect` and `/pen/disconnect` control it independently, and
@@ -118,6 +155,7 @@ session start/stop start/stop it automatically.
 - `POST /session/start` / `POST /session/stop` — write `data/sessions.csv`
 - `POST /watch` — receives IMU batches; supports both flat list and
   `{samples: [...]}` envelope formats
+- `POST /airpods` — same envelope shape, head-IMU stream
 - `GET /sessions/quality` — quality snapshot for every session
 - `GET /sessions/{id}/validation` — deep validation (timeline, drift, sync)
 - `GET /sessions/{id}/report?format=json|md` — full per-session report;
@@ -133,7 +171,7 @@ rolling Hz estimates, and maintains a 60-point rolling chart buffer
 Two Xcode targets:
 
 - **WatchStreamer Watch App** (`MotionManager.swift`): captures
-  `CMDeviceMotion` at 50 Hz, batches of 25 over `WCSession.sendMessage`
+  `CMDeviceMotion` at 50 Hz, batches of 10 over `WCSession.sendMessage`
   (or `transferUserInfo` background fallback). Drops oldest samples
   when buffer exceeds 500.
 - **WatchStreamer (iPhone)** (`PhoneBridge.swift`): receives
@@ -158,17 +196,20 @@ no longer vibrates continuously when the server is down.
 
 ### ML pipeline (`src/`)
 
-- `src/preprocessing/preprocessing.py` — `prepare_pen_data()`,
-  `prepare_watch_data()`, `merge_pen_watch()` (pandas `merge_asof`,
-  ±20 ms nearest-neighbour, on device-relative ms, with stroke-variance
-  δ pre-shift applied to `pen.local_ts_ms`).
-- `src/preprocessing/pen_match.py` — `pen_match()`, `match_pen_data()`,
+- `src/alignment/pen_match.py` — `pen_match()`, `match_pen_data()`,
   `strokes_from_dot_types()`, `reconstruct_watch_wall_clock()`. Recovers
   the per-session pen↔watch clock offset δ via stroke-window variance
   minimization (TH Zürich algorithm, see *Sample-level merge alignment*
   below). Replaces the planned tap-sync recording protocol.
-- `src/training/train.py` — orchestrates load → merge → save; ML model
-  is a TODO.
+- `src/merge/prep.py` — per-stream cleaning (`prepare_pen_data()`,
+  `prepare_watch_data()`): load raw CSV, normalize to session-relative
+  ms, derive per-sample features (pen: `dt`, `dx`, `dy`, `distance`,
+  `speed`, `label_writing`).
+- `src/merge/merge.py` — `merge_pen_watch()`: calls `match_pen_data`,
+  applies δ to `pen.local_ts_ms`, runs pandas `merge_asof` ±20 ms
+  nearest-neighbour join on device-relative ms.
+- `src/merge/__main__.py` — CLI: `python -m src.merge [SESSION_ID]`.
+- `src/features/`, `src/training/` — placeholders, model code TODO.
 - `src/evaluation/evaluate.py` — currently prints label distribution.
 
 The merge skips the δ shift when the alignment confidence is weak
@@ -194,16 +235,26 @@ tilt_x, tilt_y, section, owner, note, page
 `dot_type` ∈ {`PEN_DOWN`, `PEN_MOVE`, `PEN_UP`, `PEN_HOVER`}. Rows with
 `x == -1` and `y == -1` are framing events (no position) — filter
 them out before spatial analysis. `label_writing` is derived as 1 for
-`PEN_DOWN`/`PEN_MOVE`, else 0.
+`PEN_DOWN`/`PEN_MOVE`, else 0. Schema is defined in
+`src/pen_schema.py` (shared with `pen_logger.py`).
+
+**AirPods CSV** (`data/raw/airpods/{session}_airpods.csv`):
+```
+local_ts, local_ts_ms, session_id, sequence, sample_rate_hz,
+airpods_sent_at, phone_received_at, server_received_ms, source,
+ts, ax, ay, az, rx, ry, rz, qw, qx, qy, qz, gx, gy, gz
+```
+Head-IMU stream from `CMHeadphoneMotionManager`: accel + gyro +
+attitude quaternion + gravity vector. Currently logged only.
 
 **Sessions index** (`data/sessions.csv`):
 ```
 session_id, person_id, description, start_time, end_time,
-pen_samples, watch_samples, status
+pen_samples, watch_samples, airpods_samples, status
 ```
 Session IDs auto-increment (`S001`, `S002`, …). `_next_session_id()`
-scans **sessions.csv, `data/raw/pen/`, and `data/raw/watch/`** so an
-ID can never be reused while a stale per-session CSV is still on disk.
+scans **sessions.csv** and `data/raw/{pen,watch,airpods}/` so an ID
+can never be reused while a stale per-session CSV is still on disk.
 
 **Merged CSV:** pen rows as base, watch IMU joined on device-relative
 ms within ±20 ms tolerance. Pen-derived features `dt`, `dx`, `dy`,
@@ -214,10 +265,10 @@ timestamps are capture metadata, not the canonical ML timeline.
 
 `/sessions/quality` returns separate `ml_readiness` and
 `recording_health` scores. Issues come from `ISSUE_SPECS` in
-`quality.py` — each issue has `code`, `check`, `threshold`, `observed`,
-`rationale`, plus `ml_severity` and `recording_severity`. Sync
-confidence is a calibration diagnostic only — it must not downgrade a
-session by itself.
+`src/server/issues.py` (re-exported by `quality.py` for back-compat) —
+each issue has `code`, `check`, `threshold`, `observed`, `rationale`,
+plus `ml_severity` and `recording_severity`. Sync confidence is a
+calibration diagnostic only — it must not downgrade a session by itself.
 
 Notable issues:
 - `data_outside_session_window` — fires when watch- or pen-CSV
@@ -234,15 +285,16 @@ Notable issues:
 
 **Sample-rate target:** the watch streams at 50 Hz
 (`MotionManager.Config.requestedHz`). Quality check accepts 40–60 Hz.
-If reconfigured, `_TARGET_WATCH_HZ` in `quality.py` is the single
-place to update.
+If reconfigured, `_TARGET_WATCH_HZ` in `src/server/issues.py` is the
+single place to update (likewise `_TARGET_AIRPODS_HZ` for the head
+stream).
 
 **Sample-level merge alignment:** pen and watch device clocks do not
 share an epoch (typical Moleskine pen offset: ~922 days plus an
 arbitrary time-of-day shift). Session-level overlap uses wall-clock
 `local_ts_ms`. For sample-level merging the per-session offset δ is
 recovered automatically by the **stroke-variance alignment** in
-`src/preprocessing/pen_match.py` — a port of the TH Zürich algorithm
+`src/alignment/pen_match.py` — a port of the TH Zürich algorithm
 (see `data/02_Pen_IMU_Timestamp_Alignment.pdf`). Physical assumption:
 while the pen is on paper, the wrist holding the watch is comparatively
 still, so the correct δ minimizes the mean watch-acceleration variance
@@ -263,9 +315,12 @@ poison the training data:
   asserts which issue codes fire. Includes a regression for the
   stale-CSV-window bug.
 - `test_session_id.py` — `_next_session_id` skips IDs with stale
-  pen/watch files.
+  pen/watch/airpods files.
 - `test_merge.py` — `merge_pen_watch` nearest-neighbour join,
   `label_writing` mapping, x=-1 filtering.
+- `test_pen_match.py` — stroke-variance alignment in
+  `src/alignment/pen_match.py`: stroke-mask construction, coarse/fine
+  search behaviour, sigma confidence.
 - `test_pen_parser_framing.py` — STX/ETX/DLE-escape state machine
   in `pen_logger.py` (does not cover packet semantics — that needs
   real BLE captures).
