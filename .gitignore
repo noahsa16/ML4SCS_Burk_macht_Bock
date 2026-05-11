@@ -39,3 +39,6 @@ data/raw/**/session_*_report*.md
 # Server logs
 logs/
 
+
+# Visual Companion brainstorming session artefacts
+.superpowers/

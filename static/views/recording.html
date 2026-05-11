@@ -23,11 +23,11 @@
       </div>
       <div class="stat-box">
         <div class="stat-label">Session ID</div>
-        <div class="stat-val" id="sessionIdDisp" style="font-size:16px;font-family:var(--mono)">—</div>
+        <div class="stat-val stat-val--id" id="sessionIdDisp">—</div>
       </div>
       <div class="stat-box">
         <div class="stat-label">Sample Rate</div>
-        <div class="stat-val skel-loading" id="watchRateMain" data-skel style="font-size:16px;font-family:var(--mono)">– Hz</div>
+        <div class="stat-val stat-val--id skel-loading" id="watchRateMain" data-skel>– Hz</div>
       </div>
     </div>
   </div>
@@ -35,15 +35,15 @@
   <!-- Live IMU chart (Hero) -->
   <div class="card card-hero chart-card" id="liveRecordingHero">
     <div class="chart-meta">
-      <div class="card-title" style="margin:0">
+      <div class="card-title">
         Live IMU Signal<span>Accelerometer + Gyroscope Magnitudes</span>
         <span class="live-indicator" id="liveIndicator">Live</span>
       </div>
       <div class="chart-legend">
-        <span><span class="leg-dot" style="background:var(--accent);height:2px"></span> Accel |a|</span>
-        <span><span class="leg-dot" style="background:var(--yellow);height:2px"></span> Gyro |r|</span>
-        <span><span class="leg-dot" style="background:var(--green);opacity:0.6;width:14px"></span> Writing</span>
-        <span><span class="leg-dot" style="background:var(--border2);width:14px"></span> Idle</span>
+        <span><span class="leg-dot leg-dot--accel"></span> Accel |a|</span>
+        <span><span class="leg-dot leg-dot--gyro"></span> Gyro |r|</span>
+        <span><span class="leg-dot leg-dot--writing"></span> Writing</span>
+        <span><span class="leg-dot leg-dot--idle"></span> Idle</span>
       </div>
     </div>
     <div class="chart-canvas-wrap" id="chartCanvasWrap">
@@ -155,7 +155,7 @@
   <!-- Live Handwriting Preview -->
   <div class="card wide-card" id="penPreviewCard">
     <div class="chart-meta">
-      <div class="card-title" style="margin:0">Live Handwriting Preview<span>Ncode pen path · last 200 dots</span></div>
+      <div class="card-title">Live Handwriting Preview<span>Ncode pen path · last 200 dots</span></div>
       <button class="btn btn-sm btn-outline" onclick="clearPenPreview()">Clear</button>
     </div>
     <div class="pen-canvas-wrap" id="penCanvasWrap">
@@ -175,7 +175,7 @@
 
   <div class="card wide-card">
     <div class="chart-meta">
-      <div class="card-title" style="margin:0">Live Validation Log<span>recent samples + server/device events</span></div>
+      <div class="card-title">Live Validation Log<span>recent samples + server/device events</span></div>
       <button class="btn btn-sm btn-outline" onclick="clearVisualLogs()">Clear view</button>
     </div>
     <div class="log-split">
