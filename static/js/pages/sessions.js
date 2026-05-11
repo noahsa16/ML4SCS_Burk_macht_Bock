@@ -216,6 +216,7 @@ function renderQualitySummary() {
   if (ok) ok.textContent = ml.ok ?? 0;
   if (warn) warn.textContent = ml.warn ?? 0;
   if (bad) bad.textContent = ml.bad ?? 0;
+  renderState(document.getElementById('healthGridLoading'), 'clear');
 }
 
 // ════════════════════════════════════════════════════════════
