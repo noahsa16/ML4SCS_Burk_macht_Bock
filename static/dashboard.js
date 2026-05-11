@@ -1,76 +1,42 @@
-import * as systemPage from '/static/js/pages/system.js';
-import * as connectionsPage from '/static/js/pages/connections.js';
-import * as sessionsPage from '/static/js/pages/sessions.js';
-import * as sessionDetailPage from '/static/js/pages/session_detail.js';
-import * as recordingPage from '/static/js/pages/recording.js';
+import { S, getTheme, updateFromStatus } from '/static/js/core/state.js';
+import { connectWs } from '/static/js/core/ws.js';
+import { setTheme, toggleTheme } from '/static/js/core/theme.js';
+import { _startAnimLoop } from '/static/js/core/anim.js';
+import { api, downloadDebugPackage } from '/static/js/core/api.js';
+import { handleStatus, setActivePageDispatcher } from '/static/js/core/status_cluster.js';
+import {
+  _routeFromHash, activateSessionDetail,
+  updateTabIndicator, updatePageStrip, pageMeta,
+  closeSessionDetail, goHome,
+} from '/static/js/core/router.js';
+
+import * as recording      from '/static/js/pages/recording.js';
+import * as sessions       from '/static/js/pages/sessions.js';
+import * as sessionDetail  from '/static/js/pages/session_detail.js';
+import * as connections    from '/static/js/pages/connections.js';
+import * as system         from '/static/js/pages/system.js';
+
 import { loadSessions } from '/static/js/pages/sessions.js';
 import { openSessionDetail } from '/static/js/pages/session_detail.js';
 import {
   toggleSession, penConnect, penDisconnect, watchCmd, airpodsCmd,
   toggleCardDetails, clearPenPreview, clearVisualLogs, setLogRows,
 } from '/static/js/pages/recording.js';
-import { api, downloadDebugPackage } from '/static/js/core/api.js';
-import { S, getActiveSession, getTheme, getLogRows, updateFromStatus } from '/static/js/core/state.js';
-import { setTheme, toggleTheme } from '/static/js/core/theme.js';
-import { setNumberSmooth, _startAnimLoop, SKEL_MIN_MS } from '/static/js/core/anim.js';
-import {
-  _routeFromHash, closeSessionDetail, updateTabIndicator,
-  updatePageStrip, goHome, pageMeta,
-} from '/static/js/core/router.js';
-import { connectWs, setWsStatus } from '/static/js/core/ws.js';
-import {
-  handleStatus, setStatusCluster, setPill, setBadge, setHealth,
-} from '/static/js/core/status_cluster.js';
 
 // ════════════════════════════════════════════════════════════
-//  NAVIGATION
+//  PAGE REGISTRY
 // ════════════════════════════════════════════════════════════
-document.querySelectorAll('.tab').forEach(el => {
-  el.addEventListener('click', () => {
-    // Leaving any tab clears a session-detail route so the URL reflects the active tab.
-    if (location.hash.startsWith('#session/')) {
-      history.replaceState(null, '', location.pathname + location.search);
-      sessionDetailPage.onHide();
-      document.getElementById('page-session-detail')?.classList.remove('active');
-    }
-    const p = el.dataset.page;
-    document.querySelectorAll('.tab').forEach(n => n.classList.remove('active'));
-    el.classList.add('active');
-    document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
-    document.getElementById('page-' + p).classList.add('active');
-    const m = pageMeta[p];
-    // pageTitle / pageSub gibt es im neuen Topbar-Layout nicht mehr —
-    // der aktive Tab ist die Page-Identität.
-    document.getElementById('pageTitle')?.replaceChildren(document.createTextNode(m.title));
-    document.getElementById('pageSub')?.replaceChildren(document.createTextNode(m.sub));
-    document.title = `${m.title} — Burk macht Bock`;
-    if (p === 'sessions') sessionsPage.onShow();
-    if (p === 'connections') connectionsPage.onShow();
-    updatePageStrip(p);
-    updateTabIndicator();
-  });
-});
+const pages = {
+  recording,
+  sessions,
+  'session-detail': sessionDetail,
+  connections,
+  system,
+};
 
-
-// Status-Cluster im Topbar → springt direkt zur Connections-Page für Detail-Diagnose
-document.getElementById('statusCluster')?.addEventListener('click', () => {
-  document.querySelector('.tab[data-page="connections"]')?.click();
-});
-
-
-
-// toggleSession, runStartPreflight, showPreflightResult, penConnect, penDisconnect,
-// watchCmd, airpodsCmd, startTimer, toggleCardDetails, renderLogs, renderSampleRow,
-// renderEventRow, clearVisualLogs, setLogRows, updateChart, updatePenCanvas,
-// clearPenPreview, drawPenCanvas moved to static/js/pages/recording.js (Task 13).
-//
-// SESSION VERDICT, FILTERS, loadSessions, applyFilters, resetFilters, _matchesFilters,
-// _sigmaPill, renderSessionsList, renderQualitySummary moved to
-// static/js/pages/sessions.js (Task 11).
-// openSessionDetail, _renderDetailHeader, _renderDetailStreams, _renderDetailIssues,
-// renderAlignment, _destroyAlignCharts, _drawAlignVarianceCurve, _drawAlignTimeline,
-// renderSessionValidation, renderTimeline, pct, _alignFmtDelta moved to
-// static/js/pages/session_detail.js (Task 12).
+const partialCache = new Map();
+const mounted = new Set();
+let activePage = null;
 
 // ════════════════════════════════════════════════════════════
 //  PARTIAL INJECTION
@@ -80,73 +46,112 @@ function injectPartial(slot, html) {
   slot.replaceChildren(...parsed.body.childNodes);
 }
 
+async function loadPartial(pageId) {
+  if (partialCache.has(pageId)) return partialCache.get(pageId);
+  const r = await fetch(`/static/views/${pageId}.html`);
+  const html = await r.text();
+  partialCache.set(pageId, html);
+  return html;
+}
+
+// ════════════════════════════════════════════════════════════
+//  PAGE SWITCHING
+// ════════════════════════════════════════════════════════════
+async function showPage(pageId) {
+  if (activePage && pages[activePage]?.onHide) pages[activePage].onHide();
+
+  // Toggle .page.active visibility
+  document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
+  const slot = document.getElementById(`page-${pageId}`);
+  if (slot) slot.classList.add('active');
+
+  // Toggle .tab.active — session-detail shares the sessions tab
+  const tabPage = pageId === 'session-detail' ? 'sessions' : pageId;
+  document.querySelectorAll('.tab').forEach(n =>
+    n.classList.toggle('active', n.dataset.page === tabPage),
+  );
+  updateTabIndicator();
+
+  // Page strip + document title
+  const meta = pageMeta[tabPage] || pageMeta.recording;
+  updatePageStrip(tabPage);
+  document.title = `${meta.title} — Burk macht Bock`;
+
+  // Lazy-mount on first visit
+  if (slot && !mounted.has(pageId)) {
+    injectPartial(slot, await loadPartial(pageId));
+    pages[pageId]?.mount?.(slot);
+    mounted.add(pageId);
+  }
+
+  // Session-detail needs its own activation logic (opens session from hash)
+  if (pageId === 'session-detail') activateSessionDetail();
+
+  if (pages[pageId]?.onShow) pages[pageId].onShow();
+  activePage = pageId;
+}
+
+// ════════════════════════════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════════════════════════════
+// Tab buttons → hash; hashchange listener drives showPage
+document.querySelectorAll('.tab[data-page]').forEach(btn => {
+  btn.addEventListener('click', () => {
+    // Leaving a session-detail hash route — clear it so URL reflects the tab
+    if (location.hash.startsWith('#session/')) {
+      history.replaceState(null, '', location.pathname + location.search);
+    }
+    location.hash = btn.dataset.page;
+  });
+});
+
+window.addEventListener('hashchange', () => {
+  const pageId = _routeFromHash() || 'recording';
+  showPage(pageId);
+});
+
+// Status-Cluster in topbar → jump to Connections for diagnostics
+document.getElementById('statusCluster')?.addEventListener('click', () => {
+  document.querySelector('.tab[data-page="connections"]')?.click();
+});
+
+// ════════════════════════════════════════════════════════════
+//  ACTIVE-PAGE DISPATCHER
+// ════════════════════════════════════════════════════════════
+setActivePageDispatcher(payload => {
+  if (activePage && pages[activePage]?.onStatus) pages[activePage].onStatus(payload);
+});
+
 // ════════════════════════════════════════════════════════════
 //  INIT
 // ════════════════════════════════════════════════════════════
-setTheme(S.theme);
-connectWs();
+document.getElementById('timer').textContent = '00:00:00';
+setTheme(getTheme());
 
-// Temporary eager mount — replaced by Task 14 bootstrap
-fetch('/static/views/recording.html')
-  .then(r => r.text())
-  .then(html => {
-    const slot = document.getElementById('page-recording');
-    injectPartial(slot, html);
-    recordingPage.mount(slot);
-    // Initial status fetch deferred until recording DOM exists so that
-    // recordingPage.onStatus can safely touch all recording-page elements.
-    api('/status').then(s => {
-      if (s) {
-        const payload = { type: 'status', ...s, chart: [] };
-        updateFromStatus(payload);
-        handleStatus(payload, null);
-      }
-    });
-  });
+// Font-load indicator measurement after fonts are ready
+if (document.fonts?.ready) {
+  document.fonts.ready.then(updateTabIndicator);
+}
 
-fetch('/static/views/connections.html')
-  .then(r => r.text())
-  .then(html => {
-    const slot = document.getElementById('page-connections');
-    injectPartial(slot, html);
-    connectionsPage.mount(slot);
-  });
-
-fetch('/static/views/sessions.html')
-  .then(r => r.text())
-  .then(html => {
-    const slot = document.getElementById('page-sessions');
-    injectPartial(slot, html);
-    sessionsPage.mount(slot);
-  });
-
-fetch('/static/views/system.html')
-  .then(r => r.text())
-  .then(html => {
-    const slot = document.getElementById('page-system');
-    injectPartial(slot, html);
-    systemPage.mount(slot);
-  });
-
-fetch('/static/views/session-detail.html')
-  .then(r => r.text())
-  .then(html => {
-    const slot = document.getElementById('page-session-detail');
-    injectPartial(slot, html);
-    sessionDetailPage.mount(slot);
-    // If the page was opened via #session/<id> before this fetch completed,
-    // re-trigger routing now that the DOM is ready.
-    if (location.hash.startsWith('#session/')) {
-      _routeFromHash();
+// Initial status fetch — deferred until recording DOM is mounted (done in showPage)
+// Recording page is always the first mount, so we chain the fetch after it.
+const _initialPage = _routeFromHash() || 'recording';
+showPage(_initialPage).then(() => {
+  api('/status').then(s => {
+    if (s) {
+      const payload = { type: 'status', ...s, chart: [] };
+      updateFromStatus(payload);
+      handleStatus(payload, null);
     }
   });
+});
 
-// Inline HTML onclick="..." handlers in recording.html and other views still
-// reference these as globals. Until the bootstrap rewrite (Task 14) replaces
-// onclick attributes with addEventListener bindings, expose them on `window`
-// explicitly so the module-scoped names remain reachable from the HTML.
-// loadSessions is referenced from sessions.html onclick="loadSessions()" (refresh btn).
-// openSessionDetail is referenced from onclick="location.hash='#session/<id>'" paths via router.
+connectWs();
+_startAnimLoop();
+
+// ════════════════════════════════════════════════════════════
+//  GLOBALS — onclick= handlers in view partials
+// ════════════════════════════════════════════════════════════
 Object.assign(window, {
   goHome, toggleTheme, toggleSession, toggleCardDetails,
   penConnect, penDisconnect, watchCmd, airpodsCmd,

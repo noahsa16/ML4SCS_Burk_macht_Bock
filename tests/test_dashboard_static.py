@@ -28,11 +28,13 @@ def test_bootstrap_module_served_as_js():
     "path",
     [
         # Filled in as modules/views/stylesheets are created. Keep alphabetised.
+        "/static/css/base.css",
         "/static/css/connections.css",
         "/static/css/recording.css",
         "/static/css/session-detail.css",
         "/static/css/sessions.css",
         "/static/css/system.css",
+        "/static/css/topbar.css",
         "/static/js/core/anim.js",
         "/static/js/core/api.js",
         "/static/js/core/dom.js",

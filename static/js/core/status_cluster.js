@@ -4,14 +4,16 @@
 // have moved to pages/recording.js (Task 13).
 
 import { S } from '/static/js/core/state.js';
-import * as systemPage from '/static/js/pages/system.js';
-import * as connectionsPage from '/static/js/pages/connections.js';
-import * as sessionsPage from '/static/js/pages/sessions.js';
-import * as sessionDetailPage from '/static/js/pages/session_detail.js';
-import * as recordingPage from '/static/js/pages/recording.js';
+import { clearPenPreview } from '/static/js/pages/recording.js';
 import {
   fmtHz, fmtUptime,
 } from '/static/js/core/format.js';
+
+// ════════════════════════════════════════════════════════════
+//  ACTIVE-PAGE DISPATCHER
+// ════════════════════════════════════════════════════════════
+let _activePageDispatch = () => {};
+export function setActivePageDispatcher(fn) { _activePageDispatch = fn; }
 
 // ════════════════════════════════════════════════════════════
 //  STATUS CLUSTER (topbar)
@@ -89,7 +91,7 @@ export function handleStatus(s, prevSessionId) {
   // S.xxx state mutations already applied by updateFromStatus(s) before this call.
   // prevSessionId captured by caller BEFORE updateFromStatus so session-change
   // detection sees the correct old value.
-  if (s.session_id !== prevSessionId) recordingPage.clearPenPreview();
+  if (s.session_id !== prevSessionId) clearPenPreview();
 
   const watchRate = Number(s.watch_rate_hz || 0);
   const validation = s.validation || {};
@@ -122,12 +124,6 @@ export function handleStatus(s, prevSessionId) {
     uptime: s.uptime_seconds,
   });
 
-  connectionsPage.onStatus(s);
-  sessionsPage.onStatus(s);
-  sessionDetailPage.onStatus(s);
-  systemPage.onStatus(s);
-
-  // Recording page handles all of its own DOM (chart, pen canvas, timer, logs,
-  // badges, device side-rows, session btn, health metrics).
-  recordingPage.onStatus(s);
+  // Route the tick to whichever page is currently visible — hidden pages skip work.
+  _activePageDispatch(s);
 }

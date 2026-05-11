@@ -48,21 +48,26 @@ export function updateTabIndicator() {
 //  HASH ROUTING
 // ════════════════════════════════════════════════════════════
 // Hash routing: only one route shape — #session/<id> opens the
-// detail page. Empty hash returns to whichever tab was active.
+// detail page. Returns the page id to activate, or null for session-detail.
 export function _routeFromHash() {
   const m = location.hash.match(/^#session\/(.+)$/);
   if (m) {
-    const id = decodeURIComponent(m[1]);
-    document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
-    document.getElementById('page-session-detail').classList.add('active');
-    document.querySelectorAll('.tab').forEach(n => n.classList.toggle('active', n.dataset.page === 'sessions'));
-    updateTabIndicator();
-    updatePageStrip('sessions', `sessions / ${id}`);
-    openSessionDetail(id);
-    return;
+    return 'session-detail';
   }
-  // No detail route — make sure detail page is hidden if it was open.
-  document.getElementById('page-session-detail')?.classList.remove('active');
+  // Plain named page hash e.g. #recording, #sessions, #connections, #system
+  const plain = location.hash.replace(/^#/, '');
+  const pages = ['recording', 'sessions', 'connections', 'system'];
+  if (pages.includes(plain)) return plain;
+  return null;
+}
+
+// Called by the bootstrap's showPage when the session-detail route is active.
+export function activateSessionDetail() {
+  const m = location.hash.match(/^#session\/(.+)$/);
+  if (!m) return;
+  const id = decodeURIComponent(m[1]);
+  updatePageStrip('sessions', `sessions / ${id}`);
+  openSessionDetail(id);
 }
 
 export function closeSessionDetail() {
@@ -85,19 +90,6 @@ export function goHome() {
 }
 
 // ════════════════════════════════════════════════════════════
-//  INIT (fires at module-load time)
+//  RESIZE — keeps tab indicator measured correctly after layout changes
 // ════════════════════════════════════════════════════════════
-window.addEventListener('hashchange', _routeFromHash);
-window.addEventListener('load', _routeFromHash);
-// Initial Page-Strip-Befüllung (vor erstem Tab-Klick). Wenn ein
-// #session/<id> Hash bereits gesetzt ist, übernimmt _routeFromHash.
-if (!location.hash.startsWith('#session/')) {
-  updatePageStrip('recording');
-}
-
-// Initial nach Font-Load (sonst stimmt die Breite nicht), und bei Resize
-window.addEventListener('load', () => requestAnimationFrame(updateTabIndicator));
-if (document.fonts?.ready) {
-  document.fonts.ready.then(updateTabIndicator);
-}
 window.addEventListener('resize', updateTabIndicator);
