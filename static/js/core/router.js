@@ -72,7 +72,7 @@ export function activateSessionDetail() {
 
 export function closeSessionDetail() {
   if (location.hash.startsWith('#session/')) {
-    history.replaceState(null, '', location.pathname + location.search);
+    location.hash = 'sessions';
   }
   sessionDetailOnHide();
   document.getElementById('page-session-detail').classList.remove('active');
