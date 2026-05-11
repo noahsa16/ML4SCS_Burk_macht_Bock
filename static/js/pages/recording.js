@@ -39,27 +39,22 @@ function _initChart() {
         label: '|a|',
         data: [],
         borderColor: 'oklch(0.595 0.165 43)',
-        backgroundColor: (ctx) => {
-          const gradient = ctx.chart.ctx.createLinearGradient(0, 0, 0, 200);
-          gradient.addColorStop(0, 'oklch(0.595 0.165 43 / 0.25)');
-          gradient.addColorStop(1, 'oklch(0.595 0.165 43 / 0.02)');
-          return gradient;
-        },
+        backgroundColor: 'rgba(229, 126, 60, 0.12)',
         borderWidth: 1.8,
         pointRadius: 0,
         pointHoverRadius: 4,
-        tension: 0.35,
-        fill: true,
+        tension: 0.3,
+        fill: 'origin',
       }, {
         label: '|r|',
         data: [],
         borderColor: 'oklch(0.720 0.135 88)',
-        backgroundColor: 'oklch(0.720 0.135 88 / 0.06)',
+        backgroundColor: 'rgba(196, 156, 30, 0.12)',
         borderWidth: 1.5,
         pointRadius: 0,
         pointHoverRadius: 4,
-        tension: 0.35,
-        fill: false,
+        tension: 0.3,
+        fill: 'origin',
       }]
     },
     options: {
