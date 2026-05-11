@@ -974,9 +974,130 @@ function saveFilters(f) {
 function resetFilters() { localStorage.removeItem(FILTERS_KEY); }
 
 async function openSessionDetail(sessionId) {
-  // Stub — populated in Task 6. Just makes the page visible.
+  S.selectedSessionId = sessionId;
   document.getElementById('detailTitle').textContent = `Session ${sessionId}`;
   document.getElementById('detailSubtitle').textContent = 'Loading…';
+  document.getElementById('detailReportLink').href = `/sessions/${encodeURIComponent(sessionId)}/report?format=md`;
+
+  // Restore section open-state from localStorage.
+  document.querySelectorAll('#page-session-detail details.detail-section').forEach(d => {
+    const key = `sessionDetail.section.${d.dataset.section}.open`;
+    d.open = localStorage.getItem(key) === '1';
+    d.addEventListener('toggle', () => {
+      try { localStorage.setItem(key, d.open ? '1' : '0'); } catch {}
+    }, { once: false });
+  });
+
+  // Load quality (cached) + validation + alignment in parallel.
+  const [validation, alignment] = await Promise.all([
+    S.validationBySession[sessionId]
+      ? Promise.resolve(S.validationBySession[sessionId])
+      : api(`/sessions/${encodeURIComponent(sessionId)}/validation`, 'GET'),
+    S.alignmentBySession[sessionId]
+      ? Promise.resolve(S.alignmentBySession[sessionId])
+      : api(`/sessions/${encodeURIComponent(sessionId)}/alignment`, 'GET'),
+  ]);
+  if (validation) S.validationBySession[sessionId] = validation;
+  if (alignment) S.alignmentBySession[sessionId] = alignment;
+
+  // The session_id may not be in S.allSessions if filters are tight — re-fetch list if missing.
+  if (!S.allSessions?.find(s => s.session_id === sessionId)) {
+    const data = await api('/sessions', 'GET');
+    if (data) S.allSessions = data;
+  }
+  const session = S.allSessions.find(s => s.session_id === sessionId) || {};
+  const quality = S.qualityBySession[sessionId] || {};
+
+  _renderDetailHeader(session, quality, alignment);
+  _renderDetailStreams(session, quality);
+  renderSessionValidation(sessionId);   // reuses existing impl, now wired to new IDs (see Step 3)
+  renderAlignment(sessionId);            // reuses existing impl, now in the alignment section
+  _renderDetailIssues(quality);
+}
+
+function _renderDetailHeader(session, quality, alignment) {
+  const durationSec = session.start_time && session.end_time
+    ? (new Date(session.end_time) - new Date(session.start_time)) / 1000
+    : 0;
+  const verdict = computeVerdict(quality, alignment, durationSec);
+
+  const person = (session.person_id || '').trim();
+  document.getElementById('detailTitle').textContent =
+    `${session.session_id || '–'}${person ? ' · ' + person : ''}`;
+  const startFmt = session.start_time
+    ? new Date(session.start_time).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'medium' })
+    : '–';
+  document.getElementById('detailSubtitle').textContent =
+    `${session.description ? '"' + session.description + '" · ' : ''}${startFmt} · ${fmtDuration(Math.floor(durationSec))}`;
+
+  const v = document.getElementById('detailVerdict');
+  v.className = `verdict-badge ${verdict.level}`;
+  v.textContent = verdict.label;
+
+  const mlStatus = quality?.ml_readiness?.status || 'unknown';
+  const recStatus = quality?.recording_health?.status || 'unknown';
+  const sigma = alignment?.sigma_minimal_variance;
+
+  const pillCls = (st) => st === 'ok' ? 'ok' : st === 'warn' ? 'warn' : st === 'bad' ? 'err' : '';
+  const mlPill = document.getElementById('detailPillMl');
+  mlPill.className = 'pill ' + pillCls(mlStatus);
+  mlPill.textContent = `ML ${mlStatus}`;
+
+  const recPill = document.getElementById('detailPillRec');
+  recPill.className = 'pill ' + pillCls(recStatus);
+  recPill.textContent = `Rec ${recStatus}`;
+
+  const alignPill = document.getElementById('detailPillAlign');
+  if (Number.isFinite(sigma)) {
+    alignPill.className = 'pill ' + (sigma <= -3 ? 'ok' : sigma <= -2 ? 'warn' : 'err');
+    alignPill.textContent = `Align σ=${sigma.toFixed(2)}`;
+  } else {
+    alignPill.className = 'pill';
+    alignPill.textContent = 'Align —';
+  }
+}
+
+function _renderDetailStreams(session, quality) {
+  const watch = quality?.watch || {};
+  const pen = quality?.pen || {};
+  const airpods = quality?.airpods || {};
+  const cov = (q) => q?.coverage_pct != null ? `${(q.coverage_pct * 100).toFixed(0)}%` : '–';
+  document.getElementById('detailStreams').innerHTML = `
+    <div class="drift-grid" style="grid-template-columns: repeat(3, 1fr)">
+      <div class="drift-box">
+        <div class="k">Watch</div>
+        <div class="v">${Number(session.watch_samples || 0).toLocaleString()}</div>
+        <div class="k" style="margin-top:6px">${watch.estimated_hz ? fmtHz(watch.estimated_hz) : '– Hz'} · coverage ${cov(watch)}</div>
+      </div>
+      <div class="drift-box">
+        <div class="k">Pen</div>
+        <div class="v">${Number(session.pen_samples || 0).toLocaleString()}</div>
+        <div class="k" style="margin-top:6px">${pen.has_server_time ? 'wall-clock' : 'legacy'}</div>
+      </div>
+      <div class="drift-box">
+        <div class="k">AirPods</div>
+        <div class="v">${Number(session.airpods_samples || 0).toLocaleString()}</div>
+        <div class="k" style="margin-top:6px">${airpods.estimated_hz ? fmtHz(airpods.estimated_hz) : '–'}</div>
+      </div>
+    </div>`;
+}
+
+function _renderDetailIssues(quality) {
+  const ml = quality?.ml_readiness || { blockers: [], warnings: [], info: [] };
+  const rec = quality?.recording_health || { blockers: [], warnings: [], info: [] };
+  const all = [
+    ...(ml.blockers || []).map(i => ({ ...i, sev: 'err' })),
+    ...(ml.warnings || []).map(i => ({ ...i, sev: 'warn' })),
+    ...(rec.blockers || []).map(i => ({ ...i, sev: 'err' })),
+    ...(rec.warnings || []).map(i => ({ ...i, sev: 'warn' })),
+  ];
+  document.getElementById('detailIssuesCount').textContent = all.length;
+  document.getElementById('detailIssues').innerHTML = all.length
+    ? all.map(i => `<span class="issue-chip" title="${escAttr(i.message || i.rationale || '')}">${esc(i.code)}</span>`).join('')
+    : '<span class="issue-chip">no blocking issues</span>';
+  document.getElementById('detailIssuesSummary').textContent = all.length
+    ? 'Hover an issue chip to see rationale. Severity is mixed: blockers are red, warnings yellow.'
+    : 'Nothing flagged on this session.';
 }
 
 // ════════════════════════════════════════════════════════════
@@ -1032,16 +1153,6 @@ async function loadSessions() {
   applyFilters();
 }
 
-async function loadValidationIfNeeded(sessionId) {
-  if (S.validationBySession[sessionId]) {
-    renderSessionValidation(sessionId);
-    return;
-  }
-  renderSessionValidation(sessionId); // show "Loading…" panel immediately
-  const v = await api(`/sessions/${encodeURIComponent(sessionId)}/validation`, 'GET');
-  if (v) S.validationBySession[sessionId] = v;
-  if (S.selectedSessionId === sessionId) renderSessionValidation(sessionId);
-}
 
 function _matchesFilters(s, q, filters) {
   const txt = filters.q.toLowerCase();
@@ -1143,16 +1254,6 @@ function renderQualitySummary() {
 }
 
 
-async function loadAlignmentIfNeeded(sessionId) {
-  if (S.alignmentBySession[sessionId]) {
-    renderAlignment(sessionId);
-    return;
-  }
-  renderAlignment(sessionId); // show loading state
-  const a = await api(`/sessions/${encodeURIComponent(sessionId)}/alignment`, 'GET');
-  if (a) S.alignmentBySession[sessionId] = a;
-  if (S.selectedSessionId === sessionId) renderAlignment(sessionId);
-}
 
 function _alignFmtDelta(d) {
   if (d == null || !isFinite(d)) return '–';
@@ -1521,32 +1622,11 @@ function _drawAlignTimeline(a) {
 }
 
 function renderSessionValidation(sessionId) {
-  const panel = document.getElementById('sessionValidationPanel');
   const v = S.validationBySession[sessionId];
-  const q = S.qualityBySession[sessionId] || {};
-  panel.classList.add('active');
-
   if (!v) {
-    document.getElementById('validationTitle').textContent = `Session ${sessionId}`;
-    document.getElementById('validationOverall').textContent = 'Loading…';
-    document.getElementById('validationTimeline').innerHTML = '';
-    document.getElementById('validationSummary').textContent = 'Validation is loading or unavailable.';
+    document.getElementById('detailTimeline').innerHTML = '<div class="validation-note">Validation data loading…</div>';
     return;
   }
-
-  const duration = v.timeline_for_chart?.duration_s ?? v.watch?.duration_seconds ?? 0;
-  const ml = q.ml_readiness || { status: v.status || q.quality || 'unknown', blockers: [], warnings: [], info: [] };
-  const recording = q.recording_health || { status: 'unknown', blockers: [], warnings: [], info: [] };
-  const diag = syncDiagnostic(q, v);
-  document.getElementById('validationTitle').textContent = `Session ${sessionId} — ${fmtDuration(Math.round(duration || 0))} duration`;
-  document.getElementById('validationOverall').textContent =
-    `ML: ${ml.status || 'unknown'} · Recording: ${recording.status || 'unknown'}`;
-  document.getElementById('validationMlReady').textContent = ml.status || 'unknown';
-  document.getElementById('validationRecording').textContent = recording.status || 'unknown';
-  document.getElementById('validationPenPct').textContent = v.overlap?.pen_dots_in_watch_range_pct != null
-    ? `${Math.round(v.overlap.pen_dots_in_watch_range_pct * 1000) / 10}%`
-    : '–';
-  document.getElementById('validationSyncDiagnostic').textContent = diag.label;
   document.getElementById('driftWatch').textContent = fmtMs(v.source_clocks?.watch_source_to_local_drift_ms);
   document.getElementById('driftPen').textContent = fmtMs(v.source_clocks?.pen_source_to_local_drift_ms);
   document.getElementById('driftRelative').textContent = fmtMs(v.source_clocks?.relative_pen_vs_watch_clock_drift_ms);
@@ -1554,20 +1634,7 @@ function renderSessionValidation(sessionId) {
     v.source_clocks?.source_clock_offset_gap_ms,
     v.sync_estimate
   );
-
-  document.getElementById('validationTimeline').innerHTML = renderTimeline(v);
-  const intervals = v.timeline_for_chart?.pen_events?.length || 0;
-  document.getElementById('validationSummary').textContent =
-    `Watch: ${Number(v.watch?.total_samples || 0).toLocaleString()} samples over ${fmtSec(v.watch?.duration_seconds)} | ` +
-    `Pen: ${intervals} writing intervals, ${Number(v.pen?.total_dots || 0).toLocaleString()} dots over ${fmtSec(v.pen?.duration_seconds)}. ` +
-    `Sync diagnostics are optional calibration hints and do not reduce session quality.`;
-  const actionableIssues = [
-    ...(ml.blockers || []), ...(ml.warnings || []),
-    ...(recording.blockers || []), ...(recording.warnings || []),
-  ];
-  document.getElementById('validationIssues').innerHTML = actionableIssues.length
-    ? actionableIssues.map(i => `<span class="issue-chip" title="${escAttr(i.message || '')}">${esc(i.code)}</span>`).join('')
-    : '<span class="issue-chip">no blocking issues</span>';
+  document.getElementById('detailTimeline').innerHTML = renderTimeline(v);
 }
 
 function renderTimeline(v) {
