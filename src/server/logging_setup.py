@@ -23,10 +23,17 @@ _LEVEL_MAP = {
 
 
 class EventLogHandler(logging.Handler):
-    """Schreibt Log-Records als event_log-Einträge ins SessionState."""
+    """Schreibt Log-Records als event_log-Einträge ins SessionState.
+
+    Filtert HTTP-Access-Logs raus — die werden trotzdem ins File geschrieben
+    (separater Handler), gehören aber nicht ins User-Facing-Event-Log des
+    Dashboards. Sonst flutet jeder /sessions/quality-Poll die Live-Ansicht.
+    """
 
     def emit(self, record: logging.LogRecord) -> None:
         try:
+            if record.name == "uvicorn.access":
+                return
             level = _LEVEL_MAP.get(record.levelno, "info")
             source = record.name.split(".")[0] or "server"
             message = record.getMessage()
