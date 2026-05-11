@@ -1,16 +1,19 @@
-"""Pen + Watch zu einem device-time-alignten DataFrame zusammenführen.
+"""Watch + Pen zu einem watch-basierten gelabelten Dataset zusammenführen.
 
-Ablauf in ``merge_pen_watch()``:
+Ablauf in ``merge_watch_pen()``:
 
   1. Rohe CSVs einlesen
   2. δ schätzen (via :mod:`src.alignment`)
   3. Wenn σ ≤ -2 (Confidence ok): pen.local_ts_ms += δ·1000
      Wenn σ > -2 (flache Kurve): δ verwerfen, ohne Shift weitermachen
-  4. Beide Streams auf gemeinsame Device-Time-Achse bringen (Anker = erstes
-     Watch-Sample); Pen-Features berechnen (distance, speed, label_writing)
-  5. ``pd.merge_asof`` mit ±20 ms Toleranz, Pen-Rows = Basis,
-     direction="nearest"
-  6. δ und σ als ``df.attrs`` für Downstream-Diagnose anhängen
+  4. ``pd.merge_asof`` mit **Watch als Basis**, Pen-Aktivität als Label:
+     - innerhalb ±``label_tol_ms`` der nächste Pen-``dot_type`` ∈
+       {PEN_DOWN, PEN_MOVE} → ``label_writing = 1``
+     - sonst → ``label_writing = 0`` (umfasst auch Pen-Lücken, in denen
+       der Pen gar nichts berichtet → "nicht schreiben")
+  5. δ und σ als ``df.attrs`` für Downstream-Diagnose anhängen
+
+Output: 1 Zeile pro Watch-Sample (alle Watch-Spalten + ``label_writing``).
 """
 
 from pathlib import Path
@@ -24,12 +27,9 @@ from src.alignment import (
     reconstruct_watch_wall_clock,
     strokes_from_dot_types,
 )
-from .prep import (
-    _first_numeric,
-    _prepare_pen_from_df,
-    _prepare_watch_from_df,
-    load_csv,
-)
+from .prep import load_csv
+
+WRITING_DOT_TYPES = ("PEN_DOWN", "PEN_MOVE")
 
 
 def estimate_pen_imu_offset(
@@ -76,18 +76,23 @@ def estimate_pen_imu_offset(
     return match_pen_data(watch_for_match, pen_strokes)
 
 
-def merge_pen_watch(pen_path: str | Path,
-                    watch_path: str | Path,
-                    tolerance_ms: int = 20,
-                    align_clocks: bool = True,
-                    sigma_threshold: float = -2.0) -> pd.DataFrame:
-    """Joined pen + watch data via nearest-neighbour on device time.
+def merge_watch_pen(
+    pen_path: str | Path,
+    watch_path: str | Path,
+    label_tol_ms: int = 40,
+    align_clocks: bool = True,
+    sigma_threshold: float = -2.0,
+) -> pd.DataFrame:
+    """Watch-base merge: jedes Watch-Sample bekommt ein Label.
 
-    With ``align_clocks=True`` (default), the pen↔IMU clock offset is first
-    estimated via variance minimization over stroke windows
-    (see :mod:`src.alignment`) and applied to the pen wall-clock before
-    ``merge_asof``. The result carries ``pen_clock_offset_sec`` (applied
-    shift) and ``pen_clock_sigma`` (confidence z-score) as DataFrame attrs.
+    Pen-Lücken (kein Pen-Sample in ±``label_tol_ms``) → label 0. Das ist
+    die Grundlage für den Writing-Detektor, der auf der Watch allein läuft.
+
+    Standard-Toleranz 40 ms = ~2× Watch-Periode bei 50 Hz; kleine Jitter
+    werden geschluckt, aber echte Pen-freie Phasen bleiben Label 0.
+
+    Result-DataFrame trägt ``pen_clock_offset_sec`` und ``pen_clock_sigma``
+    als ``df.attrs`` für Diagnose.
     """
     raw_pen = load_csv(pen_path)
     raw_watch = load_csv(watch_path)
@@ -100,31 +105,36 @@ def merge_pen_watch(pen_path: str | Path,
             sigma = result.sigma_minimal_variance
             if sigma <= sigma_threshold:
                 delta_sec = result.delta_sec
-                # Apply δ to pen wall-clock — pen reports samples late by δ
-                # relative to the watch, so we shift pen timestamps forward
-                # in time when δ < 0 and back when δ > 0. The convention
-                # matches the PDF math: t_pen ↦ t_pen + δ.
-                if "local_ts_ms" in raw_pen.columns:
-                    raw_pen = raw_pen.copy()
-                    raw_pen["local_ts_ms"] = (
-                        pd.to_numeric(raw_pen["local_ts_ms"], errors="coerce")
-                        + delta_sec * 1000.0
-                    )
 
-    anchor_local_ms = _first_numeric(raw_watch, ["local_ts_ms", "server_received_ms"])
-    pen = _prepare_pen_from_df(raw_pen, anchor_local_ms=anchor_local_ms).rename(
-        columns={"timestamp": "ts_pen", "device_time_ms": "pen_device_time_ms"}
+    if "local_ts_ms" not in raw_watch.columns:
+        raise ValueError("Watch CSV is missing local_ts_ms — cannot align.")
+    if "local_ts_ms" not in raw_pen.columns:
+        raise ValueError("Pen CSV is missing local_ts_ms — legacy log not supported.")
+
+    watch = raw_watch.copy()
+    watch["local_ts_ms"] = pd.to_numeric(watch["local_ts_ms"], errors="coerce")
+    watch = watch.dropna(subset=["local_ts_ms"]).sort_values("local_ts_ms")
+    watch["local_ts_ms"] = watch["local_ts_ms"].astype(float)
+
+    pen = raw_pen.copy()
+    pen["local_ts_ms"] = (
+        pd.to_numeric(pen["local_ts_ms"], errors="coerce") + delta_sec * 1000.0
     )
-    watch = _prepare_watch_from_df(raw_watch, anchor_local_ms=anchor_local_ms).rename(
-        columns={"device_time_ms": "watch_device_time_ms"}
-    )
+    pen = pen.dropna(subset=["local_ts_ms"]).sort_values("local_ts_ms")
+    pen["local_ts_ms"] = pen["local_ts_ms"].astype(float)
+    pen["pen_writing"] = pen["dot_type"].isin(WRITING_DOT_TYPES).astype(int)
+    pen_slim = pen[["local_ts_ms", "pen_writing"]]
+
     merged = pd.merge_asof(
-        pen.sort_values("pen_device_time_ms"),
-        watch.sort_values("watch_device_time_ms"),
-        left_on="pen_device_time_ms", right_on="watch_device_time_ms",
-        tolerance=tolerance_ms,
+        watch,
+        pen_slim,
+        on="local_ts_ms",
+        tolerance=float(label_tol_ms),
         direction="nearest",
     )
+    # Why: kein Pen-Sample in Toleranz → fillna(0) heisst "nicht schreiben".
+    merged["label_writing"] = merged["pen_writing"].fillna(0).astype(int)
+    merged = merged.drop(columns=["pen_writing"]).reset_index(drop=True)
     merged.attrs["pen_clock_offset_sec"] = delta_sec
     merged.attrs["pen_clock_sigma"] = sigma
     return merged
