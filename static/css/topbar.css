@@ -15,6 +15,7 @@
 /* Wordmark — Plex Mono Italic Bold mit Trail-Slash. */
 .brand {
   position: relative;
+  /* Why: 2px is sub-scale letterform-tracking for the brand mono wordmark. */
   display: inline-flex; align-items: baseline; gap: 2px;
   font-family: var(--mono); font-style: italic; font-weight: 600;
   font-size: var(--text-md); letter-spacing: -0.01em; color: var(--text);
@@ -38,6 +39,7 @@
 .brand-tooltip {
   position: absolute;
   top: calc(100% + 10px); left: 0;
+  /* Why: 2px is sub-scale tracking for the dropped brand-tooltip lines. */
   display: flex; flex-direction: column; gap: 2px;
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -63,6 +65,7 @@
 
 /* Linear-style tabs — kein Background, dünner Underline auf aktivem. */
 .tabs {
+  /* Why: 6px is a sub-scale gap between tabs — tighter than --space-2 to keep the bar compact. */
   display: flex; gap: 6px; align-items: stretch;
   position: relative;
   /* Tabs unten am Topbar-Boden ausrichten, damit Underline auf der Bar sitzt */
@@ -125,6 +128,7 @@
   outline-offset: 2px;
 }
 .status-cluster:active { transform: translateY(1px); }
+/* Why: 5px is sub-scale tracking for the 3 status dots in the cluster. */
 .status-cluster-dots { display: inline-flex; gap: 5px; }
 .status-dot {
   width: 8px; height: 8px; border-radius: 50%;

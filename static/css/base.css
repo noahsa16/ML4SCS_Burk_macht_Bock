@@ -201,7 +201,7 @@ body {
   border-top-color: var(--border);
 }
 .card-details-toggle {
-  display: inline-flex; align-items: center; gap: 4px;
+  display: inline-flex; align-items: center; gap: var(--space-1);
   margin-top: var(--space-2); padding: 0;
   background: none; border: none; cursor: pointer;
   font-family: var(--sans); font-size: var(--text-xs); font-weight: 500;
@@ -228,7 +228,7 @@ body {
   font-family: var(--mono); font-style: italic;
   font-size: var(--text-xs); letter-spacing: 0.01em;
   color: var(--text3);
-  display: flex; align-items: baseline; gap: 8px;
+  display: flex; align-items: baseline; gap: var(--space-2);
   /* feines Hairline-Underline → wirkt wie Magazin-Section-Header */
   padding-bottom: 10px;
   border-bottom: 1px dotted color-mix(in oklch, var(--border) 60%, transparent);
@@ -257,8 +257,9 @@ body {
 .card-hero .card-title::before { display: none; }
 
 /* ─── Pill / Badge shared base ───────────────────────────────── */
-.pill-row { display: flex; gap: 8px; align-items: center; }
+.pill-row { display: flex; gap: var(--space-2); align-items: center; }
 .pill {
+  /* Why: 6px is a sub-scale icon-to-text micro-gap — below --space-1 (4px) but tighter than --space-2 (8px). */
   display: flex; align-items: center; gap: 6px;
   padding: var(--space-1) var(--space-3); border-radius: var(--radius-pill); font-size: var(--text-xs);
   font-family: var(--mono); font-weight: 500; border: 1px solid transparent;
