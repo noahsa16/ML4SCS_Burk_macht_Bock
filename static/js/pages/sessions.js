@@ -1,8 +1,8 @@
 // static/js/pages/sessions.js — Sessions page module
 //
-// Back-import note: openSessionDetail stays in dashboard.js until Task 12.
-// Row clicks use onclick="location.hash='#session/<id>'" which triggers
-// router.js _routeFromHash → openSessionDetail; no direct import needed here.
+// openSessionDetail lives in pages/session_detail.js; row clicks use
+// onclick="location.hash='#session/<id>'" which triggers router.js
+// _routeFromHash → openSessionDetail; no direct import needed here.
 
 import { api } from '/static/js/core/api.js';
 import { esc, escAttr } from '/static/js/core/dom.js';

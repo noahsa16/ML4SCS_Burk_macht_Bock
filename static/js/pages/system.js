@@ -1,10 +1,8 @@
 // static/js/pages/system.js — System page module
-// Inventory: no functions are uniquely System-page-specific.
-// The check-field updates (checkAccel/checkGyro/checkPenTime/checkRate) live
-// in status_cluster.js handleStatus and are called from there.
 // The inline onclick handlers (setTheme, setLogRows) remain in dashboard.js
 // as shared globals (window.*) until Task 14 replaces onclick attributes.
-// This module exists to establish the page-module pattern for Tasks 10–13.
+
+import { fmtHz } from '/static/js/core/format.js';
 
 let _mounted = false;
 let _container = null;
@@ -12,15 +10,23 @@ let _container = null;
 export function mount(container) {
   if (_mounted) return;
   _container = container;
-  // Why: no System-specific one-time DOM wiring needed; shared handlers
-  // (setTheme, setLogRows) are already exposed on window from dashboard.js.
   _mounted = true;
 }
 
-export function onStatus(payload) {
-  // Why: check-field updates are handled by status_cluster.js handleStatus
-  // which has direct access to the derived validation values; nothing extra
-  // needed here.
+export function onStatus(s) {
+  const validation = s.validation || {};
+  const watchRate = Number(s.watch_rate_hz || 0);
+  const penRate = Number(s.pen_rate_hz || 0);
+  const gyroOk = validation.watch_has_gyroscope === true;
+  const penClockOk = validation.pen_has_server_time === true;
+  const accelEl = document.getElementById('checkAccel');
+  const gyroEl = document.getElementById('checkGyro');
+  const penTimeEl = document.getElementById('checkPenTime');
+  const rateEl = document.getElementById('checkRate');
+  if (accelEl) accelEl.textContent = validation.watch_has_accelerometer ? 'ok' : 'missing';
+  if (gyroEl) gyroEl.textContent = gyroOk ? 'ok' : 'missing';
+  if (penTimeEl) penTimeEl.textContent = penClockOk ? 'ok' : 'new recordings only';
+  if (rateEl) rateEl.textContent = `${fmtHz(watchRate)} watch · ${fmtHz(penRate)} pen`;
 }
 
 export function onShow() {
