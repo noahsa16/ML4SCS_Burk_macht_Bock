@@ -33,8 +33,17 @@ export const S = {
 };
 
 export function updateFromStatus(payload) {
-  // Placeholder that mirrors the existing in-place mutation pattern used by
-  // handleStatus(). Gains real responsibility in Task 8.
+  S.lastStatus = payload;
+  S.sessionActive = payload.session_active;
+  S.sessionId = payload.session_id;
+  S.personId = payload.person_id;
+  S.startTime = payload.start_time ? new Date(payload.start_time) : null;
+  S.watchSamples = payload.watch_samples;
+  S.penSamples = payload.pen_samples;
+  S.penConnected = payload.pen_connected;
+  S.uptime = payload.uptime_seconds;
+  S.eventLog = payload.event_log || S.eventLog;
+  S.sampleLog = payload.sample_log || S.sampleLog;
 }
 
 export function getActiveSession() { return S.selectedSessionId || null; }
