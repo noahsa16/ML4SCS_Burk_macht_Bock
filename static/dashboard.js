@@ -1202,6 +1202,10 @@ function applyFilters() {
     minFive: document.getElementById('filterMinFive').checked,
   };
   saveFilters(filters);
+  // Active-Filter-Hinweis: Inputs mit Non-Default kriegen Accent-Border (CSS handhabt das via .is-active)
+  document.getElementById('filterQ').classList.toggle('is-active', filters.q !== '');
+  document.getElementById('filterMl').classList.toggle('is-active', filters.ml !== 'all');
+  document.getElementById('filterAlign').classList.toggle('is-active', filters.align !== 'all');
   const rows = (S.allSessions || []).filter(s => _matchesFilters(s, S.qualityBySession[s.session_id], filters));
   renderSessionsList(rows);
 }
