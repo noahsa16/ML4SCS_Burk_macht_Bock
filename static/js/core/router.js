@@ -1,9 +1,6 @@
 import { _fmtStripDate } from '/static/js/core/format.js';
 import { S } from '/static/js/core/state.js';
-
-// Why: openSessionDetail stays in dashboard.js until Task 12.
-import { openSessionDetail } from '/static/dashboard.js';
-// Temporary: loadSessions moved to pages/sessions.js in Task 11.
+import { openSessionDetail, onHide as sessionDetailOnHide } from '/static/js/pages/session_detail.js';
 import { loadSessions } from '/static/js/pages/sessions.js';
 
 // ════════════════════════════════════════════════════════════
@@ -72,6 +69,7 @@ export function closeSessionDetail() {
   if (location.hash.startsWith('#session/')) {
     history.replaceState(null, '', location.pathname + location.search);
   }
+  sessionDetailOnHide();
   document.getElementById('page-session-detail').classList.remove('active');
   document.getElementById('page-sessions').classList.add('active');
   updatePageStrip('sessions');

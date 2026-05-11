@@ -9,6 +9,7 @@ import { S } from '/static/js/core/state.js';
 import * as systemPage from '/static/js/pages/system.js';
 import * as connectionsPage from '/static/js/pages/connections.js';
 import * as sessionsPage from '/static/js/pages/sessions.js';
+import * as sessionDetailPage from '/static/js/pages/session_detail.js';
 import {
   fmtHz, fmtNum, fmtAgo, fmtUptime, fmtCommand,
 } from '/static/js/core/format.js';
@@ -485,6 +486,7 @@ export function handleStatus(s, prevSessionId) {
 
   connectionsPage.onStatus(s);
   sessionsPage.onStatus(s);
+  sessionDetailPage.onStatus(s);
 
   // System checks
   document.getElementById('checkAccel').textContent = validation.watch_has_accelerometer ? 'ok' : 'missing';
