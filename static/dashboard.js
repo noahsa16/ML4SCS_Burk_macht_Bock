@@ -44,6 +44,11 @@ const pageMeta = {
 
 document.querySelectorAll('.tab').forEach(el => {
   el.addEventListener('click', () => {
+    // Leaving any tab clears a session-detail route so the URL reflects the active tab.
+    if (location.hash.startsWith('#session/')) {
+      history.replaceState(null, '', location.pathname + location.search);
+      document.getElementById('page-session-detail')?.classList.remove('active');
+    }
     const p = el.dataset.page;
     document.querySelectorAll('.tab').forEach(n => n.classList.remove('active'));
     el.classList.add('active');
@@ -60,6 +65,34 @@ document.querySelectorAll('.tab').forEach(el => {
     updateTabIndicator();
   });
 });
+
+// Hash routing: only one route shape — #session/<id> opens the
+// detail page. Empty hash returns to whichever tab was active.
+function _routeFromHash() {
+  const m = location.hash.match(/^#session\/(.+)$/);
+  if (m) {
+    const id = decodeURIComponent(m[1]);
+    document.querySelectorAll('.page').forEach(pg => pg.classList.remove('active'));
+    document.getElementById('page-session-detail').classList.add('active');
+    document.querySelectorAll('.tab').forEach(n => n.classList.toggle('active', n.dataset.page === 'sessions'));
+    updateTabIndicator();
+    openSessionDetail(id);
+    return;
+  }
+  // No detail route — make sure detail page is hidden if it was open.
+  document.getElementById('page-session-detail')?.classList.remove('active');
+}
+
+window.addEventListener('hashchange', _routeFromHash);
+window.addEventListener('load', _routeFromHash);
+
+function closeSessionDetail() {
+  if (location.hash.startsWith('#session/')) {
+    history.replaceState(null, '', location.pathname + location.search);
+  }
+  document.getElementById('page-session-detail').classList.remove('active');
+  document.getElementById('page-sessions').classList.add('active');
+}
 
 // Slidender Tab-Underline: misst Position+Breite des aktiven Tabs und
 // translatet ein einzelnes Indicator-Element dahin. CSS macht den Slide.
@@ -939,6 +972,12 @@ function saveFilters(f) {
   try { localStorage.setItem(FILTERS_KEY, JSON.stringify(f)); } catch {}
 }
 function resetFilters() { localStorage.removeItem(FILTERS_KEY); }
+
+async function openSessionDetail(sessionId) {
+  // Stub — populated in Task 6. Just makes the page visible.
+  document.getElementById('detailTitle').textContent = `Session ${sessionId}`;
+  document.getElementById('detailSubtitle').textContent = 'Loading…';
+}
 
 // ════════════════════════════════════════════════════════════
 //  SESSIONS TABLE
