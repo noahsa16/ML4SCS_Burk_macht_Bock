@@ -6,40 +6,7 @@ import {
   _fmtStripDate,
 } from '/static/js/core/format.js';
 import { api, downloadDebugPackage } from '/static/js/core/api.js';
-
-// ════════════════════════════════════════════════════════════
-//  STATE
-// ════════════════════════════════════════════════════════════
-const S = {
-  sessionActive: false,
-  sessionId: null,
-  personId: null,
-  startTime: null,
-  watchSamples: 0,
-  penSamples: 0,
-  penConnected: false,
-  watchConnected: false,
-  uptime: 0,
-  timerInterval: null,
-  allSessions: [],
-  chartBuffer: [],   // {t, mag, pen_writing}
-  chartMax: 0,
-  eventLog: [],
-  sampleLog: [],
-  logRows: Number(localStorage.getItem('logRows') || 24),
-  theme: localStorage.getItem('theme') || 'light',
-  qualityBySession: {},
-  qualitySummary: null,
-  validationBySession: {},
-  alignmentBySession: {},
-  alignmentCharts: { variance: null, timeline: null },
-  selectedSessionId: null,
-  penDotBuffer: [],   // {x, y, t, ts} — last ~500 pen dots for canvas
-  penBounds: null,    // {minX, maxX, minY, maxY} — auto-scale bounds
-  watchStatusText: 'Offline',
-  watchBadgeClass: 'badge-err',
-  lastStatus: null,
-};
+import { S, getActiveSession, getTheme, getLogRows } from '/static/js/core/state.js';
 
 // ════════════════════════════════════════════════════════════
 //  NAVIGATION
