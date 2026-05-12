@@ -1,0 +1,227 @@
+/* ─── Top bar v2: Brand · Tabs · Status ──────────────────────── */
+#topbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  background: var(--surface);
+  /* feiner Schatten statt harter Border — wirkt produkt-y */
+  box-shadow: 0 1px 0 color-mix(in oklch, var(--border) 60%, transparent);
+  flex-shrink: 0;
+  position: relative; z-index: 5;
+}
+
+/* Wordmark — Plex Mono Italic Bold mit Trail-Slash. */
+.brand {
+  position: relative;
+  /* Why: 2px is sub-scale letterform-tracking for the brand mono wordmark. */
+  display: inline-flex; align-items: baseline; gap: 2px;
+  font-family: var(--mono); font-style: italic; font-weight: 600;
+  font-size: var(--text-md); letter-spacing: -0.01em; color: var(--text);
+  background: none; border: none; cursor: pointer; padding: 0;
+  transition: color var(--dur-fast) var(--ease-default), transform var(--dur-fast) var(--ease-default);
+  white-space: nowrap;
+}
+.brand:hover { color: var(--accent); }
+.brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.brand:active { transform: translateY(1px); }
+.brand-slash {
+  font-family: var(--mono); font-style: normal; font-weight: 600;
+  color: var(--accent); margin-left: 4px;
+}
+
+/* Wordmark-Tooltip: zwei Zeilen Mono-Text in einer Pill, fadet beim
+   Hover ein. Ersetzt den nativen browser-title (war stylisch generisch). */
+.brand-tooltip {
+  position: absolute;
+  top: calc(100% + 10px); left: 0;
+  /* Why: 2px is sub-scale tracking for the dropped brand-tooltip lines. */
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-default), transform var(--dur-fast) var(--ease-default);
+  box-shadow: 0 6px 22px -10px color-mix(in oklch, var(--sidebar) 30%, transparent);
+  z-index: 20;
+}
+.brand:hover .brand-tooltip {
+  opacity: 1; transform: translateY(0);
+}
+.brand-tooltip-line {
+  font-family: var(--mono); font-style: normal; font-weight: 500;
+  font-size: var(--text-xs); letter-spacing: 0.02em; color: var(--text);
+}
+.brand-tooltip-line.muted {
+  font-weight: 400; color: var(--text3); font-size: var(--text-xs);
+}
+
+/* Linear-style tabs — kein Background, dünner Underline auf aktivem. */
+.tabs {
+  /* Why: 6px is a sub-scale gap between tabs — tighter than --space-2 to keep the bar compact. */
+  display: flex; gap: 6px; align-items: stretch;
+  position: relative;
+  /* Tabs unten am Topbar-Boden ausrichten, damit Underline auf der Bar sitzt */
+  align-self: stretch; padding-top: 4px;
+}
+.tab {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 0 var(--space-4);
+  font-family: var(--sans); font-size: var(--text-base); font-weight: 500;
+  color: var(--text3); cursor: pointer; user-select: none;
+  background: none; border: none;
+  position: relative;
+  transition: color var(--dur-fast) var(--ease-default), transform var(--dur-fast) var(--ease-default);
+}
+.tab:hover { color: var(--text); }
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.tab:active { transform: translateY(1px); }
+.tab.active { color: var(--text); font-weight: 600; }
+
+/* Underline slidet zwischen Tabs — ein einziges Element, das von JS
+   zur Position des aktiven Tabs translated wird. Sieht aus wie Linear/Radix. */
+.tab-indicator {
+  position: absolute;
+  bottom: -14px;
+  left: 0;
+  height: 2px;
+  background: var(--text);
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+  opacity: 0;
+  /* transform und width werden von JS gesetzt; cubic-bezier ist ein
+     mildes "easeInOut" — schnell genug, nicht trödelnd. */
+  transition:
+    transform var(--dur-slow) var(--ease-default),
+    width     var(--dur-slow) var(--ease-default),
+    opacity   var(--dur-fast) var(--ease-default);
+}
+.tab-indicator.ready { opacity: 1; }
+
+/* ─── Konsolidierter Status-Cluster im Topbar ──────────────── */
+.status-cluster {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  font-family: var(--sans); font-size: var(--text-sm); color: var(--text);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-default), border-color var(--dur-fast) var(--ease-default), transform var(--dur-fast) var(--ease-default);
+}
+.status-cluster:hover {
+  background: var(--surface);
+  border-color: var(--border2);
+}
+.status-cluster:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.status-cluster:active { transform: translateY(1px); }
+/* Why: 5px is sub-scale tracking for the 3 status dots in the cluster. */
+.status-cluster-dots { display: inline-flex; gap: 5px; }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text3);
+  transition: background var(--dur-fast) var(--ease-default);
+}
+.status-dot.ok   { background: var(--green); }
+.status-dot.warn { background: var(--yellow); animation: pulse 1.5s infinite; }
+.status-dot.err  { background: var(--red); }
+.status-cluster-label { font-weight: 600; letter-spacing: -0.005em; }
+.status-cluster-meta {
+  color: var(--text2); font-family: var(--mono); font-size: var(--text-xs);
+}
+.status-cluster-meta:empty { display: none; }
+
+/* Topbar-Right gruppiert Status + Theme-Toggle */
+.topbar-right { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* Theme-Toggle: kompakter Icon-Button, gleiche Chrome-Sprache wie Status-Cluster */
+.theme-toggle {
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--surface2); border: 1px solid var(--border);
+  cursor: pointer; padding: 0;
+  color: var(--text2);
+  transition: background var(--dur-fast) var(--ease-default), border-color var(--dur-fast) var(--ease-default), transform var(--dur-fast) var(--ease-default), color var(--dur-fast) var(--ease-default);
+}
+.theme-toggle:hover {
+  background: var(--surface);
+  border-color: var(--border2);
+  color: var(--text);
+}
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.theme-toggle:active { transform: translateY(1px); }
+.theme-toggle-glyph {
+  font-family: var(--mono); font-size: var(--text-base); line-height: 1;
+  display: inline-block;
+  transition: transform var(--dur-slow) var(--ease-default);
+}
+
+/* Hover-card on the topbar status cluster — same drop-pattern as .brand-tooltip. */
+.status-cluster { position: relative; }
+
+.status-hover-card {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  display: none;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-4);
+  box-shadow: 0 4px 16px color-mix(in oklch, var(--sidebar) 20%, transparent);
+  min-width: 260px;
+  text-align: left;
+  pointer-events: none;
+  z-index: 50;
+}
+.status-cluster:hover .status-hover-card,
+.status-cluster:focus-visible .status-hover-card {
+  display: flex;
+}
+
+.status-hover-row {
+  display: grid;
+  grid-template-columns: 14px 70px 1fr;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-family: var(--sans);
+  font-size: var(--text-xs);
+}
+.status-hover-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text3);
+  align-self: center;
+}
+.status-hover-row[data-device-ok] .status-hover-dot { background: var(--green); }
+.status-hover-row[data-device-warn] .status-hover-dot { background: var(--yellow); }
+.status-hover-row[data-device-err] .status-hover-dot { background: var(--red); }
+.status-hover-label {
+  color: var(--text2); font-weight: 600;
+}
+.status-hover-state {
+  color: var(--text); font-weight: 500;
+}
+.status-hover-meta {
+  color: var(--text3); font-family: var(--mono); font-size: var(--text-xs);
+  grid-column: 2 / span 2;
+}
+.theme-toggle:hover .theme-toggle-glyph { transform: rotate(20deg); }
