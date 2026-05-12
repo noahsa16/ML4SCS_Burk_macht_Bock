@@ -1,63 +1,96 @@
-<!-- ══════════ PAGE: SESSIONS ══════════ -->
-<div class="card">
-  <div class="chart-meta">
-    <div class="card-title">Data Quality Report<span>model readiness per recording</span></div>
-    <button type="button" class="refresh-link" onclick="loadSessions()">↻ refresh</button>
-  </div>
-  <div class="health-grid-wrap">
-    <div class="health-grid" role="tablist" aria-label="Filter by ML status">
-      <button type="button" class="health-box is-active" data-ml="all"  role="tab" aria-selected="true">
-        <div class="k">Total Sessions</div><div class="v" id="qualityTotal">–</div>
-      </button>
-      <button type="button" class="health-box" data-ml="ok"   role="tab" aria-selected="false">
-        <div class="k">ML Ready</div><div class="v ok" id="qualityOk">–</div>
-      </button>
-      <button type="button" class="health-box" data-ml="warn" role="tab" aria-selected="false">
-        <div class="k">ML Warnings</div><div class="v warn" id="qualityWarn">–</div>
-      </button>
-      <button type="button" class="health-box" data-ml="bad"  role="tab" aria-selected="false">
-        <div class="k">ML Blocked</div><div class="v err" id="qualityBad">–</div>
-      </button>
-    </div>
-    <div class="health-grid-loading" id="healthGridLoading" data-state-mode="overlay">
-      <div class="empty-state empty-state--loading">
-        <div class="empty-state-glyph">/</div>
-        <div class="empty-state-title">Loading…</div>
+<!-- ════════════════════════════════════════════════════════════
+     Sessions — editorial archive layout
+     3 numbered sections, no left rail (page is mostly the table),
+     slash-glyph watermark, dramatic 48px stat numbers on readiness.
+     ════════════════════════════════════════════════════════════ -->
+
+<div class="ssn-bg-glyph" aria-hidden="true">/</div>
+
+<div class="ssn-shell">
+
+  <header class="ssn-page-head">
+    <div class="ssn-page-eyebrow">/ recording archive</div>
+    <h1 class="ssn-page-title">Sessions</h1>
+    <p class="ssn-page-sub">Every recording in the archive, graded by ML readiness and pen↔watch alignment confidence.</p>
+    <button type="button" class="ssn-page-refresh" onclick="loadSessions()" aria-label="Reload sessions">
+      <span class="ssn-page-refresh-glyph" aria-hidden="true">↻</span>
+      <span>refresh</span>
+    </button>
+  </header>
+
+  <!-- ════ READINESS ═════════════════════════════════════════════ -->
+  <section class="ssn-sec" id="ssn-sec-readiness" style="--sec-delay: 0ms">
+    <header class="ssn-sec-head">
+      <span class="ssn-sec-label">/ readiness</span>
+    </header>
+    <div class="ssn-sec-body">
+      <div class="health-grid-wrap">
+        <div class="health-grid" role="tablist" aria-label="Filter by ML status">
+          <button type="button" class="health-box is-active" data-ml="all"  role="tab" aria-selected="true">
+            <div class="k">Total sessions</div>
+            <div class="v" id="qualityTotal">–</div>
+            <div class="ssn-tile-hint">all recordings</div>
+          </button>
+          <button type="button" class="health-box" data-ml="ok"   role="tab" aria-selected="false">
+            <div class="k">ML ready</div>
+            <div class="v ok" id="qualityOk">–</div>
+            <div class="ssn-tile-hint">trainable as-is</div>
+          </button>
+          <button type="button" class="health-box" data-ml="warn" role="tab" aria-selected="false">
+            <div class="k">ML warnings</div>
+            <div class="v warn" id="qualityWarn">–</div>
+            <div class="ssn-tile-hint">usable, review first</div>
+          </button>
+          <button type="button" class="health-box" data-ml="bad"  role="tab" aria-selected="false">
+            <div class="k">ML blocked</div>
+            <div class="v err" id="qualityBad">–</div>
+            <div class="ssn-tile-hint">skip for training</div>
+          </button>
+        </div>
+        <div class="health-grid-loading" id="healthGridLoading" data-state-mode="overlay">
+          <div class="empty-state empty-state--loading">
+            <div class="empty-state-glyph">/</div>
+            <div class="empty-state-title">Loading…</div>
+          </div>
+        </div>
       </div>
     </div>
+  </section>
+
+  <!-- Hidden filter state-store: the visible filter bar was removed in
+       favor of sortable table headers + ML-tile filtering. JS still
+       reads these IDs every render; keep them as defaults so applyFilters
+       doesn't crash. The ML-tile click handlers mutate filterMl directly. -->
+  <div class="ssn-filter-store" hidden aria-hidden="true">
+    <input type="text" id="filterQ" value="">
+    <select id="filterMl"><option value="all" selected>all</option><option value="ok"></option><option value="warn"></option><option value="bad"></option></select>
+    <select id="filterAlign"><option value="all" selected>all</option></select>
+    <input type="checkbox" id="filterMinFive">
+    <button type="button" id="filterReset"></button>
   </div>
-</div>
 
-<div class="filter-bar">
-  <input type="text" id="filterQ" placeholder="Search session, person, or description…">
-  <select id="filterMl" hidden aria-hidden="true" tabindex="-1">
-    <option value="all">ML: all</option>
-    <option value="ok">Ready</option>
-    <option value="warn">Warnings</option>
-    <option value="bad">Blocked</option>
-  </select>
-  <select id="filterAlign" title="Alignment confidence">
-    <option value="all">Alignment: all</option>
-    <option value="s3">σ ≤ −3 (trainable)</option>
-    <option value="s2">σ ≤ −2 (ok)</option>
-    <option value="failed">failed</option>
-    <option value="none">no pen</option>
-  </select>
-  <label class="toggle"><input type="checkbox" id="filterMinFive"> ≥ 5 min</label>
-  <button class="reset-link" id="filterReset" type="button">Reset</button>
-  <span class="spacer"></span>
-</div>
+  <!-- ════ INDEX ═════════════════════════════════════════════════ -->
+  <section class="ssn-sec ssn-sec-wide" id="ssn-sec-index" style="--sec-delay: 160ms">
+    <header class="ssn-sec-head">
+      <span class="ssn-sec-label">/ index</span>
+      <span class="ssn-sec-meta">chronological</span>
+    </header>
+    <div class="ssn-sec-body">
+      <div class="ssn-table-frame">
+        <table class="sessions-table">
+          <thead>
+            <tr>
+              <th data-sort="person"     tabindex="0" role="button" aria-label="Sort by session"><span class="ssn-th-marker">a</span>Session<span class="ssn-th-arrow" aria-hidden="true"></span></th>
+              <th data-sort="start_time" tabindex="0" role="button" aria-label="Sort by start time"><span class="ssn-th-marker">b</span>Start<span class="ssn-th-arrow" aria-hidden="true"></span></th>
+              <th data-sort="duration"   tabindex="0" role="button" aria-label="Sort by duration"><span class="ssn-th-marker">c</span>Duration<span class="ssn-th-arrow" aria-hidden="true"></span></th>
+              <th data-sort="ml"         tabindex="0" role="button" aria-label="Sort by ML status"><span class="ssn-th-marker">d</span>ML status<span class="ssn-th-arrow" aria-hidden="true"></span></th>
+              <th data-sort="sigma"      tabindex="0" role="button" aria-label="Sort by alignment sigma"><span class="ssn-th-marker">e</span>Alignment σ<span class="ssn-th-arrow" aria-hidden="true"></span></th>
+            </tr>
+          </thead>
+          <tbody id="sessionsBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 
-<div class="card" style="padding:0;overflow:hidden">
-  <table class="sessions-table">
-    <thead>
-      <tr>
-        <th>Session</th>
-        <th>Start · Duration</th>
-        <th>ML Status</th>
-        <th>Alignment σ</th>
-      </tr>
-    </thead>
-    <tbody id="sessionsBody"></tbody>
-  </table>
 </div>
