@@ -49,14 +49,42 @@
     </nav>
     <div class="topbar-right">
       <button type="button" class="status-cluster" id="statusCluster"
-              title="Click for connection details">
+              title="Hover for device details">
         <span class="status-cluster-dots">
-          <span class="status-dot" id="clusterDotPen"    aria-label="Pen"></span>
-          <span class="status-dot" id="clusterDotWatch"  aria-label="Watch"></span>
-          <span class="status-dot" id="clusterDotServer" aria-label="Server"></span>
+          <span class="status-dot" id="clusterDotPen"     aria-label="Pen"></span>
+          <span class="status-dot" id="clusterDotWatch"   aria-label="Watch"></span>
+          <span class="status-dot" id="clusterDotAirpods" aria-label="AirPods"></span>
+          <span class="status-dot" id="clusterDotServer"  aria-label="Server"></span>
         </span>
         <span class="status-cluster-label" id="statusClusterLabel">connecting…</span>
         <span class="status-cluster-meta" id="statusClusterMeta"></span>
+
+        <span class="status-hover-card" aria-hidden="true">
+          <span class="status-hover-row" data-device="pen">
+            <span class="status-hover-dot"></span>
+            <span class="status-hover-label">Pen</span>
+            <span class="status-hover-state" id="hoverPenState">offline</span>
+            <span class="status-hover-meta"  id="hoverPenMeta">— Hz · —</span>
+          </span>
+          <span class="status-hover-row" data-device="watch">
+            <span class="status-hover-dot"></span>
+            <span class="status-hover-label">Watch</span>
+            <span class="status-hover-state" id="hoverWatchState">offline</span>
+            <span class="status-hover-meta"  id="hoverWatchMeta">— Hz · —</span>
+          </span>
+          <span class="status-hover-row" data-device="airpods">
+            <span class="status-hover-dot"></span>
+            <span class="status-hover-label">AirPods</span>
+            <span class="status-hover-state" id="hoverAirpodsState">offline</span>
+            <span class="status-hover-meta"  id="hoverAirpodsMeta">— Hz · —</span>
+          </span>
+          <span class="status-hover-row" data-device="server">
+            <span class="status-hover-dot"></span>
+            <span class="status-hover-label">Server</span>
+            <span class="status-hover-state" id="hoverServerState">connecting</span>
+            <span class="status-hover-meta"  id="hoverServerMeta">—</span>
+          </span>
+        </span>
       </button>
       <button type="button" class="theme-toggle" id="themeToggle"
               onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle light / dark">
