@@ -34,6 +34,7 @@ def test_bootstrap_module_served_as_js():
         "/static/css/recording.css",
         "/static/css/session-detail.css",
         "/static/css/sessions.css",
+        "/static/css/settings.css",
         "/static/css/system.css",
         "/static/css/topbar.css",
         "/static/js/core/anim.js",

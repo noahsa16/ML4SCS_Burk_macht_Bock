@@ -41,12 +41,40 @@ function _toggleConnEmpty(slotId, connected, title) {
   }
 }
 
+let _scrollSpy = null;
+
+function _wireScrollSpy() {
+  const sections = Array.from(document.querySelectorAll('.set-sec'));
+  const navItems = Array.from(document.querySelectorAll('.set-nav-item'));
+  if (!sections.length || !navItems.length) return;
+
+  const itemById = new Map(navItems.map(a => [a.dataset.target, a]));
+
+  // Why: rootMargin biases highlight to roughly the upper third of the
+  // viewport so the active section is what's *being read*, not what's
+  // just barely on screen.
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      const id = entry.target.id;
+      navItems.forEach(a => a.classList.toggle('is-active',
+        a.dataset.target === id));
+    });
+  }, {
+    rootMargin: '-15% 0px -70% 0px',
+    threshold: 0,
+  });
+  sections.forEach(sec => obs.observe(sec));
+  _scrollSpy = obs;
+}
+
 export function mount(container) {
   if (_mounted) return;
   CHECK_IDS.forEach(id => {
     const el = document.getElementById(id);
     if (el) renderState(el, 'empty', { title: 'waiting for status', inline: true });
   });
+  _wireScrollSpy();
   _mounted = true;
 }
 
