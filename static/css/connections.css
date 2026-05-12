@@ -1,0 +1,101 @@
+/* ─── Uptime bar ─────────────────────────────────────────────── */
+.uptime-bar { display: flex; gap: var(--space-5); padding: var(--space-2) var(--space-4); background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: var(--space-4); flex-wrap: wrap; }
+/* Why: 2px is sub-scale tracking between uptime label and value. */
+.uptime-item { display: flex; flex-direction: column; gap: 2px; }
+.uptime-key { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.uptime-val { font-family: var(--mono); font-size: var(--text-base); font-weight: 600; color: var(--text); }
+
+/* ─── Connection grid ────────────────────────────────────────── */
+.conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
+.conn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
+
+/* Top-level rhythm between sections on Connections page (replaces inline margin-bottom:16px). */
+#page-connections > .card:not(:last-child),
+#page-connections > .conn-grid:not(:last-child) { margin-bottom: var(--space-4); }
+
+/* Card-title sitting flat next to a badge or button row inside a flex parent (replaces inline margin:0). */
+.device-header .card-title,
+.chart-meta .card-title { margin: 0; }
+
+/* Action row in .chart-meta (header of the live network-map card). */
+.chart-meta-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* Long monospace identifiers like service UUIDs (replaces inline font-size:10px). */
+.info-val.is-id { font-size: var(--text-xs); word-break: break-all; }
+
+/* Action row at the bottom of each device card (replaces inline margin-top:14px). */
+.device-actions { margin-top: var(--space-4); display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* ─── API endpoint list ──────────────────────────────────────── */
+.endpoint-list { display: flex; flex-direction: column; gap: var(--space-1); margin-top: var(--space-2); }
+.endpoint { display: flex; gap: var(--space-2); align-items: center; padding: var(--space-2) var(--space-3); background: var(--surface2); border-radius: var(--radius-sm); }
+.method { font-family: var(--mono); font-size: var(--text-xs); font-weight: 700; padding: 2px var(--space-1); border-radius: var(--radius-xs); min-width: 42px; text-align: center; }
+.method.get { background: color-mix(in oklch, var(--green) 15%, transparent); color: var(--green); }
+.method.post { background: color-mix(in oklch, var(--accent) 15%, transparent); color: var(--accent); }
+.method.ws { background: color-mix(in oklch, var(--purple) 15%, transparent); color: var(--purple); }
+.ep-path { font-family: var(--mono); font-size: var(--text-sm); color: var(--text); }
+.ep-desc { font-size: var(--text-xs); color: var(--text3); margin-left: auto; }
+
+/* ─── Live network map ─────────────────────────────────────────── */
+.network-map { display: grid; grid-template-columns: 1fr 86px 1fr 86px 1fr; align-items: center; gap: var(--space-2); }
+.network-node {
+  min-height: 112px; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: var(--space-3); display: flex; flex-direction: column; gap: var(--space-2);
+  justify-content: center; align-items: center; text-align: center;
+}
+.network-node .node-icon {
+  width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center;
+  font-size: var(--text-md); background: var(--surface2); color: var(--text3);
+  border: 1.5px solid var(--border2); transition: border-color var(--dur-fast) var(--ease-default), color var(--dur-fast) var(--ease-default);
+}
+/* Icon-Chrome bleibt neutral, der Status-Dot (in der Karte rechts oben) trägt die Farbe.
+   Subtile Akzent-Border deutet den Status an, ohne das ganze Icon einzufärben. */
+.network-node.ok  .node-icon { border-color: color-mix(in oklch, var(--green) 55%, transparent); color: var(--green); }
+.network-node.warn .node-icon { border-color: color-mix(in oklch, var(--yellow) 55%, transparent); color: var(--yellow); }
+.network-node.err .node-icon { border-color: color-mix(in oklch, var(--red) 55%, transparent); color: var(--red); }
+.node-title { font-weight: 700; font-size: var(--text-base); }
+.node-status { font-size: var(--text-xs); color: var(--text2); min-height: 16px; }
+.network-link { display: flex; flex-direction: column; gap: var(--space-1); align-items: center; color: var(--text3); font-size: var(--text-xs); letter-spacing: 0.02em; }
+.network-line {
+  position: relative; width: 100%; height: 4px; border-radius: var(--radius-pill);
+  background: var(--border2); overflow: hidden;
+}
+.network-line.ok { background: color-mix(in oklch, var(--green) 24%, transparent); }
+.network-line.warn { background: color-mix(in oklch, var(--yellow) 22%, transparent); }
+.network-line.ok::after,
+.network-line.warn::after {
+  content: ""; position: absolute; top: -2px; width: 8px; height: 8px; border-radius: 50%;
+  background: currentColor; color: inherit; animation: networkFlow 1.6s linear infinite;
+}
+.network-line.ok { color: var(--green); }
+.network-line.warn { color: var(--yellow); }
+/* One-way packet flow: dot enters from the left, fades in, slides across, fades out, repeats.
+   Avoids the pendulum ping-pong reading of an alternate animation. */
+@keyframes networkFlow {
+  0%   { left: -8px;  opacity: 0; }
+  10%  { opacity: 1; }
+  90%  { opacity: 1; }
+  100% { left: 100%; opacity: 0; }
+}
+.network-detail-grid {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4);
+  margin-top: var(--space-4); padding-top: var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.network-detail .k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.network-detail .v { font-family: var(--mono); font-size: var(--text-sm); font-weight: 700; color: var(--text); margin-top: var(--space-1); word-break: break-word; }
+
+/* ─── Device-card empty states ──────────────────────────────── */
+.conn-empty-slot {
+  padding: var(--space-3) 0; margin-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+.conn-empty-slot:empty { display: none !important; }
+
+/* ─── Responsive tweaks (Connections page) ───────────────────── */
+@media (max-width: 900px) {
+  .conn-grid, .conn-grid-3 { grid-template-columns: 1fr; }
+  .network-map { grid-template-columns: 1fr; }
+  .network-link { min-height: 28px; }
+  .network-detail-grid { grid-template-columns: 1fr 1fr; }
+}

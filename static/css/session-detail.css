@@ -1,0 +1,146 @@
+/* ─── Session Detail page ─────────────────────────────────── */
+
+/* ─── Session validation timeline ──────────────────────────── */
+.validation-panel { margin-top: var(--space-4); display: none; }
+.validation-panel.active { display: block; }
+.validation-head { display: flex; justify-content: space-between; gap: var(--space-3); align-items: baseline; flex-wrap: wrap; }
+.validation-title { font-size: var(--text-md); font-weight: 700; letter-spacing: -0.02em; }
+.validation-status { font-size: var(--text-base); font-weight: 700; letter-spacing: 0.01em; }
+.validation-metrics { display: flex; gap: var(--space-4); flex-wrap: wrap; margin: var(--space-3) 0 var(--space-4); color: var(--text2); }
+.validation-metric { font-size: var(--text-base); }
+.validation-metric strong { font-family: var(--mono); color: var(--text); }
+.timeline-wrap { margin-top: var(--space-2); }
+.timeline-axis { position: relative; height: 24px; margin-left: 70px; border-bottom: 1px solid var(--border2); font-family: var(--mono); font-size: var(--text-xs); color: var(--text3); }
+.axis-tick { position: absolute; top: var(--space-1); transform: translateX(-50%); white-space: nowrap; }
+.timeline-row { display: grid; grid-template-columns: 58px 1fr; gap: var(--space-3); align-items: center; margin: var(--space-3) 0; }
+.timeline-label { font-weight: 700; color: var(--text2); text-align: right; }
+.timeline-track { position: relative; height: 36px; border-radius: var(--radius-sm); background: var(--surface2); border: 1px solid var(--border); overflow: hidden; }
+.timeline-bar { position: absolute; top: 7px; height: 20px; border-radius: var(--radius-pill); min-width: 2px; }
+.bar-watch { background: linear-gradient(90deg, var(--accent), var(--yellow)); }
+.bar-pen { background: var(--green); }
+.bar-gap { background: color-mix(in oklch, var(--text3) 18%, transparent); }
+.drift-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-top: var(--space-4); }
+.drift-box .k { font-size: var(--text-xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--text3); }
+.drift-box .v { font-family: var(--mono); font-size: var(--text-base); font-weight: 700; color: var(--text); margin-top: var(--space-1); }
+.validation-note { color: var(--text3); font-size: var(--text-sm); line-height: 1.55; margin-top: var(--space-3); }
+.issue-list { margin-top: var(--space-2); display: flex; gap: 6px; flex-wrap: wrap; }
+.issue-chip { font-family: var(--mono); font-size: var(--text-xs); border-radius: var(--radius-sm); padding: var(--space-1) var(--space-2); background: var(--surface2); border: 1px solid var(--border); color: var(--text2); }
+
+/* ─── Pen ↔ Watch alignment (stroke-variance) ─────────────── */
+/* Lives inside a <details> body; the section context comes from the parent. */
+.alignment-head { display: flex; justify-content: space-between; gap: var(--space-3); align-items: baseline; flex-wrap: wrap; margin-bottom: var(--space-2); }
+.alignment-head .card-title { margin-bottom: var(--space-1); }
+.alignment-status { font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.02em; padding: var(--space-1) var(--space-2); border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface2); color: var(--text2); }
+.alignment-status.ok  { color: var(--green); border-color: color-mix(in oklch, var(--green) 50%, transparent); }
+.alignment-status.skip { color: var(--warn); border-color: color-mix(in oklch, var(--yellow) 50%, transparent); }
+.alignment-status.err { color: var(--err); border-color: color-mix(in oklch, var(--red) 50%, transparent); }
+.alignment-explainer { font-size: var(--text-base); line-height: 1.55; color: var(--text2); margin: 6px 0 var(--space-4); }
+.alignment-explainer strong { color: var(--text); }
+.alignment-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-4); margin-bottom: var(--space-4); }
+.alignment-charts { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-5); }
+@media (max-width: 880px) { .alignment-charts { grid-template-columns: 1fr; } }
+.alignment-chart-title { font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.02em; text-transform: uppercase; color: var(--text2); }
+.alignment-chart-help { font-size: var(--text-xs); line-height: 1.5; color: var(--text3); margin: var(--space-1) 0 var(--space-2); }
+.alignment-chart canvas { width: 100% !important; height: 240px !important; }
+.alignment-empty { font-size: var(--text-sm); color: var(--text3); padding: var(--space-3) 0; }
+
+/* ─── Page-body loading overlay ────────────────────────────── */
+#page-session-detail { position: relative; }
+.page-detail-loading {
+  position: absolute; inset: 0; z-index: 5;
+  display: flex; align-items: center; justify-content: center;
+  background: color-mix(in oklch, var(--bg) 85%, transparent);
+}
+
+/* ─── Session-Detail editorial treatment ───────────────────── */
+#page-session-detail .detail-section { margin-bottom: var(--space-4); }
+
+#page-session-detail .session-detail-header .title {
+  font-family: var(--sans);
+  font-size: var(--text-lg); font-weight: 500;
+  letter-spacing: -0.022em;
+  text-transform: none;
+  color: var(--text);
+  margin-bottom: var(--space-4);
+}
+
+/* Detail-Sections behalten kompakteren Summary-Header — sind Akkordeon, nicht Page-Header */
+#page-session-detail .detail-section > summary { font-size: var(--text-base); }
+
+/* Detail-Header-Pills: Status-Wörter in Plex Sans, σ-Wert bleibt Mono über inline-style */
+#page-session-detail .session-detail-header .pill {
+  font-family: var(--sans);
+  font-size: var(--text-sm); letter-spacing: 0;
+}
+
+/* ─── Verdict badge (detail page header) ───────────────────── */
+.verdict-badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 220px; padding: var(--space-4) var(--space-6);
+  font-family: var(--sans); font-size: var(--text-lg); font-weight: 700;
+  letter-spacing: 0.04em; text-transform: uppercase;
+  border-radius: var(--radius-sm); border: 1px solid var(--border);
+}
+/* Trainable steht für das User-Goal — Accent statt generisches Grün */
+.verdict-badge.trainable { color: var(--accent); border-color: color-mix(in oklch, var(--accent) 55%, transparent); background: color-mix(in oklch, var(--accent) 8%, transparent); }
+.verdict-badge.usable    { color: var(--warn);   border-color: color-mix(in oklch, var(--yellow) 55%, transparent); background: color-mix(in oklch, var(--yellow) 10%, transparent); }
+.verdict-badge.skip      { color: var(--err);    border-color: color-mix(in oklch, var(--red) 55%, transparent);    background: color-mix(in oklch, var(--red) 8%, transparent); }
+
+.session-detail-header {
+  display: flex; flex-direction: column; gap: var(--space-4);
+  padding: var(--space-5) var(--space-5); margin-bottom: var(--space-4);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm);
+}
+.session-detail-header .back-link {
+  font-size: var(--text-sm); color: var(--text2); text-decoration: none;
+  background: none; border: none; padding: 0; cursor: pointer; align-self: flex-start;
+}
+.session-detail-header .back-link:hover { color: var(--text); }
+.session-detail-header .back-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.session-detail-header .title-row { display: flex; justify-content: space-between; align-items: baseline; gap: var(--space-3); flex-wrap: wrap; }
+.session-detail-header .title { font-size: var(--text-lg); font-weight: 700; letter-spacing: -0.02em; }
+.session-detail-header .subtitle { color: var(--text2); font-size: var(--text-base); margin-top: var(--space-1); }
+.session-detail-header .pills { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-2); }
+.session-detail-header .pill {
+  font-size: var(--text-xs); font-family: var(--mono); padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill); border: 1px solid var(--border); background: var(--surface2); color: var(--text2);
+}
+.session-detail-header .pill.ok  { color: var(--green); border-color: color-mix(in oklch, var(--green) 45%, transparent); }
+.session-detail-header .pill.warn { color: var(--warn);  border-color: color-mix(in oklch, var(--yellow) 45%, transparent); }
+.session-detail-header .pill.err  { color: var(--err);   border-color: color-mix(in oklch, var(--red) 45%, transparent); }
+
+/* ─── Collapsible sections (HTML5 <details>) ───────────────── */
+.detail-section {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); margin-bottom: var(--space-3); overflow: hidden;
+}
+.detail-section > summary {
+  list-style: none; cursor: pointer; user-select: none;
+  padding: var(--space-4) var(--space-5);
+  display: flex; align-items: center; gap: var(--space-2);
+  font-size: var(--text-base); font-weight: 600; letter-spacing: -0.005em; color: var(--text);
+}
+.detail-section > summary::-webkit-details-marker { display: none; }
+.detail-section > summary::before {
+  content: '▸'; color: var(--text3); font-size: var(--text-xs); transition: transform var(--dur-fast) var(--ease-default);
+}
+.detail-section[open] > summary::before { transform: rotate(90deg); }
+.detail-section > summary .count {
+  font-family: var(--mono); font-size: var(--text-xs); color: var(--text3);
+  background: var(--surface2); padding: 2px var(--space-2); border-radius: var(--radius-pill);
+  margin-left: 6px;
+}
+.detail-section .section-body { padding: var(--space-1) var(--space-5) var(--space-4); }
+
+/* Sessions-Pages haben lowercase 22px titles — der Slash skaliert mit, sieht editorial aus */
+#page-session-detail .session-detail-header .title::before {
+  opacity: 0.55;
+  margin-right: var(--space-2);
+}
+#page-session-detail .session-detail-header .title { position: relative; }
+#page-session-detail .session-detail-header .title::before {
+  content: '/';
+  display: inline-block; margin-right: var(--space-2);
+  font-family: var(--mono); font-style: italic; font-weight: 600;
+  color: var(--accent); opacity: 0.55;
+}

@@ -53,7 +53,7 @@ The session dashboard runs at `http://localhost:8000` and gives a real-time view
 
 **Session overview & live sensor status**
 
-![Dashboard – Session Control](docs/screenshots/dashboard_session.png)
+![Dashboard – Session Control](docs/screenshots/dashboard.png)
 
 ---
 
@@ -88,8 +88,22 @@ The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 sampl
 ```
 server.py                        FastAPI entry point (thin, ~50 lines)
 pen_logger.py                    BLE logger for the Moleskine Smart Pen
-dashboard.html                   Single-page session dashboard
-static/dashboard.js              Dashboard frontend logic
+dashboard.html                   ~88-line shell (head, slots, modulepreload)
+static/dashboard.js              Bootstrap: lazy-mounts page partials,
+                                 owns hash routing + active-page WS dispatch
+static/js/core/                  Cross-cutting modules
+  state.js                         S object + named getters/mutators
+  ws.js                            WebSocket connection + reconnect
+  status_cluster.js                Topbar status + handleStatus dispatcher
+  router.js                        Hash routing, tab indicator, page strip
+  api.js, dom.js, format.js        Pure helpers (fetch, esc, formatters)
+  theme.js, anim.js, toast.js      Leaf services
+static/js/pages/                 Per-page modules (mount/onStatus/onShow/onHide)
+  recording.js, sessions.js,
+  session_detail.js, connections.js,
+  system.js                        WS ticks dispatched only to active page
+static/views/*.html              View partials fetched once + cached
+static/css/                      Per-page + base + topbar stylesheets
 
 src/pen_schema.py                Shared pen-CSV schema (no deps;
                                  imported by pen_logger.py and server)
