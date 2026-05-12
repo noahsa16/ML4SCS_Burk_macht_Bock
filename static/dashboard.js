@@ -104,8 +104,11 @@ document.querySelectorAll('.tab[data-page]').forEach(btn => {
 });
 
 window.addEventListener('hashchange', () => {
-  const pageId = _routeFromHash() || 'recording';
-  showPage(pageId);
+  // Why: in-page anchors like #sec-prefs on Settings are NOT page routes —
+  // leave them alone so the browser can scroll to the section. Only act on
+  // hashes that resolve to a real registered page.
+  const pageId = _routeFromHash();
+  if (pageId) showPage(pageId);
 });
 
 // ════════════════════════════════════════════════════════════
