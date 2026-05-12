@@ -717,7 +717,11 @@ def _session_quality_cols(row: dict[str, str]) -> dict[str, str]:
     blockers = {i["code"] for i in (ml.get("blockers") or []) + (rec.get("blockers") or [])}
 
     ml_status = ml.get("status") or "unknown"
-    if ml_status == "bad" or "sync_failed" in blockers or "streams_do_not_overlap" in blockers:
+    # Manual flag wins over the heuristic — explicit user verdict.
+    flagged = (row.get("flagged") or "").strip().lower() == "yes"
+    if flagged:
+        verdict = "skip"
+    elif ml_status == "bad" or "sync_failed" in blockers or "streams_do_not_overlap" in blockers:
         verdict = "skip"
     elif (ml_status == "ok" and isinstance(sigma, (int, float))
           and sigma <= -3 and isinstance(duration, (int, float)) and duration >= 300):

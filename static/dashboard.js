@@ -16,10 +16,11 @@ import * as sessionDetail  from '/static/js/pages/session_detail.js';
 import * as settings       from '/static/js/pages/settings.js';
 
 import { loadSessions } from '/static/js/pages/sessions.js';
-import { openSessionDetail } from '/static/js/pages/session_detail.js';
+import { openSessionDetail, toggleSessionFlag } from '/static/js/pages/session_detail.js';
 import {
   toggleSession, penConnect, penDisconnect, watchCmd, airpodsCmd,
   toggleCardDetails, clearPenPreview, clearVisualLogs, setLogRows,
+  setPenViewMode,
 } from '/static/js/pages/recording.js';
 
 // ════════════════════════════════════════════════════════════
@@ -219,4 +220,5 @@ Object.assign(window, {
   penConnect, penDisconnect, watchCmd, airpodsCmd,
   clearPenPreview, clearVisualLogs, loadSessions, closeSessionDetail,
   downloadDebugPackage, setTheme, setLogRows, openSessionDetail,
+  setPenViewMode, toggleSessionFlag,
 });

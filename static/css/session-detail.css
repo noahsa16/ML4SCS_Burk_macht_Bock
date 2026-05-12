@@ -481,6 +481,38 @@
   background: color-mix(in oklch, var(--accent) 5%, transparent);
 }
 
+.sd-flag-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: 8px;
+  font-family: var(--mono); font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border2);
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  transition:
+    color var(--dur-fast) var(--ease-default),
+    border-color var(--dur-fast) var(--ease-default),
+    background var(--dur-fast) var(--ease-default);
+}
+.sd-flag-btn:hover {
+  color: var(--err);
+  border-color: color-mix(in oklch, var(--red) 55%, transparent);
+  background: color-mix(in oklch, var(--red) 5%, transparent);
+}
+.sd-flag-btn.is-flagged {
+  color: var(--err);
+  border-color: color-mix(in oklch, var(--red) 55%, transparent);
+  background: color-mix(in oklch, var(--red) 10%, transparent);
+}
+.sd-flag-btn.is-flagged:hover {
+  background: color-mix(in oklch, var(--red) 16%, transparent);
+}
+.sd-flag-glyph { font-size: 12px; line-height: 1; }
+
 /* ─── 2-column shell: sticky nav + main ─────────────────────── */
 .sd-shell {
   position: relative; z-index: 1;

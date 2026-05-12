@@ -30,8 +30,8 @@
    Page head
    ════════════════════════════════════════════════════════════ */
 .rec-page-head {
-  padding-bottom: 28px;
-  margin-bottom: 36px;
+  padding-bottom: 24px;
+  margin-bottom: 24px;
   border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
   opacity: 0;
   animation: recFadeUp 600ms var(--ease-default) forwards;
@@ -63,7 +63,7 @@
    Section structure (parallels Sessions — quiet labels, no nav)
    ════════════════════════════════════════════════════════════ */
 .rec-sec {
-  padding: 32px 0 4px;
+  padding: 28px 0 4px;
   opacity: 0;
   transform: translateY(8px);
   animation: recFadeUp 700ms var(--ease-default) forwards;
@@ -386,7 +386,9 @@
 .rec-streams-grid {
   display: grid;
   grid-template-columns: 1fr;
-  grid-auto-rows: 1fr;
+  /* Why: `grid-auto-rows: 1fr` equalizes row heights, but if one row gets
+     a min-height it pushes the other row up too — both cards balloon.
+     Let each row take its natural content size. */
   gap: 20px;
 }
 
@@ -472,6 +474,93 @@
   max-height: 200px;
   padding: 12px 16px 8px;
 }
+
+/* Bare panel: just the canvas (no header / no footer chrome). Used by
+   the handwriting preview where the canvas is self-evident. */
+.rec-panel--bare {
+  position: relative;
+  padding: 0;
+}
+.rec-panel--bare .rec-panel-canvas {
+  /* Bare panel has no head/foot, so the canvas itself carries the height.
+     Use the same range as the IMU canvas so neither card dominates. */
+  min-height: 156px;
+  max-height: 200px;
+}
+
+/* Floating action chip overlaid in the top-right corner of a bare panel */
+.rec-panel-action--float {
+  position: absolute;
+  top: 10px; right: 10px;
+  z-index: 2;
+  background: color-mix(in oklch, var(--surface) 85%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+/* Floating page-info pill (top-left): "p. 17 · note 30" */
+.rec-pen-pill {
+  position: absolute;
+  top: 10px; left: 10px;
+  z-index: 2;
+  font-family: var(--mono); font-style: italic;
+  font-size: 10px; letter-spacing: 0.08em;
+  text-transform: lowercase;
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in oklch, var(--border) 70%, transparent);
+  background: color-mix(in oklch, var(--surface) 85%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  color: var(--text2);
+  pointer-events: none;
+}
+
+/* Floating segmented toggle (top-center-right): live / page */
+.rec-pen-mode {
+  position: absolute;
+  top: 10px;
+  right: 76px;             /* sit left of the .rec-panel-action--float clear chip */
+  z-index: 2;
+  display: inline-flex;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border2);
+  overflow: hidden;
+  background: color-mix(in oklch, var(--surface) 85%, transparent);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+.rec-pen-mode-opt {
+  font-family: var(--mono); font-style: italic;
+  font-size: 10px; letter-spacing: 0.08em;
+  padding: 4px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text3);
+  transition:
+    color var(--dur-fast) var(--ease-default),
+    background var(--dur-fast) var(--ease-default);
+}
+.rec-pen-mode-opt + .rec-pen-mode-opt {
+  border-left: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
+}
+.rec-pen-mode-opt:hover { color: var(--text); }
+.rec-pen-mode-opt.is-active {
+  color: var(--accent);
+  background: color-mix(in oklch, var(--accent) 10%, transparent);
+}
+
+/* Accessibility-only hidden helper for IDs that JS still writes to */
+.visually-hidden {
+  position: absolute !important;
+  width: 1px; height: 1px;
+  margin: -1px; padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 .rec-panel-canvas canvas { height: 100% !important; width: 100% !important; display: block; }
 
 .rec-panel-foot {
@@ -526,7 +615,7 @@
    ════════════════════════════════════════════════════════════ */
 .rec-sec.rec-sec-collapsible {
   display: block;
-  padding: 32px 0 4px;
+  padding: 28px 0 4px;
 }
 .rec-sec.rec-sec-collapsible > summary {
   list-style: none;

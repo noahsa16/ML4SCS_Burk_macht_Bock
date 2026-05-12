@@ -351,7 +351,8 @@ function _renderDetailHeader(session, quality, alignment) {
   const durationSec = session.start_time && session.end_time
     ? (new Date(session.end_time) - new Date(session.start_time)) / 1000
     : 0;
-  const verdict = computeVerdict(quality, alignment, durationSec);
+  const verdict = computeVerdict(quality, alignment, durationSec, session);
+  _renderFlagButton(session);
 
   const person = (session.person_id || '').trim();
   document.getElementById('detailTitle').textContent =
@@ -387,6 +388,55 @@ function _renderDetailHeader(session, quality, alignment) {
     alignPill.className = 'pill';
     alignPill.textContent = 'Align —';
   }
+}
+
+function _renderFlagButton(session) {
+  const btn = document.getElementById('detailFlagBtn');
+  const lbl = document.getElementById('detailFlagLabel');
+  if (!btn || !lbl) return;
+  const flagged = String(session?.flagged || '').toLowerCase() === 'yes';
+  btn.classList.toggle('is-flagged', flagged);
+  btn.setAttribute('aria-pressed', flagged ? 'true' : 'false');
+  lbl.textContent = flagged ? 'unflag' : 'flag invalid';
+  btn.title = flagged
+    ? (session?.flag_note ? `Flagged: ${session.flag_note} — click to unflag` : 'Flagged — click to unflag')
+    : 'Mark this session as invalid — forces verdict=skip';
+}
+
+export async function toggleSessionFlag() {
+  const sid = S.selectedSessionId;
+  if (!sid) return;
+  const session = S.allSessions?.find(s => s.session_id === sid) || {};
+  const currentlyFlagged = String(session.flagged || '').toLowerCase() === 'yes';
+  let note = '';
+  if (!currentlyFlagged) {
+    // Why: prompt is intentionally minimal — heavier modal would be more
+    // friction than the feature deserves. Empty input == flag without note.
+    note = window.prompt('Reason for flagging this session as invalid? (optional)', '') || '';
+  }
+  const resp = await api(`/sessions/${encodeURIComponent(sid)}/flag`, 'POST', {
+    flagged: !currentlyFlagged,
+    note,
+  });
+  if (!resp) {
+    toast('Could not update flag — server did not respond', { kind: 'error' });
+    return;
+  }
+  // Mutate cached session row so the next render picks up the new state
+  // without a full refetch; also drop the alignment/validation caches so
+  // the recomputed verdict appears immediately.
+  const row = S.allSessions?.find(s => s.session_id === sid);
+  if (row) {
+    row.flagged = resp.flagged ? 'yes' : '';
+    row.flag_note = resp.flag_note || '';
+    row.verdict = resp.verdict || row.verdict;
+  }
+  _renderFlagButton(row || { flagged: resp.flagged ? 'yes' : '' });
+  // Re-render the header verdict badge with the new session state.
+  const quality = S.qualityBySession[sid] || {};
+  const alignment = S.alignmentBySession[sid] || null;
+  _renderDetailHeader(row || { session_id: sid, flagged: resp.flagged ? 'yes' : '' }, quality, alignment);
+  toast(resp.flagged ? 'Session flagged as invalid' : 'Flag removed', { kind: 'success' });
 }
 
 function _renderDetailStreams(session, quality) {

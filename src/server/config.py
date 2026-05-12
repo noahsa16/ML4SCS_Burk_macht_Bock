@@ -45,6 +45,9 @@ SESSIONS_FIELDNAMES = [
     # scripts/backfill_session_quality.py for older rows.
     "duration_seconds", "ml_status", "recording_status",
     "alignment_sigma", "verdict", "issue_codes",
+    # Manual flag — when "yes", forces verdict='skip' regardless of σ/ML
+    # status. Set via POST /sessions/{id}/flag from the UI.
+    "flagged", "flag_note",
 ]
 
 if not SESSIONS_CSV.exists():

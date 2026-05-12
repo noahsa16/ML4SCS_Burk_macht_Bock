@@ -106,7 +106,11 @@ const VERDICT_TRAINABLE = 'trainable';
 const VERDICT_USABLE    = 'usable';
 const VERDICT_SKIP      = 'skip';
 
-export function computeVerdict(quality, alignment, durationSec) {
+export function computeVerdict(quality, alignment, durationSec, session) {
+  // Manual flag wins — explicit user verdict overrides any heuristic.
+  if (session && String(session.flagged || '').toLowerCase() === 'yes') {
+    return { level: VERDICT_SKIP, label: 'Flagged', flagged: true };
+  }
   const ml = quality?.ml_readiness?.status || quality?.quality || 'unknown';
   const issues = [
     ...(quality?.ml_readiness?.blockers || []),
@@ -314,10 +318,14 @@ function renderSessionsList(rows) {
       ? new Date(s.start_time).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })
       : '–';
     const personLabel = (s.person_id || '').trim();
+    const isFlagged = String(s.flagged || '').toLowerCase() === 'yes';
+    const flagPill = isFlagged
+      ? ' <span class="flag-pill" title="' + escAttr(s.flag_note || 'manually flagged') + '">⚑ flagged</span>'
+      : '';
     const personCell = personLabel
-      ? '<div class="session-person">' + esc(personLabel) + '</div>'
+      ? '<div class="session-person">' + esc(personLabel) + flagPill + '</div>'
         + '<div class="session-caption">' + esc(s.session_id) + (s.description ? ' · ' + esc(s.description) : '') + '</div>'
-      : '<div class="session-person anonymous">Anonymous</div>'
+      : '<div class="session-person anonymous">Anonymous' + flagPill + '</div>'
         + '<div class="session-caption">' + esc(s.session_id) + (s.description ? ' · ' + esc(s.description) : '') + '</div>';
     return '<tr class="click-row" onclick="location.hash=\'#session/' + escAttr(s.session_id) + '\'">'
       + '<td class="session-cell">' + personCell + '</td>'

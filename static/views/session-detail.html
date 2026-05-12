@@ -33,6 +33,11 @@
     </div>
     <div class="sd-page-aside">
       <div class="verdict-badge" id="detailVerdict">–</div>
+      <button type="button" class="sd-flag-btn" id="detailFlagBtn"
+              onclick="toggleSessionFlag()" aria-pressed="false"
+              title="Mark this session as invalid — forces verdict=skip">
+        <span class="sd-flag-glyph">⚑</span><span id="detailFlagLabel">flag invalid</span>
+      </button>
       <a class="sd-export-link" id="detailReportLink" href="#" target="_blank">
         <span>⤓</span><span>download md</span>
       </a>

@@ -39,8 +39,14 @@ async def _start_pen(session_id: str) -> dict[str, Any]:
     if state.pen_proc and state.pen_proc.returncode is None:
         return {"error": "Pen already running"}
     try:
+        # Why: -u forces Python to line-buffer stdout. Otherwise the
+        # interpreter block-buffers when stdout is a pipe — short pen
+        # sessions (e.g. immediate BLE disconnect) finish before the
+        # buffer flushes, and _pipe_pen_output never sees the diagnostic
+        # output. -u makes every line land in the event log.
         state.pen_proc = await asyncio.create_subprocess_exec(
-            sys.executable, str(ROOT / "pen_logger.py"), "--session", session_id,
+            sys.executable, "-u",
+            str(ROOT / "pen_logger.py"), "--session", session_id,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )

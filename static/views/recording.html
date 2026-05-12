@@ -102,7 +102,6 @@
   <section class="rec-sec" id="rec-sec-streams" style="--sec-delay: 80ms">
     <header class="rec-sec-head">
       <span class="rec-sec-label">/ live streams</span>
-      <span class="rec-sec-meta is-live">live</span>
     </header>
 
     <div class="rec-streams-grid">
@@ -149,14 +148,13 @@
       </article>
 
       <!-- Handwriting preview ───────────────────────────────────── -->
-      <article class="rec-panel">
-        <header class="rec-panel-head">
-          <div class="rec-panel-title">
-            <span class="rec-panel-caption">/ pen path</span>
-            <span class="rec-panel-name">Ncode coordinates · last 200 dots</span>
-          </div>
-          <button type="button" class="rec-panel-action" onclick="clearPenPreview()">clear</button>
-        </header>
+      <article class="rec-panel rec-panel--bare">
+        <div class="rec-pen-pill" id="penPagePill" style="display:none" aria-live="polite">–</div>
+        <div class="rec-pen-mode" role="group" aria-label="View mode">
+          <button type="button" class="rec-pen-mode-opt is-active" data-mode="live"  onclick="setPenViewMode('live')"  aria-pressed="true">live</button>
+          <button type="button" class="rec-pen-mode-opt"           data-mode="page"  onclick="setPenViewMode('page')"  aria-pressed="false">page</button>
+        </div>
+        <button type="button" class="rec-panel-action rec-panel-action--float" onclick="clearPenPreview()">clear</button>
         <div class="notebook-canvas pen-canvas-wrap rec-panel-canvas" id="penCanvasWrap">
           <canvas id="penCanvas" height="240"></canvas>
           <div class="pen-canvas-empty" id="penCanvasEmpty" data-state-mode="overlay">
@@ -167,9 +165,7 @@
             </div>
           </div>
         </div>
-        <footer class="rec-panel-foot">
-          <span class="rec-panel-info" id="penCanvasInfo">No pen data · connect pen and start a session</span>
-        </footer>
+        <span class="visually-hidden" id="penCanvasInfo" aria-hidden="true"></span>
       </article>
 
     </div>
