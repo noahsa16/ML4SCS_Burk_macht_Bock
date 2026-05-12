@@ -5,11 +5,19 @@
     <button type="button" class="refresh-link" onclick="loadSessions()">↻ refresh</button>
   </div>
   <div class="health-grid-wrap">
-    <div class="health-grid">
-      <div class="health-box"><div class="k">Total Sessions</div><div class="v" id="qualityTotal">–</div></div>
-      <div class="health-box"><div class="k">ML Ready</div><div class="v ok" id="qualityOk">–</div></div>
-      <div class="health-box"><div class="k">ML Warnings</div><div class="v warn" id="qualityWarn">–</div></div>
-      <div class="health-box"><div class="k">ML Blocked</div><div class="v err" id="qualityBad">–</div></div>
+    <div class="health-grid" role="tablist" aria-label="Filter by ML status">
+      <button type="button" class="health-box is-active" data-ml="all"  role="tab" aria-selected="true">
+        <div class="k">Total Sessions</div><div class="v" id="qualityTotal">–</div>
+      </button>
+      <button type="button" class="health-box" data-ml="ok"   role="tab" aria-selected="false">
+        <div class="k">ML Ready</div><div class="v ok" id="qualityOk">–</div>
+      </button>
+      <button type="button" class="health-box" data-ml="warn" role="tab" aria-selected="false">
+        <div class="k">ML Warnings</div><div class="v warn" id="qualityWarn">–</div>
+      </button>
+      <button type="button" class="health-box" data-ml="bad"  role="tab" aria-selected="false">
+        <div class="k">ML Blocked</div><div class="v err" id="qualityBad">–</div>
+      </button>
     </div>
     <div class="health-grid-loading" id="healthGridLoading" data-state-mode="overlay">
       <div class="empty-state empty-state--loading">
@@ -22,7 +30,7 @@
 
 <div class="filter-bar">
   <input type="text" id="filterQ" placeholder="Search session, person, or description…">
-  <select id="filterMl" title="ML readiness">
+  <select id="filterMl" hidden aria-hidden="true" tabindex="-1">
     <option value="all">ML: all</option>
     <option value="ok">Ready</option>
     <option value="warn">Warnings</option>

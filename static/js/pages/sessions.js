@@ -106,6 +106,16 @@ export async function loadSessions() {
       document.getElementById('filterMinFive').checked = false;
       applyFilters();
     });
+    // ML-status quick filter: click any .health-box[data-ml] tile to set the
+    // ML filter. Re-clicking the active non-"all" tile resets to "all".
+    document.querySelectorAll('.health-box[data-ml]').forEach(box => {
+      box.addEventListener('click', () => {
+        const sel = document.getElementById('filterMl');
+        const target = box.dataset.ml;
+        sel.value = (sel.value === target && target !== 'all') ? 'all' : target;
+        applyFilters();
+      });
+    });
     S._filtersWired = true;
   }
   applyFilters();
@@ -154,6 +164,11 @@ function applyFilters() {
   // Active-Filter-Hinweis: Inputs mit Non-Default kriegen Accent-Border (CSS handhabt das via .is-active)
   document.getElementById('filterQ').classList.toggle('is-active', filters.q !== '');
   document.getElementById('filterMl').classList.toggle('is-active', filters.ml !== 'all');
+  document.querySelectorAll('.health-box[data-ml]').forEach(box => {
+    const active = box.dataset.ml === filters.ml;
+    box.classList.toggle('is-active', active);
+    box.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
   document.getElementById('filterAlign').classList.toggle('is-active', filters.align !== 'all');
   const rows = (S.allSessions || []).filter(s => _matchesFilters(s, S.qualityBySession[s.session_id], filters));
   renderSessionsList(rows);
