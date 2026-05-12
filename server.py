@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
-from src.server.broadcast import _broadcast, _status_loop
+from src.server.broadcast import _broadcast, _chart_aggregator_loop, _status_loop
 from src.server.config import STATIC_DIR
 from src.server.csv_io import close_all_airpods_writers, close_all_watch_writers
 from src.server.logging_setup import setup_logging
@@ -32,9 +32,11 @@ from src.server.state import state
 async def lifespan(app: FastAPI):
     setup_logging()
     state.append_event("server", "info", "FastAPI server started")
-    task = asyncio.create_task(_status_loop())
+    status_task = asyncio.create_task(_status_loop())
+    chart_task = asyncio.create_task(_chart_aggregator_loop())
     yield
-    task.cancel()
+    status_task.cancel()
+    chart_task.cancel()
     await _stop_pen()
     close_all_watch_writers()
     close_all_airpods_writers()

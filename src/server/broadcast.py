@@ -7,6 +7,7 @@ aktuellen Status — inklusive Sample-Raten und Chart-Puffer-Update.
 """
 
 import asyncio
+import logging
 import time
 from typing import Any
 
@@ -15,6 +16,62 @@ from fastapi import WebSocket
 from .csv_io import _pen_last_dot, _pen_sample_count
 from .state import state
 from .status import _status_payload
+
+log = logging.getLogger(__name__)
+
+CHART_BUFFER_MAX = 100
+CHART_AGGREGATOR_INTERVAL_S = 0.2  # 5 Hz aggregation
+
+
+def _chart_aggregator_tick(state, pen_writing: bool) -> None:
+    """Drain the per-sample magnitude windows into one chart buffer entry.
+
+    Called every 200 ms. Computes means, appends a chart point with the
+    timestamp + magnitudes + pen_writing flag, trims the buffer to the
+    last CHART_BUFFER_MAX entries. Clears the windows so the next 200 ms
+    bucket is isolated. Skips appending when state.active is False but
+    still clears the windows to keep memory bounded.
+    """
+    acc_mags = state.chart_window_acc_mags
+    gyro_mags = state.chart_window_gyro_mags
+    state.chart_window_acc_mags = []
+    state.chart_window_gyro_mags = []
+
+    if not state.active:
+        return
+
+    acc_mag = sum(acc_mags) / len(acc_mags) if acc_mags else 0.0
+    gyro_mag = sum(gyro_mags) / len(gyro_mags) if gyro_mags else 0.0
+
+    state.chart_buffer.append({
+        "t": int(time.time() * 1000),
+        "mag": round(acc_mag, 3),       # backward-compat key
+        "acc_mag": round(acc_mag, 3),
+        "gyro_mag": round(gyro_mag, 3),
+        "pen_writing": pen_writing,
+    })
+    if len(state.chart_buffer) > CHART_BUFFER_MAX:
+        state.chart_buffer = state.chart_buffer[-CHART_BUFFER_MAX:]
+
+
+async def _chart_aggregator_loop():
+    """Run _chart_aggregator_tick at 5 Hz (every 200 ms).
+
+    Reads the most recent pen-dot once per tick to determine pen_writing
+    for that bucket.
+    """
+    while True:
+        try:
+            sid = state.active.session_id if state.active else None
+            last_pen_dot = _pen_last_dot(sid) if sid else None
+            pen_writing = (
+                last_pen_dot.get("dot_type") in ("PEN_DOWN", "PEN_MOVE")
+                if last_pen_dot else False
+            )
+            _chart_aggregator_tick(state, pen_writing)
+        except Exception:
+            log.exception("chart aggregator tick failed")
+        await asyncio.sleep(CHART_AGGREGATOR_INTERVAL_S)
 
 
 async def _broadcast(msg: dict):
@@ -92,27 +149,5 @@ async def _status_loop():
             last_pen_dot.get("dot_type") in ("PEN_DOWN", "PEN_MOVE")
             if last_pen_dot else False
         )
-
-        # Chart-Puffer: ein aggregierter Punkt pro Sekunde (Mittelwert des Fensters)
-        if state.active:
-            acc_mag = (
-                sum(state.chart_window_acc_mags) / len(state.chart_window_acc_mags)
-                if state.chart_window_acc_mags else 0.0
-            )
-            gyro_mag = (
-                sum(state.chart_window_gyro_mags) / len(state.chart_window_gyro_mags)
-                if state.chart_window_gyro_mags else 0.0
-            )
-            state.chart_buffer.append({
-                "t": int(time.time() * 1000),
-                "mag": round(acc_mag, 3),  # backward-compat key für ältere Dashboards
-                "acc_mag": round(acc_mag, 3),
-                "gyro_mag": round(gyro_mag, 3),
-                "pen_writing": pen_writing,
-            })
-            if len(state.chart_buffer) > 60:
-                state.chart_buffer = state.chart_buffer[-60:]
-        state.chart_window_acc_mags = []
-        state.chart_window_gyro_mags = []
 
         await _broadcast(_status_payload(pen_samples=pen_samples, last_pen_dot=last_pen_dot))

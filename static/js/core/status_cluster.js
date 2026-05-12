@@ -6,7 +6,7 @@
 import { S } from '/static/js/core/state.js';
 import { clearPenPreview } from '/static/js/pages/recording.js';
 import {
-  fmtHz, fmtUptime,
+  fmtHz, fmtAgo, fmtUptime,
 } from '/static/js/core/format.js';
 
 // ════════════════════════════════════════════════════════════
@@ -25,6 +25,7 @@ export function setStatusCluster(s) {
   };
   setDot('clusterDotPen', s.pen);
   setDot('clusterDotWatch', s.watch);
+  setDot('clusterDotAirpods', s.airpods);
   setDot('clusterDotServer', s.server);
 
   let label, meta = '';
@@ -61,6 +62,64 @@ export function setStatusCluster(s) {
   ].join('\n');
   const cluster = document.getElementById('statusCluster');
   if (cluster) cluster.title = tip;
+}
+
+// ════════════════════════════════════════════════════════════
+//  STATUS HOVER-CARD
+// ════════════════════════════════════════════════════════════
+function _hoverRow(device, info) {
+  const row = document.querySelector(`.status-hover-row[data-device="${device}"]`);
+  if (!row) return;
+  const stateEl = row.querySelector('.status-hover-state');
+  const metaEl  = row.querySelector('.status-hover-meta');
+  if (stateEl) stateEl.textContent = info.state;
+  if (metaEl)  metaEl.textContent  = info.meta;
+  row.removeAttribute('data-device-ok');
+  row.removeAttribute('data-device-warn');
+  row.removeAttribute('data-device-err');
+  if      (info.cls === 'ok')   row.setAttribute('data-device-ok',   '');
+  else if (info.cls === 'warn') row.setAttribute('data-device-warn', '');
+  else if (info.cls === 'err')  row.setAttribute('data-device-err',  '');
+}
+
+function _penStatusFromS(s) {
+  if (!s) return { cls: 'err', state: 'offline', meta: '— Hz · —' };
+  const ok  = !!s.pen_connected;
+  const hz  = s.pen_rate_hz != null ? fmtHz(s.pen_rate_hz) : '—';
+  const ago = s.pen_last_seen_ms_ago != null ? fmtAgo(s.pen_last_seen_ms_ago) : '—';
+  return { cls: ok ? 'ok' : 'err', state: ok ? 'connected' : 'offline', meta: `${hz} · last ${ago}` };
+}
+
+function _watchStatusFromS(s) {
+  if (!s) return { cls: 'err', state: 'offline', meta: '— Hz · —' };
+  const streamActive = !!(s.watch_stream_active ?? s.watch_connected);
+  const bridgeReady  = !!(s.watch_bridge_connected);
+  const cls   = streamActive ? 'ok' : (bridgeReady ? 'warn' : 'err');
+  const state = s.watch_status_text || (streamActive ? 'streaming' : (bridgeReady ? 'bridge ready' : 'offline'));
+  const hz    = s.watch_rate_hz != null ? fmtHz(s.watch_rate_hz) : '—';
+  const samp  = s.watch_samples != null ? `${s.watch_samples} samples` : '—';
+  return { cls, state, meta: `${hz} · ${samp}` };
+}
+
+function _airpodsStatusFromS(s) {
+  if (!s) return { cls: 'err', state: 'offline', meta: '— Hz · —' };
+  const ok  = !!(s.airpods_connected || s.airpods_paired || s.airpods_streaming);
+  const hz  = s.airpods_rate_hz != null ? fmtHz(s.airpods_rate_hz) : '—';
+  const samp = s.airpods_samples != null ? `${s.airpods_samples} samples` : '—';
+  return { cls: ok ? 'ok' : 'err', state: ok ? 'connected' : 'offline', meta: `${hz} · ${samp}` };
+}
+
+function _serverStatusFromS(s) {
+  if (!s) return { cls: 'err', state: 'connecting', meta: '—' };
+  const uptime = s.uptime_seconds != null ? `up ${fmtUptime(s.uptime_seconds)}` : '—';
+  return { cls: 'ok', state: 'ok', meta: uptime };
+}
+
+export function _renderStatusHoverCard(s) {
+  _hoverRow('pen',     _penStatusFromS(s));
+  _hoverRow('watch',   _watchStatusFromS(s));
+  _hoverRow('airpods', _airpodsStatusFromS(s));
+  _hoverRow('server',  _serverStatusFromS(s));
 }
 
 export function setPill(id, ok, text, cls) {
@@ -116,13 +175,16 @@ export function handleStatus(s, prevSessionId) {
   const penDotState = s.pen_connected ? 'ok' : 'err';
   const watchDotState = (watchStreamActive || watchReachable || watchPolling)
     ? 'ok' : (watchBridgeConnected ? 'warn' : 'err');
+  const airpodsUiOnline = !!(s.airpods_connected || s.airpods_paired || s.airpods_streaming);
+  const airpodsDotState = airpodsUiOnline ? 'ok' : 'err';
   setStatusCluster({
-    pen: penDotState, watch: watchDotState, server: 'ok',
+    pen: penDotState, watch: watchDotState, airpods: airpodsDotState, server: 'ok',
     sessionActive: s.session_active,
     watchRate, watchStatusText,
     penDots: s.pen_samples, watchSamples: s.watch_samples,
     uptime: s.uptime_seconds,
   });
+  _renderStatusHoverCard(s);
 
   // Route the tick to whichever page is currently visible — hidden pages skip work.
   _activePageDispatch(s);
