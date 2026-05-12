@@ -12,6 +12,90 @@ import { renderState } from '/static/js/core/states.js';
 
 let _mounted = false;
 
+// Sort state for the index table. Default: newest start_time first.
+const _sortConfig = { by: 'start_time', dir: 'desc' };
+
+function _sortRows(rows) {
+  const { by, dir } = _sortConfig;
+  const factor = dir === 'asc' ? 1 : -1;
+  return rows.slice().sort((a, b) => {
+    if (by === 'person') {
+      const va = (a.person_id || a.session_id || '').toLowerCase();
+      const vb = (b.person_id || b.session_id || '').toLowerCase();
+      return va.localeCompare(vb) * factor;
+    }
+    if (by === 'start_time') {
+      const va = a.start_time ? new Date(a.start_time).getTime() : 0;
+      const vb = b.start_time ? new Date(b.start_time).getTime() : 0;
+      return (va - vb) * factor;
+    }
+    if (by === 'duration') {
+      // Why: ongoing sessions have no end_time; sort them to the end.
+      const dur = (s) => (s.start_time && s.end_time)
+        ? new Date(s.end_time) - new Date(s.start_time)
+        : NaN;
+      const va = dur(a);
+      const vb = dur(b);
+      const aMissing = !Number.isFinite(va);
+      const bMissing = !Number.isFinite(vb);
+      if (aMissing && bMissing) return 0;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+      return (va - vb) * factor;
+    }
+    if (by === 'ml') {
+      const order = { ok: 0, warn: 1, bad: 2, unknown: 3 };
+      const qa = S.qualityBySession[a.session_id]?.ml_readiness?.status
+              || S.qualityBySession[a.session_id]?.quality || 'unknown';
+      const qb = S.qualityBySession[b.session_id]?.ml_readiness?.status
+              || S.qualityBySession[b.session_id]?.quality || 'unknown';
+      return ((order[qa] ?? 99) - (order[qb] ?? 99)) * factor;
+    }
+    if (by === 'sigma') {
+      // Why: sessions without a sigma sort to the end regardless of dir.
+      const va = Number(S.alignmentBySession?.[a.session_id]?.sigma);
+      const vb = Number(S.alignmentBySession?.[b.session_id]?.sigma);
+      const aMissing = !Number.isFinite(va);
+      const bMissing = !Number.isFinite(vb);
+      if (aMissing && bMissing) return 0;
+      if (aMissing) return 1;
+      if (bMissing) return -1;
+      return (va - vb) * factor;
+    }
+    return 0;
+  });
+}
+
+function _updateSortIndicators() {
+  document.querySelectorAll('.sessions-table thead th[data-sort]').forEach(th => {
+    const active = th.dataset.sort === _sortConfig.by;
+    th.classList.toggle('is-sort-active', active);
+    th.dataset.sortDir = active ? _sortConfig.dir : '';
+  });
+}
+
+function _wireSortHeaders() {
+  document.querySelectorAll('.sessions-table thead th[data-sort]').forEach(th => {
+    const trigger = () => {
+      const by = th.dataset.sort;
+      if (_sortConfig.by === by) {
+        _sortConfig.dir = _sortConfig.dir === 'asc' ? 'desc' : 'asc';
+      } else {
+        _sortConfig.by = by;
+        // Why: time sorts default desc (newest first); everything else asc.
+        _sortConfig.dir = by === 'start_time' ? 'desc' : 'asc';
+      }
+      _updateSortIndicators();
+      applyFilters();
+    };
+    th.addEventListener('click', trigger);
+    th.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); trigger(); }
+    });
+  });
+  _updateSortIndicators();
+}
+
 // ════════════════════════════════════════════════════════════
 //  SESSION VERDICT — single 3-level summary used by both
 //  the triage list (filter target) and the detail page header.
@@ -171,7 +255,7 @@ function applyFilters() {
   });
   document.getElementById('filterAlign').classList.toggle('is-active', filters.align !== 'all');
   const rows = (S.allSessions || []).filter(s => _matchesFilters(s, S.qualityBySession[s.session_id], filters));
-  renderSessionsList(rows);
+  renderSessionsList(_sortRows(rows));
 }
 
 function _sigmaPill(sessionId) {
@@ -190,7 +274,7 @@ function _renderSessionsError(err) {
   if (!tbody) return;
   const row = document.createElement('tr');
   const cell = document.createElement('td');
-  cell.colSpan = 4;
+  cell.colSpan = 5;
   row.appendChild(cell);
   tbody.replaceChildren(row);
   const isNet = err?.kind === 'network';
@@ -209,7 +293,7 @@ function renderSessionsList(rows) {
   if (!rows.length) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 4;
+    cell.colSpan = 5;
     cell.id = 'sessionsEmptySlot';
     row.appendChild(cell);
     tbody.replaceChildren(row);
@@ -237,7 +321,8 @@ function renderSessionsList(rows) {
         + '<div class="session-caption">' + esc(s.session_id) + (s.description ? ' · ' + esc(s.description) : '') + '</div>';
     return '<tr class="click-row" onclick="location.hash=\'#session/' + escAttr(s.session_id) + '\'">'
       + '<td class="session-cell">' + personCell + '</td>'
-      + '<td class="mono" style="font-size:12px;color:var(--text2)">' + startFmt + ' · ' + dur + '</td>'
+      + '<td class="mono">' + startFmt + '</td>'
+      + '<td class="mono">' + dur + '</td>'
       + '<td>' + mlBadge + '</td>'
       + '<td class="mono">' + _sigmaPill(s.session_id) + '</td>'
       + '</tr>';
@@ -266,12 +351,13 @@ export function mount(container) {
   // Why: filter listeners are wired lazily inside loadSessions() on first call
   // (S._filtersWired guard). No additional one-time DOM wiring needed here;
   // the refresh button uses onclick="loadSessions()" exposed via window.
+  _wireSortHeaders();
   _mounted = true;
   const tbody = document.getElementById('sessionsBody');
   if (tbody) {
     const row = document.createElement('tr');
     const cell = document.createElement('td');
-    cell.colSpan = 4;
+    cell.colSpan = 5;
     cell.id = 'sessionsTableSlot';
     row.appendChild(cell);
     tbody.replaceChildren(row);
