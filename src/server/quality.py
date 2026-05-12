@@ -694,6 +694,47 @@ def _session_validation(session_id: str) -> dict[str, Any]:
 
 # ── View 3: Voll angereicherter Report (für /sessions/{id}/report) ────────────
 
+def _session_quality_cols(row: dict[str, str]) -> dict[str, str]:
+    """Compact quality snapshot for the sessions.csv index columns.
+
+    Returns string values (CSV-friendly) for:
+      duration_seconds, ml_status, recording_status, alignment_sigma,
+      verdict (trainable/usable/skip), issue_codes (";"-separated).
+
+    Verdict logic mirrors the client-side `computeVerdict` so triage
+    on the dashboard and grepping the CSV give identical conclusions.
+    """
+    q = _session_quality(row)
+    ml = q["ml_readiness"]
+    rec = q["recording_health"]
+    sync = q["diagnostics"]["sync_estimate"] or {}
+    issues = q["issues"]
+
+    duration = q.get("duration_seconds")
+    sigma = sync.get("sigma_minimal_variance")
+    if not isinstance(sigma, (int, float)):
+        sigma = sync.get("confidence")
+    blockers = {i["code"] for i in (ml.get("blockers") or []) + (rec.get("blockers") or [])}
+
+    ml_status = ml.get("status") or "unknown"
+    if ml_status == "bad" or "sync_failed" in blockers or "streams_do_not_overlap" in blockers:
+        verdict = "skip"
+    elif (ml_status == "ok" and isinstance(sigma, (int, float))
+          and sigma <= -3 and isinstance(duration, (int, float)) and duration >= 300):
+        verdict = "trainable"
+    else:
+        verdict = "usable"
+
+    return {
+        "duration_seconds": f"{duration:.1f}" if isinstance(duration, (int, float)) else "",
+        "ml_status": ml_status,
+        "recording_status": rec.get("status") or "unknown",
+        "alignment_sigma": f"{sigma:.2f}" if isinstance(sigma, (int, float)) else "",
+        "verdict": verdict,
+        "issue_codes": ";".join(sorted({i["code"] for i in issues})),
+    }
+
+
 def _session_report(row: dict[str, str]) -> dict[str, Any]:
     """Vollständiger Report für eine Session — Quality + Validation in einem Dokument."""
     quality = _session_quality(row)
