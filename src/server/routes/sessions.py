@@ -22,7 +22,7 @@ from ..csv_io import (
 from ..models import SessionStartBody
 from ..pen_proc import _start_pen, _stop_pen
 from ..quality import (
-    _session_quality, _session_validation,
+    _session_quality, _session_quality_cols, _session_validation,
     _session_report, _session_report_markdown,
 )
 from ..state import ActiveSession, state
@@ -351,13 +351,26 @@ async def session_stop():
     watch_samples = state.watch_sample_count
     airpods_samples = state.airpods_sample_count
 
-    _update_session_row(session_id, {
+
+    updates = {
         "end_time": end_time,
         "pen_samples": pen_samples,
         "watch_samples": watch_samples,
         "airpods_samples": airpods_samples,
         "status": "completed",
-    })
+    }
+    # Why: compute the quality snapshot AFTER the CSVs are closed so
+    # the sample counts and timing reflect the final state on disk.
+    try:
+        updates.update(_session_quality_cols({
+            "session_id": session_id,
+            "status": "completed",
+            **updates,
+        }))
+    except Exception as exc:
+        state.append_event("session", "warn",
+            f"Quality snapshot for {session_id} failed: {exc}", {"session_id": session_id})
+    _update_session_row(session_id, updates)
 
     state.append_event("session", "info", f"Session {session_id} finalized", {
         "pen_samples": pen_samples,
