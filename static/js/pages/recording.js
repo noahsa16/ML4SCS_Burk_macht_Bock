@@ -6,11 +6,11 @@
 
 import { api } from '/static/js/core/api.js';
 import { esc } from '/static/js/core/dom.js';
-import { fmtDuration, fmtNum, fmtClock, fmtAgo, fmtHz } from '/static/js/core/format.js';
+import { fmtDuration, fmtNum, fmtClock, fmtHz } from '/static/js/core/format.js';
 import { S } from '/static/js/core/state.js';
 import { setNumberSmooth } from '/static/js/core/anim.js';
 import { toast } from '/static/js/core/toast.js';
-import { setBadge, setHealth } from '/static/js/core/status_cluster.js';
+import { setHealth } from '/static/js/core/status_cluster.js';
 import { renderState } from '/static/js/core/states.js';
 
 let _mounted = false;
@@ -410,23 +410,6 @@ function _updateWelcomeCard(s) {
   card.style.display = show ? '' : 'none';
 }
 
-// ════════════════════════════════════════════════════════════
-//  DEVICE CARD EMPTY STATE
-// ════════════════════════════════════════════════════════════
-function _updateDeviceEmpty(slotId, rowsId, connected, title) {
-  const slot = document.getElementById(slotId);
-  const rows = document.getElementById(rowsId);
-  if (!slot || !rows) return;
-  if (connected) {
-    slot.style.display = 'none';
-    rows.style.display = '';
-    renderState(slot, 'clear');
-  } else {
-    slot.style.display = '';
-    rows.style.display = 'none';
-    renderState(slot, 'empty', { title, inline: true });
-  }
-}
 
 // ════════════════════════════════════════════════════════════
 //  LOG RENDERING + SETTINGS
@@ -575,68 +558,12 @@ export function onStatus(s) {
 
   const watchRate = Number(s.watch_rate_hz || 0);
   const penRate = Number(s.pen_rate_hz || 0);
-  const lastWatch = s.watch_last_sample || {};
-  const lastPen = s.pen_last_dot || {};
   const validation = s.validation || {};
   const gyroOk = validation.watch_has_gyroscope === true;
   const penClockOk = validation.pen_has_server_time === true;
 
-  // Pen badge
-  setBadge('penBadge', s.pen_connected, s.pen_connected ? 'Connected' : 'Disconnected');
-
-  // Watch badge uses values assembled in status_cluster.js handleStatus
-  if (S.watchBadgeClass !== undefined) {
-    setBadge('watchBadge', S.watchConnected, S.watchStatusText, S.watchBadgeClass);
-  }
-
-  // AirPods badge
-  const airpodsRate = Number(s.airpods_rate_hz || 0);
-  const lastAirpods = s.airpods_last_sample || {};
-  const airpodsStreaming = !!s.airpods_connected;
-  const airpodsPaired = s.airpods_paired === true;
-  const airpodsListening = s.airpods_streaming === true;
-  let airpodsBadgeText, airpodsBadgeClass, airpodsUiOnline;
-  if (airpodsStreaming) {
-    airpodsBadgeText = 'Streaming'; airpodsBadgeClass = 'badge-ok'; airpodsUiOnline = true;
-  } else if (airpodsPaired) {
-    airpodsBadgeText = airpodsListening ? 'Paired · listening' : 'Paired · idle';
-    airpodsBadgeClass = 'badge-warn'; airpodsUiOnline = true;
-  } else if (airpodsListening) {
-    airpodsBadgeText = 'Waiting for AirPods'; airpodsBadgeClass = 'badge-warn'; airpodsUiOnline = false;
-  } else {
-    airpodsBadgeText = 'Offline'; airpodsBadgeClass = 'badge-err'; airpodsUiOnline = false;
-  }
-  setBadge('airpodsBadge', airpodsUiOnline, airpodsBadgeText, airpodsBadgeClass);
-
-  // Device card empty states
+  // Welcome card
   _updateWelcomeCard(s);
-  _updateDeviceEmpty('penDeviceEmpty', 'penDeviceRows', !!s.pen_connected,
-    'Connect the pen to see live dot data.');
-  _updateDeviceEmpty('watchDeviceEmpty', 'watchDeviceRows', !!S.watchConnected,
-    'Start the watch app to see live IMU data.');
-  _updateDeviceEmpty('airpodsDeviceEmpty', 'airpodsDeviceRows', airpodsUiOnline,
-    'Connect AirPods to capture head IMU.');
-
-  // Device side rows
-  const penBleEl = document.getElementById('penBleStatus');
-  if (penBleEl) penBleEl.textContent = s.pen_connected ? 'Connected' : 'Idle';
-  const dotTypeEl = document.getElementById('dotType');
-  if (dotTypeEl) dotTypeEl.textContent = lastPen.dot_type || '–';
-  const penLastXYEl = document.getElementById('penLastXY');
-  if (penLastXYEl) penLastXYEl.textContent = lastPen.x != null ? `${fmtNum(lastPen.x)}, ${fmtNum(lastPen.y)}` : '–';
-  setNumberSmooth('penRateSide', penRate, { format: _smoothFmt.hz });
-  setNumberSmooth('watchRateSide', watchRate, { format: _smoothFmt.hz });
-  setNumberSmooth('watchGyroSide', lastWatch.gyro_mag, { format: _smoothFmt.decimal3 });
-  const watchLastTsEl = document.getElementById('watchLastTs');
-  if (watchLastTsEl) {
-    watchLastTsEl.textContent = s.watch_last_seen_ms_ago != null ? fmtAgo(s.watch_last_seen_ms_ago) : '–';
-  }
-  setNumberSmooth('airpodsRateSide', airpodsRate, { format: _smoothFmt.hz });
-  setNumberSmooth('airpodsAccSide', lastAirpods.acc_mag, { format: _smoothFmt.decimal3 });
-  const airpodsLastTsEl = document.getElementById('airpodsLastTs');
-  if (airpodsLastTsEl) {
-    airpodsLastTsEl.textContent = s.airpods_last_seen_ms_ago != null ? fmtAgo(s.airpods_last_seen_ms_ago) : '–';
-  }
 
   // Health metrics
   setHealth('watchHz', fmtHz(watchRate), watchRate > 80 ? 'ok' : (watchRate > 0 ? 'warn' : 'err'));

@@ -32,42 +32,48 @@
   <button type="button" class="welcome-card-dismiss" id="welcomeDismiss">dismiss this welcome</button>
 </div>
 
-<div class="rec-grid">
-
-  <!-- Session control -->
-  <div class="card">
-    <div class="card-title">Session Control</div>
-    <div class="label">Person ID</div>
-    <input type="text" id="personId" placeholder="e.g. P01" value="P01">
-    <br><br>
-    <div class="label">Session Description</div>
-    <textarea id="sessionDescription" rows="3" placeholder="e.g. 2 min writing, 2 min pause"></textarea>
-    <br><br>
+<!-- Session strip — full-width band with controls + timer + live counters -->
+<section class="session-strip">
+  <div class="session-strip-controls">
+    <div class="session-strip-field">
+      <label class="label" for="personId">Person</label>
+      <input type="text" id="personId" placeholder="P01" value="P01">
+    </div>
+    <div class="session-strip-field session-strip-field--wide">
+      <label class="label" for="sessionDescription">Description</label>
+      <input type="text" id="sessionDescription" placeholder="e.g. 2 min writing, 2 min pause">
+    </div>
     <button class="btn btn-primary" id="sessionBtn" onclick="toggleSession()">START</button>
-    <div class="timer" id="timer">00:00:00</div>
-    <div class="timer-label" id="timerLabel">Ready for a new recording</div>
-    <div class="stat-grid">
-      <div class="stat-box">
-        <div class="stat-label">Watch Samples</div>
-        <div class="stat-val accent skel-loading" id="watchCount" data-skel>0</div>
+  </div>
+  <div class="session-strip-meta">
+    <div class="session-strip-timer">
+      <div class="timer" id="timer">00:00:00</div>
+      <div class="timer-label" id="timerLabel">Ready for a new recording</div>
+    </div>
+    <div class="session-strip-stats">
+      <div class="session-strip-stat">
+        <div class="session-strip-stat-label">Watch</div>
+        <div class="session-strip-stat-val accent skel-loading" id="watchCount" data-skel>0</div>
       </div>
-      <div class="stat-box">
-        <div class="stat-label">Pen Dots</div>
-        <div class="stat-val green skel-loading" id="penCount" data-skel>0</div>
+      <div class="session-strip-stat">
+        <div class="session-strip-stat-label">Pen</div>
+        <div class="session-strip-stat-val green skel-loading" id="penCount" data-skel>0</div>
       </div>
-      <div class="stat-box">
-        <div class="stat-label">Session ID</div>
-        <div class="stat-val stat-val--id" id="sessionIdDisp">—</div>
+      <div class="session-strip-stat">
+        <div class="session-strip-stat-label">Session</div>
+        <div class="session-strip-stat-val stat-val--id" id="sessionIdDisp">—</div>
       </div>
-      <div class="stat-box">
-        <div class="stat-label">Sample Rate</div>
-        <div class="stat-val stat-val--id skel-loading" id="watchRateMain" data-skel>– Hz</div>
+      <div class="session-strip-stat">
+        <div class="session-strip-stat-label">Rate</div>
+        <div class="session-strip-stat-val stat-val--id skel-loading" id="watchRateMain" data-skel>– Hz</div>
       </div>
     </div>
   </div>
+</section>
 
-  <!-- Live IMU chart (Hero) -->
-  <div class="card card-hero chart-card" id="liveRecordingHero">
+<!-- Main grid: chart left (60%) + handwriting right (40%) -->
+<section class="recording-main-grid">
+  <div class="card chart-card" id="liveRecordingHero">
     <div class="chart-meta">
       <div class="card-title">
         Live IMU Signal<span>Accelerometer + Gyroscope Magnitudes</span>
@@ -81,7 +87,7 @@
       </div>
     </div>
     <div class="chart-canvas-wrap" id="chartCanvasWrap">
-      <canvas id="imuChart" height="160"></canvas>
+      <canvas id="imuChart" height="200"></canvas>
       <div class="chart-canvas-empty" data-state-mode="overlay">
         <div class="empty-state">
           <div class="empty-state-glyph">/</div>
@@ -95,114 +101,15 @@
       <div class="chart-stat"><div class="val" id="statGyro">–</div><div class="lbl">Current |r|</div></div>
       <div class="chart-stat"><div class="val" id="statWritePct">–</div><div class="lbl">Writing %</div></div>
     </div>
-    <div class="card-details">
-      <div class="health-grid">
-        <div class="health-box"><div class="k">Watch actual Hz</div><div class="v" id="watchHz">–</div></div>
-        <div class="health-box"><div class="k">Pen dot Hz</div><div class="v" id="penHz">–</div></div>
-        <div class="health-box"><div class="k">Gyro stream</div><div class="v" id="gyroHealth">–</div></div>
-        <div class="health-box"><div class="k">Clock align</div><div class="v" id="clockHealth">–</div></div>
-      </div>
-    </div>
-    <button class="card-details-toggle" onclick="toggleCardDetails(this)">
-      <span class="card-details-chevron">›</span>
-      <span class="card-details-label-show">Health diagnostics</span>
-      <span class="card-details-label-hide">Hide diagnostics</span>
-    </button>
   </div>
 
-  <!-- Device column -->
-  <div class="device-col">
-    <!-- Pen device -->
-    <div class="card card-muted">
-      <div class="device-header">
-        <div class="device-name">Smart Pen</div>
-        <div class="status-badge badge-err" id="penBadge">Disconnected</div>
-      </div>
-      <div class="device-empty-slot" id="penDeviceEmpty" style="display:none"></div>
-      <div class="device-rows" id="penDeviceRows">
-        <div class="device-row"><span>Dot type</span><span class="v" id="dotType">–</span></div>
-        <div class="device-row"><span>Last xy</span><span class="v" id="penLastXY">–</span></div>
-        <div class="device-row"><span>Dot Hz</span><span class="v" id="penRateSide">–</span></div>
-      </div>
-      <div class="card-details">
-        <div class="device-row"><span>Model</span><span class="v">NWP-F130</span></div>
-        <div class="device-row"><span>Protocol</span><span class="v">NeoSmartpen V2</span></div>
-        <div class="device-row"><span>BLE</span><span class="v" id="penBleStatus">Scanning…</span></div>
-      </div>
-      <button class="card-details-toggle" onclick="toggleCardDetails(this)">
-        <span class="card-details-chevron">›</span>
-        <span class="card-details-label-show">Specs</span>
-        <span class="card-details-label-hide">Less</span>
-      </button>
-      <div class="device-actions">
-        <button class="btn btn-sm btn-green" id="penConnBtn" onclick="penConnect()">Connect</button>
-        <button class="btn btn-sm btn-outline" id="penDiscBtn" onclick="penDisconnect()">Disconnect</button>
-      </div>
-    </div>
-    <!-- Watch device -->
-    <div class="card card-muted">
-      <div class="device-header">
-        <div class="device-name">Apple Watch</div>
-        <div class="status-badge badge-err" id="watchBadge">Offline</div>
-      </div>
-      <div class="device-empty-slot" id="watchDeviceEmpty" style="display:none"></div>
-      <div class="device-rows" id="watchDeviceRows">
-        <div class="device-row"><span>Actual Hz</span><span class="v" id="watchRateSide">–</span></div>
-        <div class="device-row"><span>Last |r|</span><span class="v" id="watchGyroSide">–</span></div>
-        <div class="device-row"><span>Last data</span><span class="v mono" id="watchLastTs">–</span></div>
-      </div>
-      <div class="card-details">
-        <div class="device-row"><span>IMU rate</span><span class="v">50 Hz</span></div>
-        <div class="device-row"><span>Batch size</span><span class="v">10 samples</span></div>
-        <div class="device-row"><span>Transport</span><span class="v">WCSession</span></div>
-      </div>
-      <button class="card-details-toggle" onclick="toggleCardDetails(this)">
-        <span class="card-details-chevron">›</span>
-        <span class="card-details-label-show">Specs</span>
-        <span class="card-details-label-hide">Less</span>
-      </button>
-      <div class="device-actions">
-        <button class="btn btn-sm btn-outline" onclick="watchCmd('start')">▶ Start</button>
-        <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">■ Stop</button>
-      </div>
-    </div>
-    <!-- AirPods device -->
-    <div class="card card-muted">
-      <div class="device-header">
-        <div class="device-name">AirPods</div>
-        <div class="status-badge badge-err" id="airpodsBadge">Offline</div>
-      </div>
-      <div class="device-empty-slot" id="airpodsDeviceEmpty" style="display:none"></div>
-      <div class="device-rows" id="airpodsDeviceRows">
-        <div class="device-row"><span>Actual Hz</span><span class="v" id="airpodsRateSide">–</span></div>
-        <div class="device-row"><span>Last |a|</span><span class="v" id="airpodsAccSide">–</span></div>
-        <div class="device-row"><span>Last data</span><span class="v mono" id="airpodsLastTs">–</span></div>
-      </div>
-      <div class="card-details">
-        <div class="device-row"><span>IMU rate</span><span class="v">25 Hz</span></div>
-        <div class="device-row"><span>API</span><span class="v">CMHeadphoneMotion</span></div>
-        <div class="device-row"><span>Models</span><span class="v">Pro / Max / 3rd Gen</span></div>
-      </div>
-      <button class="card-details-toggle" onclick="toggleCardDetails(this)">
-        <span class="card-details-chevron">›</span>
-        <span class="card-details-label-show">Specs</span>
-        <span class="card-details-label-hide">Less</span>
-      </button>
-      <div class="device-actions">
-        <button class="btn btn-sm btn-outline" onclick="airpodsCmd('start')">▶ Start</button>
-        <button class="btn btn-sm btn-outline" onclick="airpodsCmd('stop')">■ Stop</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Live Handwriting Preview -->
-  <div class="card wide-card" id="penPreviewCard">
+  <div class="card handwriting-card">
     <div class="chart-meta">
       <div class="card-title">Live Handwriting Preview<span>Ncode pen path · last 200 dots</span></div>
       <button class="btn btn-sm btn-outline" onclick="clearPenPreview()">Clear</button>
     </div>
-    <div class="pen-canvas-wrap" id="penCanvasWrap">
-      <canvas id="penCanvas" height="200"></canvas>
+    <div class="notebook-canvas pen-canvas-wrap" id="penCanvasWrap">
+      <canvas id="penCanvas" height="240"></canvas>
       <div class="pen-canvas-empty" id="penCanvasEmpty" data-state-mode="overlay">
         <div class="empty-state">
           <div class="empty-state-glyph">/</div>
@@ -215,12 +122,22 @@
       <span class="pen-canvas-info" id="penCanvasInfo">No pen data · connect pen and start a session</span>
     </div>
   </div>
+</section>
 
-  <div class="card wide-card">
-    <div class="chart-meta">
-      <div class="card-title">Live Validation Log<span>recent samples + server/device events</span></div>
-      <button class="btn btn-sm btn-outline" onclick="clearVisualLogs()">Clear view</button>
-    </div>
+<!-- Session health row — always visible -->
+<section class="session-health">
+  <div class="session-health-row">
+    <div class="session-health-cell"><span class="session-health-key">Watch Hz</span><span class="session-health-val" id="watchHz">–</span></div>
+    <div class="session-health-cell"><span class="session-health-key">Pen Hz</span><span class="session-health-val" id="penHz">–</span></div>
+    <div class="session-health-cell"><span class="session-health-key">Gyro stream</span><span class="session-health-val" id="gyroHealth">–</span></div>
+    <div class="session-health-cell"><span class="session-health-key">Clock align</span><span class="session-health-val" id="clockHealth">–</span></div>
+  </div>
+</section>
+
+<!-- Live log — collapsed by default -->
+<details class="recording-log-details">
+  <summary>Live log <span class="recording-log-summary-hint">recent samples + server/device events</span></summary>
+  <div class="recording-log-body">
     <div class="log-split">
       <div>
         <div class="label">Sample output</div>
@@ -231,5 +148,8 @@
         <div class="log-panel" id="eventLog"></div>
       </div>
     </div>
+    <div class="recording-log-actions">
+      <button class="btn btn-sm btn-outline" onclick="clearVisualLogs()">Clear view</button>
+    </div>
   </div>
-</div><!-- /rec-grid -->
+</details>
