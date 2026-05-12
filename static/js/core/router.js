@@ -7,10 +7,9 @@ import { loadSessions } from '/static/js/pages/sessions.js';
 //  PAGE METADATA
 // ════════════════════════════════════════════════════════════
 export const pageMeta = {
-  recording:   { title: 'Live Recording',   sub: 'Pen + Watch data capture',                       strip: 'live capture' },
-  sessions:    { title: 'Session History',  sub: 'All recorded sessions',                          strip: 'session index' },
-  connections: { title: 'Connections',      sub: 'Device & server management',                     strip: 'connectivity' },
-  system:      { title: 'System & Schema',  sub: 'Data structure · API reference · Project info',  strip: 'system & schema' },
+  recording: { title: 'Live Recording',  sub: 'Pen + Watch data capture',                           strip: 'live capture' },
+  sessions:  { title: 'Session History', sub: 'All recorded sessions',                              strip: 'session index' },
+  settings:  { title: 'Settings',        sub: 'Devices · connectivity · schema · project info',    strip: 'settings' },
 };
 
 // ════════════════════════════════════════════════════════════
@@ -54,10 +53,12 @@ export function _routeFromHash() {
   if (m) {
     return 'session-detail';
   }
-  // Plain named page hash e.g. #recording, #sessions, #connections, #system
+  // Plain named page hash e.g. #recording, #sessions, #settings
   const plain = location.hash.replace(/^#/, '');
-  const pages = ['recording', 'sessions', 'connections', 'system'];
+  const pages = ['recording', 'sessions', 'settings'];
   if (pages.includes(plain)) return plain;
+  // Why: legacy hashes from before the Connections/System merge.
+  if (plain === 'connections' || plain === 'system') return 'settings';
   return null;
 }
 

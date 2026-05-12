@@ -1,18 +1,14 @@
-// static/js/pages/connections.js — Connections page module
+// static/js/pages/settings.js — Settings page module (Connections + System merged)
 
 import { setBadge } from '/static/js/core/status_cluster.js';
 import { setNumberSmooth } from '/static/js/core/anim.js';
-import {
-  fmtUptime, fmtAgo, fmtHz, fmtCommand, fmtNum,
-} from '/static/js/core/format.js';
+import { fmtUptime, fmtAgo, fmtHz, fmtCommand, fmtNum } from '/static/js/core/format.js';
 import { renderState } from '/static/js/core/states.js';
 
 let _mounted = false;
-let _container = null;
 
-// ────────────────────────────────────────────────────────────
-//  MODULE-PRIVATE HELPERS (moved out of status_cluster.js)
-// ────────────────────────────────────────────────────────────
+const CHECK_IDS = ['checkAccel', 'checkGyro', 'checkPenTime', 'checkRate'];
+
 function setNetworkNode(id, state, text) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -45,15 +41,12 @@ function _toggleConnEmpty(slotId, connected, title) {
   }
 }
 
-// ────────────────────────────────────────────────────────────
-//  PAGE LIFECYCLE
-// ────────────────────────────────────────────────────────────
 export function mount(container) {
   if (_mounted) return;
-  _container = container;
-  // Why: no Connections-specific one-time DOM wiring needed; all inline
-  // onclick handlers (penConnect, penDisconnect, watchCmd, downloadDebugPackage)
-  // are already exposed on window from dashboard.js.
+  CHECK_IDS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) renderState(el, 'empty', { title: 'waiting for status', inline: true });
+  });
   _mounted = true;
 }
 
@@ -78,9 +71,14 @@ export function onStatus(s) {
     : (watchReachable ? 'Reachable' : (watchBridgeConnected ? 'Bridge ready' : 'Offline'))));
   const watchBadgeClass = watchStreamActive || watchDirectConnected || watchReachable || watchPolling ? 'badge-ok' : (watchBridgeConnected ? 'badge-warn' : 'badge-err');
 
-  setBadge('connPenBadge', s.pen_connected, s.pen_connected ? 'Connected' : 'Disconnected');
+  // Why: pen 'Connected' badge requires actual streaming, not just subprocess up.
+  const penStreaming = !!s.pen_connected && penRate > 0;
+  const penSearching = !!s.pen_connected && penRate === 0;
+  const penBadgeClass = penStreaming ? 'badge-ok' : (penSearching ? 'badge-warn' : 'badge-err');
+  const penBadgeText = penStreaming ? 'Connected' : (penSearching ? 'Searching…' : 'Disconnected');
+  setBadge('connPenBadge', penStreaming, penBadgeText, penBadgeClass);
   setBadge('connWatchBadge', watchUiOnline, watchStatusText, watchBadgeClass);
-  _toggleConnEmpty('connPenEmpty', !!s.pen_connected,
+  _toggleConnEmpty('connPenEmpty', penStreaming,
     'Connect the pen to populate live data');
   _toggleConnEmpty('connWatchEmpty', !!watchUiOnline,
     'Connect the watch app to populate live data');
@@ -133,13 +131,17 @@ export function onStatus(s) {
   document.getElementById('netWatchStateDetail').textContent = watchState;
   document.getElementById('netSampleBridgeDetail').textContent = sampleBridge;
   document.getElementById('netFailureDetail').textContent = failureReason;
+
+  // System checklist
+  const accelEl = document.getElementById('checkAccel');
+  const gyroEl = document.getElementById('checkGyro');
+  const penTimeEl = document.getElementById('checkPenTime');
+  const rateEl = document.getElementById('checkRate');
+  if (accelEl) accelEl.textContent = validation.watch_has_accelerometer ? 'ok' : 'missing';
+  if (gyroEl) gyroEl.textContent = gyroOk ? 'ok' : 'missing';
+  if (penTimeEl) penTimeEl.textContent = penClockOk ? 'ok' : 'new recordings only';
+  if (rateEl) rateEl.textContent = `${fmtHz(watchRate)} watch · ${fmtHz(penRate)} pen`;
 }
 
-export function onShow() {
-  // Why: onStatus is called each tick, so state is already fresh on entry.
-  // No additional refresh needed here.
-}
-
-export function onHide() {
-  // No rAF loops or timers to clean up.
-}
+export function onShow() {}
+export function onHide() {}

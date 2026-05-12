@@ -10,7 +10,6 @@ import { fmtDuration, fmtNum, fmtClock, fmtHz } from '/static/js/core/format.js'
 import { S } from '/static/js/core/state.js';
 import { setNumberSmooth } from '/static/js/core/anim.js';
 import { toast } from '/static/js/core/toast.js';
-import { setHealth } from '/static/js/core/status_cluster.js';
 import { renderState } from '/static/js/core/states.js';
 
 let _mounted = false;
@@ -59,7 +58,7 @@ function _initChart() {
     },
     options: {
       responsive: true,
-      maintainAspectRatio: true,
+      maintainAspectRatio: false,
       animation: { duration: 0 },
       interaction: { mode: 'index', intersect: false },
       scales: {
@@ -334,7 +333,7 @@ async function runStartPreflight() {
   if (!preflight) return { canStart: false, force: false };
   if (preflight.blockers?.length) {
     showPreflightResult(preflight);
-    document.querySelector('.tab[data-page="connections"]')?.click();
+    document.querySelector('.tab[data-page="settings"]')?.click();
     return { canStart: false, force: false };
   }
   if (preflight.warnings?.length) {
@@ -556,20 +555,8 @@ export function onStatus(s) {
     if (labelEl) labelEl.textContent = 'Session ended';
   }
 
-  const watchRate = Number(s.watch_rate_hz || 0);
-  const penRate = Number(s.pen_rate_hz || 0);
-  const validation = s.validation || {};
-  const gyroOk = validation.watch_has_gyroscope === true;
-  const penClockOk = validation.pen_has_server_time === true;
-
   // Welcome card
   _updateWelcomeCard(s);
-
-  // Health metrics
-  setHealth('watchHz', fmtHz(watchRate), watchRate > 80 ? 'ok' : (watchRate > 0 ? 'warn' : 'err'));
-  setHealth('penHz', fmtHz(penRate), penRate > 0 ? 'ok' : (s.pen_connected ? 'warn' : 'err'));
-  setHealth('gyroHealth', gyroOk ? 'present' : 'missing', gyroOk ? 'ok' : 'err');
-  setHealth('clockHealth', penClockOk ? 'server time' : 'legacy pen time', penClockOk ? 'ok' : 'warn');
 
   // Chart
   if (s.chart) updateChart(s.chart);

@@ -47,16 +47,14 @@ def test_bootstrap_module_served_as_js():
         "/static/js/core/theme.js",
         "/static/js/core/toast.js",
         "/static/js/core/ws.js",
-        "/static/js/pages/connections.js",
         "/static/js/pages/recording.js",
         "/static/js/pages/session_detail.js",
         "/static/js/pages/sessions.js",
-        "/static/js/pages/system.js",
-        "/static/views/connections.html",
+        "/static/js/pages/settings.js",
         "/static/views/recording.html",
         "/static/views/session-detail.html",
         "/static/views/sessions.html",
-        "/static/views/system.html",
+        "/static/views/settings.html",
     ],
 )
 def test_static_assets_served(path):

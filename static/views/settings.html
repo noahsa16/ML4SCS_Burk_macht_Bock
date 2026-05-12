@@ -1,0 +1,221 @@
+<div class="uptime-bar" id="uptimeBar">
+  <div class="uptime-item"><div class="uptime-key">Server Uptime</div><div class="uptime-val" id="uptimeVal">–</div></div>
+  <div class="uptime-item"><div class="uptime-key">Server Address</div><div class="uptime-val">localhost:8000</div></div>
+  <div class="uptime-item"><div class="uptime-key">WebSocket</div><div class="uptime-val" id="uptimeWs">–</div></div>
+  <div class="uptime-item"><div class="uptime-key">Active Session</div><div class="uptime-val" id="uptimeSession">–</div></div>
+  <div class="uptime-item"><div class="uptime-key">iPhone Bridge</div><div class="uptime-val" id="uptimeBridge">–</div></div>
+</div>
+
+<div class="card">
+  <div class="chart-meta">
+    <div class="card-title">Live Connectivity Map<span>Website → iPhone → Watch → Server</span></div>
+    <div class="chart-meta-actions">
+      <button class="btn btn-sm btn-outline" onclick="downloadDebugPackage()">Export debug JSON</button>
+      <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">Reset watch command</button>
+    </div>
+  </div>
+  <div class="network-map">
+    <div class="network-node err" id="netServer">
+      <div class="node-icon">⌁</div>
+      <div class="node-title">Website / Server</div>
+      <div class="node-status" id="netServerStatus">WS reconnecting</div>
+    </div>
+    <div class="network-link">
+      <div class="network-line" id="netLineServerPhone"></div>
+      <div id="netLinkServerPhone">websocket</div>
+    </div>
+    <div class="network-node err" id="netPhone">
+      <div class="node-icon">▯</div>
+      <div class="node-title">iPhone Bridge</div>
+      <div class="node-status" id="netPhoneStatus">not connected</div>
+    </div>
+    <div class="network-link">
+      <div class="network-line" id="netLinePhoneWatch"></div>
+      <div id="netLinkPhoneWatch">command poll</div>
+    </div>
+    <div class="network-node err" id="netWatch">
+      <div class="node-icon">◉</div>
+      <div class="node-title">Apple Watch</div>
+      <div class="node-status" id="netWatchStatus">no poll</div>
+    </div>
+  </div>
+  <div class="network-detail-grid">
+    <div class="network-detail"><div class="k">Watch Poll</div><div class="v" id="netWatchPollDetail">–</div></div>
+    <div class="network-detail"><div class="k">Watch State</div><div class="v" id="netWatchStateDetail">–</div></div>
+    <div class="network-detail"><div class="k">Sample Bridge</div><div class="v" id="netSampleBridgeDetail">–</div></div>
+    <div class="network-detail"><div class="k">Failure Reason</div><div class="v" id="netFailureDetail">–</div></div>
+  </div>
+</div>
+
+<div class="conn-grid">
+  <div class="card">
+    <div class="device-header">
+      <div class="card-title">Pen — NWP-F130 (BLE)</div>
+      <div class="status-badge badge-err" id="connPenBadge">Disconnected</div>
+    </div>
+    <div class="conn-empty-slot" id="connPenEmpty" style="display:none"></div>
+    <div class="info-block">
+      <div class="info-row"><span class="info-key">Protocol</span><span class="info-val">NeoSmartpen V2 (BLE)</span></div>
+      <div class="info-row"><span class="info-key">Service UUID</span><span class="info-val is-id">4f99f138-9d53-5bfa-9e50-b147491afe68</span></div>
+      <div class="info-row"><span class="info-key">Password</span><span class="info-val">0000 (default)</span></div>
+      <div class="info-row"><span class="info-key">Sample output</span><span class="info-val">x, y, pressure, tilt, dot_type</span></div>
+      <div class="info-row"><span class="info-key">Process PID</span><span class="info-val" id="penPid">–</span></div>
+      <div class="info-row"><span class="info-key">Dot rate</span><span class="info-val" id="connPenHz">–</span></div>
+      <div class="info-row"><span class="info-key">Last dot</span><span class="info-val" id="connPenLast">–</span></div>
+      <div class="info-row"><span class="info-key">Server time column</span><span class="info-val" id="connPenClock">–</span></div>
+    </div>
+    <div class="device-actions">
+      <button class="btn btn-sm btn-green" onclick="penConnect()">▲ Connect Pen</button>
+      <button class="btn btn-sm btn-red" onclick="penDisconnect()">▼ Disconnect</button>
+    </div>
+  </div>
+  <div class="card">
+    <div class="device-header">
+      <div class="card-title">Watch — Apple Watch (HTTP)</div>
+      <div class="status-badge badge-err" id="connWatchBadge">Offline</div>
+    </div>
+    <div class="conn-empty-slot" id="connWatchEmpty" style="display:none"></div>
+    <div class="info-block">
+      <div class="info-row"><span class="info-key">Transport</span><span class="info-val">WatchConnectivity + HTTP POST</span></div>
+      <div class="info-row"><span class="info-key">Endpoint</span><span class="info-val">POST /watch</span></div>
+      <div class="info-row"><span class="info-key">iPhone bridge</span><span class="info-val" id="connWatchBridge">–</span></div>
+      <div class="info-row"><span class="info-key">Watch reachability</span><span class="info-val" id="connWatchReachable">–</span></div>
+      <div class="info-row"><span class="info-key">Motion stream</span><span class="info-val" id="connWatchStream">–</span></div>
+      <div class="info-row"><span class="info-key">Batch size</span><span class="info-val">10 samples</span></div>
+      <div class="info-row"><span class="info-key">Sample rate</span><span class="info-val">50 Hz</span></div>
+      <div class="info-row"><span class="info-key">Actual receive rate</span><span class="info-val" id="connWatchHz">–</span></div>
+      <div class="info-row"><span class="info-key">Batch sample rate</span><span class="info-val" id="connWatchBatchHz">–</span></div>
+      <div class="info-row"><span class="info-key">Gyroscope present</span><span class="info-val" id="connWatchGyro">–</span></div>
+      <div class="info-row"><span class="info-key">Clock skew</span><span class="info-val" id="connWatchSkew">–</span></div>
+      <div class="info-row"><span class="info-key">Sequence gaps</span><span class="info-val" id="connWatchGaps">–</span></div>
+      <div class="info-row"><span class="info-key">Last command</span><span class="info-val" id="connWatchCommand">–</span></div>
+      <div class="info-row"><span class="info-key">Last packet</span><span class="info-val" id="connWatchLast">–</span></div>
+    </div>
+    <div class="device-actions">
+      <button class="btn btn-sm btn-outline" onclick="watchCmd('start')">▶ Send Start Cmd</button>
+      <button class="btn btn-sm btn-outline" onclick="watchCmd('stop')">■ Send Stop Cmd</button>
+    </div>
+  </div>
+</div>
+
+<div class="settings-grid">
+  <div class="card">
+    <div class="card-title">Dashboard Settings<span>local browser preferences</span></div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-title">Theme</div>
+        <div class="setting-help">Switch between light and dark validation mode.</div>
+      </div>
+      <select id="themeSelect" onchange="setTheme(this.value)">
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </div>
+    <div class="setting-row">
+      <div>
+        <div class="setting-title">Log rows</div>
+        <div class="setting-help">How many live rows are visible in each log panel.</div>
+      </div>
+      <select id="logRowsSelect" onchange="setLogRows(this.value)">
+        <option value="24">24 rows</option>
+        <option value="40">40 rows</option>
+        <option value="80">80 rows</option>
+      </select>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Live Quality Checklist<span>what must be true before modeling</span></div>
+    <div class="info-block">
+      <div class="info-row"><span class="info-key">Watch accelerometer</span><span class="info-val" id="checkAccel">–</span></div>
+      <div class="info-row"><span class="info-key">Watch gyroscope</span><span class="info-val" id="checkGyro">–</span></div>
+      <div class="info-row"><span class="info-key">Pen server timestamp</span><span class="info-val" id="checkPenTime">–</span></div>
+      <div class="info-row"><span class="info-key">Rate health</span><span class="info-val" id="checkRate">–</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">API Endpoints<span>FastAPI server · localhost:8000</span></div>
+  <div class="endpoint-list">
+    <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/</span><span class="ep-desc">Serve dashboard.html</span></div>
+    <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/status</span><span class="ep-desc">Current server + device status (JSON)</span></div>
+    <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/session/preflight</span><span class="ep-desc">Start readiness check for iPhone, Watch polling and Pen</span></div>
+    <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/debug/package</span><span class="ep-desc">Export current status, events, clients and recent samples</span></div>
+    <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions</span><span class="ep-desc">List all recorded sessions</span></div>
+    <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions/quality</span><span class="ep-desc">Read-only quality report per session</span></div>
+    <div class="endpoint"><span class="method get">GET</span><span class="ep-path">/sessions/{id}/validation</span><span class="ep-desc">Timeline overlap + source-clock drift estimate</span></div>
+    <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/session/start</span><span class="ep-desc">Start new session · body: {person_id}</span></div>
+    <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/session/stop</span><span class="ep-desc">Stop active session + finalize CSV</span></div>
+    <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/pen/connect</span><span class="ep-desc">Launch pen_logger.py subprocess</span></div>
+    <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/pen/disconnect</span><span class="ep-desc">Kill pen_logger subprocess (SIGINT)</span></div>
+    <div class="endpoint"><span class="method post">POST</span><span class="ep-path">/watch</span><span class="ep-desc">Receive watch IMU batch (from iPhone app)</span></div>
+    <div class="endpoint"><span class="method ws">WS</span><span class="ep-path">/ws</span><span class="ep-desc">Real-time status broadcast (1 Hz)</span></div>
+  </div>
+</div>
+
+<div class="conn-grid">
+  <div class="card">
+    <div class="card-title">Watch CSV Schema<span>data/raw/watch/{session}_watch.csv</span></div>
+    <div class="info-block" style="padding:0;overflow:hidden">
+      <table class="schema-table">
+        <thead><tr><th>Column</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>local_ts</td><td><span class="tag tag-str">str</span></td><td>Server receive time (ISO 8601 UTC)</td></tr>
+          <tr><td>local_ts_ms</td><td><span class="tag tag-int">int</span></td><td>Server receive time in Unix ms</td></tr>
+          <tr><td>session_id</td><td><span class="tag tag-str">str</span></td><td>Session identifier e.g. S001</td></tr>
+          <tr><td>sequence</td><td><span class="tag tag-int">int</span></td><td>Batch sequence number (watch-side)</td></tr>
+          <tr><td>sample_rate_hz</td><td><span class="tag tag-float">float</span></td><td>Configured IMU rate (50.0)</td></tr>
+          <tr><td>watch_sent_at</td><td><span class="tag tag-int">int</span></td><td>Unix ms timestamp, watch side</td></tr>
+          <tr><td>phone_received_at</td><td><span class="tag tag-int">int</span></td><td>Unix ms timestamp, phone side</td></tr>
+          <tr><td>server_received_ms</td><td><span class="tag tag-int">int</span></td><td>Unix ms timestamp, FastAPI receive time</td></tr>
+          <tr><td>source</td><td><span class="tag tag-str">str</span></td><td>message / background (WCSession mode)</td></tr>
+          <tr><td>ts</td><td><span class="tag tag-int">int</span></td><td>Sample Unix ms timestamp</td></tr>
+          <tr><td>ax / ay / az</td><td><span class="tag tag-float">float</span></td><td>User acceleration (g), x/y/z</td></tr>
+          <tr><td>rx / ry / rz</td><td><span class="tag tag-float">float</span></td><td>Rotation rate (rad/s), x/y/z</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title">Pen CSV Schema<span>data/raw/pen/{session}_pen.csv</span></div>
+    <div class="info-block" style="padding:0;overflow:hidden">
+      <table class="schema-table">
+        <thead><tr><th>Column</th><th>Type</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td>timestamp</td><td><span class="tag tag-int">int</span></td><td>Unix ms (pen internal clock)</td></tr>
+          <tr><td>local_ts / local_ts_ms</td><td><span class="tag tag-str">str/int</span></td><td>Server receive time for watch alignment</td></tr>
+          <tr><td>x</td><td><span class="tag tag-float">float</span></td><td>Ncode x coordinate (sub-pixel)</td></tr>
+          <tr><td>y</td><td><span class="tag tag-float">float</span></td><td>Ncode y coordinate (sub-pixel)</td></tr>
+          <tr><td>pressure</td><td><span class="tag tag-int">int</span></td><td>Tip force (0–4095)</td></tr>
+          <tr><td>dot_type</td><td><span class="tag tag-str">str</span></td><td>PEN_DOWN / PEN_MOVE / PEN_UP / PEN_HOVER</td></tr>
+          <tr><td>tilt_x</td><td><span class="tag tag-int">int</span></td><td>Pen tilt angle X (°)</td></tr>
+          <tr><td>tilt_y</td><td><span class="tag tag-int">int</span></td><td>Pen tilt angle Y (°)</td></tr>
+          <tr><td>section / owner</td><td><span class="tag tag-int">int</span></td><td>Ncode paper identifiers</td></tr>
+          <tr><td>note / page</td><td><span class="tag tag-int">int</span></td><td>Ncode page identifiers</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-title">Project Overview<span>ML4SCS · Leuphana University</span></div>
+  <div class="system-overview-grid">
+    <div>
+      <p><strong>Research question</strong></p>
+      <p>Can writing activity and concentration levels of elementary school children be detected and predicted using IMU data from a smartwatch in combination with ground truth data from a Moleskine Smart Pen (NWP-F130)?</p>
+    </div>
+    <div>
+      <p><strong>Data pipeline</strong></p>
+      <p>Apple Watch → WatchStreamer app → iPhone bridge → FastAPI server → watch CSV. Moleskine Pen → BLE (pen_logger.py) → pen CSV. Both streams keep their device timestamps; server receive times are capture metadata and a coarse session anchor.</p>
+    </div>
+    <div>
+      <p><strong>Team</strong></p>
+      <p>Noah Samel · Ben Kriegsmann · Tajuddin Snasni</p>
+    </div>
+    <div>
+      <p><strong>Stack</strong></p>
+      <p>Python · FastAPI · Bleak (BLE) · Swift / WatchKit · scikit-learn · pandas · Jupyter</p>
+    </div>
+  </div>
+</div>

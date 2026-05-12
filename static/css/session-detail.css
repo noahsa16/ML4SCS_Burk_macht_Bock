@@ -81,8 +81,7 @@
   letter-spacing: 0.04em; text-transform: uppercase;
   border-radius: var(--radius-sm); border: 1px solid var(--border);
 }
-/* Trainable steht für das User-Goal — Accent statt generisches Grün */
-.verdict-badge.trainable { color: var(--accent); border-color: color-mix(in oklch, var(--accent) 55%, transparent); background: color-mix(in oklch, var(--accent) 8%, transparent); }
+.verdict-badge.trainable { color: var(--green); border-color: color-mix(in oklch, var(--green) 55%, transparent); background: color-mix(in oklch, var(--green) 8%, transparent); }
 .verdict-badge.usable    { color: var(--warn);   border-color: color-mix(in oklch, var(--yellow) 55%, transparent); background: color-mix(in oklch, var(--yellow) 10%, transparent); }
 .verdict-badge.skip      { color: var(--err);    border-color: color-mix(in oklch, var(--red) 55%, transparent);    background: color-mix(in oklch, var(--red) 8%, transparent); }
 
