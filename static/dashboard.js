@@ -13,14 +13,14 @@ import {
 import * as recording      from '/static/js/pages/recording.js';
 import * as sessions       from '/static/js/pages/sessions.js';
 import * as sessionDetail  from '/static/js/pages/session_detail.js';
-import * as connections    from '/static/js/pages/connections.js';
-import * as system         from '/static/js/pages/system.js';
+import * as settings       from '/static/js/pages/settings.js';
 
 import { loadSessions } from '/static/js/pages/sessions.js';
-import { openSessionDetail } from '/static/js/pages/session_detail.js';
+import { openSessionDetail, toggleSessionFlag } from '/static/js/pages/session_detail.js';
 import {
   toggleSession, penConnect, penDisconnect, watchCmd, airpodsCmd,
   toggleCardDetails, clearPenPreview, clearVisualLogs, setLogRows,
+  setPenViewMode,
 } from '/static/js/pages/recording.js';
 
 // ════════════════════════════════════════════════════════════
@@ -30,8 +30,7 @@ const pages = {
   recording,
   sessions,
   'session-detail': sessionDetail,
-  connections,
-  system,
+  settings,
 };
 
 const partialCache = new Map();
@@ -106,13 +105,78 @@ document.querySelectorAll('.tab[data-page]').forEach(btn => {
 });
 
 window.addEventListener('hashchange', () => {
-  const pageId = _routeFromHash() || 'recording';
-  showPage(pageId);
+  // Why: in-page anchors like #sec-prefs on Settings are NOT page routes —
+  // leave them alone so the browser can scroll to the section. Only act on
+  // hashes that resolve to a real registered page.
+  const pageId = _routeFromHash();
+  if (pageId) showPage(pageId);
 });
 
-// Status-Cluster in topbar → jump to Connections for diagnostics
-document.getElementById('statusCluster')?.addEventListener('click', () => {
-  document.querySelector('.tab[data-page="connections"]')?.click();
+// ════════════════════════════════════════════════════════════
+//  TOPBAR STATUS CLUSTER — pin-open drop-panel
+// ════════════════════════════════════════════════════════════
+// Hover gives a read-only peek; click toggles the panel into an
+// "interaction mode" that stays open even when the mouse moves to
+// the action button. Outside-click or Escape closes.
+const _statusCluster = document.getElementById('statusCluster');
+const _statusPanel = document.getElementById('statusHoverCard');
+
+function _setClusterOpen(open) {
+  if (!_statusCluster) return;
+  _statusCluster.classList.toggle('is-open', !!open);
+  _statusCluster.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (_statusPanel) _statusPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+}
+
+_statusCluster?.addEventListener('click', (e) => {
+  // Why: clicks on the action button / settings link must NOT toggle the
+  // panel — they perform their own action while keeping the panel state.
+  if (e.target.closest('.device-action')) return;
+  if (e.target.closest('.status-hover-link')) return;
+  const willOpen = !_statusCluster.classList.contains('is-open');
+  _setClusterOpen(willOpen);
+});
+
+_statusCluster?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    _setClusterOpen(!_statusCluster.classList.contains('is-open'));
+  } else if (e.key === 'Escape') {
+    _setClusterOpen(false);
+  }
+});
+
+// Outside-click closes the panel
+document.addEventListener('click', (e) => {
+  if (!_statusCluster?.classList.contains('is-open')) return;
+  if (e.target.closest('#statusCluster')) return;
+  _setClusterOpen(false);
+});
+
+// Escape closes
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && _statusCluster?.classList.contains('is-open')) {
+    _setClusterOpen(false);
+  }
+});
+
+// Pen action button — calls connect/disconnect based on current mode.
+// The button stays inside the panel; we keep the panel open so the user
+// sees the state transition (off → searching → on).
+const _penAction = document.getElementById('hoverPenAction');
+_penAction?.addEventListener('click', async (e) => {
+  e.stopPropagation();
+  const mode = _penAction.dataset.mode;
+  if (mode === 'on' || mode === 'searching') {
+    await penDisconnect();
+  } else {
+    await penConnect();
+  }
+});
+
+// Settings link inside the panel — close panel before navigation.
+document.getElementById('statusHoverSettingsLink')?.addEventListener('click', () => {
+  _setClusterOpen(false);
 });
 
 // ════════════════════════════════════════════════════════════
@@ -156,4 +220,5 @@ Object.assign(window, {
   penConnect, penDisconnect, watchCmd, airpodsCmd,
   clearPenPreview, clearVisualLogs, loadSessions, closeSessionDetail,
   downloadDebugPackage, setTheme, setLogRows, openSessionDetail,
+  setPenViewMode, toggleSessionFlag,
 });

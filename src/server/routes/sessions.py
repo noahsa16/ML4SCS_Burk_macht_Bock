@@ -22,7 +22,7 @@ from ..csv_io import (
 from ..models import SessionStartBody
 from ..pen_proc import _start_pen, _stop_pen
 from ..quality import (
-    _session_quality, _session_validation,
+    _session_quality, _session_quality_cols, _session_validation,
     _session_report, _session_report_markdown,
 )
 from ..state import ActiveSession, state
@@ -215,6 +215,42 @@ async def get_session_alignment(session_id: str):
     }
 
 
+@router.post("/sessions/{session_id}/flag")
+async def flag_session(session_id: str, body: dict | None = None):
+    """Manually flag / unflag a session.
+
+    Body: ``{"flagged": true|false, "note": "optional reason"}``.
+    A flagged session is forced to ``verdict="skip"`` regardless of σ or
+    ML status — quality cols are recomputed and persisted in sessions.csv.
+    """
+    rows = _read_session_rows()
+    row = next((r for r in rows if r.get("session_id") == session_id), None)
+    if row is None:
+        return JSONResponse({"error": f"Session {session_id} not found"}, status_code=404)
+
+    body = body or {}
+    flagged = bool(body.get("flagged"))
+    note = (body.get("note") or "").strip()
+
+    updates = {
+        "flagged": "yes" if flagged else "",
+        "flag_note": note if flagged else "",
+    }
+    # Recompute the quality snapshot so verdict / issue_codes reflect the
+    # flag immediately — same code path session_stop uses.
+    try:
+        merged = {**row, **updates}
+        updates.update(_session_quality_cols(merged))
+    except Exception as exc:
+        state.append_event("session", "warn",
+            f"Quality recompute for {session_id} (flag toggle) failed: {exc}",
+            {"session_id": session_id})
+
+    _update_session_row(session_id, updates)
+    return {"session_id": session_id, "flagged": flagged, "flag_note": note,
+            "verdict": updates.get("verdict", "")}
+
+
 @router.get("/sessions/{session_id}/report")
 async def get_session_report(session_id: str, format: str = "json"):
     """Pro-Session-Report — JSON oder Markdown.
@@ -351,13 +387,26 @@ async def session_stop():
     watch_samples = state.watch_sample_count
     airpods_samples = state.airpods_sample_count
 
-    _update_session_row(session_id, {
+
+    updates = {
         "end_time": end_time,
         "pen_samples": pen_samples,
         "watch_samples": watch_samples,
         "airpods_samples": airpods_samples,
         "status": "completed",
-    })
+    }
+    # Why: compute the quality snapshot AFTER the CSVs are closed so
+    # the sample counts and timing reflect the final state on disk.
+    try:
+        updates.update(_session_quality_cols({
+            "session_id": session_id,
+            "status": "completed",
+            **updates,
+        }))
+    except Exception as exc:
+        state.append_event("session", "warn",
+            f"Quality snapshot for {session_id} failed: {exc}", {"session_id": session_id})
+    _update_session_row(session_id, updates)
 
     state.append_event("session", "info", f"Session {session_id} finalized", {
         "pen_samples": pen_samples,

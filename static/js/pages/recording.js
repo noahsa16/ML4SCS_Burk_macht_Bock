@@ -10,7 +10,6 @@ import { fmtDuration, fmtNum, fmtClock, fmtHz } from '/static/js/core/format.js'
 import { S } from '/static/js/core/state.js';
 import { setNumberSmooth } from '/static/js/core/anim.js';
 import { toast } from '/static/js/core/toast.js';
-import { setHealth } from '/static/js/core/status_cluster.js';
 import { renderState } from '/static/js/core/states.js';
 
 let _mounted = false;
@@ -59,7 +58,7 @@ function _initChart() {
     },
     options: {
       responsive: true,
-      maintainAspectRatio: true,
+      maintainAspectRatio: false,
       animation: { duration: 0 },
       interaction: { mode: 'index', intersect: false },
       scales: {
@@ -172,17 +171,68 @@ export function updatePenCanvas(newDots) {
     dropped.forEach(d => _penSeenTs.delete(dotKey(d)));
   }
 
-  for (const d of S.penDotBuffer) {
-    if (!S.penBounds) {
-      S.penBounds = { minX: d.x, maxX: d.x, minY: d.y, maxY: d.y };
-    } else {
-      if (d.x < S.penBounds.minX) S.penBounds.minX = d.x;
-      if (d.x > S.penBounds.maxX) S.penBounds.maxX = d.x;
-      if (d.y < S.penBounds.minY) S.penBounds.minY = d.y;
-      if (d.y > S.penBounds.maxY) S.penBounds.maxY = d.y;
-    }
+  // Track which physical page is being written on right now — last
+  // dot's Ncode IDs win. Updates the page-info pill in the UI.
+  const last = S.penDotBuffer[S.penDotBuffer.length - 1];
+  const lastPage = _dotPageId(last);
+  if (lastPage && !_samePage(_penCurrentPage, lastPage)) {
+    _penCurrentPage = lastPage;
   }
 
+  drawPenCanvas();
+}
+
+// Sliding view: only the last N dots count for the visible bbox so the
+// preview doesn't slowly zoom out as more is written. Tune as needed —
+// 600 ≈ a few seconds of fast writing at ~80 Hz pen rate.
+const PEN_VIEW_WINDOW = 600;
+
+// Two viewing modes for the handwriting preview:
+//   'live' — sliding window, follows the most recent strokes (default)
+//   'page' — full current Ncode page, lets the user explore what was written
+let _penViewMode = 'live';
+// Latest physical-page identity, derived from the Ncode IDs each dot
+// carries (section / owner / note / page). When the user turns to a new
+// page, this auto-updates so live view follows them.
+let _penCurrentPage = null;
+
+function _dotPageId(d) {
+  // Why: pen_logger emits these as ints; treat undefined / 0 as missing.
+  if (d == null) return null;
+  if (d.section == null && d.owner == null && d.note == null && d.page == null) return null;
+  return {
+    section: d.section ?? 0,
+    owner:   d.owner   ?? 0,
+    note:    d.note    ?? 0,
+    page:    d.page    ?? 0,
+  };
+}
+
+function _samePage(a, b) {
+  if (!a || !b) return false;
+  return a.section === b.section && a.owner === b.owner
+    && a.note === b.note && a.page === b.page;
+}
+
+function _computePenBoundsFrom(dots) {
+  if (!dots.length) return null;
+  let minX = dots[0].x, maxX = dots[0].x, minY = dots[0].y, maxY = dots[0].y;
+  for (let i = 1; i < dots.length; i++) {
+    const d = dots[i];
+    if (d.x < minX) minX = d.x;
+    if (d.x > maxX) maxX = d.x;
+    if (d.y < minY) minY = d.y;
+    if (d.y > maxY) maxY = d.y;
+  }
+  return { minX, maxX, minY, maxY };
+}
+
+export function setPenViewMode(mode) {
+  _penViewMode = mode === 'page' ? 'page' : 'live';
+  document.querySelectorAll('.rec-pen-mode-opt').forEach(b => {
+    b.classList.toggle('is-active', b.dataset.mode === _penViewMode);
+    b.setAttribute('aria-pressed', b.dataset.mode === _penViewMode ? 'true' : 'false');
+  });
   drawPenCanvas();
 }
 
@@ -190,6 +240,7 @@ export function clearPenPreview() {
   S.penDotBuffer = [];
   S.penBounds = null;
   _penSeenTs = new Set();
+  _penCurrentPage = null;
   drawPenCanvas();
   const info = document.getElementById('penCanvasInfo');
   if (info) info.textContent = 'Cleared - waiting for new pen data';
@@ -200,8 +251,10 @@ export function drawPenCanvas() {
   const canvas = _penCanvas;
   const ctx = _penCtx;
   const dpr = window.devicePixelRatio || 1;
-  const cssW = canvas.offsetWidth || 600;
-  const cssH = 200;
+  // Read both dimensions from the actual rendered element so the canvas
+  // fills whatever the parent panel gives us (no hard-coded 200 height).
+  const cssW = canvas.clientWidth || canvas.offsetWidth || 600;
+  const cssH = canvas.clientHeight || canvas.offsetHeight || 200;
   const penCanvasEmpty = document.getElementById('penCanvasEmpty');
   if (S.penDotBuffer.length > 0) {
     renderState(penCanvasEmpty, 'clear');
@@ -215,19 +268,37 @@ export function drawPenCanvas() {
   if (canvas.width !== Math.round(cssW * dpr) || canvas.height !== Math.round(cssH * dpr)) {
     canvas.width = Math.round(cssW * dpr);
     canvas.height = Math.round(cssH * dpr);
-    canvas.style.height = cssH + 'px';
+    // Leave the inline style.height alone — CSS controls layout height.
   }
 
   ctx.save();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
-  if (!S.penDotBuffer.length || !S.penBounds) {
+  if (!S.penDotBuffer.length) {
     ctx.restore();
     return;
   }
 
-  const { minX, maxX, minY, maxY } = S.penBounds;
+  // Restrict the view to the dots of the page the user is currently
+  // writing on (or, if no Ncode IDs yet, the whole buffer).
+  const pageDots = _penCurrentPage
+    ? S.penDotBuffer.filter(d => _samePage(_dotPageId(d), _penCurrentPage))
+    : S.penDotBuffer;
+
+  // Mode picks the slicing strategy:
+  //   live → last PEN_VIEW_WINDOW dots (scrolling notebook view)
+  //   page → ALL dots on the current page (zoomed-out exploration)
+  const viewDots = _penViewMode === 'page'
+    ? pageDots
+    : (pageDots.length > PEN_VIEW_WINDOW
+        ? pageDots.slice(-PEN_VIEW_WINDOW)
+        : pageDots);
+  if (!viewDots.length) { ctx.restore(); return; }
+  const bounds = _computePenBoundsFrom(viewDots);
+  if (!bounds) { ctx.restore(); return; }
+  S.penBounds = bounds;   // kept on state so meta-line can still report it
+  const { minX, maxX, minY, maxY } = bounds;
   const rangeX = maxX - minX || 1;
   const rangeY = maxY - minY || 1;
   const pad = 20;
@@ -250,7 +321,7 @@ export function drawPenCanvas() {
   ctx.lineJoin = 'round';
 
   let inStroke = false;
-  for (const dot of S.penDotBuffer) {
+  for (const dot of viewDots) {
     const cx = toX(dot.x);
     const cy = toY(dot.y);
     if (dot.t === 'PEN_DOWN') {
@@ -285,6 +356,17 @@ export function drawPenCanvas() {
   const info = document.getElementById('penCanvasInfo');
   if (info) info.textContent =
     `${moveDots} ink dots · x ${minX.toFixed(1)}–${maxX.toFixed(1)} · y ${minY.toFixed(1)}–${maxY.toFixed(1)}`;
+
+  // Visible page-info pill — only show when we have Ncode IDs from a real dot
+  const pill = document.getElementById('penPagePill');
+  if (pill) {
+    if (_penCurrentPage) {
+      pill.textContent = `p. ${_penCurrentPage.page} · note ${_penCurrentPage.note}`;
+      pill.style.display = '';
+    } else {
+      pill.style.display = 'none';
+    }
+  }
 }
 
 // ════════════════════════════════════════════════════════════
@@ -334,7 +416,7 @@ async function runStartPreflight() {
   if (!preflight) return { canStart: false, force: false };
   if (preflight.blockers?.length) {
     showPreflightResult(preflight);
-    document.querySelector('.tab[data-page="connections"]')?.click();
+    document.querySelector('.tab[data-page="settings"]')?.click();
     return { canStart: false, force: false };
   }
   if (preflight.warnings?.length) {
@@ -556,20 +638,8 @@ export function onStatus(s) {
     if (labelEl) labelEl.textContent = 'Session ended';
   }
 
-  const watchRate = Number(s.watch_rate_hz || 0);
-  const penRate = Number(s.pen_rate_hz || 0);
-  const validation = s.validation || {};
-  const gyroOk = validation.watch_has_gyroscope === true;
-  const penClockOk = validation.pen_has_server_time === true;
-
   // Welcome card
   _updateWelcomeCard(s);
-
-  // Health metrics
-  setHealth('watchHz', fmtHz(watchRate), watchRate > 80 ? 'ok' : (watchRate > 0 ? 'warn' : 'err'));
-  setHealth('penHz', fmtHz(penRate), penRate > 0 ? 'ok' : (s.pen_connected ? 'warn' : 'err'));
-  setHealth('gyroHealth', gyroOk ? 'present' : 'missing', gyroOk ? 'ok' : 'err');
-  setHealth('clockHealth', penClockOk ? 'server time' : 'legacy pen time', penClockOk ? 'ok' : 'warn');
 
   // Chart
   if (s.chart) updateChart(s.chart);

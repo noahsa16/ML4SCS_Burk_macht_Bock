@@ -10,10 +10,13 @@
 <link rel="stylesheet" href="/static/css/base.css">
 <link rel="stylesheet" href="/static/css/topbar.css">
 <link rel="stylesheet" href="/static/css/recording.css">
+<link rel="stylesheet" href="/static/css/recording-redesign.css">
 <link rel="stylesheet" href="/static/css/sessions.css">
+<link rel="stylesheet" href="/static/css/sessions-redesign.css">
 <link rel="stylesheet" href="/static/css/session-detail.css">
 <link rel="stylesheet" href="/static/css/connections.css">
 <link rel="stylesheet" href="/static/css/system.css">
+<link rel="stylesheet" href="/static/css/settings.css">
 <link rel="stylesheet" href="/static/css/footer.css">
 <link rel="modulepreload" href="/static/dashboard.js">
 <link rel="modulepreload" href="/static/js/core/state.js">
@@ -43,13 +46,13 @@
     <nav class="tabs" role="tablist">
       <button type="button" class="tab active" data-page="recording"   role="tab">Recording</button>
       <button type="button" class="tab"        data-page="sessions"    role="tab">Sessions</button>
-      <button type="button" class="tab"        data-page="connections" role="tab">Connections</button>
-      <button type="button" class="tab"        data-page="system"      role="tab">System</button>
+      <button type="button" class="tab"        data-page="settings"    role="tab">Settings</button>
       <span class="tab-indicator" id="tabIndicator" aria-hidden="true"></span>
     </nav>
     <div class="topbar-right">
-      <button type="button" class="status-cluster" id="statusCluster"
-              title="Hover for device details">
+      <div class="status-cluster" id="statusCluster" role="button" tabindex="0"
+              aria-haspopup="dialog" aria-expanded="false"
+              title="Click for device controls">
         <span class="status-cluster-dots">
           <span class="status-dot" id="clusterDotPen"     aria-label="Pen"></span>
           <span class="status-dot" id="clusterDotWatch"   aria-label="Watch"></span>
@@ -59,33 +62,41 @@
         <span class="status-cluster-label" id="statusClusterLabel">connecting…</span>
         <span class="status-cluster-meta" id="statusClusterMeta"></span>
 
-        <span class="status-hover-card" aria-hidden="true">
-          <span class="status-hover-row" data-device="pen">
+        <div class="status-hover-card" id="statusHoverCard" aria-hidden="true">
+          <div class="status-hover-row" data-device="pen">
             <span class="status-hover-dot"></span>
             <span class="status-hover-label">Pen</span>
             <span class="status-hover-state" id="hoverPenState">offline</span>
             <span class="status-hover-meta"  id="hoverPenMeta">— Hz · —</span>
-          </span>
-          <span class="status-hover-row" data-device="watch">
+            <button type="button" class="device-action" id="hoverPenAction" data-mode="off">
+              <span class="device-action-glyph" id="hoverPenActionGlyph">▲</span>
+              <span class="device-action-label" id="hoverPenActionLabel">Connect</span>
+            </button>
+          </div>
+          <div class="status-hover-row" data-device="watch">
             <span class="status-hover-dot"></span>
             <span class="status-hover-label">Watch</span>
             <span class="status-hover-state" id="hoverWatchState">offline</span>
             <span class="status-hover-meta"  id="hoverWatchMeta">— Hz · —</span>
-          </span>
-          <span class="status-hover-row" data-device="airpods">
+          </div>
+          <div class="status-hover-row" data-device="airpods">
             <span class="status-hover-dot"></span>
             <span class="status-hover-label">AirPods</span>
             <span class="status-hover-state" id="hoverAirpodsState">offline</span>
             <span class="status-hover-meta"  id="hoverAirpodsMeta">— Hz · —</span>
-          </span>
-          <span class="status-hover-row" data-device="server">
+          </div>
+          <div class="status-hover-row" data-device="server">
             <span class="status-hover-dot"></span>
             <span class="status-hover-label">Server</span>
             <span class="status-hover-state" id="hoverServerState">connecting</span>
             <span class="status-hover-meta"  id="hoverServerMeta">—</span>
-          </span>
-        </span>
-      </button>
+          </div>
+          <a class="status-hover-link" id="statusHoverSettingsLink" href="#settings">
+            <span>open settings</span>
+            <span class="status-hover-link-arrow">→</span>
+          </a>
+        </div>
+      </div>
       <button type="button" class="theme-toggle" id="themeToggle"
               onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle light / dark">
         <span class="theme-toggle-glyph" id="themeToggleGlyph">☾</span>
@@ -96,19 +107,11 @@
   <!-- Content -->
   <div id="content">
 
-    <!-- Editorial date-strip: italic mono, oben über allen Pages. -->
-    <div class="page-strip" id="pageStrip">
-      <span class="page-strip-date" id="pageStripDate">–</span>
-      <span class="page-strip-slash">/</span>
-      <span class="page-strip-label" id="pageStripLabel">–</span>
-    </div>
-
     <!-- ══════════ PAGE SLOTS (populated lazily by bootstrap) ══════════ -->
     <div class="page active" id="page-recording"     data-view="recording"></div>
     <div class="page"        id="page-sessions"      data-view="sessions"></div>
     <div class="page"        id="page-session-detail" data-view="session-detail"></div>
-    <div class="page"        id="page-connections"   data-view="connections"></div>
-    <div class="page"        id="page-system"        data-view="system"></div>
+    <div class="page"        id="page-settings"      data-view="settings"></div>
 
   </div><!-- /content -->
 </main>

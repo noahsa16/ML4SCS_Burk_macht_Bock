@@ -83,11 +83,20 @@ function _hoverRow(device, info) {
 }
 
 function _penStatusFromS(s) {
-  if (!s) return { cls: 'err', state: 'offline', meta: '— Hz · —' };
-  const ok  = !!s.pen_connected;
+  if (!s) return { cls: 'err', state: 'offline', meta: '— Hz · —', mode: 'off' };
+  const subProcUp = !!s.pen_connected;
+  const rate = Number(s.pen_rate_hz || 0);
+  const streaming = subProcUp && rate > 0;
+  const searching = subProcUp && rate === 0;
+  // Why: pen_connected only reflects subprocess liveness, not BLE pairing.
+  // Without rate>0 we treat it as "searching" so the topbar doesn't claim
+  // a real pen connection that hasn't happened yet.
+  const cls = streaming ? 'ok' : (searching ? 'warn' : 'err');
+  const state = streaming ? 'connected' : (searching ? 'searching…' : 'offline');
   const hz  = s.pen_rate_hz != null ? fmtHz(s.pen_rate_hz) : '—';
   const ago = s.pen_last_seen_ms_ago != null ? fmtAgo(s.pen_last_seen_ms_ago) : '—';
-  return { cls: ok ? 'ok' : 'err', state: ok ? 'connected' : 'offline', meta: `${hz} · last ${ago}` };
+  return { cls, state, meta: `${hz} · last ${ago}`,
+           mode: streaming || searching ? 'on' : 'off' };
 }
 
 function _watchStatusFromS(s) {
@@ -115,11 +124,39 @@ function _serverStatusFromS(s) {
   return { cls: 'ok', state: 'ok', meta: uptime };
 }
 
+// Map pen state → (mode, glyph, label) for the action button.
+// Three states matter visually:
+//   off       → primary call-to-action: "▲ connect"
+//   searching → subtle cancel:         "✕ cancel"
+//   on        → quiet disconnect:      "▼ disconnect"
+function _penActionView(s) {
+  if (!s) return { mode: 'off', glyph: '▲', label: 'connect' };
+  const subProcUp = !!s.pen_connected;
+  const rate = Number(s.pen_rate_hz || 0);
+  if (subProcUp && rate > 0)  return { mode: 'on',        glyph: '▼', label: 'disconnect' };
+  if (subProcUp && rate === 0) return { mode: 'searching', glyph: '✕', label: 'cancel' };
+  return { mode: 'off', glyph: '▲', label: 'connect' };
+}
+
 export function _renderStatusHoverCard(s) {
   _hoverRow('pen',     _penStatusFromS(s));
   _hoverRow('watch',   _watchStatusFromS(s));
   _hoverRow('airpods', _airpodsStatusFromS(s));
   _hoverRow('server',  _serverStatusFromS(s));
+
+  const action = document.getElementById('hoverPenAction');
+  if (action) {
+    const view = _penActionView(s);
+    action.dataset.mode = view.mode;
+    const glyph = document.getElementById('hoverPenActionGlyph');
+    const label = document.getElementById('hoverPenActionLabel');
+    if (glyph) glyph.textContent = view.glyph;
+    if (label) label.textContent = view.label;
+    action.setAttribute('aria-label',
+      view.mode === 'on' ? 'Disconnect pen'
+      : view.mode === 'searching' ? 'Cancel pen connection'
+      : 'Connect pen');
+  }
 }
 
 export function setPill(id, ok, text, cls) {
@@ -172,7 +209,10 @@ export function handleStatus(s, prevSessionId) {
   S.watchBadgeClass = watchBadgeClass;
 
   // Topbar status cluster
-  const penDotState = s.pen_connected ? 'ok' : 'err';
+  const penRate = Number(s.pen_rate_hz || 0);
+  const penDotState = s.pen_connected
+    ? (penRate > 0 ? 'ok' : 'warn')
+    : 'err';
   const watchDotState = (watchStreamActive || watchReachable || watchPolling)
     ? 'ok' : (watchBridgeConnected ? 'warn' : 'err');
   const airpodsUiOnline = !!(s.airpods_connected || s.airpods_paired || s.airpods_streaming);

@@ -494,6 +494,59 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
 
 # ── View 2: Detail-Validation (für /sessions/{id}/validation) ─────────────────
 
+def _watch_activity_bins(
+    watch_path: Any, start_ms: int | None, end_ms: int | None, n_bins: int = 200,
+) -> list[float] | None:
+    """Bin |a| = √(ax² + ay² + az²) into n_bins normalized buckets along
+    [start_ms, end_ms]. Returns None if the inputs are missing or empty.
+
+    Used by the Session Detail Timeline lane to render motion intensity
+    along the watch recording window as a heatmap-gradient instead of a
+    flat orange slab. Performance: ~38k rows × 1 pass = trivial; we cache
+    via the same file-mtime mechanism _session_facts uses (caller-side)."""
+    if not watch_path or not start_ms or not end_ms or end_ms <= start_ms:
+        return None
+    try:
+        watch_path = watch_path  # already a Path from caller
+        exists = watch_path.exists()
+    except Exception:
+        return None
+    if not exists:
+        return None
+
+    bin_width = (end_ms - start_ms) / n_bins
+    if bin_width <= 0:
+        return None
+    sums = [0.0] * n_bins
+    counts = [0] * n_bins
+    import csv as _csv
+    with open(watch_path, newline="") as f:
+        reader = _csv.DictReader(f)
+        for r in reader:
+            try:
+                t = int(r.get("local_ts_ms") or 0)
+                ax = float(r.get("ax") or 0.0)
+                ay = float(r.get("ay") or 0.0)
+                az = float(r.get("az") or 0.0)
+            except (ValueError, TypeError):
+                continue
+            if t < start_ms or t >= end_ms:
+                continue
+            idx = int((t - start_ms) / bin_width)
+            if idx < 0 or idx >= n_bins:
+                continue
+            sums[idx] += ax * ax + ay * ay + az * az    # accumulate |a|²
+            counts[idx] += 1
+    out = [0.0] * n_bins
+    for i, (s, c) in enumerate(zip(sums, counts)):
+        if c:
+            out[i] = (s / c) ** 0.5   # RMS magnitude per bin
+    mx = max(out)
+    if mx <= 0:
+        return None
+    return [round(v / mx, 3) for v in out]
+
+
 def _session_validation(session_id: str) -> dict[str, Any]:
     """Tiefenanalyse einer einzelnen Session, inkl. Timeline-Daten für den Chart."""
     from .csv_io import _read_session_rows
@@ -629,12 +682,62 @@ def _session_validation(session_id: str) -> dict[str, Any]:
                 else None
             ),
             "pen_events": timeline_intervals,
+            "watch_activity": _watch_activity_bins(
+                DATA_RAW_WATCH / f"{safe_id}_watch.csv",
+                watch_clock.get("start_ms"),
+                watch_clock.get("end_ms"),
+            ),
         },
         "issues": all_issues,
     }
 
 
 # ── View 3: Voll angereicherter Report (für /sessions/{id}/report) ────────────
+
+def _session_quality_cols(row: dict[str, str]) -> dict[str, str]:
+    """Compact quality snapshot for the sessions.csv index columns.
+
+    Returns string values (CSV-friendly) for:
+      duration_seconds, ml_status, recording_status, alignment_sigma,
+      verdict (trainable/usable/skip), issue_codes (";"-separated).
+
+    Verdict logic mirrors the client-side `computeVerdict` so triage
+    on the dashboard and grepping the CSV give identical conclusions.
+    """
+    q = _session_quality(row)
+    ml = q["ml_readiness"]
+    rec = q["recording_health"]
+    sync = q["diagnostics"]["sync_estimate"] or {}
+    issues = q["issues"]
+
+    duration = q.get("duration_seconds")
+    sigma = sync.get("sigma_minimal_variance")
+    if not isinstance(sigma, (int, float)):
+        sigma = sync.get("confidence")
+    blockers = {i["code"] for i in (ml.get("blockers") or []) + (rec.get("blockers") or [])}
+
+    ml_status = ml.get("status") or "unknown"
+    # Manual flag wins over the heuristic — explicit user verdict.
+    flagged = (row.get("flagged") or "").strip().lower() == "yes"
+    if flagged:
+        verdict = "skip"
+    elif ml_status == "bad" or "sync_failed" in blockers or "streams_do_not_overlap" in blockers:
+        verdict = "skip"
+    elif (ml_status == "ok" and isinstance(sigma, (int, float))
+          and sigma <= -3 and isinstance(duration, (int, float)) and duration >= 300):
+        verdict = "trainable"
+    else:
+        verdict = "usable"
+
+    return {
+        "duration_seconds": f"{duration:.1f}" if isinstance(duration, (int, float)) else "",
+        "ml_status": ml_status,
+        "recording_status": rec.get("status") or "unknown",
+        "alignment_sigma": f"{sigma:.2f}" if isinstance(sigma, (int, float)) else "",
+        "verdict": verdict,
+        "issue_codes": ";".join(sorted({i["code"] for i in issues})),
+    }
+
 
 def _session_report(row: dict[str, str]) -> dict[str, Any]:
     """Vollständiger Report für eine Session — Quality + Validation in einem Dokument."""
@@ -672,10 +775,16 @@ def _session_report(row: dict[str, str]) -> dict[str, Any]:
 # ── Markdown-Serialisierung ───────────────────────────────────────────────────
 
 def _session_report_markdown(report: dict[str, Any]) -> str:
-    """Rendert einen _session_report als lesbare Markdown-Datei."""
+    """Rendert einen _session_report als editoriale Lab-Report-Markdown.
+
+    Output uses GitHub-flavored extensions (tables, blockquotes, HR) plus
+    Unicode-block progress bars that the inline client renderer detects
+    and styles. The download endpoint serves the same content as-is, so
+    GitHub/IDE renderers also display it reasonably.
+    """
     sid = report["session_id"]
     person = report.get("person_id") or "—"
-    desc = report.get("description") or "—"
+    desc = report.get("description") or ""
     status = report.get("status") or "—"
     duration = report.get("duration_seconds")
 
@@ -690,75 +799,218 @@ def _session_report_markdown(report: dict[str, Any]) -> str:
     def fmt_secs(v):
         return f"{v:.1f} s" if isinstance(v, (int, float)) and v is not None else "—"
 
+    def fmt_min(v):
+        if not isinstance(v, (int, float)) or v is None:
+            return "—"
+        return f"{v / 60:.1f} min"
+
     def fmt_pct(v):
         return f"{v*100:.1f}%" if isinstance(v, (int, float)) and v is not None else "—"
 
     def fmt_num(v):
         return f"{v:,}" if isinstance(v, int) else (f"{v}" if v is not None else "—")
 
-    lines: list[str] = []
-    lines.append(f"# Session {sid} — Quality Report")
-    lines.append("")
-    lines.append(f"- **Person**: {person}")
-    if desc != "—":
-        lines.append(f"- **Beschreibung**: {desc}")
-    lines.append(f"- **Status**: {status}")
-    lines.append(f"- **Dauer**: {fmt_secs(duration)}")
-    lines.append(f"- **Start**: {report.get('start_time') or '—'}")
-    lines.append(f"- **Ende**: {report.get('end_time') or '—'}")
-    lines.append("")
+    def cell(v: Any) -> str:
+        """Escape a value safely for use inside a GFM table cell — pipes and
+        newlines would otherwise break the row parser."""
+        if v is None:
+            return "—"
+        return str(v).replace("|", r"\|").replace("\n", " ")
 
-    lines.append("## Scores")
-    lines.append("")
-    lines.append(f"- **ML readiness**: `{ml['status']}` "
-                 f"({len(ml['blockers'])} blocker · {len(ml['warnings'])} warning · {len(ml['info'])} info)")
-    lines.append(f"- **Recording health**: `{rec['status']}` "
-                 f"({len(rec['blockers'])} blocker · {len(rec['warnings'])} warning · {len(rec['info'])} info)")
-    lines.append("")
+    def fmt_date(iso: str | None) -> str:
+        if not iso:
+            return "—"
+        # Strip fractional seconds / Z for compactness; leave the rest verbatim.
+        s = iso.replace("T", " ")
+        if "." in s:
+            s = s.split(".")[0]
+        return s.rstrip("Z").strip()
 
-    lines.append("## Watch Stream")
-    lines.append("")
-    lines.append(f"- Samples: {fmt_num(w['rows'])} (sessions.csv: {fmt_num(w['sessions_csv_rows'])})")
-    lines.append(f"- Geschätzte Rate: **{w['estimated_hz'] or '—'} Hz** "
-                 f"(Target {report['target_watch_hz']:.0f} Hz, akzeptiert {_WATCH_HZ_MIN:.0f}–{_WATCH_HZ_MAX:.0f} Hz)")
-    lines.append(f"- Accelerometer: {'ja' if w['has_accelerometer'] else 'NEIN'} ({fmt_num(w['accelerometer_rows'])} rows)")
-    lines.append(f"- Gyroscope: {'ja' if w['has_gyroscope'] else 'NEIN'} ({fmt_num(w['gyroscope_rows'])} rows)")
-    lines.append(f"- Wall-Clock-Stempel: {'ja' if w['has_server_received_ms'] else 'nein'}")
-    lines.append(f"- Sequence-Batches: {fmt_num(w['sequence_batches'])} · Lücken: {fmt_num(w['sequence_gaps'])}")
-    lines.append("")
+    def bar(fraction: float | None, width: int = 24) -> str:
+        """Unicode block-element progress bar — renders sanely in plain markdown
+        and is detected by the inline client renderer as a styled bar."""
+        if not isinstance(fraction, (int, float)) or fraction is None:
+            return "`" + ("░" * width) + "` —"
+        f = max(0.0, min(1.0, fraction))
+        filled = int(round(f * width))
+        return "`" + ("█" * filled) + ("░" * (width - filled)) + f"` {f*100:.1f}%"
 
-    lines.append("## Pen Stream")
-    lines.append("")
-    lines.append(f"- Dots: {fmt_num(p['rows'])} (sessions.csv: {fmt_num(p['sessions_csv_rows'])})")
-    lines.append(f"- Wall-Clock-Stempel (local_ts_ms): {'ja' if p['has_server_time'] else 'NEIN'}")
-    lines.append(f"- Effektive Schreibzeit: {fmt_secs(p['writing_seconds'])} "
-                 f"({fmt_pct(p['writing_fraction'])} der Pen-Aufnahmedauer)")
-    lines.append(f"- Anteil Dots im Watch-Bereich: {fmt_pct(cov.get('pen_dots_in_watch_range_pct'))}")
-    lines.append("")
+    # ── Derived verdict (mirrors client-side computeVerdict, conservative) ──
+    sigma_val = None
+    if isinstance(sync.get("sigma_minimal_variance"), (int, float)):
+        sigma_val = sync["sigma_minimal_variance"]
+    elif isinstance(sync.get("confidence"), (int, float)):
+        sigma_val = sync["confidence"]
+    dur_min = (duration or 0) / 60
+    ml_status = ml.get("status") or "unknown"
+    if ml_status == "bad" or dur_min < 1:
+        verdict = "SKIP"
+        verdict_why = "ML blockers present" if ml_status == "bad" else "Session too short"
+    elif (isinstance(sigma_val, (int, float)) and sigma_val <= -3
+          and dur_min >= 5 and ml_status == "ok"):
+        verdict = "TRAINABLE"
+        verdict_why = (f"alignment σ={sigma_val:.2f}, {dur_min:.1f} min duration, "
+                       "ML readiness clean — safe for the trainer")
+    elif ml_status in ("ok", "warn"):
+        verdict = "USABLE"
+        bits = []
+        if isinstance(sigma_val, (int, float)):
+            bits.append(f"σ={sigma_val:.2f}")
+        else:
+            bits.append("no alignment lock")
+        bits.append(f"{dur_min:.1f} min")
+        if ml_status == "warn":
+            bits.append(f"{len(ml.get('warnings', []))} ML warning(s)")
+        verdict_why = " · ".join(bits) + " — keep for data collection, review before training"
+    else:
+        verdict = "REVIEW"
+        verdict_why = "incomplete data — manual review required"
 
-    lines.append("## Coverage")
-    lines.append("")
-    lines.append(f"- Watch-Aufnahmedauer (Device): {fmt_secs(cov.get('watch_device_duration_seconds'))}")
-    lines.append(f"- Pen-Aufnahmedauer (Device): {fmt_secs(cov.get('pen_device_duration_seconds'))}")
-    lines.append(f"- Gemeinsames Aufnahme-Fenster (Wall-Clock): {fmt_secs(cov.get('common_overlap_seconds'))}")
-    lines.append(f"- Erwartete Watch-Samples bei {report['target_watch_hz']:.0f} Hz: "
-                 f"{fmt_num(cov.get('expected_watch_samples'))}")
-    lines.append("")
+    # ── Body ─────────────────────────────────────────────────────────────
+    L: list[str] = []
+    L.append(f"# Session {sid} — Quality Report")
+    L.append("")
 
+    # Headline verdict block
+    L.append(f"> **VERDICT: {verdict}**")
+    L.append(f"> {verdict_why}")
+    L.append("")
+    L.append("---")
+    L.append("")
+
+    # ── Identity ────────────────────────────────────────────────────────
+    L.append("## Identity")
+    L.append("")
+    L.append("| Field | Value |")
+    L.append("|---|---|")
+    L.append(f"| Session | `{sid}` |")
+    L.append(f"| Person | `{person}` |")
+    if desc:
+        L.append(f"| Description | {desc} |")
+    L.append(f"| Status | `{status}` |")
+    L.append(f"| Started | {fmt_date(report.get('start_time'))} |")
+    L.append(f"| Ended | {fmt_date(report.get('end_time'))} |")
+    L.append(f"| Duration | **{fmt_secs(duration)}** ({fmt_min(duration)}) |")
+    L.append("")
+
+    # ── Scores ──────────────────────────────────────────────────────────
+    L.append("## Scores")
+    L.append("")
+    L.append(f"> **ML readiness:** `{ml['status']}` — "
+             f"{len(ml['blockers'])} blocker · "
+             f"{len(ml['warnings'])} warning · "
+             f"{len(ml['info'])} info  ")
+    L.append(f"> **Recording health:** `{rec['status']}` — "
+             f"{len(rec['blockers'])} blocker · "
+             f"{len(rec['warnings'])} warning · "
+             f"{len(rec['info'])} info")
+    L.append("")
+
+    # ── Streams: Watch ──────────────────────────────────────────────────
+    L.append("## Watch stream")
+    L.append("")
+    L.append("Apple Watch IMU (accelerometer + gyroscope), 50 Hz target via WatchConnectivity → iPhone bridge → HTTP POST.")
+    L.append("")
+    L.append("| Metric | Value | Target / threshold |")
+    L.append("|---|---|---|")
+    L.append(f"| Samples | {fmt_num(w['rows'])} | — |")
+    target_hz = report["target_watch_hz"]
+    est_hz = w.get('estimated_hz')
+    hz_compliance = ""
+    if isinstance(est_hz, (int, float)):
+        if _WATCH_HZ_MIN <= est_hz <= _WATCH_HZ_MAX:
+            hz_compliance = "✓ in band"
+        else:
+            hz_compliance = "✗ out of band"
+    L.append(f"| Estimated rate | **{est_hz or '—'} Hz** {hz_compliance} | "
+             f"{target_hz:.0f} Hz ({_WATCH_HZ_MIN:.0f}–{_WATCH_HZ_MAX:.0f}) |")
+    L.append(f"| Accelerometer | {'yes' if w['has_accelerometer'] else '**NO**'} "
+             f"({fmt_num(w['accelerometer_rows'])} rows) | required |")
+    L.append(f"| Gyroscope | {'yes' if w['has_gyroscope'] else '**NO**'} "
+             f"({fmt_num(w['gyroscope_rows'])} rows) | required |")
+    L.append(f"| Wall-clock stamp | {'yes' if w['has_server_received_ms'] else '**no**'} | required |")
+    L.append(f"| Sequence batches | {fmt_num(w['sequence_batches'])} (gaps: {fmt_num(w['sequence_gaps'])}) | 0 gaps ideal |")
+    L.append("")
+    if isinstance(est_hz, (int, float)):
+        L.append(f"Rate vs. target: {bar(est_hz / target_hz)}")
+        L.append("")
+
+    # ── Streams: Pen ────────────────────────────────────────────────────
+    L.append("## Pen stream")
+    L.append("")
+    L.append("Moleskine Smart Pen NWP-F130, BLE — provides ground-truth labels during data collection only.")
+    L.append("")
+    L.append("| Metric | Value |")
+    L.append("|---|---|")
+    L.append(f"| Dots | {fmt_num(p['rows'])} |")
+    L.append(f"| Wall-clock stamp | {'yes' if p['has_server_time'] else '**NO** (legacy)'} |")
+    L.append(f"| Writing time | {fmt_secs(p['writing_seconds'])} "
+             f"({fmt_pct(p['writing_fraction'])} of pen duration) |")
+    L.append(f"| Dots inside watch range | {fmt_pct(cov.get('pen_dots_in_watch_range_pct'))} |")
+    L.append("")
+    if isinstance(p.get('writing_fraction'), (int, float)):
+        L.append(f"Writing fraction: {bar(p['writing_fraction'])}")
+        L.append("")
+
+    # ── Coverage ────────────────────────────────────────────────────────
+    L.append("## Coverage")
+    L.append("")
+    watch_dur = cov.get("watch_device_duration_seconds")
+    pen_dur = cov.get("pen_device_duration_seconds")
+    overlap = cov.get("common_overlap_seconds")
+    span = max(filter(None, [watch_dur, pen_dur, overlap]), default=None)
+    L.append("| Window | Seconds | Bar |")
+    L.append("|---|---|---|")
+    if watch_dur and span:
+        L.append(f"| Watch device | {fmt_secs(watch_dur)} | {bar(watch_dur / span, 18)} |")
+    if pen_dur and span:
+        L.append(f"| Pen device | {fmt_secs(pen_dur)} | {bar(pen_dur / span, 18)} |")
+    if overlap and span:
+        L.append(f"| Common overlap | {fmt_secs(overlap)} | {bar(overlap / span, 18)} |")
+    L.append("")
+    exp = cov.get("expected_watch_samples")
+    if exp and w['rows']:
+        ratio = w['rows'] / exp if exp else None
+        L.append(f"Expected watch samples @ {target_hz:.0f} Hz: **{fmt_num(exp)}** · "
+                 f"captured **{fmt_num(w['rows'])}** ({fmt_pct(ratio)})")
+        L.append("")
+
+    # ── Sync ────────────────────────────────────────────────────────────
+    L.append("## Pen ↔ Watch synchronization")
+    L.append("")
+    sync_status = sync_diag.get("status") or "—"
+    sync_label = sync_diag.get("label") or "—"
+    L.append(f"> **Status:** `{sync_status}` — {sync_label}")
+    if sync.get("usable"):
+        if isinstance(sigma_val, (int, float)):
+            L.append(f"> Confidence σ = **{sigma_val:.2f}** "
+                     f"({'trainable' if sigma_val <= -3 else 'usable' if sigma_val <= -2 else 'weak'})  ")
+        offset = sync.get("median_offset_ms")
+        drift = sync.get("estimated_drift_ms")
+        if offset is not None:
+            L.append(f"> Median offset = {offset} ms · drift = {drift} ms  ")
+        L.append(f"> Matched stroke events: {len(sync.get('matched_events') or [])}")
+    else:
+        L.append(f"> Reason: {sync.get('reason') or '—'}")
+    L.append("")
+    L.append("_Algorithm: stroke-variance minimization (TH Zürich) — the watch wrist sits relatively still while the pen is on paper, so the correct δ minimizes mean acceleration variance under the shifted stroke mask._")
+    L.append("")
+
+    # ── Issues ──────────────────────────────────────────────────────────
     issues = report.get("issues") or []
     if issues:
-        lines.append("## Issues")
-        lines.append("")
-        sev_icon = {"bad": "🛑", "warn": "⚠️", "info": "ℹ️"}
+        L.append(f"## Issues — {len(issues)} flagged")
+        L.append("")
         for issue in sorted(issues, key=lambda i: -_SEVERITY_ORDER.get(i.get("severity"), 0)):
             sev = issue.get("severity", "info")
-            icon = sev_icon.get(sev, "•")
-            lines.append(f"### {icon} `{issue['code']}` [{sev}]")
-            lines.append("")
-            lines.append(f"- **Check**: {issue.get('check') or '—'}")
-            lines.append(f"- **Threshold**: `{issue.get('threshold') or '—'}`")
-            lines.append(f"- **Beobachtet**: {issue.get('observed') if issue.get('observed') is not None else '—'}")
-            lines.append(f"- **Begründung**: {issue.get('rationale') or '—'}")
+            L.append(f"### `{issue['code']}` [{sev}]")
+            L.append("")
+            L.append("| Field | Value |")
+            L.append("|---|---|")
+            L.append(f"| Check | {cell(issue.get('check') or '—')} |")
+            L.append(f"| Threshold | `{cell(issue.get('threshold') or '—')}` |")
+            obs = issue.get('observed')
+            L.append(f"| Observed | {cell(obs) if obs is not None else '—'} |")
             ml_sev = issue.get("ml_severity")
             rec_sev = issue.get("recording_severity")
             scope = []
@@ -767,29 +1019,21 @@ def _session_report_markdown(report: dict[str, Any]) -> str:
             if rec_sev:
                 scope.append(f"Recording: {rec_sev}")
             if scope:
-                lines.append(f"- **Wirkt auf**: {' · '.join(scope)}")
-            lines.append("")
+                L.append(f"| Scope | {' · '.join(scope)} |")
+            L.append("")
+            rat = issue.get('rationale')
+            if rat:
+                L.append(f"> {rat}")
+                L.append("")
     else:
-        lines.append("## Issues")
-        lines.append("")
-        lines.append("Keine Issues gefunden — Session ist sauber.")
-        lines.append("")
+        L.append("## Issues")
+        L.append("")
+        L.append("> No issues flagged — session is clean.")
+        L.append("")
 
-    lines.append("## Sync-Diagnose (optional, beeinflusst Score nicht)")
-    lines.append("")
-    lines.append(f"- Status: `{sync_diag.get('status') or '—'}` ({sync_diag.get('label') or '—'})")
-    if sync.get("usable"):
-        lines.append(f"- Confidence: {sync.get('confidence')}")
-        lines.append(f"- Median-Offset: {sync.get('median_offset_ms')} ms · "
-                     f"Drift: {sync.get('estimated_drift_ms')} ms")
-        lines.append(f"- Matched events: {len(sync.get('matched_events') or [])}")
-    else:
-        lines.append(f"- Reason: {sync.get('reason') or '—'}")
-    lines.append("")
-
-    lines.append("---")
-    lines.append("")
-    lines.append(f"_Generated by quality.py · target {report['target_watch_hz']:.0f} Hz · "
-                 f"thresholds: hz {_WATCH_HZ_MIN:.0f}–{_WATCH_HZ_MAX:.0f}, "
-                 f"coverage ≥{_COVERAGE_PCT_MIN:.0%}, pen-in-range ≥{_PEN_IN_RANGE_PCT_MIN:.0%}_")
-    return "\n".join(lines) + "\n"
+    L.append("---")
+    L.append("")
+    L.append(f"_Generated by `quality.py` · target {target_hz:.0f} Hz · "
+             f"thresholds: hz {_WATCH_HZ_MIN:.0f}–{_WATCH_HZ_MAX:.0f}, "
+             f"coverage ≥{_COVERAGE_PCT_MIN:.0%}, pen-in-range ≥{_PEN_IN_RANGE_PCT_MIN:.0%}_")
+    return "\n".join(L) + "\n"

@@ -5,9 +5,7 @@
 .setting-title { font-weight: 600; color: var(--text); }
 .setting-help { font-size: var(--text-xs); color: var(--text3); margin-top: 2px; }
 
-/* Re-use of .conn-grid as a 2-up wrapper on the System page; keep the
-   margin-bottom local to System so Connections page isn't affected. */
-#page-system .conn-grid { margin-bottom: var(--space-4); }
+#page-settings .conn-grid + .conn-grid { margin-top: 0; }
 
 /* ─── System page ───────────────────────────────────────────── */
 .schema-table { font-family: var(--mono); font-size: var(--text-sm); width: 100%; border-collapse: collapse; }

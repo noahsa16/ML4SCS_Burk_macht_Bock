@@ -173,7 +173,10 @@
   transition: transform var(--dur-slow) var(--ease-default);
 }
 
-/* Hover-card on the topbar status cluster — same drop-pattern as .brand-tooltip. */
+/* ────────────────────────────────────────────────────────────
+   Topbar status cluster — drop-panel pattern.
+   Peek on :hover, pin-open on .is-open (set via JS click).
+   ──────────────────────────────────────────────────────────── */
 .status-cluster { position: relative; }
 
 .status-hover-card {
@@ -182,46 +185,177 @@
   right: 0;
   display: none;
   flex-direction: column;
-  gap: var(--space-2);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: var(--space-3) var(--space-4);
-  box-shadow: 0 4px 16px color-mix(in oklch, var(--sidebar) 20%, transparent);
-  min-width: 260px;
+  padding: 14px 16px 10px;
+  box-shadow:
+    0 12px 32px -4px color-mix(in oklch, var(--sidebar) 30%, transparent),
+    0 2px 6px color-mix(in oklch, var(--sidebar) 15%, transparent);
+  min-width: 320px;
   text-align: left;
-  pointer-events: none;
   z-index: 50;
+
+  /* subtle entrance: a 4px fade-slide whenever it becomes visible */
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--dur-fast) var(--ease-default),
+              transform var(--dur-fast) var(--ease-default);
 }
-.status-cluster:hover .status-hover-card,
-.status-cluster:focus-visible .status-hover-card {
+/* Click-only open: hover never shows the panel. Avoids the classic
+   "hover collapses when mouse crosses the gap" frustration and makes
+   the interaction model unambiguous (click to open, click again to close). */
+.status-cluster.is-open .status-hover-card {
   display: flex;
+  opacity: 1;
+  transform: translateY(0);
 }
 
+/* ─── Per-device row ────────────────────────────────────── */
 .status-hover-row {
   display: grid;
-  grid-template-columns: 14px 70px 1fr;
-  align-items: baseline;
-  gap: var(--space-2);
+  grid-template-columns: 14px 64px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
   font-family: var(--sans);
   font-size: var(--text-xs);
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
 }
+.status-hover-row:last-of-type { border-bottom: none; }
+
 .status-hover-dot {
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--text3);
-  align-self: center;
+  position: relative;
+  flex-shrink: 0;
 }
-.status-hover-row[data-device-ok] .status-hover-dot { background: var(--green); }
+.status-hover-row[data-device-ok]   .status-hover-dot { background: var(--green); }
 .status-hover-row[data-device-warn] .status-hover-dot { background: var(--yellow); }
-.status-hover-row[data-device-err] .status-hover-dot { background: var(--red); }
-.status-hover-label {
-  color: var(--text2); font-weight: 600;
+.status-hover-row[data-device-err]  .status-hover-dot { background: var(--red); }
+
+/* Pulsing ring for searching state — only when warn (BLE pairing in progress) */
+.status-hover-row[data-device-warn] .status-hover-dot::after {
+  content: '';
+  position: absolute; inset: -4px;
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--yellow) 60%, transparent);
+  animation: statusDotPulse 1.6s ease-in-out infinite;
+  z-index: -1;
 }
-.status-hover-state {
-  color: var(--text); font-weight: 500;
+@keyframes statusDotPulse {
+  0%, 100% { transform: scale(0.6); opacity: 0.7; }
+  50%      { transform: scale(1.4); opacity: 0; }
 }
+
+.status-hover-label { color: var(--text2); font-weight: 600; letter-spacing: 0.01em; }
+.status-hover-state { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
 .status-hover-meta {
-  color: var(--text3); font-family: var(--mono); font-size: var(--text-xs);
   grid-column: 2 / span 2;
+  color: var(--text3); font-family: var(--mono); font-size: 10.5px;
+  margin-top: 2px;
+  letter-spacing: 0.02em;
 }
+
+/* ─── Action button (per-device interactive control) ───── */
+.device-action {
+  grid-row: 1 / 3;          /* span both rows so it vertically centers nicely */
+  grid-column: 4;
+  align-self: center;
+
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: lowercase;
+  padding: 5px 10px 5px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border2);
+  background: var(--surface2);
+  color: var(--text2);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease-default),
+    color var(--dur-fast) var(--ease-default),
+    border-color var(--dur-fast) var(--ease-default),
+    transform var(--dur-fast) var(--ease-default);
+}
+.device-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.device-action:active { transform: translateY(1px); }
+.device-action-glyph {
+  font-size: 11px; line-height: 1;
+  display: inline-block;
+  transform: translateY(-0.5px);
+}
+
+/* OFF mode = primary affordance (user *should* connect now) */
+.device-action[data-mode="off"] {
+  color: var(--accent);
+  border-color: color-mix(in oklch, var(--accent) 45%, transparent);
+  background: color-mix(in oklch, var(--accent) 6%, var(--surface2));
+}
+.device-action[data-mode="off"]:hover {
+  background: color-mix(in oklch, var(--accent) 14%, var(--surface2));
+  border-color: color-mix(in oklch, var(--accent) 70%, transparent);
+  color: var(--text);
+}
+
+/* SEARCHING mode = subtle cancel affordance */
+.device-action[data-mode="searching"] {
+  color: var(--text3);
+  border-color: color-mix(in oklch, var(--yellow) 35%, transparent);
+  background: color-mix(in oklch, var(--yellow) 5%, var(--surface2));
+}
+.device-action[data-mode="searching"]:hover {
+  color: var(--text);
+  border-color: color-mix(in oklch, var(--red) 50%, transparent);
+  background: color-mix(in oklch, var(--red) 8%, var(--surface2));
+}
+
+/* ON mode = quiet disconnect (it's already working, don't shout) */
+.device-action[data-mode="on"] {
+  color: var(--text2);
+  border-color: color-mix(in oklch, var(--green) 35%, transparent);
+}
+.device-action[data-mode="on"]:hover {
+  color: var(--red);
+  border-color: color-mix(in oklch, var(--red) 50%, transparent);
+  background: color-mix(in oklch, var(--red) 6%, var(--surface2));
+}
+
+/* ─── Footer link to Settings ───────────────────────────── */
+.status-hover-link {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 8px;
+  padding: 6px 0 0;
+  border-top: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
+  font-family: var(--mono); font-size: 10.5px;
+  font-style: italic; letter-spacing: 0.04em;
+  color: var(--text3); text-decoration: none;
+  transition: color var(--dur-fast) var(--ease-default);
+}
+.status-hover-link:hover,
+.status-hover-link:focus-visible { color: var(--text); outline: none; }
+.status-hover-link-arrow {
+  font-style: normal; font-weight: 600;
+  transition: transform var(--dur-fast) var(--ease-default);
+}
+.status-hover-link:hover .status-hover-link-arrow { transform: translateX(3px); }
+
+/* When pinned-open, give the cluster a quiet "active" mark so users know
+   they're now in interaction mode (not just peeking). */
+.status-cluster.is-open {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+}
+
+/* Pulse on topbar dot itself for searching */
+.status-dot.warn { position: relative; }
+.status-dot.warn::after {
+  content: '';
+  position: absolute; inset: -3px;
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--yellow) 55%, transparent);
+  animation: statusDotPulse 1.6s ease-in-out infinite;
+  z-index: -1;
+}
+
 .theme-toggle:hover .theme-toggle-glyph { transform: rotate(20deg); }

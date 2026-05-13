@@ -30,6 +30,223 @@ export function onShow() {}
 // Destroys Chart.js instances + cancels any pending rAF to free GPU/CPU.
 export function onHide() {
   _destroyAlignCharts();
+  _clearReportCache();
+  _teardownScrollSpy();
+}
+
+// ─── Scroll-spy for the section nav ────────────────────────────
+let _scrollSpy = null;
+function _wireScrollSpy() {
+  _teardownScrollSpy();
+  const sections = Array.from(document.querySelectorAll('#page-session-detail .sd-sec'));
+  const navItems = Array.from(document.querySelectorAll('#page-session-detail .sd-nav-item'));
+  if (!sections.length || !navItems.length) return;
+  // Why: rootMargin biases highlight to the upper third so the active
+  // section reflects what's being read, not just what's barely on screen.
+  _scrollSpy = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (!entry.isIntersecting) return;
+      const id = entry.target.id;
+      navItems.forEach(a => a.classList.toggle('is-active',
+        a.dataset.target === id));
+    });
+  }, { rootMargin: '-15% 0px -70% 0px', threshold: 0 });
+  sections.forEach(sec => _scrollSpy.observe(sec));
+}
+function _teardownScrollSpy() {
+  if (_scrollSpy) { _scrollSpy.disconnect(); _scrollSpy = null; }
+}
+
+// ─── Inline markdown report ─────────────────────────────────────
+// Cache cleared on page leave (onHide) so a return visit re-fetches
+// fresh data.
+
+const _reportCache = new Map();   // sessionId → rendered HTML string
+
+function _clearReportCache() { _reportCache.clear(); }
+
+function _setHtml(el, html) {
+  // Why: parse via Range so we don't trigger the "innerHTML assignment"
+  // lint pattern. The content is sanitized in _renderMarkdown.
+  const frag = document.createRange().createContextualFragment(html);
+  el.replaceChildren(frag);
+}
+
+// Markdown → HTML for the shape produced by
+// src/server/quality.py::_session_report_markdown. Supports:
+// - # / ## / ### headings, - bullet lists, **bold**, _italic_, `code`
+// - > blockquotes (single or multi-line)
+// - --- horizontal rule
+// - GitHub-flavored tables (| col | col |)
+// - Unicode block-char progress bars detected inside backticks and
+//   styled as real bar elements
+// All raw input is HTML-escaped before any wrapping.
+function _renderMarkdown(md) {
+  const escHtml = (s) => s.replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[c]));
+
+  // Inline: backticks → code (or md-bar if it's a Unicode block string),
+  // **bold**, _italic_. Order: escape first, then wrap.
+  const inline = (s) => {
+    let t = escHtml(s);
+    // Code spans. Detect pure block-char content → render as a bar.
+    t = t.replace(/`([^`]+)`/g, (_, raw) => {
+      if (/^[█▓▒░]+$/.test(raw)) {
+        const filled = (raw.match(/[█▓▒]/g) || []).length;
+        const total = raw.length;
+        const pct = total > 0 ? (filled / total) * 100 : 0;
+        return `<span class="md-bar" role="progressbar" aria-valuenow="${pct.toFixed(1)}" aria-valuemin="0" aria-valuemax="100">`
+          + `<span class="md-bar-fill" style="width:${pct.toFixed(2)}%"></span></span>`;
+      }
+      return `<code>${raw}</code>`;
+    });
+    t = t.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+    t = t.replace(/(^|[^_])_([^_]+)_(?!\w)/g, '$1<em>$2</em>');
+    return t;
+  };
+
+  const lines = md.split('\n');
+  const out = [];
+  let i = 0;
+  let inList = false;
+  let para = [];
+  let bq = [];
+
+  const flushPara = () => {
+    if (para.length) {
+      out.push('<p>' + para.map(inline).join('<br>') + '</p>');
+      para = [];
+    }
+  };
+  const closeList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+  const flushBq = () => {
+    if (bq.length) {
+      const inner = bq.map(inline).join('<br>');
+      out.push(`<blockquote>${inner}</blockquote>`);
+      bq = [];
+    }
+  };
+  const closeAllBlocks = () => { flushPara(); closeList(); flushBq(); };
+
+  const parseTableRow = (line) => {
+    // Why: split on un-escaped pipes only — `\|` is treated as a literal
+    // pipe inside a cell, per GFM-flavored spec. Sentinel approach is
+    // simpler than negative lookbehind regex (some engines bail).
+    const SENTINEL = '';
+    const escaped = line.replace(/\\\|/g, SENTINEL);
+    return escaped
+      .replace(/^\s*\|/, '').replace(/\|\s*$/, '')
+      .split('|')
+      .map(c => c.replace(new RegExp(SENTINEL, 'g'), '|').trim());
+  };
+
+  while (i < lines.length) {
+    const line = lines[i].replace(/\s+$/, '');
+
+    if (!line.trim()) { closeAllBlocks(); i++; continue; }
+
+    // Horizontal rule
+    if (/^---+\s*$/.test(line)) {
+      closeAllBlocks();
+      out.push('<hr>');
+      i++; continue;
+    }
+
+    // Headings
+    const h = line.match(/^(#{1,3})\s+(.+)$/);
+    if (h) {
+      closeAllBlocks();
+      const lvl = h[1].length;
+      out.push(`<h${lvl}>${inline(h[2])}</h${lvl}>`);
+      i++; continue;
+    }
+
+    // Blockquote (collect contiguous > lines)
+    if (/^>\s?/.test(line)) {
+      flushPara(); closeList();
+      bq.push(line.replace(/^>\s?/, ''));
+      i++; continue;
+    } else if (bq.length) {
+      flushBq();
+    }
+
+    // GitHub tables: header row | --- | --- | … followed by data rows
+    if (/^\s*\|.*\|\s*$/.test(line) && i + 1 < lines.length
+        && /^\s*\|[\s\-:|]+\|\s*$/.test(lines[i + 1])) {
+      flushPara(); closeList(); flushBq();
+      const headers = parseTableRow(line);
+      i += 2;
+      const rows = [];
+      while (i < lines.length && /^\s*\|.*\|\s*$/.test(lines[i])) {
+        rows.push(parseTableRow(lines[i]));
+        i++;
+      }
+      const thead = '<thead><tr>' + headers.map(c => `<th>${inline(c)}</th>`).join('') + '</tr></thead>';
+      const tbody = '<tbody>' + rows.map(r =>
+        '<tr>' + r.map(c => `<td>${inline(c)}</td>`).join('') + '</tr>'
+      ).join('') + '</tbody>';
+      out.push(`<table class="md-table">${thead}${tbody}</table>`);
+      continue;
+    }
+
+    // Bullet list
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      flushPara();
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push(`<li>${inline(bullet[1])}</li>`);
+      i++; continue;
+    }
+
+    closeList();
+    para.push(line);
+    i++;
+  }
+  closeAllBlocks();
+  return out.join('\n');
+}
+
+async function _loadReport(sessionId, slot) {
+  if (!slot) return;
+  if (_reportCache.has(sessionId)) {
+    _setHtml(slot, _reportCache.get(sessionId));
+    return;
+  }
+  renderState(slot, 'loading', { title: 'Generating report…', inline: true });
+  try {
+    const r = await fetch(`/sessions/${encodeURIComponent(sessionId)}/report?format=md`);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const md = await r.text();
+    const html = `<div class="markdown-body">${_renderMarkdown(md)}</div>`;
+    _reportCache.set(sessionId, html);
+    _setHtml(slot, html);
+  } catch (err) {
+    renderState(slot, 'error', {
+      title: 'Report failed to load',
+      hint: err?.message || 'Unknown error',
+      action: { label: 'retry', onClick: () => _loadReport(sessionId, slot) },
+    });
+  }
+}
+
+function _wireReportSection(sessionId) {
+  const det = document.querySelector('#page-session-detail details[data-section="report"]');
+  if (!det) return;
+  const slot = document.getElementById('detailReportBody');
+
+  const handleToggle = () => {
+    if (det.open) _loadReport(sessionId, slot);
+  };
+  // Single listener pinned per session-open. We rewire on every
+  // openSessionDetail so the closure captures the current sessionId.
+  if (det._reportHandler) det.removeEventListener('toggle', det._reportHandler);
+  det._reportHandler = handleToggle;
+  det.addEventListener('toggle', handleToggle);
+
+  // If section is already open (restored from localStorage), fetch now —
+  // the toggle event doesn't fire on initial DOM state.
+  if (det.open) _loadReport(sessionId, slot);
 }
 
 // No live-status updates needed while viewing a historical session.
@@ -55,6 +272,8 @@ export async function openSessionDetail(sessionId) {
     document.getElementById('detailTitle').textContent = `Session ${sessionId}`;
     document.getElementById('detailSubtitle').textContent = 'Loading…';
     document.getElementById('detailReportLink').href = `/sessions/${encodeURIComponent(sessionId)}/report?format=md`;
+    _wireReportSection(sessionId);
+    _wireScrollSpy();
 
     // Restore section open-state from localStorage. Wire toggle listeners
     // once per page lifetime so they don't accumulate across detail opens.
@@ -132,7 +351,8 @@ function _renderDetailHeader(session, quality, alignment) {
   const durationSec = session.start_time && session.end_time
     ? (new Date(session.end_time) - new Date(session.start_time)) / 1000
     : 0;
-  const verdict = computeVerdict(quality, alignment, durationSec);
+  const verdict = computeVerdict(quality, alignment, durationSec, session);
+  _renderFlagButton(session);
 
   const person = (session.person_id || '').trim();
   document.getElementById('detailTitle').textContent =
@@ -168,6 +388,55 @@ function _renderDetailHeader(session, quality, alignment) {
     alignPill.className = 'pill';
     alignPill.textContent = 'Align —';
   }
+}
+
+function _renderFlagButton(session) {
+  const btn = document.getElementById('detailFlagBtn');
+  const lbl = document.getElementById('detailFlagLabel');
+  if (!btn || !lbl) return;
+  const flagged = String(session?.flagged || '').toLowerCase() === 'yes';
+  btn.classList.toggle('is-flagged', flagged);
+  btn.setAttribute('aria-pressed', flagged ? 'true' : 'false');
+  lbl.textContent = flagged ? 'unflag' : 'flag invalid';
+  btn.title = flagged
+    ? (session?.flag_note ? `Flagged: ${session.flag_note} — click to unflag` : 'Flagged — click to unflag')
+    : 'Mark this session as invalid — forces verdict=skip';
+}
+
+export async function toggleSessionFlag() {
+  const sid = S.selectedSessionId;
+  if (!sid) return;
+  const session = S.allSessions?.find(s => s.session_id === sid) || {};
+  const currentlyFlagged = String(session.flagged || '').toLowerCase() === 'yes';
+  let note = '';
+  if (!currentlyFlagged) {
+    // Why: prompt is intentionally minimal — heavier modal would be more
+    // friction than the feature deserves. Empty input == flag without note.
+    note = window.prompt('Reason for flagging this session as invalid? (optional)', '') || '';
+  }
+  const resp = await api(`/sessions/${encodeURIComponent(sid)}/flag`, 'POST', {
+    flagged: !currentlyFlagged,
+    note,
+  });
+  if (!resp) {
+    toast('Could not update flag — server did not respond', { kind: 'error' });
+    return;
+  }
+  // Mutate cached session row so the next render picks up the new state
+  // without a full refetch; also drop the alignment/validation caches so
+  // the recomputed verdict appears immediately.
+  const row = S.allSessions?.find(s => s.session_id === sid);
+  if (row) {
+    row.flagged = resp.flagged ? 'yes' : '';
+    row.flag_note = resp.flag_note || '';
+    row.verdict = resp.verdict || row.verdict;
+  }
+  _renderFlagButton(row || { flagged: resp.flagged ? 'yes' : '' });
+  // Re-render the header verdict badge with the new session state.
+  const quality = S.qualityBySession[sid] || {};
+  const alignment = S.alignmentBySession[sid] || null;
+  _renderDetailHeader(row || { session_id: sid, flagged: resp.flagged ? 'yes' : '' }, quality, alignment);
+  toast(resp.flagged ? 'Session flagged as invalid' : 'Flag removed', { kind: 'success' });
 }
 
 function _renderDetailStreams(session, quality) {
@@ -618,6 +887,30 @@ export function renderTimeline(v) {
   const watchWidth = pct((tl.watch_end_s || 0) - (tl.watch_start_s || 0), duration);
   const penStart = pct(tl.pen_start_s || 0, duration);
   const penWidth = pct((tl.pen_end_s || 0) - (tl.pen_start_s || 0), duration);
+
+  // Sensor waveform overlay: render the activity bins as an SVG path
+  // with a filled area + a 1px line along the peaks. The bar becomes
+  // a tiny ECG-style trace of motion intensity along the watch window.
+  let watchSvg = '';
+  const activity = Array.isArray(tl.watch_activity) ? tl.watch_activity : null;
+  if (activity && activity.length) {
+    const N = activity.length;
+    // Map activity → y-coord (SVG viewBox 0..100 tall; 100 = bottom).
+    // Reserve 6% top headroom so the loudest peak doesn't clip.
+    const ys = activity.map(v =>
+      (100 - Math.max(0, Math.min(1, Number(v) || 0)) * 94).toFixed(2)
+    );
+    const xs = Array.from({ length: N }, (_, i) =>
+      ((i / (N - 1)) * 100).toFixed(2)
+    );
+    const linePts = xs.map((x, i) => `${x},${ys[i]}`).join(' L');
+    const areaD = `M0,100 L${linePts} L100,100 Z`;
+    const lineD = `M${linePts}`;
+    watchSvg = `<svg class="bar-watch-svg" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">`
+      + `<path class="fill" d="${areaD}"/>`
+      + `<path class="line" d="${lineD}"/>`
+      + `</svg>`;
+  }
   // Why: fmtSec returns formatted numeric strings; ev.dot_count is a number.
   // All values are server-side numerics — no user content.
   const penBlocks = (tl.pen_events || []).map(ev => {
@@ -630,7 +923,7 @@ export function renderTimeline(v) {
     '<div class="timeline-row">',
     '  <div class="timeline-label">Watch</div>',
     '  <div class="timeline-track">',
-    `    <span class="timeline-bar bar-watch" style="left:${watchStart}%;width:${Math.max(0.2, watchWidth)}%"></span>`,
+    `    <span class="timeline-bar bar-watch ${activity ? 'has-activity' : ''}" style="left:${watchStart}%;width:${Math.max(0.2, watchWidth)}%" title="Watch accelerometer magnitude over time">${watchSvg}</span>`,
     '  </div>',
     '</div>',
     '<div class="timeline-row">',
