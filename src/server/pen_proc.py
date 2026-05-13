@@ -21,7 +21,20 @@ async def _pipe_pen_output(proc: asyncio.subprocess.Process):
         return
     try:
         while True:
-            line = await proc.stdout.readline()
+            try:
+                line = await proc.stdout.readline()
+            except ValueError as e:
+                # Why: asyncio's StreamReader.readline() has a 64 KB limit and
+                # raises LimitOverrunError (a ValueError subclass) when a line
+                # exceeds it. Previously this killed the reader task silently;
+                # the pipe then filled and stalled pen_logger's BLE loop. Drain
+                # the oversized chunk, log it, and keep going.
+                state.append_event("pen", "warn", f"pen stdout line too long, draining: {e}")
+                try:
+                    await proc.stdout.read(65536)
+                except Exception:
+                    pass
+                continue
             if not line:
                 break
             text = line.decode(errors="replace").strip()
@@ -29,6 +42,8 @@ async def _pipe_pen_output(proc: asyncio.subprocess.Process):
                 state.append_event("pen", "info", text[:500])
     except asyncio.CancelledError:
         pass
+    except Exception as e:
+        state.append_event("pen", "error", f"pen stdout reader crashed: {e!r}")
     finally:
         if proc.returncode not in (None, 0):
             state.append_event("pen", "error", f"Pen logger exited with code {proc.returncode}")

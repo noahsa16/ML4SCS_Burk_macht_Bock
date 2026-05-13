@@ -46,6 +46,8 @@ try:
 except ImportError:
     sys.exit("bleak is required:  pip install bleak")
 
+_STDOUT_IS_TTY = sys.stdout.isatty()
+
 
 # ── GATT UUIDs (from src/PenCotroller/PenHelper.ts) ──────────────────────────
 SVC_128  = "4f99f138-9d53-5bfa-9e50-b147491afe68"
@@ -576,12 +578,19 @@ async def run(password: str = "0000", output_path: str | None = None) -> None:
                     dot_count = 0
                 else:
                     dot_count += 1
-                    suffix = ""
-                    if dtype == DOT_HOVER:
-                        suffix = "  [hover]"
-                    print(f"   x={dot['x']:8.2f}  y={dot['y']:8.2f}  "
-                          f"p={dot['pressure']:5d}  tx={dot['tilt_x']:3d}  "
-                          f"ty={dot['tilt_y']:3d}{suffix}", end="\r")
+                    # Why: per-dot lines use end="\r" (no newline). When stdout
+                    # is a pipe (server subprocess case), the consumer reads via
+                    # readline() with a 64 KB StreamReader limit — a long burst
+                    # of writing without pen-lift overflows that buffer, kills
+                    # the reader task, fills the pipe, blocks pen_logger's
+                    # print(), stalls the BLE event loop, and triggers a
+                    # supervisor disconnect a few minutes in. Only emit the
+                    # progress line to an interactive terminal.
+                    if _STDOUT_IS_TTY:
+                        suffix = "  [hover]" if dtype == DOT_HOVER else ""
+                        print(f"   x={dot['x']:8.2f}  y={dot['y']:8.2f}  "
+                              f"p={dot['pressure']:5d}  tx={dot['tilt_x']:3d}  "
+                              f"ty={dot['tilt_y']:3d}{suffix}", end="\r")
 
                 # CSV (raw Ncode values)
                 local_ts_ms = _now_ms()
