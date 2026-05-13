@@ -18,6 +18,29 @@ def _pen_connected() -> bool:
     return state.pen_proc is not None and state.pen_proc.returncode is None
 
 
+# Why: the pen does not always emit a PEN_UP frame when lifted (the
+# BLE notification can be dropped, or the firmware swallows it). Without
+# a recency gate the "writing" indicator latches on a stale PEN_MOVE
+# forever. The pen streams at ~80 Hz while in contact, so a silence of
+# more than this threshold proves the pen is no longer writing.
+_PEN_WRITING_STALE_MS = 600
+
+
+def _pen_is_writing(last_pen_dot: Optional[dict[str, Any]]) -> bool:
+    if not last_pen_dot:
+        return False
+    if last_pen_dot.get("dot_type") not in ("PEN_DOWN", "PEN_MOVE"):
+        return False
+    ts = last_pen_dot.get("local_ts_ms")
+    if not ts:
+        return True  # legacy pen log without local_ts_ms — fall back to type-only
+    try:
+        age_ms = _now_ms() - int(ts)
+    except (TypeError, ValueError):
+        return True
+    return age_ms <= _PEN_WRITING_STALE_MS
+
+
 def _watch_connected() -> bool:
     return (time.time() - state.last_watch_time) < 5.0 if state.last_watch_time else False
 
@@ -100,10 +123,7 @@ def _status_payload(
         last_pen_dot = _pen_last_dot(sid)
 
     pen_connected = _pen_connected()
-    pen_writing = (
-        last_pen_dot.get("dot_type") in ("PEN_DOWN", "PEN_MOVE")
-        if last_pen_dot else False
-    )
+    pen_writing = _pen_is_writing(last_pen_dot)
     pen_seen_ms = None
     if last_pen_dot and last_pen_dot.get("local_ts_ms"):
         pen_seen_ms = max(0, _now_ms() - int(last_pen_dot["local_ts_ms"]))

@@ -15,7 +15,7 @@ from fastapi import WebSocket
 
 from .csv_io import _pen_last_dot, _pen_sample_count
 from .state import state
-from .status import _status_payload
+from .status import _pen_is_writing, _status_payload
 
 log = logging.getLogger(__name__)
 
@@ -64,11 +64,7 @@ async def _chart_aggregator_loop():
         try:
             sid = state.active.session_id if state.active else None
             last_pen_dot = _pen_last_dot(sid) if sid else None
-            pen_writing = (
-                last_pen_dot.get("dot_type") in ("PEN_DOWN", "PEN_MOVE")
-                if last_pen_dot else False
-            )
-            _chart_aggregator_tick(state, pen_writing)
+            _chart_aggregator_tick(state, _pen_is_writing(last_pen_dot))
         except Exception:
             log.exception("chart aggregator tick failed")
         await asyncio.sleep(CHART_AGGREGATOR_INTERVAL_S)
@@ -144,10 +140,5 @@ async def _status_loop():
                     "timestamp": last_pen_dot.get("timestamp"),
                     "local_ts_ms": last_pen_dot.get("local_ts_ms"),
                 })
-
-        pen_writing = (
-            last_pen_dot.get("dot_type") in ("PEN_DOWN", "PEN_MOVE")
-            if last_pen_dot else False
-        )
 
         await _broadcast(_status_payload(pen_samples=pen_samples, last_pen_dot=last_pen_dot))

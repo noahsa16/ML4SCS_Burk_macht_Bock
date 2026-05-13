@@ -172,6 +172,35 @@ def test_session_stop_without_start_is_409(client):
     assert resp.status_code == 409
 
 
+def test_flag_session_forces_skip_verdict(client, data_dirs):
+    client.post("/session/start", json={"person_id": "P01"})
+    sid = client.post("/session/stop").json()["session_id"]
+
+    resp = client.post(f"/sessions/{sid}/flag", json={"flagged": True, "note": "pen bug"})
+    assert resp.status_code == 200
+    assert resp.json()["flagged"] is True
+    assert resp.json()["verdict"] == "skip"
+
+    with open(data_dirs.sessions) as f:
+        row = next(r for r in csv.DictReader(f) if r["session_id"] == sid)
+    assert row["flagged"] == "yes"
+    assert row["flag_note"] == "pen bug"
+    assert row["verdict"] == "skip"
+
+    # Unflag → verdict recomputed from heuristic (not "skip" because manual)
+    resp = client.post(f"/sessions/{sid}/flag", json={"flagged": False})
+    assert resp.status_code == 200
+    with open(data_dirs.sessions) as f:
+        row = next(r for r in csv.DictReader(f) if r["session_id"] == sid)
+    assert row["flagged"] == ""
+    assert row["flag_note"] == ""
+
+
+def test_flag_session_404_for_unknown_id(client):
+    resp = client.post("/sessions/S999/flag", json={"flagged": True})
+    assert resp.status_code == 404
+
+
 def test_session_id_skips_stale_csv_via_endpoint(client, data_dirs):
     """End-to-end version of today's bug: a stale pen file blocks ID reuse."""
     (data_dirs.pen / "S005_pen.csv").write_text(

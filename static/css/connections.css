@@ -9,9 +9,10 @@
 .conn-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); }
 .conn-grid-3 { grid-template-columns: 1fr 1fr 1fr; }
 
-/* Top-level rhythm between sections on Connections page (replaces inline margin-bottom:16px). */
-#page-connections > .card:not(:last-child),
-#page-connections > .conn-grid:not(:last-child) { margin-bottom: var(--space-4); }
+/* Top-level rhythm between sections on Settings page (replaces inline margin-bottom:16px). */
+#page-settings > .card:not(:last-child),
+#page-settings > .conn-grid:not(:last-child),
+#page-settings > .settings-grid:not(:last-child) { margin-bottom: var(--space-4); }
 
 /* Card-title sitting flat next to a badge or button row inside a flex parent (replaces inline margin:0). */
 .device-header .card-title,

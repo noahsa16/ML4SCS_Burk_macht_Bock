@@ -1,84 +1,165 @@
-      <div class="page-detail-loading" id="pageDetailLoading" style="display:none">
-        <div class="empty-state empty-state--loading">
-          <div class="empty-state-glyph">/</div>
-          <div class="empty-state-title">Loading session…</div>
-          <div class="empty-state-hint">Fetching quality, alignment and timeline data.</div>
+<!-- ════════════════════════════════════════════════════════════
+     Session Detail — instrument-panel layout
+     Sticky left rail with scroll-spy, numbered sections, slash-glyph
+     watermark. Section 05 (Report) stays collapsible because the markdown
+     is generated on-demand from the server.
+     ════════════════════════════════════════════════════════════ -->
+
+<div class="page-detail-loading" id="pageDetailLoading" style="display:none">
+  <div class="empty-state empty-state--loading">
+    <div class="empty-state-glyph">/</div>
+    <div class="empty-state-title">Loading session…</div>
+    <div class="empty-state-hint">Fetching quality, alignment and timeline data.</div>
+  </div>
+</div>
+
+<div class="sd-bg-glyph" aria-hidden="true">/</div>
+
+<header class="sd-page-head">
+  <button class="sd-back-link" type="button" onclick="closeSessionDetail()">
+    <span class="sd-back-link-arrow">←</span>
+    <span>back to sessions</span>
+  </button>
+  <div class="sd-page-eyebrow">/ session detail</div>
+  <div class="sd-page-row">
+    <div class="sd-page-titleblock">
+      <h1 class="sd-page-title" id="detailTitle">–</h1>
+      <p class="sd-page-sub" id="detailSubtitle">–</p>
+      <div class="sd-pills">
+        <span class="pill" id="detailPillMl">ML –</span>
+        <span class="pill" id="detailPillRec">Rec –</span>
+        <span class="pill" id="detailPillAlign">Align –</span>
+      </div>
+    </div>
+    <div class="sd-page-aside">
+      <div class="verdict-badge" id="detailVerdict">–</div>
+      <button type="button" class="sd-flag-btn" id="detailFlagBtn"
+              onclick="toggleSessionFlag()" aria-pressed="false"
+              title="Mark this session as invalid — forces verdict=skip">
+        <span class="sd-flag-glyph">⚑</span><span id="detailFlagLabel">flag invalid</span>
+      </button>
+      <a class="sd-export-link" id="detailReportLink" href="#" target="_blank">
+        <span>⤓</span><span>download md</span>
+      </a>
+    </div>
+  </div>
+</header>
+
+<div class="sd-shell">
+
+  <!-- ─── Sticky index ──────────────────────────────────────── -->
+  <aside class="sd-nav" id="sdNav">
+    <div class="sd-nav-meta">contents</div>
+    <ol class="sd-nav-list">
+      <li><a href="#sd-sec-streams"   class="sd-nav-item is-active" data-target="sd-sec-streams"><span class="sd-nav-num">01</span><span class="sd-nav-slash">/</span><span class="sd-nav-label">streams</span></a></li>
+      <li><a href="#sd-sec-timeline"  class="sd-nav-item" data-target="sd-sec-timeline"><span class="sd-nav-num">02</span><span class="sd-nav-slash">/</span><span class="sd-nav-label">timeline</span></a></li>
+      <li><a href="#sd-sec-alignment" class="sd-nav-item" data-target="sd-sec-alignment"><span class="sd-nav-num">03</span><span class="sd-nav-slash">/</span><span class="sd-nav-label">alignment</span></a></li>
+      <li><a href="#sd-sec-issues"    class="sd-nav-item" data-target="sd-sec-issues"><span class="sd-nav-num">04</span><span class="sd-nav-slash">/</span><span class="sd-nav-label">issues</span></a></li>
+      <li><a href="#sd-sec-report"    class="sd-nav-item" data-target="sd-sec-report"><span class="sd-nav-num">05</span><span class="sd-nav-slash">/</span><span class="sd-nav-label">report</span></a></li>
+    </ol>
+  </aside>
+
+  <main class="sd-main">
+
+    <!-- ════ 01 STREAMS ════════════════════════════════════════ -->
+    <section class="sd-sec" id="sd-sec-streams" style="--sec-delay: 0ms">
+      <header class="sd-sec-head">
+        <span class="sd-sec-num">01</span>
+        <span class="sd-sec-slash">/</span>
+        <h2 class="sd-sec-label">streams</h2>
+        <span class="sd-sec-meta">samples &amp; rates</span>
+      </header>
+      <div class="sd-sec-body" id="detailStreams">–</div>
+    </section>
+
+    <!-- ════ 02 TIMELINE ═══════════════════════════════════════ -->
+    <section class="sd-sec" id="sd-sec-timeline" style="--sec-delay: 60ms">
+      <header class="sd-sec-head">
+        <span class="sd-sec-num">02</span>
+        <span class="sd-sec-slash">/</span>
+        <h2 class="sd-sec-label">timeline</h2>
+        <span class="sd-sec-meta">wall-clock drift</span>
+      </header>
+      <div class="sd-sec-body">
+        <div class="timeline-wrap" id="detailTimeline"></div>
+        <div class="drift-grid">
+          <div class="drift-box"><div class="k">Watch clock drift</div><div class="v" id="driftWatch">–</div></div>
+          <div class="drift-box"><div class="k">Pen clock drift</div><div class="v" id="driftPen">–</div></div>
+          <div class="drift-box"><div class="k">Relative drift</div><div class="v" id="driftRelative">–</div></div>
+          <div class="drift-box"><div class="k">Clock offset gap</div><div class="v" id="driftSyncOffset">–</div></div>
         </div>
       </div>
+    </section>
 
-      <div class="session-detail-header">
-        <button class="back-link" type="button" onclick="closeSessionDetail()">← Sessions</button>
-        <div class="title-row">
-          <div>
-            <div class="title" id="detailTitle">–</div>
-            <div class="subtitle" id="detailSubtitle">–</div>
+    <!-- ════ 03 ALIGNMENT ══════════════════════════════════════ -->
+    <section class="sd-sec" id="sd-sec-alignment" style="--sec-delay: 120ms">
+      <header class="sd-sec-head">
+        <span class="sd-sec-num">03</span>
+        <span class="sd-sec-slash">/</span>
+        <h2 class="sd-sec-label">alignment</h2>
+        <span class="sd-sec-meta">stroke-variance lock</span>
+      </header>
+      <div class="sd-sec-body">
+        <div class="alignment-section" id="alignmentSection">
+          <div class="alignment-head">
+            <div class="card-title">Stroke-Variance Time-Sync</div>
+            <div class="alignment-status" id="alignmentStatus">–</div>
           </div>
-          <a class="export-link" id="detailReportLink" href="#" target="_blank">⤓ md report</a>
-        </div>
-        <div class="verdict-badge" id="detailVerdict">–</div>
-        <div class="pills">
-          <span class="pill" id="detailPillMl">ML –</span>
-          <span class="pill" id="detailPillRec">Rec –</span>
-          <span class="pill" id="detailPillAlign">Align –</span>
+          <div class="alignment-explainer" id="alignmentExplainer">
+            Beim Schreiben hält die schreibende Hand die Uhr ruhig — Pausen und Gesten erzeugen
+            mehr Bewegung. Der Algorithmus probiert verschiedene Zeitverschiebungen δ aus und
+            wählt die, bei der die Pen-Striche auf die ruhigsten Phasen fallen.
+          </div>
+          <div class="alignment-metrics">
+            <div class="drift-box"><div class="k">Offset δ</div><div class="v" id="alignDelta">–</div></div>
+            <div class="drift-box"><div class="k">Confidence σ</div><div class="v" id="alignSigma">–</div></div>
+            <div class="drift-box"><div class="k">Striche</div><div class="v" id="alignStrokes">–</div></div>
+            <div class="drift-box"><div class="k">Ruhe-Faktor</div><div class="v" id="alignFactor">–</div></div>
+          </div>
+          <div class="alignment-charts">
+            <div class="alignment-chart">
+              <div class="alignment-chart-title">Varianz-Suchkurve</div>
+              <canvas id="alignVarCanvas"></canvas>
+            </div>
+            <div class="alignment-chart">
+              <div class="alignment-chart-title">Pen-Striche auf Watch-Bewegung</div>
+              <canvas id="alignTimelineCanvas"></canvas>
+            </div>
+          </div>
+          <div class="alignment-empty" id="alignmentEmpty" style="display:none"></div>
         </div>
       </div>
+    </section>
 
-      <details class="detail-section" data-section="streams">
-        <summary>Streams &amp; Samples</summary>
-        <div class="section-body" id="detailStreams">–</div>
-      </details>
+    <!-- ════ 04 ISSUES ═════════════════════════════════════════ -->
+    <section class="sd-sec" id="sd-sec-issues" style="--sec-delay: 180ms">
+      <header class="sd-sec-head">
+        <span class="sd-sec-num">04</span>
+        <span class="sd-sec-slash">/</span>
+        <h2 class="sd-sec-label">issues</h2>
+        <span class="sd-sec-meta" id="detailIssuesMeta"><span class="count" id="detailIssuesCount">0</span> flagged</span>
+      </header>
+      <div class="sd-sec-body">
+        <div class="issue-list" id="detailIssues"></div>
+        <div class="validation-note" id="detailIssuesSummary"></div>
+      </div>
+    </section>
 
-      <details class="detail-section" data-section="timeline">
-        <summary>Timeline &amp; Drift</summary>
-        <div class="section-body">
-          <div class="timeline-wrap" id="detailTimeline"></div>
-          <div class="drift-grid">
-            <div class="drift-box"><div class="k">Watch clock drift</div><div class="v" id="driftWatch">–</div></div>
-            <div class="drift-box"><div class="k">Pen clock drift</div><div class="v" id="driftPen">–</div></div>
-            <div class="drift-box"><div class="k">Relative drift</div><div class="v" id="driftRelative">–</div></div>
-            <div class="drift-box"><div class="k">Clock offset gap</div><div class="v" id="driftSyncOffset">–</div></div>
-          </div>
+    <!-- ════ 05 REPORT (collapsible — generated on demand) ═════ -->
+    <details class="sd-sec sd-sec-collapsible detail-section" id="sd-sec-report" data-section="report" style="--sec-delay: 240ms">
+      <summary class="sd-sec-head">
+        <span class="sd-sec-num">05</span>
+        <span class="sd-sec-slash">/</span>
+        <h2 class="sd-sec-label">report</h2>
+        <span class="sd-sec-meta">on-demand markdown</span>
+        <span class="sd-sec-toggle" aria-hidden="true">›</span>
+      </summary>
+      <div class="sd-sec-body">
+        <div class="report-slot" id="detailReportBody">
+          <div class="report-placeholder">Open this section to generate the full markdown report for this session.</div>
         </div>
-      </details>
+      </div>
+    </details>
 
-      <details class="detail-section" data-section="alignment">
-        <summary>Pen ↔ Watch Alignment</summary>
-        <div class="section-body">
-          <div class="alignment-section" id="alignmentSection">
-            <div class="alignment-head">
-              <div class="card-title">Stroke-Variance Time-Sync</div>
-              <div class="alignment-status" id="alignmentStatus">–</div>
-            </div>
-            <div class="alignment-explainer" id="alignmentExplainer">
-              Beim Schreiben hält die schreibende Hand die Uhr ruhig — Pausen und Gesten erzeugen
-              mehr Bewegung. Der Algorithmus probiert verschiedene Zeitverschiebungen δ aus und
-              wählt die, bei der die Pen-Striche auf die ruhigsten Phasen fallen.
-            </div>
-            <div class="alignment-metrics">
-              <div class="drift-box"><div class="k">Offset δ</div><div class="v" id="alignDelta">–</div></div>
-              <div class="drift-box"><div class="k">Confidence σ</div><div class="v" id="alignSigma">–</div></div>
-              <div class="drift-box"><div class="k">Striche</div><div class="v" id="alignStrokes">–</div></div>
-              <div class="drift-box"><div class="k">Ruhe-Faktor</div><div class="v" id="alignFactor">–</div></div>
-            </div>
-            <div class="alignment-charts">
-              <div class="alignment-chart">
-                <div class="alignment-chart-title">Varianz-Suchkurve</div>
-                <canvas id="alignVarCanvas"></canvas>
-              </div>
-              <div class="alignment-chart">
-                <div class="alignment-chart-title">Pen-Striche auf Watch-Bewegung</div>
-                <canvas id="alignTimelineCanvas"></canvas>
-              </div>
-            </div>
-            <div class="alignment-empty" id="alignmentEmpty" style="display:none"></div>
-          </div>
-        </div>
-      </details>
-
-      <details class="detail-section" data-section="issues">
-        <summary>Issues <span class="count" id="detailIssuesCount">0</span></summary>
-        <div class="section-body">
-          <div class="issue-list" id="detailIssues"></div>
-          <div class="validation-note" id="detailIssuesSummary"></div>
-        </div>
-      </details>
+  </main>
+</div>

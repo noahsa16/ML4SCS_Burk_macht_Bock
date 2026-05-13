@@ -1,155 +1,198 @@
-<div class="welcome-card" id="welcomeCard" style="display:none">
-  <div class="welcome-card-head">
-    <div class="welcome-card-glyph">/</div>
-    <div>
-      <div class="welcome-card-title">Welcome to ML4SCS</div>
-      <div class="welcome-card-subtitle">Writing activity detection via Apple Watch IMU</div>
+<!-- ════════════════════════════════════════════════════════════
+     Recording — instrument-cockpit layout
+     Analog tape-deck rhythm (controls → hero timer → stat tiles)
+     wrapped in the editorial slash-glyph language.
+     ════════════════════════════════════════════════════════════ -->
+
+<div class="rec-bg-glyph" aria-hidden="true">/</div>
+
+<div class="rec-shell">
+
+  <header class="rec-page-head">
+    <div class="rec-page-eyebrow">/ live recording</div>
+    <h1 class="rec-page-title">Recording</h1>
+    <p class="rec-page-sub">Dual-stream capture — Apple Watch IMU + Moleskine pen dots, both streamed live and labelled by hand on the session.</p>
+  </header>
+
+  <!-- ════ WELCOME — onboarding hint, hidden by default ══════════ -->
+  <section class="rec-welcome" id="welcomeCard" style="display:none">
+    <div class="rec-welcome-head">
+      <span class="rec-welcome-eyebrow">/ three steps to start</span>
+      <button type="button" class="rec-welcome-dismiss" id="welcomeDismiss">dismiss</button>
     </div>
-  </div>
-  <ol class="welcome-card-steps">
-    <li>
-      <span class="welcome-card-step-num">1</span>
-      <div>
-        <div class="welcome-card-step-title">Connect the pen</div>
-        <div class="welcome-card-step-hint">Power on the Moleskine pen, then click Connect on the Smart Pen card.</div>
+    <ol class="rec-welcome-steps">
+      <li>
+        <span class="rec-welcome-num">01</span>
+        <div class="rec-welcome-step">
+          <div class="rec-welcome-step-title">Connect the pen</div>
+          <div class="rec-welcome-step-hint">Power on the Moleskine pen, then click the status panel in the top-right and hit <strong>connect</strong>.</div>
+        </div>
+      </li>
+      <li>
+        <span class="rec-welcome-num">02</span>
+        <div class="rec-welcome-step">
+          <div class="rec-welcome-step-title">Start the Watch app</div>
+          <div class="rec-welcome-step-hint">Open WatchStreamer on your Apple Watch — it streams 50 Hz IMU samples to this dashboard.</div>
+        </div>
+      </li>
+      <li>
+        <span class="rec-welcome-num">03</span>
+        <div class="rec-welcome-step">
+          <div class="rec-welcome-step-title">Press start</div>
+          <div class="rec-welcome-step-hint">When both pen and watch report green in the topbar status panel, hit <strong>START</strong> below.</div>
+        </div>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ════ SESSION — controls + timer + live stats ══════════════ -->
+  <section class="rec-sec" id="rec-sec-session" style="--sec-delay: 0ms">
+    <header class="rec-sec-head">
+      <span class="rec-sec-label">/ session</span>
+    </header>
+
+    <div class="rec-console" id="liveRecordingHero">
+
+      <!-- Stripe 1: input fields + START/STOP ────────────────────── -->
+      <div class="rec-console-controls">
+        <label class="rec-field">
+          <span class="rec-field-label">person</span>
+          <input class="rec-field-input" type="text" id="personId" placeholder="P01" value="P01">
+        </label>
+        <label class="rec-field rec-field--wide">
+          <span class="rec-field-label">description</span>
+          <input class="rec-field-input" type="text" id="sessionDescription" placeholder="e.g. 2 min writing, 2 min pause">
+        </label>
+        <button class="rec-action-btn" id="sessionBtn" onclick="toggleSession()">
+          <span class="rec-action-btn-label">START</span>
+          <span class="rec-action-btn-glyph" aria-hidden="true">●</span>
+        </button>
       </div>
-    </li>
-    <li>
-      <span class="welcome-card-step-num">2</span>
-      <div>
-        <div class="welcome-card-step-title">Start the Watch app</div>
-        <div class="welcome-card-step-hint">Open WatchStreamer on your Apple Watch — it streams IMU samples to this dashboard.</div>
+
+      <!-- Stripe 2: hero timer ───────────────────────────────────── -->
+      <div class="rec-console-timer">
+        <span class="rec-timer-eyebrow">/ elapsed</span>
+        <div class="rec-timer" id="timer">00:00:00</div>
+        <div class="rec-timer-label" id="timerLabel">Ready for a new recording</div>
       </div>
-    </li>
-    <li>
-      <span class="welcome-card-step-num">3</span>
-      <div>
-        <div class="welcome-card-step-title">Press START</div>
-        <div class="welcome-card-step-hint">Hit the START button once pen and watch both show as connected.</div>
+
+      <!-- Stripe 3: 4 live stat tiles ────────────────────────────── -->
+      <div class="rec-console-stats">
+        <div class="rec-stat">
+          <div class="rec-stat-key">watch samples</div>
+          <div class="rec-stat-val rec-stat-val--accent skel-loading" id="watchCount" data-skel>0</div>
+        </div>
+        <div class="rec-stat">
+          <div class="rec-stat-key">pen dots</div>
+          <div class="rec-stat-val rec-stat-val--green skel-loading" id="penCount" data-skel>0</div>
+        </div>
+        <div class="rec-stat">
+          <div class="rec-stat-key">session</div>
+          <div class="rec-stat-val rec-stat-val--id" id="sessionIdDisp">—</div>
+        </div>
+        <div class="rec-stat">
+          <div class="rec-stat-key">rate</div>
+          <div class="rec-stat-val rec-stat-val--id skel-loading" id="watchRateMain" data-skel>– Hz</div>
+        </div>
       </div>
-    </li>
-  </ol>
-  <button type="button" class="welcome-card-dismiss" id="welcomeDismiss">dismiss this welcome</button>
+    </div>
+  </section>
+
+  <!-- ════ LIVE STREAMS — chart + handwriting ═══════════════════ -->
+  <section class="rec-sec" id="rec-sec-streams" style="--sec-delay: 80ms">
+    <header class="rec-sec-head">
+      <span class="rec-sec-label">/ live streams</span>
+    </header>
+
+    <div class="rec-streams-grid">
+
+      <!-- IMU chart ─────────────────────────────────────────────── -->
+      <article class="rec-panel">
+        <header class="rec-panel-head">
+          <div class="rec-panel-title">
+            <span class="rec-panel-caption">/ watch IMU</span>
+            <span class="rec-panel-name">accelerometer + gyroscope magnitudes</span>
+            <span class="live-indicator" id="liveIndicator">Live</span>
+          </div>
+          <div class="rec-panel-legend">
+            <span><span class="leg-dot leg-dot--accel"></span>accel |a|</span>
+            <span><span class="leg-dot leg-dot--gyro"></span>gyro |r|</span>
+            <span><span class="leg-dot leg-dot--writing"></span>writing</span>
+            <span><span class="leg-dot leg-dot--idle"></span>idle</span>
+          </div>
+        </header>
+        <div class="chart-canvas-wrap rec-panel-canvas" id="chartCanvasWrap">
+          <canvas id="imuChart" height="200"></canvas>
+          <div class="chart-canvas-empty" data-state-mode="overlay">
+            <div class="empty-state">
+              <div class="empty-state-glyph">/</div>
+              <div class="empty-state-title">Waiting for IMU stream</div>
+              <div class="empty-state-hint">Start a session and accelerometer + gyroscope magnitudes will draw here in real time.</div>
+            </div>
+          </div>
+        </div>
+        <footer class="rec-panel-foot">
+          <div class="rec-mini-stat">
+            <div class="rec-mini-stat-key">current |a|</div>
+            <div class="rec-mini-stat-val" id="statMag">–</div>
+          </div>
+          <div class="rec-mini-stat">
+            <div class="rec-mini-stat-key">current |r|</div>
+            <div class="rec-mini-stat-val" id="statGyro">–</div>
+          </div>
+          <div class="rec-mini-stat">
+            <div class="rec-mini-stat-key">writing %</div>
+            <div class="rec-mini-stat-val" id="statWritePct">–</div>
+          </div>
+        </footer>
+      </article>
+
+      <!-- Handwriting preview ───────────────────────────────────── -->
+      <article class="rec-panel rec-panel--bare">
+        <div class="rec-pen-pill" id="penPagePill" style="display:none" aria-live="polite">–</div>
+        <div class="rec-pen-mode" role="group" aria-label="View mode">
+          <button type="button" class="rec-pen-mode-opt is-active" data-mode="live"  onclick="setPenViewMode('live')"  aria-pressed="true">live</button>
+          <button type="button" class="rec-pen-mode-opt"           data-mode="page"  onclick="setPenViewMode('page')"  aria-pressed="false">page</button>
+        </div>
+        <button type="button" class="rec-panel-action rec-panel-action--float" onclick="clearPenPreview()">clear</button>
+        <div class="notebook-canvas pen-canvas-wrap rec-panel-canvas" id="penCanvasWrap">
+          <canvas id="penCanvas" height="240"></canvas>
+          <div class="pen-canvas-empty" id="penCanvasEmpty" data-state-mode="overlay">
+            <div class="empty-state">
+              <div class="empty-state-glyph">/</div>
+              <div class="empty-state-title">Waiting for pen strokes</div>
+              <div class="empty-state-hint">Connect the Smart Pen, start a session, and write — strokes will appear here in real time.</div>
+            </div>
+          </div>
+        </div>
+        <span class="visually-hidden" id="penCanvasInfo" aria-hidden="true"></span>
+      </article>
+
+    </div>
+  </section>
+
+  <!-- ════ EVENT LOG — collapsible at the bottom ════════════════ -->
+  <details class="rec-sec rec-sec-collapsible" id="rec-sec-log" style="--sec-delay: 160ms">
+    <summary class="rec-sec-head">
+      <span class="rec-sec-label">/ event log</span>
+      <span class="rec-sec-meta">recent samples + system events</span>
+      <span class="rec-sec-toggle" aria-hidden="true">›</span>
+    </summary>
+    <div class="rec-sec-body">
+      <div class="rec-log-grid">
+        <div class="rec-log-col">
+          <div class="rec-log-caption">/ sample output</div>
+          <div class="rec-log-panel" id="sampleLog"></div>
+        </div>
+        <div class="rec-log-col">
+          <div class="rec-log-caption">/ system events</div>
+          <div class="rec-log-panel" id="eventLog"></div>
+        </div>
+      </div>
+      <div class="rec-log-actions">
+        <button type="button" class="rec-log-clear" onclick="clearVisualLogs()">clear view</button>
+      </div>
+    </div>
+  </details>
+
 </div>
-
-<!-- Session strip — full-width band with controls + timer + live counters -->
-<section class="session-strip">
-  <div class="session-strip-controls">
-    <div class="session-strip-field">
-      <label class="label" for="personId">Person</label>
-      <input type="text" id="personId" placeholder="P01" value="P01">
-    </div>
-    <div class="session-strip-field session-strip-field--wide">
-      <label class="label" for="sessionDescription">Description</label>
-      <input type="text" id="sessionDescription" placeholder="e.g. 2 min writing, 2 min pause">
-    </div>
-    <button class="btn btn-primary" id="sessionBtn" onclick="toggleSession()">START</button>
-  </div>
-  <div class="session-strip-meta">
-    <div class="session-strip-timer">
-      <div class="timer" id="timer">00:00:00</div>
-      <div class="timer-label" id="timerLabel">Ready for a new recording</div>
-    </div>
-    <div class="session-strip-stats">
-      <div class="session-strip-stat">
-        <div class="session-strip-stat-label">Watch</div>
-        <div class="session-strip-stat-val accent skel-loading" id="watchCount" data-skel>0</div>
-      </div>
-      <div class="session-strip-stat">
-        <div class="session-strip-stat-label">Pen</div>
-        <div class="session-strip-stat-val green skel-loading" id="penCount" data-skel>0</div>
-      </div>
-      <div class="session-strip-stat">
-        <div class="session-strip-stat-label">Session</div>
-        <div class="session-strip-stat-val stat-val--id" id="sessionIdDisp">—</div>
-      </div>
-      <div class="session-strip-stat">
-        <div class="session-strip-stat-label">Rate</div>
-        <div class="session-strip-stat-val stat-val--id skel-loading" id="watchRateMain" data-skel>– Hz</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- Main grid: chart left (60%) + handwriting right (40%) -->
-<section class="recording-main-grid">
-  <div class="card chart-card" id="liveRecordingHero">
-    <div class="chart-meta">
-      <div class="card-title">
-        Live IMU Signal<span>Accelerometer + Gyroscope Magnitudes</span>
-        <span class="live-indicator" id="liveIndicator">Live</span>
-      </div>
-      <div class="chart-legend">
-        <span><span class="leg-dot leg-dot--accel"></span> Accel |a|</span>
-        <span><span class="leg-dot leg-dot--gyro"></span> Gyro |r|</span>
-        <span><span class="leg-dot leg-dot--writing"></span> Writing</span>
-        <span><span class="leg-dot leg-dot--idle"></span> Idle</span>
-      </div>
-    </div>
-    <div class="chart-canvas-wrap" id="chartCanvasWrap">
-      <canvas id="imuChart" height="200"></canvas>
-      <div class="chart-canvas-empty" data-state-mode="overlay">
-        <div class="empty-state">
-          <div class="empty-state-glyph">/</div>
-          <div class="empty-state-title">Waiting for IMU stream</div>
-          <div class="empty-state-hint">Start a session and accelerometer + gyroscope magnitudes will draw here in real time.</div>
-        </div>
-      </div>
-    </div>
-    <div class="chart-stats">
-      <div class="chart-stat"><div class="val" id="statMag">–</div><div class="lbl">Current |a|</div></div>
-      <div class="chart-stat"><div class="val" id="statGyro">–</div><div class="lbl">Current |r|</div></div>
-      <div class="chart-stat"><div class="val" id="statWritePct">–</div><div class="lbl">Writing %</div></div>
-    </div>
-  </div>
-
-  <div class="card handwriting-card">
-    <div class="chart-meta">
-      <div class="card-title">Live Handwriting Preview<span>Ncode pen path · last 200 dots</span></div>
-      <button class="btn btn-sm btn-outline" onclick="clearPenPreview()">Clear</button>
-    </div>
-    <div class="notebook-canvas pen-canvas-wrap" id="penCanvasWrap">
-      <canvas id="penCanvas" height="240"></canvas>
-      <div class="pen-canvas-empty" id="penCanvasEmpty" data-state-mode="overlay">
-        <div class="empty-state">
-          <div class="empty-state-glyph">/</div>
-          <div class="empty-state-title">Waiting for pen strokes</div>
-          <div class="empty-state-hint">Connect the Smart Pen, start a session, and write — strokes will appear here in real time.</div>
-        </div>
-      </div>
-    </div>
-    <div class="pen-canvas-meta">
-      <span class="pen-canvas-info" id="penCanvasInfo">No pen data · connect pen and start a session</span>
-    </div>
-  </div>
-</section>
-
-<!-- Session health row — always visible -->
-<section class="session-health">
-  <div class="session-health-row">
-    <div class="session-health-cell"><span class="session-health-key">Watch Hz</span><span class="session-health-val" id="watchHz">–</span></div>
-    <div class="session-health-cell"><span class="session-health-key">Pen Hz</span><span class="session-health-val" id="penHz">–</span></div>
-    <div class="session-health-cell"><span class="session-health-key">Gyro stream</span><span class="session-health-val" id="gyroHealth">–</span></div>
-    <div class="session-health-cell"><span class="session-health-key">Clock align</span><span class="session-health-val" id="clockHealth">–</span></div>
-  </div>
-</section>
-
-<!-- Live log — collapsed by default -->
-<details class="recording-log-details">
-  <summary>Live log <span class="recording-log-summary-hint">recent samples + server/device events</span></summary>
-  <div class="recording-log-body">
-    <div class="log-split">
-      <div>
-        <div class="label">Sample output</div>
-        <div class="log-panel" id="sampleLog"></div>
-      </div>
-      <div>
-        <div class="label">System events</div>
-        <div class="log-panel" id="eventLog"></div>
-      </div>
-    </div>
-    <div class="recording-log-actions">
-      <button class="btn btn-sm btn-outline" onclick="clearVisualLogs()">Clear view</button>
-    </div>
-  </div>
-</details>
