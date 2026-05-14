@@ -116,7 +116,7 @@ def test_merge_attaches_task_id_when_markers_exist(data_dirs, tmp_path, monkeypa
 
     sid = "S777"
     raw_mk = tmp_path / "raw" / "markers"
-    raw_mk.mkdir(parents=True)
+    raw_mk.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(merge_mod, "_MARKERS_DIR_OVERRIDE", raw_mk, raising=False)
 
     base = 1_000_000
@@ -172,7 +172,7 @@ def test_merge_no_markers_keeps_columns_absent(data_dirs, tmp_path, monkeypatch)
 
     sid = "S778"
     raw_mk = tmp_path / "raw" / "markers"
-    raw_mk.mkdir(parents=True)
+    raw_mk.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(merge_mod, "_MARKERS_DIR_OVERRIDE", raw_mk, raising=False)
 
     base = 1_000_000

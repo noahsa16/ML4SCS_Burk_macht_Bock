@@ -35,7 +35,7 @@ def test_skips_id_with_stale_markers_csv(data_dirs, monkeypatch, tmp_path):
     from src.server import config as config_mod
 
     markers_dir = tmp_path / "raw" / "markers"
-    markers_dir.mkdir(parents=True)
+    markers_dir.mkdir(parents=True, exist_ok=True)
     monkeypatch.setattr(csv_io, "MARKERS_DIR", markers_dir, raising=False)
     monkeypatch.setattr(config_mod, "MARKERS_DIR", markers_dir, raising=False)
 
