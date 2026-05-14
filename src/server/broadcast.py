@@ -91,6 +91,9 @@ async def _status_loop():
     while True:
         await asyncio.sleep(1.0)
         sid = state.active.session_id if state.active else None
+        # Why: only count pen samples while a session is active — pre-session
+        # writing to unsessioned_pen.csv should not appear as session activity.
+        # BLE-pairing status is conveyed separately via state.pen_ble_ready.
         pen_samples = _pen_sample_count(sid) if sid else 0
         last_pen_dot = _pen_last_dot(sid) if sid else None
 
