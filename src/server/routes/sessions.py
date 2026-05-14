@@ -324,14 +324,12 @@ async def get_session_report(session_id: str, format: str = "json"):
     return report
 
 
-@router.post("/session/start")
-async def session_start(body: SessionStartBody = SessionStartBody()):
+async def _start_session_internal(
+    person_id: str, description: str, force_preflight: bool
+) -> dict:
     if state.active:
         return JSONResponse({"error": "Session already active"}, status_code=409)
 
-    person_id = body.person_id
-    description = body.description
-    force_preflight = body.force_preflight
     preflight = _session_preflight_payload()
     if preflight["blockers"]:
         return JSONResponse({
@@ -404,12 +402,30 @@ async def session_start(body: SessionStartBody = SessionStartBody()):
     }
 
 
+@router.post("/session/start")
+async def session_start(body: SessionStartBody = SessionStartBody()):
+    return await _start_session_internal(
+        person_id=body.person_id,
+        description=body.description,
+        force_preflight=body.force_preflight,
+    )
+
+
 @router.post("/session/stop")
 async def session_stop():
     if not state.active:
         return JSONResponse({"error": "No active session"}, status_code=409)
 
     session_id = state.active.session_id
+
+    # If a study was running on this session, write a final abort marker so
+    # downstream analysis knows the schedule didn't complete naturally.
+    if state.study is not None:
+        from time import time as _t
+        from ..csv_io import write_marker as _wm
+        for ev in state.study.abort(now_ms=int(_t() * 1000)):
+            _wm(state.active.session_id, ev)
+        state.study = None
     end_time = datetime.now(timezone.utc).isoformat()
     command_id = _new_command_id("stop", session_id)
 
