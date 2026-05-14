@@ -199,17 +199,31 @@
     0 12px 24px -8px color-mix(in oklch, var(--accent) 10%, transparent);
 }
 
-/* ─── Stripe 1: controls + START/STOP ───────────────────────── */
-.rec-console-controls {
+/* ─── Stripe 1 + Stripe 2 share the same column grid so the
+       START button aligns to the description input above. ─────── */
+.rec-console-controls,
+.rec-console-timer {
   display: grid;
-  grid-template-columns: 1fr 2fr auto;
+  grid-template-columns: 1fr 2fr;
   gap: 18px;
-  padding: 18px 22px;
-  border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
   align-items: end;
 }
+.rec-console-controls { padding: 18px 22px; border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent); }
+
+/* In study mode the protocol-field becomes visible — JS adds
+   .has-protocol to .rec-console so BOTH stripes pick up the new grid
+   and keep their columns aligned. */
+.rec-console.has-protocol .rec-console-controls,
+.rec-console.has-protocol .rec-console-timer {
+  grid-template-columns: 1fr 2fr 1fr;
+}
 @media (max-width: 880px) {
-  .rec-console-controls { grid-template-columns: 1fr; }
+  .rec-console-controls,
+  .rec-console-timer,
+  .rec-console.has-protocol .rec-console-controls,
+  .rec-console.has-protocol .rec-console-timer {
+    grid-template-columns: 1fr;
+  }
 }
 
 .rec-field { display: flex; flex-direction: column; gap: 6px; }
@@ -285,25 +299,68 @@
   animation: recRecordPulse 1.2s ease-in-out infinite;
 }
 
-/* ─── Stripe 2: hero timer ──────────────────────────────────── */
+/* ─── Stripe 2: editorial masthead — timer block in col 1 (person),
+       action group in col 2 (description) so the START button widths
+       to match the description input above. ─────────────────────── */
 .rec-console-timer {
-  padding: 22px 26px 24px;
+  padding: 18px 22px 20px;
   border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
   background:
     linear-gradient(to right,
       color-mix(in oklch, var(--accent) 3%, transparent),
       transparent 30%, transparent 70%,
       color-mix(in oklch, var(--accent) 3%, transparent));
-  text-align: left;
+  /* grid-template-columns inherited from the shared rule above */
+}
+.rec-console-timer-block {
   display: flex; flex-direction: column;
-  gap: 4px;
+  gap: 8px;
+  text-align: left;
+  min-width: 0;
+  grid-column: 1;
+}
+.rec-timer-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding-bottom: 2px;
+}
+/* START button sits in col 2 (mirrors the description input above) and
+   fills its full column width — baseline-rivals the timer digit's bottom. */
+.rec-console-timer > .rec-action-btn {
+  grid-column: 2;
+  align-self: end;
+  width: 100%;
+  min-width: 0;
+}
+/* test-run label sits in col 3 (mirrors the protocol picker above, only
+   visible in study mode). Vertical padding matches the button's so the
+   checkbox+label sit at the button-text baseline, not awkwardly floating. */
+.rec-console-timer > .rec-field--check {
+  grid-column: 3;
+  align-self: end;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 0;
+  min-width: 0;
+}
+@media (max-width: 880px) {
+  .rec-console-timer-block,
+  .rec-console-timer > .rec-action-btn,
+  .rec-console-timer > .rec-field--check {
+    grid-column: 1;
+  }
+  .rec-console-timer > .rec-action-btn { margin-top: 4px; }
 }
 .rec-timer-eyebrow {
   font-family: var(--mono); font-style: italic;
   font-size: 10px; letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--text3);
-  margin-bottom: 4px;
+  white-space: nowrap;
 }
 .rec-timer {
   font-family: var(--mono); font-style: italic;
@@ -313,10 +370,7 @@
   letter-spacing: -0.02em;
   color: var(--text);
   line-height: 1;
-  /* The colons get a quieter tint via per-character text styling
-     wouldn't work here, so we lower opacity on text and let JS keep
-     literal characters. Active state colours back up via the .live
-     parent. */
+  /* Active state colours via the .live parent (see below). */
 }
 .rec-console.live .rec-timer {
   color: var(--accent);
@@ -324,9 +378,10 @@
 .rec-timer-label {
   font-family: var(--mono); font-style: italic;
   font-size: 11px;
-  color: var(--text3);
-  letter-spacing: 0.02em;
-  margin-top: 6px;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+  color: color-mix(in oklch, var(--text3) 85%, transparent);
+  /* sits inline with the eyebrow on the .rec-timer-meta baseline row */
 }
 .rec-console.live .rec-timer-label {
   color: var(--text2);

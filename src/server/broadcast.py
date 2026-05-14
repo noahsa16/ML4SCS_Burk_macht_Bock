@@ -144,4 +144,16 @@ async def _status_loop():
                     "local_ts_ms": last_pen_dot.get("local_ts_ms"),
                 })
 
+        # Tick the study state machine if active. Emitted marker events are
+        # persisted to the per-session markers CSV with the same server clock
+        # used by watch / pen CSVs (server_received_ms == int(time.time()*1000)).
+        if state.active and state.study is not None:
+            try:
+                from .csv_io import write_marker
+                _study_now_ms = int(time.time() * 1000)
+                for ev in state.study.advance_now(now_ms=_study_now_ms):
+                    write_marker(state.active.session_id, ev)
+            except Exception:
+                log.exception("study tick failed")
+
         await _broadcast(_status_payload(pen_samples=pen_samples, last_pen_dot=last_pen_dot))

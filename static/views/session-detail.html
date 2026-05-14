@@ -38,6 +38,12 @@
               title="Mark this session as invalid — forces verdict=skip">
         <span class="sd-flag-glyph">⚑</span><span id="detailFlagLabel">flag invalid</span>
       </button>
+      <button type="button" class="sd-flag-btn sd-mark-test-btn" id="detailMarkTestBtn"
+              onclick="markSelectedSessionAsTest()"
+              title="Retroactively flag this session as a test run (clears subject_index)"
+              style="display:none">
+        <span class="sd-flag-glyph">↳</span><span id="detailMarkTestLabel">mark as test</span>
+      </button>
       <a class="sd-export-link" id="detailReportLink" href="#" target="_blank">
         <span>⤓</span><span>download md</span>
       </a>

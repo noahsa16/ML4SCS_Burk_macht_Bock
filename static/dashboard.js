@@ -13,15 +13,17 @@ import {
 import * as recording      from '/static/js/pages/recording.js';
 import * as sessions       from '/static/js/pages/sessions.js';
 import * as sessionDetail  from '/static/js/pages/session_detail.js';
+import * as admin          from '/static/js/pages/admin.js';
 import * as settings       from '/static/js/pages/settings.js';
 
-import { loadSessions, deleteSession } from '/static/js/pages/sessions.js';
-import { openSessionDetail, toggleSessionFlag } from '/static/js/pages/session_detail.js';
+import { loadSessions, deleteSession, markSessionAsTest, setSessionsModeFilter } from '/static/js/pages/sessions.js';
+import { openSessionDetail, toggleSessionFlag, markSelectedSessionAsTest } from '/static/js/pages/session_detail.js';
 import {
   toggleSession, penConnect, penDisconnect, watchCmd, airpodsCmd,
   toggleCardDetails, clearPenPreview, clearVisualLogs, setLogRows,
-  setPenViewMode,
+  setPenViewMode, setRecMode,
 } from '/static/js/pages/recording.js';
+import { studyCmd } from '/static/js/pages/recording-study.js';
 
 // ════════════════════════════════════════════════════════════
 //  PAGE REGISTRY
@@ -30,6 +32,7 @@ const pages = {
   recording,
   sessions,
   'session-detail': sessionDetail,
+  admin,
   settings,
 };
 
@@ -103,6 +106,53 @@ document.querySelectorAll('.tab[data-page]').forEach(btn => {
     location.hash = btn.dataset.page;
   });
 });
+
+// ────────────────────────────────────────────────────────────
+//  EASTER EGG — triple-click on the brand logo opens /#admin
+//  Single click still goes home (slight delay to let rapid
+//  consecutive clicks override the home navigation).
+// ────────────────────────────────────────────────────────────
+{
+  const brand = document.getElementById('brandBtn');
+  if (brand) {
+    let _stamps = [];
+    let _singleTimer = null;
+    const WINDOW_MS = 1500;
+    const SINGLE_DELAY_MS = 420;
+
+    brand.addEventListener('click', () => {
+      const now = Date.now();
+      _stamps = _stamps.filter(t => now - t < WINDOW_MS);
+      _stamps.push(now);
+
+      if (_singleTimer) { clearTimeout(_singleTimer); _singleTimer = null; }
+
+      // After the 2nd click within the window, hint that something
+      // is about to happen — the slash glyph leans into the accent.
+      if (_stamps.length === 2) {
+        brand.classList.add('brand--armed');
+        setTimeout(() => brand.classList.remove('brand--armed'), 600);
+      }
+
+      if (_stamps.length >= 3) {
+        _stamps = [];
+        brand.classList.remove('brand--armed');
+        brand.classList.add('brand--triggered');
+        setTimeout(() => brand.classList.remove('brand--triggered'), 850);
+        // Hop straight to admin; bypass goHome's recording-page default.
+        location.hash = 'admin';
+        return;
+      }
+
+      // Defer the single-click home action so subsequent rapid clicks
+      // can hijack it before it fires.
+      _singleTimer = setTimeout(() => {
+        _singleTimer = null;
+        if (_stamps.length === 1) goHome();
+      }, SINGLE_DELAY_MS);
+    });
+  }
+}
 
 window.addEventListener('hashchange', () => {
   // Why: in-page anchors like #sec-prefs on Settings are NOT page routes —
@@ -218,7 +268,8 @@ _startAnimLoop();
 Object.assign(window, {
   goHome, toggleTheme, toggleSession, toggleCardDetails,
   penConnect, penDisconnect, watchCmd, airpodsCmd,
-  clearPenPreview, clearVisualLogs, loadSessions, deleteSession, closeSessionDetail,
+  clearPenPreview, clearVisualLogs, loadSessions, deleteSession, markSessionAsTest, closeSessionDetail,
   downloadDebugPackage, setTheme, setLogRows, openSessionDetail,
-  setPenViewMode, toggleSessionFlag,
+  setPenViewMode, toggleSessionFlag, markSelectedSessionAsTest, setRecMode, studyCmd,
+  setSessionsModeFilter,
 });

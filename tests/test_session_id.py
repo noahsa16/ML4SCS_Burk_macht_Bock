@@ -29,6 +29,20 @@ def test_skips_id_with_stale_watch_csv(data_dirs):
     assert _next_session_id() == "S100"
 
 
+def test_skips_id_with_stale_markers_csv(data_dirs, monkeypatch, tmp_path):
+    """A stale markers/Sxxx_markers.csv must also force _next_session_id past it."""
+    from src.server import csv_io
+    from src.server import config as config_mod
+
+    markers_dir = tmp_path / "raw" / "markers"
+    markers_dir.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(csv_io, "MARKERS_DIR", markers_dir, raising=False)
+    monkeypatch.setattr(config_mod, "MARKERS_DIR", markers_dir, raising=False)
+
+    (markers_dir / "S077_markers.csv").write_text("timestamp_ms,event\n")
+    assert csv_io._next_session_id() == "S078"
+
+
 def test_takes_max_across_all_sources(data_dirs):
     from src.server.csv_io import _next_session_id
 

@@ -11,6 +11,52 @@ import { S } from '/static/js/core/state.js';
 import { setNumberSmooth } from '/static/js/core/anim.js';
 import { toast } from '/static/js/core/toast.js';
 import { renderState } from '/static/js/core/states.js';
+import { renderStudyView } from '/static/js/pages/recording-study.js';
+
+// ════════════════════════════════════════════════════════════
+//  STUDY MODE — toggle + protocol picker
+// ════════════════════════════════════════════════════════════
+let _recMode = 'free';
+let _protocolsLoaded = false;
+
+export function setRecMode(mode) {
+  _recMode = (mode === 'study') ? 'study' : 'free';
+  document.querySelectorAll('.rec-mode-opt').forEach((b) => {
+    const isActive = b.dataset.mode === _recMode;
+    b.classList.toggle('is-active', isActive);
+    b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+  const isStudy = _recMode === 'study';
+  const protoField = document.getElementById('protocolField');
+  if (protoField) protoField.style.display = isStudy ? '' : 'none';
+  const testField = document.getElementById('testModeField');
+  if (testField) testField.style.display = isStudy ? '' : 'none';
+  // Toggle .has-protocol on the parent console so BOTH stripes (controls
+  // and timer) pick up the 1fr 2fr 1fr grid and stay column-aligned —
+  // START button below stays directly under the description input above.
+  const console_ = document.querySelector('.rec-console');
+  if (console_) console_.classList.toggle('has-protocol', isStudy);
+  const btnLabel = document.querySelector('#sessionBtn .rec-action-btn-label');
+  if (btnLabel && !S.sessionActive) {
+    btnLabel.textContent = (_recMode === 'study') ? 'START STUDY' : 'START';
+  }
+  if (_recMode === 'study') _ensureProtocolsLoaded();
+}
+
+async function _ensureProtocolsLoaded() {
+  if (_protocolsLoaded) return;
+  const list = await api('/study/protocols');
+  const sel = document.getElementById('protocolSelect');
+  if (!sel || !Array.isArray(list)) return;
+  sel.replaceChildren();
+  for (const p of list) {
+    const opt = document.createElement('option');
+    opt.value = String(p.id);
+    opt.textContent = String(p.name);
+    sel.appendChild(opt);
+  }
+  _protocolsLoaded = true;
+}
 
 let _mounted = false;
 
@@ -316,7 +362,7 @@ export function drawPenCanvas() {
   const inkColor = S.theme === 'dark' ? 'oklch(0.87 0.010 80)' : 'oklch(0.22 0.025 55)';
   ctx.strokeStyle = inkColor;
   ctx.fillStyle = inkColor;
-  ctx.lineWidth = 1.6;
+  ctx.lineWidth = 2.0;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
 
@@ -344,7 +390,12 @@ export function drawPenCanvas() {
   }
   if (inStroke) ctx.stroke();
 
-  for (const dot of S.penDotBuffer) {
+  // Why: must iterate viewDots (not the whole buffer) — otherwise old
+  // strokes that scrolled out of the live window (or are on another page)
+  // still leak in as 1px ghost dots, since their x/y get mapped through
+  // bounds computed from viewDots. That's what made completed letters
+  // appear as point clouds without their connecting strokes.
+  for (const dot of viewDots) {
     ctx.beginPath();
     ctx.arc(toX(dot.x), toY(dot.y), 1.0, 0, Math.PI * 2);
     ctx.fill();
@@ -392,23 +443,47 @@ export async function toggleSession() {
     toast('Session stopped');
     if (res?.command_id) console.info('Stop command_id', res.command_id);
     S.chartMax = 0;
-  } else {
-    const pid = document.getElementById('personId').value.trim() || 'unknown';
-    const description = document.getElementById('sessionDescription').value.trim();
-    const preflight = await runStartPreflight();
-    if (!preflight.canStart) return;
+    return;
+  }
 
-    const res = await api('/session/start', 'POST', {
+  const pid = document.getElementById('personId').value.trim() || 'unknown';
+  const description = document.getElementById('sessionDescription').value.trim();
+  const preflight = await runStartPreflight();
+  if (!preflight.canStart) return;
+
+  if (_recMode === 'study') {
+    const protocolId = document.getElementById('protocolSelect')?.value || 'v1';
+    const testMode = document.getElementById('testModeCheck')?.checked === true;
+    const res = await api('/study/start', 'POST', {
+      protocol_id: protocolId,
       person_id: pid,
       description,
       force_preflight: preflight.force,
+      test_mode: testMode,
     });
     if (res?.preflight && !res.session_id) {
       showPreflightResult(res.preflight);
       return;
     }
-    if (res?.session_id) toast(`Recording session ${res.session_id} started`);
+    if (res?.session_id) {
+      const n = res.schedule?.length ?? 0;
+      const tm = res.test_mode ? ' · TEST' : '';
+      toast(`Study ${res.session_id} started (${n} slots${tm})`);
+    }
+    return;
   }
+
+  // free mode (legacy path)
+  const res = await api('/session/start', 'POST', {
+    person_id: pid,
+    description,
+    force_preflight: preflight.force,
+  });
+  if (res?.preflight && !res.session_id) {
+    showPreflightResult(res.preflight);
+    return;
+  }
+  if (res?.session_id) toast(`Recording session ${res.session_id} started`);
 }
 
 async function runStartPreflight() {
@@ -658,4 +733,11 @@ export function onStatus(s) {
 
   // Logs
   renderLogs();
+
+  // Render study view (no-op when s.study is absent or inactive).
+  renderStudyView(s.study);
+  // Hide regular live-streams while a study runs to give the proband-facing
+  // surface the full page.
+  const streamsSec = document.getElementById('rec-sec-streams');
+  if (streamsSec) streamsSec.style.display = s.study?.active ? 'none' : '';
 }

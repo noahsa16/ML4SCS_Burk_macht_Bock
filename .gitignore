@@ -42,3 +42,11 @@ logs/
 
 # Visual Companion brainstorming session artefacts
 .superpowers/
+
+# Study Mode markers (regenerated per-session by the server)
+data/raw/markers/
+
+# Session index — owned by the running server, derivable from data/raw/.
+# Previously tracked, which led to git operations overwriting working-tree
+# rows (e.g. uncommitted session_stop appends getting wiped on a checkout).
+data/sessions.csv
