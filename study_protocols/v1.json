@@ -3,7 +3,7 @@
   "name": "ML4SCS Study Protocol v1",
   "pre_task_seconds": 3,
   "randomize": true,
-  "interleave": "writing_with_pauses",
+  "interleave": "latin_square",
   "tasks": [
     {
       "id": "abschreiben",

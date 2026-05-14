@@ -6,7 +6,7 @@ import time
 from fastapi import APIRouter, HTTPException
 
 from ..config import ROOT
-from ..csv_io import write_marker
+from ..csv_io import _subject_index_for_person_id, write_marker
 from ..models import StudyStartBody
 from ..state import state
 from ..study import load_protocol, list_protocols, new_runtime
@@ -46,12 +46,19 @@ async def start_study(body: StudyStartBody) -> dict:
     if isinstance(session_info, JSONResponse) or "session_id" not in session_info:
         return session_info
 
-    rt = new_runtime(protocol, session_info["session_id"], started_at_ms=_now_ms())
+    subject_index = _subject_index_for_person_id(body.person_id)
+    rt = new_runtime(
+        protocol,
+        session_info["session_id"],
+        started_at_ms=_now_ms(),
+        subject_index=subject_index,
+    )
     state.study = rt
 
     return {
         "session_id": session_info["session_id"],
         "protocol": {"id": protocol.id, "name": protocol.name},
+        "subject_index": subject_index,
         "schedule": [
             {"task_index": s.task_index, "task_id": s.task.id,
              "label": s.task.label, "category": s.task.category,

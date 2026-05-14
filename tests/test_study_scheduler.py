@@ -84,3 +84,94 @@ def test_task_index_is_1_based_and_sequential():
     ], randomize=False)
     schedule = build_schedule(p, seed=0)
     assert [s.task_index for s in schedule] == [1, 2]
+
+
+def test_latin_square_subject_1_uses_row_0():
+    """Subject 1 (index=1) -> LATIN_SQUARE row 0 -> first permutation."""
+    p = StudyProtocol(
+        id="t", name="t", pre_task_seconds=3,
+        randomize=True, interleave="latin_square",
+        tasks=[
+            StudyTask(id="a", label="A", category="writing",
+                      duration_seconds=10, instruction="i"),
+            StudyTask(id="b", label="B", category="writing",
+                      duration_seconds=10, instruction="i"),
+            StudyTask(id="c", label="C", category="writing",
+                      duration_seconds=10, instruction="i"),
+            StudyTask(id="pause", label="P", category="idle",
+                      duration_seconds=5, instances=2, instruction="i"),
+        ],
+    )
+    schedule = build_schedule(p, seed=0, subject_index=1)
+    writing_ids = [s.task.id for s in schedule if s.category == "writing"]
+    assert writing_ids == ["a", "b", "c"]
+
+
+def test_latin_square_subject_2_uses_row_1():
+    p = StudyProtocol(
+        id="t", name="t", pre_task_seconds=3,
+        randomize=True, interleave="latin_square",
+        tasks=[
+            StudyTask(id="a", label="A", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="b", label="B", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="c", label="C", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="pause", label="P", category="idle", duration_seconds=5, instances=2, instruction="i"),
+        ],
+    )
+    schedule = build_schedule(p, seed=0, subject_index=2)
+    writing_ids = [s.task.id for s in schedule if s.category == "writing"]
+    assert writing_ids != ["a", "b", "c"]
+    assert set(writing_ids) == {"a", "b", "c"}
+
+
+def test_latin_square_cycles_after_6_subjects():
+    p = StudyProtocol(
+        id="t", name="t", pre_task_seconds=3,
+        randomize=True, interleave="latin_square",
+        tasks=[
+            StudyTask(id="a", label="A", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="b", label="B", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="c", label="C", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="pause", label="P", category="idle", duration_seconds=5, instances=2, instruction="i"),
+        ],
+    )
+    ids_1 = [s.task.id for s in build_schedule(p, seed=0, subject_index=1) if s.category == "writing"]
+    ids_7 = [s.task.id for s in build_schedule(p, seed=0, subject_index=7) if s.category == "writing"]
+    assert ids_1 == ids_7
+
+
+def test_latin_square_balanced_across_6_subjects():
+    """Each task appears in each position exactly twice across 6 subjects."""
+    p = StudyProtocol(
+        id="t", name="t", pre_task_seconds=3,
+        randomize=True, interleave="latin_square",
+        tasks=[
+            StudyTask(id="a", label="A", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="b", label="B", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="c", label="C", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="pause", label="P", category="idle", duration_seconds=5, instances=2, instruction="i"),
+        ],
+    )
+    positions = [[], [], []]
+    for i in range(1, 7):
+        ids = [s.task.id for s in build_schedule(p, seed=0, subject_index=i) if s.category == "writing"]
+        for j, tid in enumerate(ids):
+            positions[j].append(tid)
+    for pos in positions:
+        assert sorted(pos) == ["a", "a", "b", "b", "c", "c"]
+
+
+def test_latin_square_without_subject_index_falls_back_to_random():
+    """If subject_index is None and interleave='latin_square', behave like writing_with_pauses (graceful degrade)."""
+    p = StudyProtocol(
+        id="t", name="t", pre_task_seconds=3,
+        randomize=True, interleave="latin_square",
+        tasks=[
+            StudyTask(id="a", label="A", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="b", label="B", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="c", label="C", category="writing", duration_seconds=10, instruction="i"),
+            StudyTask(id="pause", label="P", category="idle", duration_seconds=5, instances=2, instruction="i"),
+        ],
+    )
+    schedule = build_schedule(p, seed=0)
+    assert len(schedule) == 5
