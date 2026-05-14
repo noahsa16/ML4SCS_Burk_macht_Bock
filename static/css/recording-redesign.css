@@ -326,32 +326,34 @@
   flex-wrap: wrap;
   padding-bottom: 2px;
 }
-.rec-console-action {
-  display: flex;
-  align-items: stretch;
-  gap: 14px;
-  grid-column: 2;          /* sit under the description input */
-  min-width: 0;
-}
-/* In study mode there's a third grid column (protocol). Action stays in
-   col 2 so it keeps matching the description input's width. */
-.rec-console.has-protocol .rec-console-action {
+/* START button sits in col 2 (mirrors the description input above) and
+   fills its full column width — baseline-rivals the timer digit's bottom. */
+.rec-console-timer > .rec-action-btn {
   grid-column: 2;
-}
-.rec-console-action .rec-action-btn {
-  flex: 1 1 auto;          /* button stretches to fill the description-column width */
+  align-self: end;
+  width: 100%;
   min-width: 0;
 }
-.rec-console-action .rec-field--check {
-  flex: 0 0 auto;          /* test-run checkbox keeps its natural width */
-  align-self: center;
+/* test-run label sits in col 3 (mirrors the protocol picker above, only
+   visible in study mode). Vertical padding matches the button's so the
+   checkbox+label sit at the button-text baseline, not awkwardly floating. */
+.rec-console-timer > .rec-field--check {
+  grid-column: 3;
+  align-self: end;
+  display: flex;
   flex-direction: row;
+  align-items: center;
   gap: 8px;
+  padding: 14px 0;
+  min-width: 0;
 }
 @media (max-width: 880px) {
   .rec-console-timer-block,
-  .rec-console-action { grid-column: 1; }
-  .rec-console-action { margin-top: 4px; }
+  .rec-console-timer > .rec-action-btn,
+  .rec-console-timer > .rec-field--check {
+    grid-column: 1;
+  }
+  .rec-console-timer > .rec-action-btn { margin-top: 4px; }
 }
 .rec-timer-eyebrow {
   font-family: var(--mono); font-style: italic;

@@ -78,6 +78,8 @@
       </div>
 
       <!-- Stripe 2: hero timer + action ──────────────────────────── -->
+      <!-- START button + test-run label are direct grid children so they
+           align to columns 2 and 3 (mirroring description + protocol above). -->
       <div class="rec-console-timer">
         <div class="rec-console-timer-block">
           <div class="rec-timer-meta">
@@ -86,16 +88,14 @@
           </div>
           <div class="rec-timer" id="timer">00:00:00</div>
         </div>
-        <div class="rec-console-action">
-          <label class="rec-field rec-field--check" id="testModeField" style="display:none">
-            <input type="checkbox" id="testModeCheck">
-            <span class="rec-field-label">test run</span>
-          </label>
-          <button class="rec-action-btn" id="sessionBtn" onclick="toggleSession()">
-            <span class="rec-action-btn-label">START</span>
-            <span class="rec-action-btn-glyph" aria-hidden="true">●</span>
-          </button>
-        </div>
+        <button class="rec-action-btn" id="sessionBtn" onclick="toggleSession()">
+          <span class="rec-action-btn-label">START</span>
+          <span class="rec-action-btn-glyph" aria-hidden="true">●</span>
+        </button>
+        <label class="rec-field rec-field--check" id="testModeField" style="display:none">
+          <input type="checkbox" id="testModeCheck">
+          <span class="rec-field-label">test run</span>
+        </label>
       </div>
 
       <!-- Stripe 3: 4 live stat tiles ────────────────────────────── -->
