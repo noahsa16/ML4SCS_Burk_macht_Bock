@@ -53,6 +53,9 @@ class SessionState:
         self.chart_buffer: list[dict] = []
         self.chart_window_acc_mags: list[float] = []
         self.chart_window_gyro_mags: list[float] = []
+        # Study Mode runtime — set by /study/start, cleared on session stop
+        # or /study/abort. None means "free recording mode".
+        self.study = None  # Optional[StudyRuntime]
         self.event_log: deque[dict[str, Any]] = deque(maxlen=220)
         self.sample_log: deque[dict[str, Any]] = deque(maxlen=140)
         self.last_watch_sample: Optional[dict[str, Any]] = None
