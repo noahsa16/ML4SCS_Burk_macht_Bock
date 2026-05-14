@@ -25,8 +25,12 @@ Sensors during training-data collection:
   same iPhone bridge. Currently logged but not yet used by the model.
 
 Status: data collection + preprocessing + watch-base merge + quality
-checks + sliding-window features + Random Forest baseline are
-operational. Multi-session / cross-subject evaluation is TODO.
+checks + sliding-window features + Random Forest baseline + LOSO
+cross-validation + Study Mode (counterbalanced protocol runner with
+fullscreen proband UI and VL admin monitor) are operational. Headline
+metric on the current single-subject dataset: LOSO accuracy ~0.85,
+ROC-AUC ~0.92 across 5 sessions. Multi-subject recording is the next
+milestone.
 
 ## Setup
 
@@ -79,8 +83,18 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # ~30 tests, <1 s
+pytest tests/         # 138 tests, ~1.5 s
 ```
+
+**Study Mode (counterbalanced data collection):**
+From the dashboard's Recording page, toggle to Study Mode → pick
+`v1` from the protocol dropdown → START STUDY. The proband side
+enters a fullscreen takeover (Watch-style UI: pre-task countdown,
+audio cues, instructions, last-5s urgent pulse); the VL controls
+Pause / Next / Abort. Once running, the `#admin` page (hidden from
+the tab strip — reached by **triple-clicking the brand logo**) gives
+a second-screen monitor view for the experimenter without leaving
+the proband's screen. See *Study Mode* below.
 
 ## Architecture
 
@@ -148,10 +162,16 @@ quality.py         _session_facts() = single source of truth for facts;
 broadcast.py       _broadcast() + _status_loop() (1-s tick)
 pen_proc.py        starts/stops pen_logger.py as a subprocess
 models.py          Pydantic schemas (WatchEnvelope, SessionStartBody …)
+study.py           Study Mode internals: protocol loader (Pydantic
+                   schema), LATIN_SQUARE_3 (6 permutations of 3 writing
+                   tasks), scheduler that interleaves writing tasks with
+                   pauses, and the runtime state machine (idle / running
+                   / paused / done). Pure Python — no FastAPI imports,
+                   fully unit-testable.
 routes/            FastAPI endpoint package — one APIRouter per concern
                    (watch.py, airpods.py, pen.py, sessions.py,
-                    dashboard.py, ws.py, _helpers.py); __init__.py
-                    aggregates them into a single `router`
+                    study.py, dashboard.py, ws.py, _helpers.py);
+                    __init__.py aggregates them into a single `router`
 ```
 
 `src/pen_schema.py` is a top-level shared module (no deps) so
@@ -173,7 +193,20 @@ session start/stop start/stop it automatically.
 - `GET /sessions/{id}/validation` — deep validation (timeline, drift, sync)
 - `GET /sessions/{id}/report?format=json|md` — full per-session report;
   Markdown form is the "⤓ md" link in the dashboard
-- `WebSocket /ws` — dashboard status (1 s tick) + iPhone bridge messages
+- `POST /sessions/{id}/mark-test` — retroactive flip of a session to
+  `study_mode='test'`, prepends `[TEST] ` to description; the
+  resulting session is excluded from Latin-Square counting and from
+  default LOSO inclusion
+- `GET /study/protocols` — lists available protocols in
+  `study_protocols/` (currently `v1.json`)
+- `POST /study/start` — boots a Study-Mode session: loads protocol,
+  computes Latin-Square ordering from `subject_index`, starts the
+  session, writes the first marker to `data/raw/markers/{id}_markers.csv`
+- `POST /study/next` / `POST /study/pause` / `POST /study/abort` —
+  drive the state machine; emits markers on every transition
+- `WebSocket /ws` — dashboard status (1 s tick) + iPhone bridge
+  messages + per-tick `study` payload (current task, time-remaining,
+  next-task preview)
 
 `_status_loop` broadcasts `_status_payload()` once a second, updates
 rolling Hz estimates, and maintains a 60-point rolling chart buffer
@@ -196,9 +229,29 @@ per-tick work. Session Detail's `onHide` calls `_destroyAlignCharts()`
 to tear down the alignment-plot canvases when leaving (the main perf
 mechanism, since that page is the heaviest).
 
-Page modules live in `static/js/pages/{recording,sessions,session_detail,
-connections,system}.js` and all export the same four-function contract:
-`mount(container)`, `onStatus(payload)`, `onShow()`, `onHide()`.
+Page modules live in `static/js/pages/{recording,recording-study,
+sessions,session_detail,settings,admin}.js` and all export the same
+four-function contract: `mount(container)`, `onStatus(payload)`,
+`onShow()`, `onHide()`.
+
+`recording-study.js` is the **fullscreen takeover** for the proband
+side once Study Mode is running. It is a sibling of `recording.js`:
+the recording view switches between the two depending on whether
+study runtime state is active. When active, it adds the
+`body.study-active` class which takes over the whole viewport (topbar
+hidden), performs a FLIP-style animation between tasks, and plays
+two audio cues — an 880 Hz tick during the last-5-second urgent pulse
+and an E5/B5 two-note chime at task transitions. Markup is built via
+the DOM API (no template string innerHTML) to avoid re-mounting the
+same nodes between ticks. Styles live in `static/css/study-mode.css`.
+
+The `#admin` page is **hidden from the tab strip** (intentionally —
+the proband must not see it). It is reached by triple-clicking the
+brand logo in the topbar (the easter-egg lives in `dashboard.js`).
+It mirrors the live status / chart / connections summary so the VL
+can monitor the recording from a second device (iPad) without
+intruding on the proband's screen. Files: `static/js/pages/admin.js`,
+`static/views/admin.html`, `static/css/admin.css`.
 
 Cross-cutting concerns in `static/js/core/`:
 - `state.js` — `S` object + `updateFromStatus(payload)` + named getters
@@ -355,14 +408,47 @@ ts, ax, ay, az, rx, ry, rz, qw, qx, qy, qz, gx, gy, gz
 Head-IMU stream from `CMHeadphoneMotionManager`: accel + gyro +
 attitude quaternion + gravity vector. Currently logged only.
 
-**Sessions index** (`data/sessions.csv`):
+**Sessions index** (`data/sessions.csv` — **gitignored**, owned by
+the running server, derivable from `data/raw/`):
 ```
 session_id, person_id, description, start_time, end_time,
-pen_samples, watch_samples, airpods_samples, status
+pen_samples, watch_samples, airpods_samples, status,
+study_mode, protocol_id, subject_index
 ```
+- `study_mode` ∈ {`free`, `study`, `test`}. `free` = legacy manual
+  recording; `study` = run under a study protocol; `test` = study
+  protocol run flagged not-for-analysis (pilot/dry-run).
+- `protocol_id` — id of the protocol JSON in `study_protocols/` (e.g.
+  `v1`); empty for `free` sessions.
+- `subject_index` — 0-indexed counterbalancing index used to pick the
+  Latin-Square row for this proband. Auto-assigned via
+  `_subject_index_for_person_id(person_id)`, which **counts only prior
+  sessions with `study_mode='study'`** for that person — `test` and
+  `free` are skipped so pilot runs do not consume a counterbalance
+  slot. The 6-row `LATIN_SQUARE_3` table in `src/server/study.py`
+  defines all 6 permutations of the 3 writing tasks (full
+  counterbalance — each task appears in each position twice across
+  6 subjects).
+
 Session IDs auto-increment (`S001`, `S002`, …). `_next_session_id()`
 scans **sessions.csv** and `data/raw/{pen,watch,airpods}/` so an ID
 can never be reused while a stale per-session CSV is still on disk.
+
+`sessions.csv` was previously checked in but is **now gitignored**
+after a data-loss incident where switching git branches reset it. The
+server fully owns the file; any environment can reconstruct it by
+scanning `data/raw/`.
+
+**Markers CSV** (`data/raw/markers/{session_id}_markers.csv`): one
+row per Study-Mode state transition or VL action. Schema:
+```
+local_ts, local_ts_ms, session_id, event, task_id, task_index,
+task_label, category, duration_seconds, instance, note
+```
+Events include `study_start`, `task_start`, `task_end`, `pause_start`,
+`pause_end`, `next`, `abort`, `study_end`. The marker stream is the
+ground-truth timeline for downstream per-task analyses and lets the
+training pipeline filter windows by task category if needed.
 
 **Merged CSV** (`data/processed/{session}_merged.csv`): **watch-base**
 — every watch sample is preserved, with `label_writing` ∈ {0, 1}
@@ -376,6 +462,41 @@ canonical ML timeline.
 1 s sliding window (0.5 s stride), 42 statistical features + `label`
 + `t_center_ms`. Labels are smoothed at sample level before windowing
 (see *Label smoothing* below).
+
+## Study Mode
+
+End-to-end protocol runner so recordings happen under a consistent,
+counterbalanced script rather than free-form. Lives in
+`src/server/study.py` (pure logic) + `src/server/routes/study.py`
+(HTTP) + `static/js/pages/recording-study.js` (UI).
+
+**Protocol definition.** `study_protocols/v1.json` defines tasks
+(id, label, category ∈ {`writing`, `idle`}, duration, instances,
+instruction, content_type ∈ {`text`, `list`, `image`}, content),
+plus `pre_task_seconds`, `randomize`, and `interleave` mode.
+`load_protocol(path)` validates against the Pydantic schema.
+
+**Scheduler.** Three `interleave` modes are supported; v1 uses
+`latin_square`: pick the Latin-Square row by `subject_index % 6` to
+order the 3 writing tasks, then **interleave with pauses** between
+them. v1's writing tasks are `abschreiben` (text copy),
+`math` (math problems), `free_writing` — each 240 s — separated by
+pause blocks. Net schedule: W-P-W-P-W (~15 min including pre-task
+countdowns and audio cues).
+
+**State machine.** `new_runtime(protocol, subject_index)` constructs
+the ordered task list; `state.study` tracks `phase`,
+`current_task_idx`, `task_started_ms`. `/study/next` advances,
+`/study/pause` flips to/from `paused`, `/study/abort` terminates
+and writes a `study_end` marker. Markers are written via
+`write_marker()` (`csv_io.py`) on every transition.
+
+**Test mode.** `POST /study/start` with `test_mode=true`:
+- prefixes the description with `[TEST] `,
+- writes `study_mode='test'` to sessions.csv,
+- **skips Latin Square** (random shuffle fallback instead).
+Existing sessions can be flipped retroactively via
+`POST /sessions/{id}/mark-test` (the dashboard exposes this).
 
 ## Quality Checks
 
@@ -485,8 +606,8 @@ metric that maps to the deployment scenario.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests — anything that could silently
-poison the training data:
+`tests/` holds Tier-1 smoke tests (138 cases, ~1.5 s) — anything that
+could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
   asserts which issue codes fire. Includes a regression for the
@@ -495,17 +616,38 @@ poison the training data:
   pen/watch/airpods files.
 - `test_merge.py` — `merge_watch_pen` watch-base behaviour (every
   watch sample preserved; label 1 only when pen DOWN/MOVE within
-  tolerance; pre/post idle stretches labelled 0), plus `prepare_pen_data`
-  `label_writing` mapping and x=-1 filtering.
+  tolerance; pre/post idle stretches labelled 0), plus
+  `prepare_pen_data` `label_writing` mapping and x=-1 filtering.
 - `test_pen_match.py` — stroke-variance alignment in
   `src/alignment/pen_match.py`: stroke-mask construction, coarse/fine
   search behaviour, sigma confidence.
 - `test_pen_parser_framing.py` — STX/ETX/DLE-escape state machine
-  in `pen_logger.py` (does not cover packet semantics — that needs
-  real BLE captures).
+  in `pen_logger.py`.
 - `test_endpoints.py` — FastAPI TestClient smokes for `POST /watch`
   (both payload formats), `POST /session/start` → `/stop` happy path,
   and the `streams_do_not_overlap` validation issue.
+- `test_protocol_loader.py` — `load_protocol` schema validation
+  (extra fields rejected, durations positive, content_type matches
+  content, etc.).
+- `test_study_scheduler.py` — Latin-Square ordering, writing/pause
+  interleave, `pre_task_seconds`, randomize fallback.
+- `test_study_state_machine.py` — runtime transitions
+  (idle → running → paused → running → done), pause/abort semantics.
+- `test_study_endpoints.py` — HTTP layer for `/study/*`.
+- `test_study_e2e.py` — full start → next → next → abort smoke,
+  asserts markers CSV contents and sessions.csv columns.
+- `test_subject_index.py` — `_subject_index_for_person_id` counts
+  only `study_mode='study'` sessions, ignores `test` and `free`.
+- `test_markers_csv.py` — `write_marker` schema + append behaviour.
+- `test_sessions_schema.py` — sessions.csv carries the new
+  `study_mode` / `protocol_id` / `subject_index` columns; the schema
+  is migrated forward on read.
+- `test_sync.py` / `test_timelines.py` — previously-untested server
+  helpers (sync-confidence, per-session timeline reconstruction).
+- `test_chart_aggregation.py` — 5 Hz chart aggregator.
+- `test_dashboard_static.py` — every JS module / view partial /
+  stylesheet path returns 200 (404 trap; ES modules fail opaquely
+  when served as `text/html`).
 
 Hardware loops (real BLE pen, watchOS app, iPhone bridge) remain
 **manual** smoke tests — there is no XCTest target in the Xcode
