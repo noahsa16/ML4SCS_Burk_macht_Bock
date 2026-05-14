@@ -24,12 +24,12 @@
       "instruction": "Bearbeite die Aufgaben in deinem üblichen Tempo.",
       "content_type": "list",
       "content": [
-        "Ein Zug fährt um 8:00 Uhr von Hamburg mit 80 km/h Richtung München. Um 9:00 Uhr startet ein zweiter Zug auf derselben Strecke mit 120 km/h. Wann und nach welcher Strecke holt der zweite den ersten ein?",
-        "Ein rechteckiger Garten hat eine Fläche von 60 m². Die Länge ist 4 m größer als die Breite. Bestimme die Seitenlängen.",
-        "Eine Bakterienkolonie verdoppelt sich alle 30 Minuten. Nach wie vielen Stunden hat sich die Anzahl verzwanzigfacht? (Hinweis: log₂ 20 ≈ 4,32)",
-        "Du legst 5 000 € zu 3 % jährlichem Zinssatz an. Nach wie vielen vollen Jahren überschreitet das Guthaben 10 000 €?",
-        "Aus einer Urne mit 7 roten und 3 blauen Kugeln werden 3 Kugeln ohne Zurücklegen gezogen. Mit welcher Wahrscheinlichkeit sind alle drei rot?",
-        "Ein Mast wirft bei einem Sonnenstand von 35° einen 12 m langen Schatten. Wie hoch ist der Mast? (gerundet auf eine Nachkommastelle)"
+        "Ein Pulli kostet 35 €, eine Hose 49 €. Du zahlst mit einem 100-€-Schein. Wie viel Wechselgeld bekommst du?",
+        "Ein Film beginnt um 19:30 Uhr und dauert 1 Stunde 45 Minuten. Wann ist er zu Ende?",
+        "Drei Freunde gehen essen. Die Rechnung beträgt 84 €. Wie viel zahlt jeder, wenn sie gleichmäßig teilen?",
+        "Eine Jeans kostet 60 €. Heute gibt es 25 % Rabatt. Wie viel zahlst du?",
+        "Du sparst jede Woche 8 €. Wie viel Geld hast du nach 6 Wochen?",
+        "Ein Zimmer ist 4 m breit und 5 m lang. Wie viele Quadratmeter hat es? Und wie viel Geld kostet neuer Teppichboden bei 12 € pro m²?"
       ]
     },
     {
