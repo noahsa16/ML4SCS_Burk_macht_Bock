@@ -16,6 +16,7 @@ Ablauf in ``merge_watch_pen()``:
 Output: 1 Zeile pro Watch-Sample (alle Watch-Spalten + ``label_writing``).
 """
 
+import re
 from pathlib import Path
 
 import numpy as np
@@ -30,6 +31,21 @@ from src.alignment import (
 from .prep import load_csv
 
 WRITING_DOT_TYPES = ("PEN_DOWN", "PEN_MOVE")
+
+# Override hook for tests; production resolves to data/raw/markers.
+_MARKERS_DIR_OVERRIDE: Path | None = None
+_SESSION_FROM_PATH = re.compile(r"^(S\d+)_(?:pen|watch)\.csv$")
+
+
+def _markers_dir() -> Path:
+    if _MARKERS_DIR_OVERRIDE is not None:
+        return _MARKERS_DIR_OVERRIDE
+    return Path(__file__).parents[2] / "data" / "raw" / "markers"
+
+
+def _session_id_from_path(p: str | Path) -> str | None:
+    m = _SESSION_FROM_PATH.match(Path(p).name)
+    return m.group(1) if m else None
 
 
 def estimate_pen_imu_offset(
@@ -137,4 +153,42 @@ def merge_watch_pen(
     merged = merged.drop(columns=["pen_writing"]).reset_index(drop=True)
     merged.attrs["pen_clock_offset_sec"] = delta_sec
     merged.attrs["pen_clock_sigma"] = sigma
+
+    # Why: Study Mode emits per-session task markers; sessions without a
+    # markers CSV (legacy + non-study) merge unchanged for backward-compat.
+    session_id = _session_id_from_path(pen_path) or _session_id_from_path(watch_path)
+    if session_id is not None:
+        markers_path = _markers_dir() / f"{session_id}_markers.csv"
+        if markers_path.exists():
+            markers = pd.read_csv(markers_path)
+            boundaries = markers[markers["event"].isin(
+                ["task_start", "task_end", "abort", "study_end"]
+            )].copy()
+            boundaries["timestamp_ms"] = boundaries["timestamp_ms"].astype("int64")
+            boundaries = boundaries.sort_values("timestamp_ms").reset_index(drop=True)
+
+            intervals: list[dict] = []
+            active: dict | None = None
+            for _, row in boundaries.iterrows():
+                if row["event"] == "task_start":
+                    active = {
+                        "start": int(row["timestamp_ms"]),
+                        "task_id": row.get("task_id", ""),
+                        "task_category": row.get("task_category", ""),
+                    }
+                elif row["event"] in ("task_end", "abort", "study_end") and active is not None:
+                    active["end"] = int(row["timestamp_ms"])
+                    intervals.append(active)
+                    active = None
+
+            merged["task_id"] = pd.NA
+            merged["task_category"] = pd.NA
+            for iv in intervals:
+                mask = (
+                    (merged["local_ts_ms"] >= iv["start"])
+                    & (merged["local_ts_ms"] < iv["end"])
+                )
+                merged.loc[mask, "task_id"] = iv["task_id"]
+                merged.loc[mask, "task_category"] = iv["task_category"]
+
     return merged
