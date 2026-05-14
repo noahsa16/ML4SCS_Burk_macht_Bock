@@ -58,7 +58,10 @@ def train(
     if feats.empty:
         raise RuntimeError(f"No windows produced for {session_id}.")
 
-    feature_cols = [c for c in feats.columns if c not in {"label", "t_center_ms"}]
+    feature_cols = [
+        c for c in feats.columns
+        if c not in {"label", "t_center_ms", "task_id", "task_category"}
+    ]
     train_df, test_df = temporal_split(feats)
 
     X_train = train_df[feature_cols].to_numpy()
