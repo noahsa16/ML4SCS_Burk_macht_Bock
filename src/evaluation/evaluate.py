@@ -2,7 +2,9 @@
 
 Aktuell ein Placeholder, der ein per-Session gemergtes Dataset (Output
 von ``python -m src.merge``) einliest und die Label-Verteilung ausgibt.
-Echte Test-Metriken stehen in ``src/training/train_rf.py``.
+Echte Test-Metriken: ``src/training/train_loso.py`` (Headline,
+cross-subject/-session) oder ``src/training/within_session/train_rf.py``
+(within-session 80/20, Debug/Feature-Iteration).
 """
 
 from pathlib import Path

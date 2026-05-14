@@ -43,8 +43,11 @@ Moleskine Smart Pen (BLE)                                            │
                                                                      │
                                   data/processed/{session}_windows.csv
                                                                      │
-                                  src/training/train_rf.py     (RF baseline,
-                                                                temporal 80/20 split)
+                                  src/training/within_session/    (RF baseline,
+                                    train_rf.py                    temporal 80/20 —
+                                                                   debug only)
+                                  src/training/train_loso.py      (LOSO cross-val —
+                                                                   headline metric)
                                                                      │
                                   models/rf_{session}.joblib
 ```
@@ -151,10 +154,17 @@ src/features/
                                    @ 0.5 s stride → 42 stat features
   __main__.py                      CLI: python -m src.features [SESSION_ID]
 src/training/
-  train_rf.py                      RandomForest baseline; temporal 80/20
-                                   split with 4-window gap at the cut
-src/evaluation/evaluate.py         Label distribution (real metrics live in
-                                   train_rf.py for now)
+  train_loso.py                    **Headline metric.** Leave-One-Out CV
+                                   (by person or session); cross-subject
+                                   generalisation for the actual goal.
+  within_session/
+    train_rf.py                    **Debug / feature iteration only.**
+                                   RandomForest baseline within a single
+                                   session; temporal 80/20 split with
+                                   4-window gap. Not a generalisation
+                                   claim.
+src/evaluation/evaluate.py         Label distribution (real metrics live
+                                   in train_loso.py / within_session/train_rf.py)
 
 scripts/
   start.sh                         Server + Cloudflare tunnel TTY UI
@@ -235,15 +245,42 @@ Server logs go to the terminal *and* `logs/server.log` (rotating). The same log 
 
 ## ML Pipeline
 
-Once a session is recorded, the full training pipeline is three commands:
+Once a session is recorded, the per-session preprocessing is two commands:
 
 ```bash
 python -m src.merge S029                      # watch-base merge → data/processed/S029_merged.csv
 python -m src.features S029 --max-gap-ms 300  # sliding windows  → data/processed/S029_windows.csv
-python -m src.training.train_rf S029          # RF baseline      → models/rf_S029.joblib
 ```
 
-Without a session ID, `merge` and `features` operate on the most recent session. `train_rf` prints classification report, confusion matrix, ROC-AUC and the top-10 feature importances on the temporal hold-out.
+Without a session ID, `merge` and `features` operate on the most recent session.
+
+**Training has two entry points with very different purposes.**
+
+### 1. Cross-subject evaluation — the headline metric
+
+```bash
+python -m src.training.train_loso                  # LOSO by person (default)
+python -m src.training.train_loso --by session     # leave-one-session-out
+```
+
+This is the **real evaluation** for the project goal ("general writing detector, independent of who is wearing the watch"). Each fold holds out one subject (or session) entirely; the held-out unit is never seen during training. Reports per-fold accuracy / ROC-AUC plus a mean ± std summary. Only sessions with `verdict ∈ {trainable, usable}` from `data/sessions.csv` participate by default (override with `--include-all`).
+
+`--by person` is the right metric, but degenerates when only one subject is recorded. While the dataset has a single subject, `--by session` is the practical fallback — it still measures cross-session generalisation (different watch position, daily form, writing context).
+
+### 2. Within-session baseline — debug / feature iteration
+
+```bash
+python -m src.training.within_session.train_rf S029
+```
+
+This trains a Random Forest on the first 80% of one session and tests on the last 20% (with a 4-window gap to prevent overlap leakage from the 50%-overlapping sliding windows). It is **explicitly not a generalisation claim** — it only measures "can the model finish this session given the start of it". Use it for:
+
+- Iterating on features (adding / removing / debugging a feature).
+- Tuning label-smoothing parameters (`max_gap_ms`).
+- Smoke-testing the pipeline end-to-end on a fresh session.
+- Sanity floor: if within-session ROC-AUC is already < 0.6, LOSO is hopeless and the features need more work first.
+
+Dumps to `models/rf_{session}.joblib`. **Do not report within-session metrics as a project result** — always quote `train_loso` numbers in writeups.
 
 To preview the effect of label smoothing visually before training:
 ```bash
@@ -346,8 +383,9 @@ Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside
 | Pen↔IMU clock alignment | Implemented (stroke-variance, TH Zürich) |
 | Feature engineering | Implemented (1 s windows, 42 stats, label closing) |
 | Model training | Implemented (Random Forest baseline) |
-| Evaluation & metrics | Within-session: S029 acc 0.83 / ROC-AUC 0.85 |
-| Multi-session / cross-subject evaluation | TODO |
+| Within-session sanity check | S029 acc 0.83 / ROC-AUC 0.85 (debug only) |
+| Cross-session LOSO (single subject) | acc 0.86 ± 0.02 / ROC-AUC 0.92 ± 0.02 over 4 Noah-sessions |
+| Cross-subject LOSO | Pending — needs ≥ 2 subjects recorded |
 
 ---
 

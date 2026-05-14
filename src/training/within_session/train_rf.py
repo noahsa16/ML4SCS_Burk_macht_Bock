@@ -22,7 +22,7 @@ from sklearn.metrics import (
 
 from src.features.windows import load_session_windows
 
-ROOT = Path(__file__).parents[2]
+ROOT = Path(__file__).parents[3]
 DATA_PROC = ROOT / "data" / "processed"
 MODEL_DIR = ROOT / "models"
 
