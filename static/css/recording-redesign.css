@@ -199,17 +199,24 @@
     0 12px 24px -8px color-mix(in oklch, var(--accent) 10%, transparent);
 }
 
-/* ─── Stripe 1: controls + START/STOP ───────────────────────── */
+/* ─── Stripe 1: inputs only (START moved into stripe 2) ─────── */
 .rec-console-controls {
   display: grid;
-  grid-template-columns: 1fr 2fr auto;
+  grid-template-columns: 1fr 2fr;
   gap: 18px;
   padding: 18px 22px;
   border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
   align-items: end;
 }
+/* In study mode the protocol-field becomes visible — JS adds .has-protocol. */
+.rec-console-controls.has-protocol {
+  grid-template-columns: 1fr 2fr 1fr;
+}
 @media (max-width: 880px) {
-  .rec-console-controls { grid-template-columns: 1fr; }
+  .rec-console-controls,
+  .rec-console-controls.has-protocol {
+    grid-template-columns: 1fr;
+  }
 }
 
 .rec-field { display: flex; flex-direction: column; gap: 6px; }
@@ -285,7 +292,7 @@
   animation: recRecordPulse 1.2s ease-in-out infinite;
 }
 
-/* ─── Stripe 2: hero timer ──────────────────────────────────── */
+/* ─── Stripe 2: hero timer + START action ───────────────────── */
 .rec-console-timer {
   padding: 22px 26px 24px;
   border-bottom: 1px solid color-mix(in oklch, var(--border) 60%, transparent);
@@ -294,9 +301,29 @@
       color-mix(in oklch, var(--accent) 3%, transparent),
       transparent 30%, transparent 70%,
       color-mix(in oklch, var(--accent) 3%, transparent));
-  text-align: left;
+  display: flex;
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+.rec-console-timer-block {
   display: flex; flex-direction: column;
   gap: 4px;
+  text-align: left;
+  flex: 1 1 auto;
+  min-width: 240px;
+}
+.rec-console-action {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-shrink: 0;
+}
+@media (max-width: 640px) {
+  .rec-console-timer { flex-direction: column; align-items: stretch; }
+  .rec-console-action { width: 100%; justify-content: flex-end; }
 }
 .rec-timer-eyebrow {
   font-family: var(--mono); font-style: italic;
