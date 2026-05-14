@@ -53,6 +53,14 @@
 
     <div class="rec-console" id="liveRecordingHero">
 
+      <!-- Mode toggle: free recording vs. guided study ─────────────── -->
+      <div class="rec-mode-toggle" role="radiogroup" aria-label="Recording mode">
+        <button type="button" class="rec-mode-opt is-active" data-mode="free"
+                onclick="setRecMode('free')" aria-pressed="true">free recording</button>
+        <button type="button" class="rec-mode-opt" data-mode="study"
+                onclick="setRecMode('study')" aria-pressed="false">study mode</button>
+      </div>
+
       <!-- Stripe 1: input fields + START/STOP ────────────────────── -->
       <div class="rec-console-controls">
         <label class="rec-field">
@@ -62,6 +70,10 @@
         <label class="rec-field rec-field--wide">
           <span class="rec-field-label">description</span>
           <input class="rec-field-input" type="text" id="sessionDescription" placeholder="e.g. 2 min writing, 2 min pause">
+        </label>
+        <label class="rec-field" id="protocolField" style="display:none">
+          <span class="rec-field-label">protocol</span>
+          <select class="rec-field-input" id="protocolSelect"></select>
         </label>
         <button class="rec-action-btn" id="sessionBtn" onclick="toggleSession()">
           <span class="rec-action-btn-label">START</span>
@@ -196,3 +208,10 @@
   </details>
 
 </div>
+
+<!-- Study Mode rendering surface — populated by recording-study.js (Task 11) -->
+<section class="rec-study-view" id="rec-study-view" style="display:none">
+  <div class="rec-study-stage" id="recStudyStage">
+    <!-- contents built by JS via DOM API based on s.study.state -->
+  </div>
+</section>
