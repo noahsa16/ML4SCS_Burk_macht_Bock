@@ -11,6 +11,7 @@ import { S } from '/static/js/core/state.js';
 import { setNumberSmooth } from '/static/js/core/anim.js';
 import { toast } from '/static/js/core/toast.js';
 import { renderState } from '/static/js/core/states.js';
+import { renderStudyView } from '/static/js/pages/recording-study.js';
 
 // ════════════════════════════════════════════════════════════
 //  STUDY MODE — toggle + protocol picker
@@ -721,4 +722,11 @@ export function onStatus(s) {
 
   // Logs
   renderLogs();
+
+  // Render study view (no-op when s.study is absent or inactive).
+  renderStudyView(s.study);
+  // Hide regular live-streams while a study runs to give the proband-facing
+  // surface the full page.
+  const streamsSec = document.getElementById('rec-sec-streams');
+  if (streamsSec) streamsSec.style.display = s.study?.active ? 'none' : '';
 }
