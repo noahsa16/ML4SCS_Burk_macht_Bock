@@ -1,0 +1,129 @@
+<!-- ════════════════════════════════════════════════════════════
+     Admin — VL/Experimenter monitor view
+     A second-screen layout for the experimenter (e.g. iPad) to
+     observe the live session while the proband uses the recording
+     page in study-mode fullscreen.
+     ════════════════════════════════════════════════════════════ -->
+
+<div class="adm-shell">
+
+  <header class="adm-head">
+    <div class="adm-head-left">
+      <span class="adm-eyebrow">/ admin monitor</span>
+      <h1 class="adm-title">Monitor</h1>
+      <p class="adm-sub">Live view of the running study — proband-facing surface is on the recording laptop.</p>
+    </div>
+    <div class="adm-session-pill">
+      session <span id="admSessionId">—</span>
+    </div>
+  </header>
+
+  <div class="adm-grid">
+
+    <!-- ═════ LEFT COLUMN — task info + VL controls + counters ═════ -->
+    <div class="adm-right-stack">
+
+      <!-- Task info card -->
+      <section class="adm-card" id="admTaskCard">
+        <span class="adm-card-eyebrow">/ current task</span>
+
+        <!-- Active study view -->
+        <div id="admTaskActive">
+          <h2 class="adm-task-label" id="admTaskLabel">—</h2>
+          <div class="adm-task-meta">
+            <div class="adm-task-meta-block">
+              <span class="adm-task-meta-key">remaining</span>
+              <span class="adm-task-meta-val is-time" id="admTaskRemaining">--:--</span>
+            </div>
+            <div class="adm-task-meta-block" style="align-items: flex-end;">
+              <span class="adm-task-meta-key">position</span>
+              <span class="adm-task-meta-val" id="admTaskIndex">– / –</span>
+            </div>
+          </div>
+          <div class="adm-progress" aria-label="Task progress">
+            <div class="adm-progress-fill" id="admTaskProgressFill"></div>
+          </div>
+        </div>
+
+        <!-- Empty state (no study running) -->
+        <div id="admTaskEmpty" class="adm-empty" style="display:none">
+          <div class="adm-empty-glyph">/</div>
+          <div class="adm-empty-title">Waiting for study start</div>
+          <div class="adm-empty-hint">Start a study session from the recording page — task info and controls will appear here once a protocol is running.</div>
+        </div>
+      </section>
+
+      <!-- VL control buttons -->
+      <section class="adm-card">
+        <span class="adm-card-eyebrow">/ VL controls</span>
+        <div class="adm-vl-buttons">
+          <button type="button" class="adm-vl-btn" id="admBtnPause"
+                  onclick="studyCmd('pause')" title="Pause / resume (Space)">
+            <span class="adm-vl-btn-glyph" aria-hidden="true">⏸</span>
+            <span>Pause</span>
+          </button>
+          <button type="button" class="adm-vl-btn" id="admBtnNext"
+                  onclick="studyCmd('next')" title="Next task (→)">
+            <span class="adm-vl-btn-glyph" aria-hidden="true">⏭</span>
+            <span>Next</span>
+          </button>
+          <button type="button" class="adm-vl-btn adm-vl-btn--danger adm-vl-btn--abort" id="admBtnAbort"
+                  onclick="studyCmd('abort')" title="Abort (Esc)">
+            <span class="adm-vl-btn-glyph" aria-hidden="true">✕</span>
+            <span>Abort study</span>
+          </button>
+        </div>
+      </section>
+
+      <!-- Live counters -->
+      <section class="adm-card">
+        <span class="adm-card-eyebrow">/ live counters</span>
+        <div class="adm-stats">
+          <div class="adm-stat">
+            <span class="adm-stat-key">watch samples</span>
+            <span class="adm-stat-val" id="admWatchCount">0</span>
+          </div>
+          <div class="adm-stat">
+            <span class="adm-stat-key">pen dots</span>
+            <span class="adm-stat-val" id="admPenCount">0</span>
+          </div>
+          <div class="adm-stat">
+            <span class="adm-stat-key">watch rate</span>
+            <span class="adm-stat-val" id="admWatchRate">– Hz</span>
+          </div>
+          <div class="adm-stat">
+            <span class="adm-stat-key">pen rate</span>
+            <span class="adm-stat-val" id="admPenRate">– Hz</span>
+          </div>
+        </div>
+      </section>
+
+    </div>
+
+    <!-- ═════ RIGHT COLUMN — IMU chart + pen canvas ════════════════ -->
+    <div class="adm-right-stack">
+
+      <section class="adm-panel">
+        <header class="adm-panel-head">
+          <div class="adm-panel-title">Watch IMU</div>
+          <div class="adm-panel-caption">/ |a| accel · |r| gyro</div>
+        </header>
+        <div class="adm-panel-canvas">
+          <canvas id="admImuChart" height="240"></canvas>
+        </div>
+      </section>
+
+      <section class="adm-panel">
+        <header class="adm-panel-head">
+          <div class="adm-panel-title">Pen handwriting</div>
+          <div class="adm-panel-caption">/ live strokes</div>
+        </header>
+        <div class="adm-panel-canvas">
+          <canvas id="admPenCanvas"></canvas>
+        </div>
+      </section>
+
+    </div>
+
+  </div>
+</div>

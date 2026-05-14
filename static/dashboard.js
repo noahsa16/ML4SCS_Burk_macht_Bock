@@ -13,6 +13,7 @@ import {
 import * as recording      from '/static/js/pages/recording.js';
 import * as sessions       from '/static/js/pages/sessions.js';
 import * as sessionDetail  from '/static/js/pages/session_detail.js';
+import * as admin          from '/static/js/pages/admin.js';
 import * as settings       from '/static/js/pages/settings.js';
 
 import { loadSessions, deleteSession, setSessionsModeFilter } from '/static/js/pages/sessions.js';
@@ -31,6 +32,7 @@ const pages = {
   recording,
   sessions,
   'session-detail': sessionDetail,
+  admin,
   settings,
 };
 

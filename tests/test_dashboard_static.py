@@ -28,6 +28,7 @@ def test_bootstrap_module_served_as_js():
     "path",
     [
         # Filled in as modules/views/stylesheets are created. Keep alphabetised.
+        "/static/css/admin.css",
         "/static/css/base.css",
         "/static/css/connections.css",
         "/static/css/footer.css",
@@ -51,11 +52,13 @@ def test_bootstrap_module_served_as_js():
         "/static/js/core/theme.js",
         "/static/js/core/toast.js",
         "/static/js/core/ws.js",
+        "/static/js/pages/admin.js",
         "/static/js/pages/recording-study.js",
         "/static/js/pages/recording.js",
         "/static/js/pages/session_detail.js",
         "/static/js/pages/sessions.js",
         "/static/js/pages/settings.js",
+        "/static/views/admin.html",
         "/static/views/recording.html",
         "/static/views/session-detail.html",
         "/static/views/sessions.html",
