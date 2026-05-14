@@ -1,0 +1,318 @@
+/* ─── Tokens ─────────────────────────────────────────────────── */
+:root {
+  --bg:        oklch(0.955 0.016 72);
+  --surface:   oklch(0.990 0.007 72);
+  --surface2:  oklch(0.975 0.012 72);
+  --sidebar:   oklch(0.175 0.025 55);
+  --sidebar2:  oklch(0.225 0.030 55);
+  --border:    oklch(0.880 0.018 72);
+  --border2:   oklch(0.840 0.022 72);
+  --text:      oklch(0.185 0.022 58);
+  --text2:     oklch(0.465 0.022 58);
+  --text3:     oklch(0.650 0.018 58);
+  --accent:    oklch(0.595 0.165 43);
+  --accent-h:  oklch(0.540 0.175 43);
+  --green:     oklch(0.580 0.130 148);
+  --green-h:   oklch(0.520 0.135 148);
+  --red:       oklch(0.575 0.175 24);
+  --red-h:     oklch(0.520 0.180 24);
+  --yellow:    oklch(0.720 0.135 88);
+  --purple:    oklch(0.55 0.14 275);
+  --warn:      var(--yellow);
+  --err:       var(--red);
+  --text-on-dark: #fff;
+  --mono:      'IBM Plex Mono', monospace;
+  --sans:      'IBM Plex Sans', system-ui, sans-serif;
+  --radius-xs:   4px;   /* kleine inline tags */
+  --radius-sm:   6px;   /* boxes, buttons, inputs, chips */
+  --radius-md:   10px;  /* cards, panels */
+  --radius-pill: 999px; /* pills, status-badges, bars, timeline */
+
+  /* Spacing scale */
+  --space-1:   4px;
+  --space-2:   8px;
+  --space-3:  12px;
+  --space-4:  16px;
+  --space-5:  24px;
+  --space-6:  32px;
+  --space-7:  48px;
+  --space-8:  64px;
+
+  /* Type scale */
+  --text-xs:   11px;
+  --text-sm:   12px;
+  --text-base: 14px;
+  --text-md:   18px;
+  --text-lg:   22px;
+  --text-xl:   32px;
+
+  /* Motion */
+  --dur-fast:  140ms;
+  --dur-slow:  240ms;
+  --ease-default: cubic-bezier(0.2, 0.6, 0.2, 1);
+}
+body[data-theme="dark"] {
+  --bg:        oklch(0.165 0.018 58);
+  --surface:   oklch(0.220 0.020 58);
+  --surface2:  oklch(0.270 0.021 58);
+  --sidebar:   oklch(0.125 0.020 55);
+  --sidebar2:  oklch(0.180 0.025 55);
+  --border:    oklch(0.335 0.018 58);
+  --border2:   oklch(0.420 0.020 58);
+  --text:      oklch(0.925 0.014 78);
+  --text2:     oklch(0.735 0.018 78);
+  --text3:     oklch(0.585 0.018 78);
+  --accent:    oklch(0.690 0.150 48);
+  --accent-h:  oklch(0.745 0.150 48);
+  --green:     oklch(0.710 0.130 150);
+  --green-h:   oklch(0.650 0.135 150);
+  --red:       oklch(0.680 0.170 24);
+  --red-h:     oklch(0.620 0.175 24);
+  --yellow:    oklch(0.790 0.135 88);
+  --purple:    oklch(0.65 0.14 275);
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  font-family: var(--sans); background: var(--bg); color: var(--text);
+  display: flex; flex-direction: column; font-size: var(--text-base);
+  /* Tabular Numerals: alle Ziffern gleichbreit → Live-Werte zappeln nicht mehr beim Update */
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: var(--radius-xs); }
+
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.35} }
+
+/* ─── Skeleton Loader: pulsende Box solange noch kein Wert da ist ─── */
+@keyframes skel-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+.skel-loading {
+  display: inline-block;
+  color: transparent !important;
+  background: linear-gradient(
+    90deg,
+    var(--surface2) 0%,
+    var(--border) 45%,
+    var(--surface2) 90%
+  );
+  background-size: 220% 100%;
+  border-radius: var(--radius-xs);
+  animation: skel-shimmer 1.6s linear infinite;
+  /* min-width sorgt dafür, dass die Box auch ohne Inhalt sichtbar bleibt */
+  min-width: 3.5ch;
+  user-select: none;
+}
+
+/* ─── Main area (kein Sidebar mehr, alles vertikal) ──────────── */
+#main { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+
+/* ─── Content ────────────────────────────────────────────────── */
+#content { flex: 1; overflow-y: auto; padding: var(--space-5) var(--space-6); }
+#content > .page { max-width: 1400px; margin: 0 auto; }
+
+/* ─── Cards: Hierarchie-System (hero / default / muted) ──────── */
+.card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: var(--space-5); position: relative;
+}
+.card-title { font-size: var(--text-sm); font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text2); margin-bottom: var(--space-3); }
+.card-title span { color: var(--text3); font-weight: 400; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+
+/* Hero: das Live-Recording dominiert die Seite. Mehr Padding, akzent-
+   gestreifter Top-Edge der bei aktiver Session "aufleuchtet" → der Eindruck
+   "hier passiert gerade was". Nicht-aktiver Zustand ist ruhig zurückhaltend. */
+.card-hero {
+  padding: var(--space-6);
+  overflow: hidden;
+}
+.card-hero::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0;
+  height: 2px; background: var(--border2);
+  transition: background var(--dur-slow) var(--ease-default);
+}
+.card-hero.live::before {
+  background: linear-gradient(90deg,
+    transparent,
+    var(--accent) 20%,
+    var(--accent) 80%,
+    transparent);
+}
+.card-hero .card-title { font-size: var(--text-base); }
+
+.live-indicator {
+  display: none; align-items: center; gap: var(--space-1);
+  font-size: var(--text-xs); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--red); margin-left: 10px; vertical-align: middle;
+}
+.live-indicator::before {
+  content: ''; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--red); animation: pulse 1.4s infinite ease-in-out;
+}
+.card-hero.live .live-indicator { display: inline-flex; }
+
+/* Muted: Device-Cards spielen die zweite Geige. Weicheres Chrome,
+   weniger Padding, kleinere Titles — aber nicht ausgegraut. */
+.card-muted {
+  padding: var(--space-4);
+  background: var(--surface);
+  border-color: var(--border);
+  transition: transform var(--dur-fast) var(--ease-default),
+              border-color var(--dur-fast) var(--ease-default),
+              box-shadow var(--dur-fast) var(--ease-default);
+}
+.card-muted:hover {
+  transform: translateY(-1px);
+  border-color: var(--border2);
+  box-shadow: 0 4px 14px -8px color-mix(in oklch, var(--sidebar) 20%, transparent);
+}
+.card-muted:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.card-muted .card-title { font-size: var(--text-xs); margin-bottom: var(--space-2); }
+.card-muted .device-row { padding: var(--space-1) 0; font-size: var(--text-xs); }
+
+/* ─── Details-Toggle: Sekundär-Metriken ein-/ausklappen ─────── */
+.card-details {
+  max-height: 0; opacity: 0;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 1px dashed transparent;
+  overflow: hidden;
+  transition:
+    max-height 0.28s ease,
+    opacity 0.18s ease,
+    margin-top 0.2s ease,
+    padding-top 0.2s ease,
+    border-color 0.2s ease;
+}
+.card.expanded > .card-details {
+  /* 600px reicht für unsere kleinen Detail-Blöcke; falls mal mehr,
+     einfach hochsetzen — die Animation skaliert nicht visuell, da overflow hidden. */
+  max-height: 600px; opacity: 1;
+  margin-top: var(--space-2); padding-top: var(--space-2);
+  border-top-color: var(--border);
+}
+.card-details-toggle {
+  display: inline-flex; align-items: center; gap: var(--space-1);
+  margin-top: var(--space-2); padding: 0;
+  background: none; border: none; cursor: pointer;
+  font-family: var(--sans); font-size: var(--text-xs); font-weight: 500;
+  color: var(--text3); letter-spacing: 0.02em;
+  transition: color var(--dur-fast) var(--ease-default);
+}
+.card-details-toggle:hover { color: var(--text); }
+.card-details-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.card-details-chevron {
+  font-family: var(--mono); font-size: var(--text-base); line-height: 1;
+  transition: transform var(--dur-fast) var(--ease-default); display: inline-block;
+}
+.card.expanded .card-details-chevron { transform: rotate(90deg); }
+.card.expanded .card-details-label-show { display: none; }
+.card-details-label-hide { display: none; }
+.card.expanded .card-details-label-hide { display: inline; }
+
+/* ─── Page-Strip: editorial date + section line oben über allen Pages ─── */
+.page-strip {
+  max-width: 1400px; margin: 0 auto var(--space-5);
+  font-family: var(--mono); font-style: italic;
+  font-size: var(--text-xs); letter-spacing: 0.01em;
+  color: var(--text3);
+  display: flex; align-items: baseline; gap: var(--space-2);
+  /* feines Hairline-Underline → wirkt wie Magazin-Section-Header */
+  padding-bottom: 10px;
+  border-bottom: 1px dotted color-mix(in oklch, var(--border) 60%, transparent);
+}
+.page-strip-date { font-weight: 500; color: var(--text2); }
+.page-strip-slash {
+  color: var(--accent); opacity: 0.65;
+  font-style: italic; font-weight: 600;
+}
+.page-strip-label {
+  color: var(--text3); font-style: italic;
+  text-transform: lowercase; letter-spacing: 0.02em;
+}
+
+/* ─── "/" als Brand-Motiv vor jedem card-title (außer Hero, der hat seine eigene Sprache) ─── */
+.card-title { position: relative; }
+.card-title::before {
+  content: '/';
+  display: inline-block;
+  margin-right: 8px;
+  font-family: var(--mono); font-style: italic; font-weight: 600;
+  color: var(--accent); opacity: 0.45;
+  /* Akzent darf nicht den uppercase-letter-spacing der card-titles aufzehren */
+  letter-spacing: 0;
+}
+.card-hero .card-title::before { display: none; }
+
+/* ─── Pill / Badge shared base ───────────────────────────────── */
+.pill-row { display: flex; gap: var(--space-2); align-items: center; }
+.pill {
+  /* Why: 6px is a sub-scale icon-to-text micro-gap — below --space-1 (4px) but tighter than --space-2 (8px). */
+  display: flex; align-items: center; gap: 6px;
+  padding: var(--space-1) var(--space-3); border-radius: var(--radius-pill); font-size: var(--text-xs);
+  font-family: var(--mono); font-weight: 500; border: 1px solid transparent;
+  background: var(--surface2); border-color: var(--border);
+}
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text3); }
+.pill.ok .dot { background: var(--green); }
+.pill.warn .dot { background: var(--yellow); animation: pulse 1.5s infinite; }
+.pill.err .dot { background: var(--red); }
+
+/* ─── Page visibility ───────────────────────────────────────── */
+.page { display: none; }
+.page.active { display: block; }
+.page-title, .page-sub { display: none; }
+
+/* ─── Notification toast ─────────────────────────────────────── */
+#toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(80px);
+  background: var(--sidebar); color: var(--text-on-dark); padding: var(--space-2) var(--space-4); border-radius: var(--radius-sm);
+  font-size: var(--text-base); font-weight: 500; z-index: 9999; transition: transform var(--dur-slow) var(--ease-default);
+  pointer-events: none; white-space: nowrap;
+}
+#toast.show { transform: translateX(-50%) translateY(0); }
+
+.empty-state--loading .empty-state-glyph {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+/* Inline variant — single-line tag for use inside table cells / info-rows
+   where the block layout would be too tall. */
+.empty-state--inline {
+  display: inline-flex; align-items: baseline; gap: var(--space-1);
+  font-size: var(--text-xs); color: var(--text3);
+  font-style: italic;
+}
+.empty-state--inline .empty-state-glyph {
+  font-size: var(--text-xs); margin-bottom: 0; line-height: 1;
+  font-style: italic; color: var(--accent); opacity: 0.55;
+}
+.empty-state--inline .empty-state-title {
+  font-size: var(--text-xs); color: var(--text3); margin-bottom: 0;
+  font-weight: 500; font-family: var(--sans);
+}
+
+/* Error variant — distinct from empty: ! glyph in --err colour. Reuses the
+   .empty-state-action button styling for retry actions. */
+.empty-state--error .empty-state-glyph {
+  color: var(--err);
+  opacity: 0.85;
+  font-style: normal;
+  font-weight: 600;
+}
+.empty-state--error.empty-state--inline .empty-state-glyph {
+  color: var(--err);
+  opacity: 0.85;
+}

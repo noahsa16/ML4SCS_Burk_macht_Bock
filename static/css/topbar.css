@@ -1,0 +1,361 @@
+/* ─── Top bar v2: Brand · Tabs · Status ──────────────────────── */
+#topbar {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  background: var(--surface);
+  /* feiner Schatten statt harter Border — wirkt produkt-y */
+  box-shadow: 0 1px 0 color-mix(in oklch, var(--border) 60%, transparent);
+  flex-shrink: 0;
+  position: relative; z-index: 5;
+}
+
+/* Wordmark — Plex Mono Italic Bold mit Trail-Slash. */
+.brand {
+  position: relative;
+  /* Why: 2px is sub-scale letterform-tracking for the brand mono wordmark. */
+  display: inline-flex; align-items: baseline; gap: 2px;
+  font-family: var(--mono); font-style: italic; font-weight: 600;
+  font-size: var(--text-md); letter-spacing: -0.01em; color: var(--text);
+  background: none; border: none; cursor: pointer; padding: 0;
+  transition: color var(--dur-fast) var(--ease-default), transform var(--dur-fast) var(--ease-default);
+  white-space: nowrap;
+}
+.brand:hover { color: var(--accent); }
+.brand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.brand:active { transform: translateY(1px); }
+.brand-slash {
+  font-family: var(--mono); font-style: normal; font-weight: 600;
+  color: var(--accent); margin-left: 4px;
+}
+
+/* Wordmark-Tooltip: zwei Zeilen Mono-Text in einer Pill, fadet beim
+   Hover ein. Ersetzt den nativen browser-title (war stylisch generisch). */
+.brand-tooltip {
+  position: absolute;
+  top: calc(100% + 10px); left: 0;
+  /* Why: 2px is sub-scale tracking for the dropped brand-tooltip lines. */
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-4);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateY(-4px);
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-default), transform var(--dur-fast) var(--ease-default);
+  box-shadow: 0 6px 22px -10px color-mix(in oklch, var(--sidebar) 30%, transparent);
+  z-index: 20;
+}
+.brand:hover .brand-tooltip {
+  opacity: 1; transform: translateY(0);
+}
+.brand-tooltip-line {
+  font-family: var(--mono); font-style: normal; font-weight: 500;
+  font-size: var(--text-xs); letter-spacing: 0.02em; color: var(--text);
+}
+.brand-tooltip-line.muted {
+  font-weight: 400; color: var(--text3); font-size: var(--text-xs);
+}
+
+/* Linear-style tabs — kein Background, dünner Underline auf aktivem. */
+.tabs {
+  /* Why: 6px is a sub-scale gap between tabs — tighter than --space-2 to keep the bar compact. */
+  display: flex; gap: 6px; align-items: stretch;
+  position: relative;
+  /* Tabs unten am Topbar-Boden ausrichten, damit Underline auf der Bar sitzt */
+  align-self: stretch; padding-top: 4px;
+}
+.tab {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: 0 var(--space-4);
+  font-family: var(--sans); font-size: var(--text-base); font-weight: 500;
+  color: var(--text3); cursor: pointer; user-select: none;
+  background: none; border: none;
+  position: relative;
+  transition: color var(--dur-fast) var(--ease-default), transform var(--dur-fast) var(--ease-default);
+}
+.tab:hover { color: var(--text); }
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.tab:active { transform: translateY(1px); }
+.tab.active { color: var(--text); font-weight: 600; }
+
+/* Underline slidet zwischen Tabs — ein einziges Element, das von JS
+   zur Position des aktiven Tabs translated wird. Sieht aus wie Linear/Radix. */
+.tab-indicator {
+  position: absolute;
+  bottom: -14px;
+  left: 0;
+  height: 2px;
+  background: var(--text);
+  border-radius: var(--radius-pill);
+  pointer-events: none;
+  opacity: 0;
+  /* transform und width werden von JS gesetzt; cubic-bezier ist ein
+     mildes "easeInOut" — schnell genug, nicht trödelnd. */
+  transition:
+    transform var(--dur-slow) var(--ease-default),
+    width     var(--dur-slow) var(--ease-default),
+    opacity   var(--dur-fast) var(--ease-default);
+}
+.tab-indicator.ready { opacity: 1; }
+
+/* ─── Konsolidierter Status-Cluster im Topbar ──────────────── */
+.status-cluster {
+  display: inline-flex; align-items: center; gap: var(--space-2);
+  padding: var(--space-1) var(--space-4) var(--space-1) var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  font-family: var(--sans); font-size: var(--text-sm); color: var(--text);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-default), border-color var(--dur-fast) var(--ease-default), transform var(--dur-fast) var(--ease-default);
+}
+.status-cluster:hover {
+  background: var(--surface);
+  border-color: var(--border2);
+}
+.status-cluster:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.status-cluster:active { transform: translateY(1px); }
+/* Why: 5px is sub-scale tracking for the 3 status dots in the cluster. */
+.status-cluster-dots { display: inline-flex; gap: 5px; }
+.status-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text3);
+  transition: background var(--dur-fast) var(--ease-default);
+}
+.status-dot.ok   { background: var(--green); }
+.status-dot.warn { background: var(--yellow); animation: pulse 1.5s infinite; }
+.status-dot.err  { background: var(--red); }
+.status-cluster-label { font-weight: 600; letter-spacing: -0.005em; }
+.status-cluster-meta {
+  color: var(--text2); font-family: var(--mono); font-size: var(--text-xs);
+}
+.status-cluster-meta:empty { display: none; }
+
+/* Topbar-Right gruppiert Status + Theme-Toggle */
+.topbar-right { display: inline-flex; align-items: center; gap: var(--space-2); }
+
+/* Theme-Toggle: kompakter Icon-Button, gleiche Chrome-Sprache wie Status-Cluster */
+.theme-toggle {
+  width: 32px; height: 32px;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--radius-pill);
+  background: var(--surface2); border: 1px solid var(--border);
+  cursor: pointer; padding: 0;
+  color: var(--text2);
+  transition: background var(--dur-fast) var(--ease-default), border-color var(--dur-fast) var(--ease-default), transform var(--dur-fast) var(--ease-default), color var(--dur-fast) var(--ease-default);
+}
+.theme-toggle:hover {
+  background: var(--surface);
+  border-color: var(--border2);
+  color: var(--text);
+}
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.theme-toggle:active { transform: translateY(1px); }
+.theme-toggle-glyph {
+  font-family: var(--mono); font-size: var(--text-base); line-height: 1;
+  display: inline-block;
+  transition: transform var(--dur-slow) var(--ease-default);
+}
+
+/* ────────────────────────────────────────────────────────────
+   Topbar status cluster — drop-panel pattern.
+   Peek on :hover, pin-open on .is-open (set via JS click).
+   ──────────────────────────────────────────────────────────── */
+.status-cluster { position: relative; }
+
+.status-hover-card {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  display: none;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px 10px;
+  box-shadow:
+    0 12px 32px -4px color-mix(in oklch, var(--sidebar) 30%, transparent),
+    0 2px 6px color-mix(in oklch, var(--sidebar) 15%, transparent);
+  min-width: 320px;
+  text-align: left;
+  z-index: 50;
+
+  /* subtle entrance: a 4px fade-slide whenever it becomes visible */
+  opacity: 0;
+  transform: translateY(-4px);
+  transition: opacity var(--dur-fast) var(--ease-default),
+              transform var(--dur-fast) var(--ease-default);
+}
+/* Click-only open: hover never shows the panel. Avoids the classic
+   "hover collapses when mouse crosses the gap" frustration and makes
+   the interaction model unambiguous (click to open, click again to close). */
+.status-cluster.is-open .status-hover-card {
+  display: flex;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ─── Per-device row ────────────────────────────────────── */
+.status-hover-row {
+  display: grid;
+  grid-template-columns: 14px 64px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-family: var(--sans);
+  font-size: var(--text-xs);
+  border-bottom: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
+}
+.status-hover-row:last-of-type { border-bottom: none; }
+
+.status-hover-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--text3);
+  position: relative;
+  flex-shrink: 0;
+}
+.status-hover-row[data-device-ok]   .status-hover-dot { background: var(--green); }
+.status-hover-row[data-device-warn] .status-hover-dot { background: var(--yellow); }
+.status-hover-row[data-device-err]  .status-hover-dot { background: var(--red); }
+
+/* Pulsing ring for searching state — only when warn (BLE pairing in progress) */
+.status-hover-row[data-device-warn] .status-hover-dot::after {
+  content: '';
+  position: absolute; inset: -4px;
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--yellow) 60%, transparent);
+  animation: statusDotPulse 1.6s ease-in-out infinite;
+  z-index: -1;
+}
+@keyframes statusDotPulse {
+  0%, 100% { transform: scale(0.6); opacity: 0.7; }
+  50%      { transform: scale(1.4); opacity: 0; }
+}
+
+.status-hover-label { color: var(--text2); font-weight: 600; letter-spacing: 0.01em; }
+.status-hover-state { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
+.status-hover-meta {
+  grid-column: 2 / span 2;
+  color: var(--text3); font-family: var(--mono); font-size: 10.5px;
+  margin-top: 2px;
+  letter-spacing: 0.02em;
+}
+
+/* ─── Action button (per-device interactive control) ───── */
+.device-action {
+  grid-row: 1 / 3;          /* span both rows so it vertically centers nicely */
+  grid-column: 4;
+  align-self: center;
+
+  display: inline-flex; align-items: center; gap: 6px;
+  font-family: var(--mono); font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0.04em; text-transform: lowercase;
+  padding: 5px 10px 5px 9px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border2);
+  background: var(--surface2);
+  color: var(--text2);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease-default),
+    color var(--dur-fast) var(--ease-default),
+    border-color var(--dur-fast) var(--ease-default),
+    transform var(--dur-fast) var(--ease-default);
+}
+.device-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.device-action:active { transform: translateY(1px); }
+.device-action-glyph {
+  font-size: 11px; line-height: 1;
+  display: inline-block;
+  transform: translateY(-0.5px);
+}
+
+/* OFF mode = primary affordance (user *should* connect now) */
+.device-action[data-mode="off"] {
+  color: var(--accent);
+  border-color: color-mix(in oklch, var(--accent) 45%, transparent);
+  background: color-mix(in oklch, var(--accent) 6%, var(--surface2));
+}
+.device-action[data-mode="off"]:hover {
+  background: color-mix(in oklch, var(--accent) 14%, var(--surface2));
+  border-color: color-mix(in oklch, var(--accent) 70%, transparent);
+  color: var(--text);
+}
+
+/* SEARCHING mode = subtle cancel affordance */
+.device-action[data-mode="searching"] {
+  color: var(--text3);
+  border-color: color-mix(in oklch, var(--yellow) 35%, transparent);
+  background: color-mix(in oklch, var(--yellow) 5%, var(--surface2));
+}
+.device-action[data-mode="searching"]:hover {
+  color: var(--text);
+  border-color: color-mix(in oklch, var(--red) 50%, transparent);
+  background: color-mix(in oklch, var(--red) 8%, var(--surface2));
+}
+
+/* ON mode = quiet disconnect (it's already working, don't shout) */
+.device-action[data-mode="on"] {
+  color: var(--text2);
+  border-color: color-mix(in oklch, var(--green) 35%, transparent);
+}
+.device-action[data-mode="on"]:hover {
+  color: var(--red);
+  border-color: color-mix(in oklch, var(--red) 50%, transparent);
+  background: color-mix(in oklch, var(--red) 6%, var(--surface2));
+}
+
+/* ─── Footer link to Settings ───────────────────────────── */
+.status-hover-link {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 8px;
+  padding: 6px 0 0;
+  border-top: 1px solid color-mix(in oklch, var(--border) 50%, transparent);
+  font-family: var(--mono); font-size: 10.5px;
+  font-style: italic; letter-spacing: 0.04em;
+  color: var(--text3); text-decoration: none;
+  transition: color var(--dur-fast) var(--ease-default);
+}
+.status-hover-link:hover,
+.status-hover-link:focus-visible { color: var(--text); outline: none; }
+.status-hover-link-arrow {
+  font-style: normal; font-weight: 600;
+  transition: transform var(--dur-fast) var(--ease-default);
+}
+.status-hover-link:hover .status-hover-link-arrow { transform: translateX(3px); }
+
+/* When pinned-open, give the cluster a quiet "active" mark so users know
+   they're now in interaction mode (not just peeking). */
+.status-cluster.is-open {
+  background: var(--surface);
+  border-radius: var(--radius-sm);
+}
+
+/* Pulse on topbar dot itself for searching */
+.status-dot.warn { position: relative; }
+.status-dot.warn::after {
+  content: '';
+  position: absolute; inset: -3px;
+  border-radius: 50%;
+  background: color-mix(in oklch, var(--yellow) 55%, transparent);
+  animation: statusDotPulse 1.6s ease-in-out infinite;
+  z-index: -1;
+}
+
+.theme-toggle:hover .theme-toggle-glyph { transform: rotate(20deg); }

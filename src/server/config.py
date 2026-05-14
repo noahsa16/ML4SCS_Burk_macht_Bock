@@ -41,6 +41,13 @@ AIRPODS_FIELDNAMES = [
 SESSIONS_FIELDNAMES = [
     "session_id", "person_id", "description", "start_time", "end_time",
     "pen_samples", "watch_samples", "airpods_samples", "status",
+    # Quality snapshot — written at session_stop, backfillable via
+    # scripts/backfill_session_quality.py for older rows.
+    "duration_seconds", "ml_status", "recording_status",
+    "alignment_sigma", "verdict", "issue_codes",
+    # Manual flag — when "yes", forces verdict='skip' regardless of σ/ML
+    # status. Set via POST /sessions/{id}/flag from the UI.
+    "flagged", "flag_note",
 ]
 
 if not SESSIONS_CSV.exists():
