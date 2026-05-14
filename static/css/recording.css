@@ -371,3 +371,44 @@ canvas#imuChart { width: 100% !important; }
   .session-strip { grid-template-columns: 1fr; }
   .session-strip-stats { grid-template-columns: repeat(2, auto); }
 }
+
+/* ════════════════════════════════════════════════════════════
+   Study Mode — toggle row
+   ════════════════════════════════════════════════════════════ */
+.rec-mode-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 6px;
+  background: oklch(0.93 0.012 80);
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  margin-bottom: 12px;
+}
+.rec-mode-opt {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 6px 12px;
+  border-radius: 4px;
+  color: oklch(0.45 0.018 58);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+}
+.rec-mode-opt.is-active {
+  background: oklch(0.22 0.025 55);
+  color: oklch(0.97 0.008 80);
+}
+.rec-mode-opt:hover:not(.is-active) { color: oklch(0.22 0.025 55); }
+
+.rec-field--check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.rec-field--check input[type="checkbox"] {
+  cursor: pointer;
+}

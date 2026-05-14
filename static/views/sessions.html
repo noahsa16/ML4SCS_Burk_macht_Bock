@@ -66,6 +66,12 @@
     <select id="filterMl"><option value="all" selected>all</option><option value="ok"></option><option value="warn"></option><option value="bad"></option></select>
     <select id="filterAlign"><option value="all" selected>all</option></select>
     <input type="checkbox" id="filterMinFive">
+    <select id="filterMode">
+      <option value="all" selected>all</option>
+      <option value="study">study</option>
+      <option value="free">free</option>
+      <option value="test">test</option>
+    </select>
     <button type="button" id="filterReset"></button>
   </div>
 
@@ -76,6 +82,12 @@
       <span class="ssn-sec-meta">chronological</span>
     </header>
     <div class="ssn-sec-body">
+      <div class="ssn-mode-chips" role="tablist" aria-label="Filter by recording mode">
+        <button type="button" class="ssn-chip is-active" data-mode="all" onclick="setSessionsModeFilter('all')">all</button>
+        <button type="button" class="ssn-chip" data-mode="study" onclick="setSessionsModeFilter('study')">study</button>
+        <button type="button" class="ssn-chip" data-mode="free" onclick="setSessionsModeFilter('free')">free</button>
+        <button type="button" class="ssn-chip" data-mode="test" onclick="setSessionsModeFilter('test')">test</button>
+      </div>
       <div class="ssn-table-frame">
         <table class="sessions-table">
           <thead>

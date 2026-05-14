@@ -43,8 +43,11 @@ Moleskine Smart Pen (BLE)                                            │
                                                                      │
                                   data/processed/{session}_windows.csv
                                                                      │
-                                  src/training/train_rf.py     (RF baseline,
-                                                                temporal 80/20 split)
+                                  src/training/within_session/    (RF baseline,
+                                    train_rf.py                    temporal 80/20 —
+                                                                   debug only)
+                                  src/training/train_loso.py      (LOSO cross-val —
+                                                                   headline metric)
                                                                      │
                                   models/rf_{session}.joblib
 ```
@@ -151,10 +154,17 @@ src/features/
                                    @ 0.5 s stride → 42 stat features
   __main__.py                      CLI: python -m src.features [SESSION_ID]
 src/training/
-  train_rf.py                      RandomForest baseline; temporal 80/20
-                                   split with 4-window gap at the cut
-src/evaluation/evaluate.py         Label distribution (real metrics live in
-                                   train_rf.py for now)
+  train_loso.py                    **Headline metric.** Leave-One-Out CV
+                                   (by person or session); cross-subject
+                                   generalisation for the actual goal.
+  within_session/
+    train_rf.py                    **Debug / feature iteration only.**
+                                   RandomForest baseline within a single
+                                   session; temporal 80/20 split with
+                                   4-window gap. Not a generalisation
+                                   claim.
+src/evaluation/evaluate.py         Label distribution (real metrics live
+                                   in train_loso.py / within_session/train_rf.py)
 
 scripts/
   start.sh                         Server + Cloudflare tunnel TTY UI
@@ -166,7 +176,7 @@ scripts/
   backfill_session_quality.py      Rewrite sessions.csv quality columns
                                    from current ISSUE_SPECS
 
-tests/                             Tier-1 smoke tests (~30 cases, <1 s)
+tests/                             Tier-1 smoke tests (138 cases, ~1.5 s)
   test_quality.py                    Quality engine + ISSUE_SPECS regressions
   test_merge.py                      Watch-base merge behaviour
   test_pen_match.py                  Stroke-variance alignment
@@ -221,11 +231,14 @@ Open `http://localhost:8000` — the dashboard loads automatically.
 
 **2. Open the iPhone app** — enter the server IP, tap *Connect*.
 
-**3. Start a session** from the dashboard — both pen logger and watch start automatically.
+**3. Start a session** from the dashboard — both pen logger and watch start automatically. Two modes are available:
 
-**4. Record data** — write something, pause, write again.
+- **Free mode** (default): START, write freely, STOP. Same flow as before.
+- **Study mode**: toggle the Recording page to **Study Mode** → pick `v1` from the protocol dropdown → **START STUDY**. The proband side enters a fullscreen takeover with per-task instructions, a pre-task countdown, an urgent last-5-second pulse, and audio cues (880 Hz tick + E5/B5 chime at transitions). The VL controls Pause / Next / Abort and can monitor live status from a second screen via the hidden `#admin` page — **triple-click the brand logo** to reach it on iPad. Task order is counterbalanced via a Latin Square keyed on `subject_index`.
 
-**5. Stop the session** — CSVs are finalized.
+**4. Record data** — write something, pause, write again (or follow the protocol).
+
+**5. Stop the session** — CSVs are finalized. Study Mode also writes `data/raw/markers/{session}_markers.csv` with one row per task transition.
 
 **6. Check quality** — dashboard Sessions page shows `ml_readiness` and `recording_health` per session. The **⤓ md** link in each row downloads a self-explaining Markdown report listing every issue with its check, threshold, observed value, and rationale (`GET /sessions/{id}/report?format=md`).
 
@@ -235,15 +248,42 @@ Server logs go to the terminal *and* `logs/server.log` (rotating). The same log 
 
 ## ML Pipeline
 
-Once a session is recorded, the full training pipeline is three commands:
+Once a session is recorded, the per-session preprocessing is two commands:
 
 ```bash
 python -m src.merge S029                      # watch-base merge → data/processed/S029_merged.csv
 python -m src.features S029 --max-gap-ms 300  # sliding windows  → data/processed/S029_windows.csv
-python -m src.training.train_rf S029          # RF baseline      → models/rf_S029.joblib
 ```
 
-Without a session ID, `merge` and `features` operate on the most recent session. `train_rf` prints classification report, confusion matrix, ROC-AUC and the top-10 feature importances on the temporal hold-out.
+Without a session ID, `merge` and `features` operate on the most recent session.
+
+**Training has two entry points with very different purposes.**
+
+### 1. Cross-subject evaluation — the headline metric
+
+```bash
+python -m src.training.train_loso --by session     # leave-one-session-out (current default in the single-subject regime)
+python -m src.training.train_loso --by person      # true LOSO-by-person — use once ≥ 2 subjects are recorded
+```
+
+This is the **real evaluation** for the project goal ("general writing detector, independent of who is wearing the watch"). Each fold holds out one subject (or session) entirely; the held-out unit is never seen during training. Reports per-fold accuracy / ROC-AUC plus a mean ± std summary. Only sessions with `verdict ∈ {trainable, usable}` from `data/sessions.csv` participate by default (override with `--include-all`).
+
+`--by person` is the right metric, but degenerates when only one subject is recorded. While the dataset has a single subject, `--by session` is the practical fallback — it still measures cross-session generalisation (different watch position, daily form, writing context). Current 5-session result: **accuracy 0.854 ± 0.018, ROC-AUC 0.917 ± 0.015**.
+
+### 2. Within-session baseline — debug / feature iteration
+
+```bash
+python -m src.training.within_session.train_rf S029
+```
+
+This trains a Random Forest on the first 80% of one session and tests on the last 20% (with a 4-window gap to prevent overlap leakage from the 50%-overlapping sliding windows). It is **explicitly not a generalisation claim** — it only measures "can the model finish this session given the start of it". Use it for:
+
+- Iterating on features (adding / removing / debugging a feature).
+- Tuning label-smoothing parameters (`max_gap_ms`).
+- Smoke-testing the pipeline end-to-end on a fresh session.
+- Sanity floor: if within-session ROC-AUC is already < 0.6, LOSO is hopeless and the features need more work first.
+
+Dumps to `models/rf_{session}.joblib`. **Do not report within-session metrics as a project result** — always quote `train_loso` numbers in writeups.
 
 To preview the effect of label smoothing visually before training:
 ```bash
@@ -252,7 +292,7 @@ python scripts/plot_merged.py S029 --max-gap-ms 300
 
 Run smoke tests:
 ```bash
-pytest tests/     # ~30 cases, <1 s
+pytest tests/     # 138 cases, ~1.5 s
 ```
 
 ---
@@ -284,6 +324,10 @@ ts, ax, ay, az, rx, ry, rz, qw, qx, qy, qz, gx, gy, gz
 Accel + gyro + attitude quaternion (`qw/qx/qy/qz`) + gravity vector (`gx/gy/gz`).
 
 **Merged CSV** (`data/processed/{session}_merged.csv`) — **watch-base**: one row per watch sample, with `label_writing ∈ {0, 1}` derived from the nearest pen `dot_type` within ±40 ms of the δ-corrected pen wall-clock. Watch samples in pen-gaps → label `0` (the negative class for binary classification). Schema = all watch CSV columns + `label_writing`.
+
+**Sessions index** (`data/sessions.csv`) — **gitignored**, owned by the running server and regenerated/extended on every session. Columns: `session_id, person_id, description, start_time, end_time, pen_samples, watch_samples, airpods_samples, status, study_mode, protocol_id, subject_index`. `study_mode ∈ {free, study, test}`; `subject_index` keys the Latin-Square counterbalance and is auto-assigned by counting prior `study_mode='study'` sessions for that `person_id`.
+
+**Markers CSV** (`data/raw/markers/{session}_markers.csv`) — written by Study Mode; one row per state transition (`study_start`, `task_start`, `task_end`, `pause_start`, `pause_end`, `next`, `abort`, `study_end`).
 
 **Windows CSV** (`data/processed/{session}_windows.csv`) — one row per 1 s sliding window (0.5 s stride) with 42 statistical features (mean/std/min/max/rms/range per axis + accel/gyro magnitude mean/std/energy), plus `label`, `t_center_ms`. Labels are smoothed at sample level (morphological closing, default 300 ms gap-fill) before windowing.
 
@@ -346,8 +390,10 @@ Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside
 | Pen↔IMU clock alignment | Implemented (stroke-variance, TH Zürich) |
 | Feature engineering | Implemented (1 s windows, 42 stats, label closing) |
 | Model training | Implemented (Random Forest baseline) |
-| Evaluation & metrics | Within-session: S029 acc 0.83 / ROC-AUC 0.85 |
-| Multi-session / cross-subject evaluation | TODO |
+| Within-session sanity check | S029 acc 0.83 / ROC-AUC 0.85 (debug only) |
+| Cross-session LOSO (single subject) | acc 0.854 ± 0.018 / ROC-AUC 0.917 ± 0.015 over 5 sessions (S029/S031/S037/S039/S043) |
+| Cross-subject LOSO | Pending — needs ≥ 2 subjects recorded |
+| Study Mode protocol runner | Operational (v1: 3 writing tasks × 240 s, Latin-Square counterbalance, fullscreen proband UI, VL admin monitor) |
 
 ---
 
@@ -356,3 +402,4 @@ Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside
 - [Week 3](reports/week03.md)
 - [Week 4](reports/week_04_report.md)
 - [Week 5](reports/week_05_report.md)
+- [Week 6](reports/week_06_report.md)

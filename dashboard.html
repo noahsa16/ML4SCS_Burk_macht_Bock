@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/static/css/base.css">
 <link rel="stylesheet" href="/static/css/topbar.css">
 <link rel="stylesheet" href="/static/css/recording.css">
+<link rel="stylesheet" href="/static/css/study-mode.css">
 <link rel="stylesheet" href="/static/css/recording-redesign.css">
 <link rel="stylesheet" href="/static/css/sessions.css">
 <link rel="stylesheet" href="/static/css/sessions-redesign.css">
@@ -17,6 +18,7 @@
 <link rel="stylesheet" href="/static/css/connections.css">
 <link rel="stylesheet" href="/static/css/system.css">
 <link rel="stylesheet" href="/static/css/settings.css">
+<link rel="stylesheet" href="/static/css/admin.css">
 <link rel="stylesheet" href="/static/css/footer.css">
 <link rel="modulepreload" href="/static/dashboard.js">
 <link rel="modulepreload" href="/static/js/core/state.js">
@@ -36,7 +38,7 @@
 <main id="main">
   <!-- Top bar: Brand · Tabs · Status -->
   <div id="topbar">
-    <button type="button" class="brand" onclick="goHome()">
+    <button type="button" class="brand" id="brandBtn">
       <span>Burk macht Bock</span><span class="brand-slash">/</span>
       <span class="brand-tooltip" aria-hidden="true">
         <span class="brand-tooltip-line">ML4SCS · Writing Activity Study</span>
@@ -46,6 +48,9 @@
     <nav class="tabs" role="tablist">
       <button type="button" class="tab active" data-page="recording"   role="tab">Recording</button>
       <button type="button" class="tab"        data-page="sessions"    role="tab">Sessions</button>
+      <!-- Admin tab is intentionally not listed here — the page lives at
+           #admin and is reached via the brand-logo triple-click easter egg.
+           The page slot, route, and JS module are still registered. -->
       <button type="button" class="tab"        data-page="settings"    role="tab">Settings</button>
       <span class="tab-indicator" id="tabIndicator" aria-hidden="true"></span>
     </nav>
@@ -111,6 +116,7 @@
     <div class="page active" id="page-recording"     data-view="recording"></div>
     <div class="page"        id="page-sessions"      data-view="sessions"></div>
     <div class="page"        id="page-session-detail" data-view="session-detail"></div>
+    <div class="page"        id="page-admin"         data-view="admin"></div>
     <div class="page"        id="page-settings"      data-view="settings"></div>
 
   </div><!-- /content -->

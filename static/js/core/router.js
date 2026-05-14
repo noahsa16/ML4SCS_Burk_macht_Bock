@@ -9,6 +9,7 @@ import { loadSessions } from '/static/js/pages/sessions.js';
 export const pageMeta = {
   recording: { title: 'Live Recording',  sub: 'Pen + Watch data capture',                           strip: 'live capture' },
   sessions:  { title: 'Session History', sub: 'All recorded sessions',                              strip: 'session index' },
+  admin:     { title: 'Admin Monitor',   sub: 'Live view of an active study session',               strip: 'admin monitor' },
   settings:  { title: 'Settings',        sub: 'Devices · connectivity · schema · project info',    strip: 'settings' },
 };
 
@@ -55,7 +56,7 @@ export function _routeFromHash() {
   }
   // Plain named page hash e.g. #recording, #sessions, #settings
   const plain = location.hash.replace(/^#/, '');
-  const pages = ['recording', 'sessions', 'settings'];
+  const pages = ['recording', 'sessions', 'admin', 'settings'];
   if (pages.includes(plain)) return plain;
   // Why: legacy hashes from before the Connections/System merge.
   if (plain === 'connections' || plain === 'system') return 'settings';
