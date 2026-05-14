@@ -243,6 +243,12 @@ function _matchesFilters(s, q, filters) {
   const mlStatus = q?.ml_readiness?.status || q?.quality || 'unknown';
   if (filters.ml !== 'all' && mlStatus !== filters.ml) return false;
 
+  const fmode = document.getElementById('filterMode')?.value || 'all';
+  if (fmode !== 'all') {
+    const sMode = (s.study_mode || 'free').toLowerCase();
+    if (sMode !== fmode) return false;
+  }
+
   // Alignment data lives on a separate endpoint; cached in S.alignmentBySession.
   // If a session's alignment isn't loaded yet, "all" passes; specific filters
   // exclude it until the bulk fetch completes (which re-applies filters).
@@ -283,6 +289,34 @@ function applyFilters() {
   document.getElementById('filterAlign').classList.toggle('is-active', filters.align !== 'all');
   const rows = (S.allSessions || []).filter(s => _matchesFilters(s, S.qualityBySession[s.session_id], filters));
   renderSessionsList(_sortRows(rows));
+}
+
+function _buildModeBadge(s) {
+  const mode = (s.study_mode || 'free').toLowerCase();
+  const badge = document.createElement('span');
+  badge.className = `ssn-mode-badge ssn-mode-${mode}`;
+  if (mode === 'study') {
+    const proto = String(s.protocol_id || '');
+    const idx = String(s.subject_index || '');
+    const parts = ['study'];
+    if (proto) parts.push(proto);
+    if (idx) parts.push('#' + idx);
+    badge.textContent = '/ ' + parts.join(' · ');
+  } else if (mode === 'test') {
+    badge.textContent = '/ TEST';
+  } else {
+    badge.textContent = '/ free';
+  }
+  return badge;
+}
+
+export function setSessionsModeFilter(mode) {
+  const sel = document.getElementById('filterMode');
+  if (sel) sel.value = mode;
+  document.querySelectorAll('.ssn-chip').forEach(c => {
+    c.classList.toggle('is-active', c.dataset.mode === mode);
+  });
+  applyFilters();
 }
 
 function _sigmaPill(sessionId) {
@@ -350,8 +384,8 @@ function renderSessionsList(rows) {
         + '<div class="session-caption">' + esc(s.session_id) + (s.description ? ' · ' + esc(s.description) : '') + '</div>'
       : '<div class="session-person anonymous">Anonymous' + flagPill + '</div>'
         + '<div class="session-caption">' + esc(s.session_id) + (s.description ? ' · ' + esc(s.description) : '') + '</div>';
-    return '<tr class="click-row" onclick="location.hash=\'#session/' + escAttr(s.session_id) + '\'">'
-      + '<td class="session-cell">' + personCell + '</td>'
+    return '<tr class="click-row" data-session-id="' + escAttr(s.session_id) + '" onclick="location.hash=\'#session/' + escAttr(s.session_id) + '\'">'
+      + '<td class="session-cell">' + personCell + '<span class="ssn-mode-slot" data-session-id="' + escAttr(s.session_id) + '"></span></td>'
       + '<td class="mono">' + startFmt + '</td>'
       + '<td class="mono">' + dur + '</td>'
       + '<td>' + mlBadge + '</td>'
@@ -362,6 +396,12 @@ function renderSessionsList(rows) {
       + '</td>'
       + '</tr>';
   }).join('');
+  // Why: badges built via DOM (textContent) so protocol_id strings can't inject HTML.
+  const byId = new Map(rows.map(s => [s.session_id, s]));
+  tbody.querySelectorAll('.ssn-mode-slot').forEach(slot => {
+    const s = byId.get(slot.dataset.sessionId);
+    if (s) slot.replaceChildren(_buildModeBadge(s));
+  });
 }
 
 function renderQualitySummary() {

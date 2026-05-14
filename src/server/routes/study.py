@@ -37,11 +37,13 @@ async def start_study(body: StudyStartBody) -> dict:
     #  - prefix description with [TEST] so the counter ignores this session later
     if body.test_mode:
         subject_index = None
+        study_mode = "test"
         description = body.description or ""
         if not description.lstrip().upper().startswith("[TEST]"):
             description = f"[TEST] {description}".rstrip()
     else:
         subject_index = _subject_index_for_person_id(body.person_id)
+        study_mode = "study"
         description = body.description or f"study:{protocol.id}"
 
     # Reuse the existing session-start path so preflight / session_id allocation
@@ -52,6 +54,9 @@ async def start_study(body: StudyStartBody) -> dict:
         person_id=body.person_id,
         description=description,
         force_preflight=body.force_preflight,
+        study_mode=study_mode,
+        protocol_id=protocol.id,
+        subject_index=subject_index,
     )
     # _start_session_internal returns JSONResponse on preflight blocker/warn
     # or already-active conflict — surface those unchanged.

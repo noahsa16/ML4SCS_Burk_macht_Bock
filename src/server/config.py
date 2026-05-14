@@ -62,6 +62,10 @@ SESSIONS_FIELDNAMES = [
     # Manual flag — when "yes", forces verdict='skip' regardless of σ/ML
     # status. Set via POST /sessions/{id}/flag from the UI.
     "flagged", "flag_note",
+    # Study Mode metadata — empty for legacy / free-recording sessions.
+    "study_mode",      # "" | "free" | "study" | "test"
+    "protocol_id",     # protocol ID if a study was running, else ""
+    "subject_index",   # frozen 1-based Latin Square index, or "" for free/test
 ]
 
 if not SESSIONS_CSV.exists():

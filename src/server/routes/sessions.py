@@ -325,7 +325,13 @@ async def get_session_report(session_id: str, format: str = "json"):
 
 
 async def _start_session_internal(
-    person_id: str, description: str, force_preflight: bool
+    person_id: str,
+    description: str,
+    force_preflight: bool,
+    *,
+    study_mode: str = "free",
+    protocol_id: str = "",
+    subject_index: int | None = None,
 ) -> dict:
     if state.active:
         return JSONResponse({"error": "Session already active"}, status_code=409)
@@ -374,6 +380,9 @@ async def _start_session_internal(
             "watch_samples": 0,
             "airpods_samples": 0,
             "status": "active",
+            "study_mode": study_mode,
+            "protocol_id": protocol_id,
+            "subject_index": "" if subject_index is None else str(subject_index),
         })
 
     # Falls der Pen noch mit "unsessioned" läuft, neu starten unter der richtigen Session-ID

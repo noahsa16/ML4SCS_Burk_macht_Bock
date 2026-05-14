@@ -65,7 +65,7 @@ def _next_session_id() -> str:
         pass
     # Also scan raw data folders so a stale pen/watch CSV from a prior run
     # cannot be silently re-used (would cause old dots to leak into a new session).
-    for folder in (DATA_RAW_PEN, DATA_RAW_WATCH, DATA_RAW_AIRPODS):
+    for folder in (DATA_RAW_PEN, DATA_RAW_WATCH, DATA_RAW_AIRPODS, MARKERS_DIR):
         try:
             for p in folder.glob("S[0-9][0-9][0-9]_*.csv"):
                 stem = p.stem.split("_", 1)[0]
@@ -344,21 +344,14 @@ def write_marker(session_id: str, row: dict) -> None:
 
 
 def _subject_index_for_person_id(person_id: str) -> int:
-    """Resolve subject_index by scanning sessions.csv.
+    """Resolve 1-based subject_index by scanning sessions.csv.
 
-    Returns a 1-based integer: the first distinct person_id ever recorded
-    is subject 1, second is subject 2, etc. A returning person_id keeps
-    their original index. A brand-new person_id gets the next available
-    integer. Missing CSV -> 1.
-
-    Used by Study Mode to deterministically index into a Latin Square
-    counterbalance assignment.
-
-    Only counts sessions that:
-      - have a corresponding {session_id}_markers.csv (ran in Study Mode), AND
-      - whose description does not start with "[TEST]" (case-insensitive).
-    Free-recording and test-mode sessions are skipped so dev/QA runs do
-    not shift indices for real participants.
+    Only counts sessions whose ``study_mode`` column is ``"study"`` — free-
+    recording and test sessions are skipped so they don't pollute the
+    Latin Square counterbalance counter. The first distinct person_id
+    with a study session is subject 1, second is 2, etc. Returning
+    person_ids keep their original index; new ones get the next available.
+    Missing CSV -> 1.
     """
     if not SESSIONS_CSV.exists():
         return 1
@@ -367,17 +360,8 @@ def _subject_index_for_person_id(person_id: str) -> int:
         with open(SESSIONS_CSV, newline="") as f:
             for row in csv.DictReader(f):
                 pid = (row.get("person_id") or "").strip()
-                if not pid:
-                    continue
-                sid = (row.get("session_id") or "").strip()
-                if not sid:
-                    continue
-                # Filter: only count real Study-Mode sessions
-                marker_path = MARKERS_DIR / f"{sid}_markers.csv"
-                if not marker_path.exists():
-                    continue
-                desc = (row.get("description") or "").lstrip()
-                if desc.upper().startswith("[TEST]"):
+                mode = (row.get("study_mode") or "").strip().lower()
+                if not pid or mode != "study":
                     continue
                 if pid not in seen:
                     seen.append(pid)
