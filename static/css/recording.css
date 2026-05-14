@@ -402,3 +402,13 @@ canvas#imuChart { width: 100% !important; }
   color: oklch(0.97 0.008 80);
 }
 .rec-mode-opt:hover:not(.is-active) { color: oklch(0.22 0.025 55); }
+
+.rec-field--check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.rec-field--check input[type="checkbox"] {
+  cursor: pointer;
+}

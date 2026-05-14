@@ -353,6 +353,12 @@ def _subject_index_for_person_id(person_id: str) -> int:
 
     Used by Study Mode to deterministically index into a Latin Square
     counterbalance assignment.
+
+    Only counts sessions that:
+      - have a corresponding {session_id}_markers.csv (ran in Study Mode), AND
+      - whose description does not start with "[TEST]" (case-insensitive).
+    Free-recording and test-mode sessions are skipped so dev/QA runs do
+    not shift indices for real participants.
     """
     if not SESSIONS_CSV.exists():
         return 1
@@ -361,7 +367,19 @@ def _subject_index_for_person_id(person_id: str) -> int:
         with open(SESSIONS_CSV, newline="") as f:
             for row in csv.DictReader(f):
                 pid = (row.get("person_id") or "").strip()
-                if pid and pid not in seen:
+                if not pid:
+                    continue
+                sid = (row.get("session_id") or "").strip()
+                if not sid:
+                    continue
+                # Filter: only count real Study-Mode sessions
+                marker_path = MARKERS_DIR / f"{sid}_markers.csv"
+                if not marker_path.exists():
+                    continue
+                desc = (row.get("description") or "").lstrip()
+                if desc.upper().startswith("[TEST]"):
+                    continue
+                if pid not in seen:
                     seen.append(pid)
     except Exception:
         pass

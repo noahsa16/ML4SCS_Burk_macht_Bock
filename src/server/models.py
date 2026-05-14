@@ -25,6 +25,7 @@ class StudyStartBody(BaseModel):
     person_id: str = "unknown"
     description: str = ""
     force_preflight: bool = False
+    test_mode: bool = False
 
     @field_validator("person_id", mode="before")
     @classmethod

@@ -98,3 +98,16 @@ def test_pause_resume_abort_round_trip(client):
 def test_pause_when_inactive_returns_409(client):
     r = client.post("/study/pause")
     assert r.status_code == 409
+
+
+def test_test_mode_skips_subject_index(client):
+    r = client.post("/study/start", json={
+        "protocol_id": "v1", "person_id": "TEST_USER",
+        "description": "endpoint smoke", "force_preflight": True,
+        "test_mode": True,
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["test_mode"] is True
+    assert body["subject_index"] is None
+    client.post("/session/stop")

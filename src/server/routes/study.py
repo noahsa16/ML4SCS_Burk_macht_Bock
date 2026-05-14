@@ -32,13 +32,25 @@ async def start_study(body: StudyStartBody) -> dict:
         raise HTTPException(404, f"protocol {body.protocol_id!r} not found")
     protocol = load_protocol(proto_path)
 
+    # Test-mode runs:
+    #  - skip Latin Square (subject_index=None → random shuffle fallback)
+    #  - prefix description with [TEST] so the counter ignores this session later
+    if body.test_mode:
+        subject_index = None
+        description = body.description or ""
+        if not description.lstrip().upper().startswith("[TEST]"):
+            description = f"[TEST] {description}".rstrip()
+    else:
+        subject_index = _subject_index_for_person_id(body.person_id)
+        description = body.description or f"study:{protocol.id}"
+
     # Reuse the existing session-start path so preflight / session_id allocation
     # / pen-logger bootstrapping behave identically to /session/start.
     from .sessions import _start_session_internal
     from fastapi.responses import JSONResponse
     session_info = await _start_session_internal(
         person_id=body.person_id,
-        description=body.description or f"study:{protocol.id}",
+        description=description,
         force_preflight=body.force_preflight,
     )
     # _start_session_internal returns JSONResponse on preflight blocker/warn
@@ -46,7 +58,6 @@ async def start_study(body: StudyStartBody) -> dict:
     if isinstance(session_info, JSONResponse) or "session_id" not in session_info:
         return session_info
 
-    subject_index = _subject_index_for_person_id(body.person_id)
     rt = new_runtime(
         protocol,
         session_info["session_id"],
@@ -59,6 +70,7 @@ async def start_study(body: StudyStartBody) -> dict:
         "session_id": session_info["session_id"],
         "protocol": {"id": protocol.id, "name": protocol.name},
         "subject_index": subject_index,
+        "test_mode": body.test_mode,
         "schedule": [
             {"task_index": s.task_index, "task_id": s.task.id,
              "label": s.task.label, "category": s.task.category,

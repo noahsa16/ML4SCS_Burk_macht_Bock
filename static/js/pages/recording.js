@@ -28,6 +28,8 @@ export function setRecMode(mode) {
   });
   const protoField = document.getElementById('protocolField');
   if (protoField) protoField.style.display = (_recMode === 'study') ? '' : 'none';
+  const testField = document.getElementById('testModeField');
+  if (testField) testField.style.display = (_recMode === 'study') ? '' : 'none';
   const btnLabel = document.querySelector('#sessionBtn .rec-action-btn-label');
   if (btnLabel && !S.sessionActive) {
     btnLabel.textContent = (_recMode === 'study') ? 'START STUDY' : 'START';
@@ -445,11 +447,13 @@ export async function toggleSession() {
 
   if (_recMode === 'study') {
     const protocolId = document.getElementById('protocolSelect')?.value || 'v1';
+    const testMode = document.getElementById('testModeCheck')?.checked === true;
     const res = await api('/study/start', 'POST', {
       protocol_id: protocolId,
       person_id: pid,
       description,
       force_preflight: preflight.force,
+      test_mode: testMode,
     });
     if (res?.preflight && !res.session_id) {
       showPreflightResult(res.preflight);
@@ -457,7 +461,8 @@ export async function toggleSession() {
     }
     if (res?.session_id) {
       const n = res.schedule?.length ?? 0;
-      toast(`Study ${res.session_id} started (${n} slots)`);
+      const tm = res.test_mode ? ' · TEST' : '';
+      toast(`Study ${res.session_id} started (${n} slots${tm})`);
     }
     return;
   }
