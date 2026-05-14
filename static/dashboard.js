@@ -107,6 +107,53 @@ document.querySelectorAll('.tab[data-page]').forEach(btn => {
   });
 });
 
+// ────────────────────────────────────────────────────────────
+//  EASTER EGG — triple-click on the brand logo opens /#admin
+//  Single click still goes home (slight delay to let rapid
+//  consecutive clicks override the home navigation).
+// ────────────────────────────────────────────────────────────
+{
+  const brand = document.getElementById('brandBtn');
+  if (brand) {
+    let _stamps = [];
+    let _singleTimer = null;
+    const WINDOW_MS = 1500;
+    const SINGLE_DELAY_MS = 420;
+
+    brand.addEventListener('click', () => {
+      const now = Date.now();
+      _stamps = _stamps.filter(t => now - t < WINDOW_MS);
+      _stamps.push(now);
+
+      if (_singleTimer) { clearTimeout(_singleTimer); _singleTimer = null; }
+
+      // After the 2nd click within the window, hint that something
+      // is about to happen — the slash glyph leans into the accent.
+      if (_stamps.length === 2) {
+        brand.classList.add('brand--armed');
+        setTimeout(() => brand.classList.remove('brand--armed'), 600);
+      }
+
+      if (_stamps.length >= 3) {
+        _stamps = [];
+        brand.classList.remove('brand--armed');
+        brand.classList.add('brand--triggered');
+        setTimeout(() => brand.classList.remove('brand--triggered'), 850);
+        // Hop straight to admin; bypass goHome's recording-page default.
+        location.hash = 'admin';
+        return;
+      }
+
+      // Defer the single-click home action so subsequent rapid clicks
+      // can hijack it before it fires.
+      _singleTimer = setTimeout(() => {
+        _singleTimer = null;
+        if (_stamps.length === 1) goHome();
+      }, SINGLE_DELAY_MS);
+    });
+  }
+}
+
 window.addEventListener('hashchange', () => {
   // Why: in-page anchors like #sec-prefs on Settings are NOT page routes —
   // leave them alone so the browser can scroll to the section. Only act on

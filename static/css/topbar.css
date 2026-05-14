@@ -32,6 +32,40 @@
 .brand-slash {
   font-family: var(--mono); font-style: normal; font-weight: 600;
   color: var(--accent); margin-left: 4px;
+  display: inline-block;
+  transition: transform var(--dur-fast) var(--ease-default),
+              text-shadow 220ms ease;
+}
+
+/* ── Easter-egg states ─────────────────────────────────────
+   Two clicks within 1.5 s: the slash leans + glows ("armed" hint).
+   Three clicks: full glitch-into-accent flash, then we navigate to
+   the admin monitor view. Single click within the window still does
+   the default goHome after a short 420 ms grace.
+   ────────────────────────────────────────────────────────── */
+.brand--armed .brand-slash {
+  transform: rotate(-12deg) scale(1.4);
+  text-shadow: 0 0 12px color-mix(in oklch, var(--accent) 70%, transparent);
+}
+.brand--triggered {
+  animation: brandTriggered 850ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.brand--triggered .brand-slash {
+  animation: brandSlashFlash 850ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes brandTriggered {
+  0%   { transform: scale(1); filter: brightness(1); }
+  35%  { transform: scale(0.92) skewX(-3deg); filter: brightness(1.4); }
+  60%  { transform: scale(1.15) skewX(2deg); filter: brightness(1.7); color: var(--accent); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+@keyframes brandSlashFlash {
+  0%   { transform: rotate(0) scale(1);
+         text-shadow: 0 0 0 transparent; }
+  40%  { transform: rotate(-360deg) scale(1.6);
+         text-shadow: 0 0 24px color-mix(in oklch, var(--accent) 90%, transparent); }
+  100% { transform: rotate(-720deg) scale(1);
+         text-shadow: 0 0 0 transparent; }
 }
 
 /* Wordmark-Tooltip: zwei Zeilen Mono-Text in einer Pill, fadet beim
