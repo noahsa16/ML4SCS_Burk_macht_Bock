@@ -341,3 +341,30 @@ def write_marker(session_id: str, row: dict) -> None:
     with open(path, "a", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=MARKER_FIELDNAMES)
         writer.writerow({k: row.get(k, "") for k in MARKER_FIELDNAMES})
+
+
+def _subject_index_for_person_id(person_id: str) -> int:
+    """Resolve subject_index by scanning sessions.csv.
+
+    Returns a 1-based integer: the first distinct person_id ever recorded
+    is subject 1, second is subject 2, etc. A returning person_id keeps
+    their original index. A brand-new person_id gets the next available
+    integer. Missing CSV -> 1.
+
+    Used by Study Mode to deterministically index into a Latin Square
+    counterbalance assignment.
+    """
+    if not SESSIONS_CSV.exists():
+        return 1
+    seen: list[str] = []
+    try:
+        with open(SESSIONS_CSV, newline="") as f:
+            for row in csv.DictReader(f):
+                pid = (row.get("person_id") or "").strip()
+                if pid and pid not in seen:
+                    seen.append(pid)
+    except Exception:
+        pass
+    if person_id in seen:
+        return seen.index(person_id) + 1
+    return len(seen) + 1

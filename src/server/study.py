@@ -13,7 +13,20 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 TaskCategory = Literal["writing", "idle"]
 ContentType = Literal["text", "list", "image"]
-InterleaveMode = Literal["writing_with_pauses", "shuffled"]
+InterleaveMode = Literal["writing_with_pauses", "shuffled", "latin_square"]
+
+
+# Full counterbalance: all 6 permutations of 3 writing tasks.
+# Each task appears in each position exactly twice across 6 subjects,
+# and every ordered pair (A->B, B->A, ...) appears equally often.
+LATIN_SQUARE_3 = [
+    [0, 1, 2],
+    [0, 2, 1],
+    [1, 0, 2],
+    [1, 2, 0],
+    [2, 0, 1],
+    [2, 1, 0],
+]
 
 
 class StudyTask(BaseModel):
@@ -110,18 +123,35 @@ def _interleave_writing_with_pauses(
     return out
 
 
-def build_schedule(protocol: StudyProtocol, seed: int) -> list[ScheduledSlot]:
-    """Deterministic per-session schedule (seeded shuffle, then interleave)."""
+def build_schedule(protocol: StudyProtocol, seed: int,
+                   subject_index: Optional[int] = None) -> list[ScheduledSlot]:
+    """Deterministic per-session schedule.
+
+    For ``interleave='latin_square'``: ``subject_index`` selects a row from
+    LATIN_SQUARE_3 (cycles every 6 subjects). Falls back to seeded random
+    shuffle if subject_index is None - keeps the function safe to call from
+    tests / contexts that don't have a subject counter wired up.
+    """
     expanded = _expand_instances(protocol.tasks)
     writing = [t for t in expanded if t.category == "writing"]
     idle = [t for t in expanded if t.category == "idle"]
 
     rng = random.Random(seed)
-    if protocol.randomize:
-        rng.shuffle(writing)
-        rng.shuffle(idle)
+    if protocol.interleave == "latin_square" and subject_index is not None:
+        if len(writing) == 3:
+            row = LATIN_SQUARE_3[(subject_index - 1) % len(LATIN_SQUARE_3)]
+            writing = [writing[i] for i in row]
+        else:
+            if protocol.randomize:
+                rng.shuffle(writing)
+        if protocol.randomize:
+            rng.shuffle(idle)
+    else:
+        if protocol.randomize:
+            rng.shuffle(writing)
+            rng.shuffle(idle)
 
-    if protocol.interleave == "writing_with_pauses":
+    if protocol.interleave in ("writing_with_pauses", "latin_square"):
         ordered = _interleave_writing_with_pauses(writing, idle)
     else:
         ordered = writing + idle
@@ -311,12 +341,14 @@ class StudyRuntime:
 
 
 def new_runtime(protocol: StudyProtocol, session_id: str,
-                started_at_ms: int, seed: Optional[int] = None) -> StudyRuntime:
+                started_at_ms: int, seed: Optional[int] = None,
+                subject_index: Optional[int] = None) -> StudyRuntime:
     """Build a StudyRuntime with a deterministic schedule.
 
-    Seed defaults to a stable hash of session_id (reproducible per subject).
+    `subject_index` is forwarded to the scheduler (used by latin_square mode).
+    `seed` defaults to a stable hash of session_id.
     """
     if seed is None:
         seed = abs(hash(session_id))
-    schedule = build_schedule(protocol, seed=seed)
+    schedule = build_schedule(protocol, seed=seed, subject_index=subject_index)
     return StudyRuntime(protocol, schedule, session_id, started_at_ms)
