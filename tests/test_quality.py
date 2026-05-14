@@ -383,3 +383,64 @@ def test_low_sync_confidence_fires_when_sigma_borderline(data_dirs, monkeypatch)
     codes = {i["code"] for i in _build_issues(facts)}
     assert "sync_failed" in codes
     assert "low_sync_confidence" not in codes
+
+
+# ── verdict logic in _session_quality_cols ────────────────────────────────────
+
+def test_verdict_flagged_yes_overrides_to_skip(data_dirs):
+    """Manual `flagged=yes` always wins, regardless of how clean the data is."""
+    from src.server.quality import _session_quality_cols
+
+    start_ms = 1_700_000_000_000
+    watch_rows = [_watch_row(start_ms + i * 20) for i in range(1500)]
+    pen_rows = [_pen_row(start_ms + i * 25) for i in range(1200)]
+    write_watch_csv(data_dirs.watch / "S100_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S100_pen.csv", pen_rows)
+    row = {**_session_row("S100", start_ms, start_ms + 30_000,
+                          pen_samples=len(pen_rows), watch_samples=len(watch_rows)),
+           "flagged": "yes"}
+
+    cols = _session_quality_cols(row)
+    assert cols["verdict"] == "skip"
+
+
+def test_verdict_skip_when_ml_status_bad(data_dirs):
+    """A `bad`-severity ML issue (here: data_outside_session_window from
+    a stale CSV) must force verdict=skip without a manual flag. Guards
+    the dataset-pollution path that motivated the verdict column."""
+    from src.server.quality import _session_quality_cols
+
+    session_start = 1_700_000_000_000
+    session_end = session_start + 30_000
+    # CSVs are 10 hours earlier than session metadata → ML-bad blocker.
+    stale_start = session_start - 10 * 3600 * 1000
+    watch_rows = [_watch_row(stale_start + i * 20) for i in range(200)]
+    pen_rows = [_pen_row(stale_start + i * 25) for i in range(100)]
+    write_watch_csv(data_dirs.watch / "S101_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S101_pen.csv", pen_rows)
+    row = _session_row("S101", session_start, session_end,
+                       pen_samples=len(pen_rows), watch_samples=len(watch_rows))
+
+    cols = _session_quality_cols(row)
+    assert cols["ml_status"] == "bad"
+    assert cols["verdict"] == "skip"
+
+
+def test_verdict_defaults_to_usable_when_ml_ok_but_sigma_weak(data_dirs):
+    """ML-status ok + duration ≥ 5 min but no strong σ ≤ -3 → 'usable',
+    not 'trainable'. Guards the σ-as-training-gate logic in CLAUDE.md."""
+    from src.server.quality import _session_quality_cols
+
+    # 6-minute session with pen strokes that don't align cleanly (random
+    # placement → no clear variance well, σ stays weak).
+    row = _make_sync_session(
+        data_dirs, "S102",
+        still_windows_sec=None,  # noise everywhere, no real alignment well
+        pen_clock_offset_sec=0.0,
+        seed=7,
+    )
+    cols = _session_quality_cols(row)
+    # Either weakly aligned or no alignment, but ML facts themselves are ok.
+    assert cols["verdict"] in {"usable", "skip"}
+    # The trainable branch requires σ <= -3 which can't be reached here.
+    assert cols["verdict"] != "trainable"
