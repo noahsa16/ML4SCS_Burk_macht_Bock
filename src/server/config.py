@@ -24,6 +24,20 @@ DATA_RAW_AIRPODS.mkdir(parents=True, exist_ok=True)
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 LOGS_DIR.mkdir(parents=True, exist_ok=True)
 
+DATA_RAW_MARKERS = ROOT / "data" / "raw" / "markers"
+DATA_RAW_MARKERS.mkdir(parents=True, exist_ok=True)
+MARKERS_DIR = DATA_RAW_MARKERS
+
+MARKER_FIELDNAMES = [
+    "timestamp_ms",
+    "event",
+    "task_id",
+    "task_name",
+    "task_index",
+    "task_category",
+    "protocol_id",
+]
+
 WATCH_FIELDNAMES = [
     "local_ts", "local_ts_ms", "session_id", "sequence", "sample_rate_hz",
     "watch_sent_at", "phone_received_at", "server_received_ms", "source",

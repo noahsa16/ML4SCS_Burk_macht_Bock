@@ -11,6 +11,7 @@ from typing import IO, Any, Optional
 
 from .config import (
     AIRPODS_FIELDNAMES, DATA_RAW_AIRPODS, DATA_RAW_PEN, DATA_RAW_WATCH,
+    MARKER_FIELDNAMES, MARKERS_DIR,
     SESSIONS_CSV, SESSIONS_FIELDNAMES, WATCH_FIELDNAMES,
 )
 from .state import state
@@ -327,3 +328,16 @@ def _pen_recent_dots(session_id: str) -> list[dict[str, Any]]:
         return []
 
 
+
+
+def write_marker(session_id: str, row: dict) -> None:
+    """Append one row to data/raw/markers/{session_id}_markers.csv.
+
+    Creates the file with header on first write. Missing keys become empty
+    strings (study_start / study_end legitimately have no task fields).
+    """
+    path = MARKERS_DIR / f"{session_id}_markers.csv"
+    _ensure_csv_header(path, MARKER_FIELDNAMES)
+    with open(path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=MARKER_FIELDNAMES)
+        writer.writerow({k: row.get(k, "") for k in MARKER_FIELDNAMES})
