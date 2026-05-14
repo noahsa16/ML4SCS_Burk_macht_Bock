@@ -401,6 +401,31 @@ function _renderFlagButton(session) {
   btn.title = flagged
     ? (session?.flag_note ? `Flagged: ${session.flag_note} — click to unflag` : 'Flagged — click to unflag')
     : 'Mark this session as invalid — forces verdict=skip';
+
+  // Mark-as-test button: visible for any non-test session.
+  const mtBtn = document.getElementById('detailMarkTestBtn');
+  if (mtBtn) {
+    const mode = String(session?.study_mode || '').toLowerCase();
+    mtBtn.style.display = mode === 'test' ? 'none' : '';
+  }
+}
+
+export async function markSelectedSessionAsTest() {
+  const sid = S.selectedSessionId;
+  if (!sid) return;
+  // Reuse the sessions-page implementation (confirm + POST + toast + refresh).
+  const { markSessionAsTest } = await import('/static/js/pages/sessions.js');
+  await markSessionAsTest(sid);
+  // Re-fetch this session's row + re-render the header so the mark-test
+  // button hides and the badge reflects the new study_mode.
+  const data = await api('/sessions', 'GET');
+  if (data) S.allSessions = data;
+  const updated = S.allSessions?.find(s => s.session_id === sid);
+  if (updated) {
+    const quality = S.qualityBySession[sid] || {};
+    const alignment = S.alignmentBySession[sid] || {};
+    _renderDetailHeader(updated, quality, alignment);
+  }
 }
 
 export async function toggleSessionFlag() {

@@ -103,3 +103,94 @@ def test_filters_invalid_xy(data_dirs):
     df = prepare_pen_data(path)
     # Only the two real dots should survive; first one gets dropna()'d.
     assert len(df) == 1
+
+
+def test_merge_attaches_task_id_when_markers_exist(data_dirs, tmp_path, monkeypatch):
+    """If data/raw/markers/{session}_markers.csv exists, merge attaches
+    task_id + task_category to each watch sample in the active interval."""
+    import csv as _csv
+    import pandas as pd
+
+    from src.merge import merge_watch_pen
+    from src.merge import merge as merge_mod
+
+    sid = "S777"
+    raw_mk = tmp_path / "raw" / "markers"
+    raw_mk.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(merge_mod, "_MARKERS_DIR_OVERRIDE", raw_mk, raising=False)
+
+    base = 1_000_000
+    # 50 watch samples at 50 Hz, local_ts_ms = base + i*20 (covers base..base+980).
+    watch_rows = [
+        {"local_ts_ms": base + i * 20, "session_id": sid, "sequence": i,
+         "ts": i * 20, "ax": 0.1, "ay": 0.1, "az": 0.9,
+         "rx": 0.0, "ry": 0.0, "rz": 0.0}
+        for i in range(50)
+    ]
+    pen_rows = [
+        {"local_ts_ms": base + 50, "timestamp": 1000, "x": 10.0, "y": 10.0,
+         "pressure": 200, "dot_type": "PEN_DOWN"},
+    ]
+    pen_path = data_dirs.pen / f"{sid}_pen.csv"
+    watch_path = data_dirs.watch / f"{sid}_watch.csv"
+    write_pen_csv(pen_path, pen_rows)
+    write_watch_csv(watch_path, watch_rows)
+
+    # Active task interval: [base, base + 500) → samples i=0..24 inclusive get tagged.
+    with open(raw_mk / f"{sid}_markers.csv", "w", newline="") as f:
+        w = _csv.DictWriter(f, fieldnames=[
+            "timestamp_ms", "event", "task_id", "task_name",
+            "task_index", "task_category", "protocol_id",
+        ])
+        w.writeheader()
+        w.writerow({"timestamp_ms": base, "event": "task_start",
+                    "task_id": "abschreiben", "task_name": "Text",
+                    "task_index": 1, "task_category": "writing",
+                    "protocol_id": "v1"})
+        w.writerow({"timestamp_ms": base + 500, "event": "task_end",
+                    "task_id": "abschreiben", "task_name": "Text",
+                    "task_index": 1, "task_category": "writing",
+                    "protocol_id": "v1"})
+
+    merged = merge_watch_pen(pen_path, watch_path, align_clocks=False)
+    assert "task_id" in merged.columns
+    assert "task_category" in merged.columns
+    # Sample i=0 (ts=base) and i=24 (ts=base+480) are in the interval.
+    in_iv = merged[merged["local_ts_ms"] < base + 500]
+    assert (in_iv["task_id"] == "abschreiben").all()
+    assert (in_iv["task_category"] == "writing").all()
+    # Sample i=25 (ts=base+500) is OUT (half-open interval) → NA.
+    out_iv = merged[merged["local_ts_ms"] >= base + 500]
+    assert out_iv["task_id"].isna().all()
+
+
+def test_merge_no_markers_keeps_columns_absent(data_dirs, tmp_path, monkeypatch):
+    """Backwards-compat: sessions without a markers CSV merge unchanged."""
+    import pandas as pd
+    from src.merge import merge_watch_pen
+    from src.merge import merge as merge_mod
+
+    sid = "S778"
+    raw_mk = tmp_path / "raw" / "markers"
+    raw_mk.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(merge_mod, "_MARKERS_DIR_OVERRIDE", raw_mk, raising=False)
+
+    base = 1_000_000
+    watch_rows = [
+        {"local_ts_ms": base + i * 20, "session_id": sid, "sequence": i,
+         "ts": i * 20, "ax": 0.1, "ay": 0.1, "az": 0.9,
+         "rx": 0.0, "ry": 0.0, "rz": 0.0}
+        for i in range(10)
+    ]
+    pen_rows = [
+        {"local_ts_ms": base + 30, "timestamp": 1000, "x": 5.0, "y": 5.0,
+         "pressure": 200, "dot_type": "PEN_MOVE"},
+    ]
+    pen_path = data_dirs.pen / f"{sid}_pen.csv"
+    watch_path = data_dirs.watch / f"{sid}_watch.csv"
+    write_pen_csv(pen_path, pen_rows)
+    write_watch_csv(watch_path, watch_rows)
+
+    merged = merge_watch_pen(pen_path, watch_path, align_clocks=False)
+    if "task_id" in merged.columns:
+        assert merged["task_id"].isna().all()

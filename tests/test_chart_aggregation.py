@@ -54,3 +54,21 @@ def test_chart_aggregator_trims_to_100():
     assert state.chart_buffer[-1]["acc_mag"] == 2.0
     assert state.chart_buffer[-1]["pen_writing"] is True
     assert state.chart_buffer[0]["t"] == 1
+
+
+def test_chart_aggregator_active_with_empty_windows_appends_zero_entry():
+    """When active but no samples arrived during the bucket, still emit
+    a chart point (with zero magnitudes) so the chart stays time-continuous.
+    Without this, a quiet 200 ms gap would leave a hole in the live chart."""
+    state = SessionState()
+    state.active = True
+    state.chart_window_acc_mags = []
+    state.chart_window_gyro_mags = []
+
+    broadcast._chart_aggregator_tick(state, pen_writing=False)
+
+    assert len(state.chart_buffer) == 1
+    entry = state.chart_buffer[0]
+    assert entry["acc_mag"] == 0.0
+    assert entry["gyro_mag"] == 0.0
+    assert entry["pen_writing"] is False

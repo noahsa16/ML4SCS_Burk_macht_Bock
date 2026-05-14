@@ -70,7 +70,8 @@ otherwise to `pen_log_YYYYMMDD_HHMMSS.csv` in the working directory.
 ```bash
 python -m src.merge S029                          # watch-base merge → data/processed/S029_merged.csv
 python -m src.features S029 --max-gap-ms 300      # sliding-window features → data/processed/S029_windows.csv
-python -m src.training.train_rf S029              # RF baseline → models/rf_S029.joblib + metrics
+python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
+python -m src.training.within_session.train_rf S029   # within-session 80/20 RF (debug/feature-iteration)
 python -m src.evaluation.evaluate S029            # placeholder, prints label distribution
 python scripts/plot_merged.py S029 --max-gap-ms 300   # visualize IMU + label overlay
 ```
@@ -113,9 +114,12 @@ Moleskine Smart Pen (BLE)
                     ↓
          data/processed/{session}_windows.csv  (1 row per window)
                     ↓
-       src/training/train_rf.py      (temporal 80/20 split, RF)
+       src/training/within_session/  (temporal 80/20 split, RF — *debug only*,
+         train_rf.py                   feature/label-smoothing iteration)
+       src/training/train_loso.py    (LOSO by person or session — *headline
+                                      metric* for the cross-subject goal)
                     ↓
-         models/rf_{session}.joblib  +  metrics on stdout
+         models/rf_{session}.joblib  +  per-fold metrics on stdout
 ```
 
 ### Server (`server.py` + `src/server/`)
@@ -288,16 +292,30 @@ no longer vibrates continuously when the server is down.
 - `src/features/__main__.py` — CLI: `python -m src.features [SESSION_ID]
   [--max-gap-ms 300] [--max-spike-ms 0]`, writes
   `data/processed/{session}_windows.csv`.
-- `src/training/train_rf.py` — `RandomForestClassifier` (200 trees,
-  `class_weight="balanced"`). **Temporal** train/test split (80/20 by
-  `t_center_ms`, with a 4-window gap at the cut to prevent overlap
-  leakage — adjacent windows share 50% of samples). Loads cached
-  `{session}_windows.csv` if present, else builds on the fly. Prints
-  classification report, confusion matrix, ROC-AUC, top-10 feature
-  importances; dumps to `models/rf_{session}.joblib`.
+- `src/training/within_session/train_rf.py` — **debug/feature-iteration
+  baseline, not the headline metric.** `RandomForestClassifier` (200
+  trees, `class_weight="balanced"`) with a temporal 80/20 split by
+  `t_center_ms` plus a 4-window gap at the cut to prevent overlap
+  leakage (adjacent windows share 50% of samples). Use this for fast
+  iteration on features or label-smoothing parameters, *not* to claim
+  generalisation — within-session metrics only measure "can the model
+  finish this session given the start of it". Loads cached
+  `{session}_windows.csv` if present, else builds on the fly. Dumps
+  to `models/rf_{session}.joblib`.
+- `src/training/train_loso.py` — **headline metric for the project
+  goal.** Leave-One-Out cross-validation. Default `--by person` (true
+  LOSO — the right metric for the "general writing detector" promise);
+  fallback `--by session` for leave-one-session-out, useful while only
+  one subject has been recorded. Filters sessions via
+  `verdict ∈ {trainable, usable}` from `sessions.csv` (override with
+  `--include-all`). No `temporal_split` needed — the
+  subject/session-hold-out is a strictly stronger leakage guarantee
+  than zeitliche Trennung (held-out windows were never seen). Reports
+  per-fold accuracy/ROC-AUC plus mean ± std summary.
 - `src/evaluation/evaluate.py` — placeholder that loads
   `{session}_merged.csv` and prints label distribution. Real metrics
-  live in `train_rf.py` for now.
+  live in `train_loso.py` (cross-subject) and
+  `within_session/train_rf.py` (within-session sanity check).
 - `scripts/plot_merged.py` — visualizes ‖acc‖, ‖gyro‖, and
   `label_writing` over the session; supports `--max-gap-ms` /
   `--max-spike-ms` to preview label smoothing effects.
@@ -444,10 +462,26 @@ confidence sessions are still valid for data collection (the pen logs
 remain useful raw material), they just shouldn't be fed into the
 trainer without manual review of the alignment plot.
 
-**Temporal split, not random.** Sliding windows overlap by 50%
-(stride 0.5 s, window 1 s). Random splits leak adjacent windows
-across train/test → inflated metrics that collapse in deployment.
-`train_rf.temporal_split()` enforces a 4-window gap at the cut.
+**Temporal split, not random** (within-session only). Sliding windows
+overlap by 50% (stride 0.5 s, window 1 s). Random splits leak adjacent
+windows across train/test → inflated metrics that collapse in
+deployment. `within_session.train_rf.temporal_split()` enforces a
+4-window gap at the cut. **LOSO via `train_loso.py` is the stronger
+guarantee** — the held-out subject/session was never in training, so
+window overlap across the cut is impossible by construction. Use
+within-session as a fast sanity check during development; LOSO is the
+metric that maps to the deployment scenario.
+
+**Two training entry points, two purposes.**
+- `python -m src.training.within_session.train_rf S029` — fast
+  iteration on features/label-smoothing parameters on a single
+  session. **Not a generalisation claim.** Use during development.
+- `python -m src.training.train_loso [--by person|session]` —
+  Leave-One-Out cross-validation. **Headline metric.** Use to validate
+  the model and to report results. With `--save-final-model` it
+  additionally re-trains on all data and dumps the deployment model
+  to `models/rf_all.joblib`; `--save-cv-csv` writes per-fold metrics
+  to `models/loso_cv.csv` for tracking across data-collection rounds.
 
 ## Testing
 

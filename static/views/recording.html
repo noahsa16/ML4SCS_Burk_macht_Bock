@@ -53,7 +53,15 @@
 
     <div class="rec-console" id="liveRecordingHero">
 
-      <!-- Stripe 1: input fields + START/STOP ────────────────────── -->
+      <!-- Mode toggle: free recording vs. guided study ─────────────── -->
+      <div class="rec-mode-toggle" role="radiogroup" aria-label="Recording mode">
+        <button type="button" class="rec-mode-opt is-active" data-mode="free"
+                onclick="setRecMode('free')" aria-pressed="true">free recording</button>
+        <button type="button" class="rec-mode-opt" data-mode="study"
+                onclick="setRecMode('study')" aria-pressed="false">study mode</button>
+      </div>
+
+      <!-- Stripe 1: input fields only ──────────────────────────── -->
       <div class="rec-console-controls">
         <label class="rec-field">
           <span class="rec-field-label">person</span>
@@ -63,17 +71,31 @@
           <span class="rec-field-label">description</span>
           <input class="rec-field-input" type="text" id="sessionDescription" placeholder="e.g. 2 min writing, 2 min pause">
         </label>
+        <label class="rec-field" id="protocolField" style="display:none">
+          <span class="rec-field-label">protocol</span>
+          <select class="rec-field-input" id="protocolSelect"></select>
+        </label>
+      </div>
+
+      <!-- Stripe 2: hero timer + action ──────────────────────────── -->
+      <!-- START button + test-run label are direct grid children so they
+           align to columns 2 and 3 (mirroring description + protocol above). -->
+      <div class="rec-console-timer">
+        <div class="rec-console-timer-block">
+          <div class="rec-timer-meta">
+            <span class="rec-timer-eyebrow">/ elapsed</span>
+            <span class="rec-timer-label" id="timerLabel">ready for a new recording</span>
+          </div>
+          <div class="rec-timer" id="timer">00:00:00</div>
+        </div>
         <button class="rec-action-btn" id="sessionBtn" onclick="toggleSession()">
           <span class="rec-action-btn-label">START</span>
           <span class="rec-action-btn-glyph" aria-hidden="true">●</span>
         </button>
-      </div>
-
-      <!-- Stripe 2: hero timer ───────────────────────────────────── -->
-      <div class="rec-console-timer">
-        <span class="rec-timer-eyebrow">/ elapsed</span>
-        <div class="rec-timer" id="timer">00:00:00</div>
-        <div class="rec-timer-label" id="timerLabel">Ready for a new recording</div>
+        <label class="rec-field rec-field--check" id="testModeField" style="display:none">
+          <input type="checkbox" id="testModeCheck">
+          <span class="rec-field-label">test run</span>
+        </label>
       </div>
 
       <!-- Stripe 3: 4 live stat tiles ────────────────────────────── -->
@@ -196,3 +218,10 @@
   </details>
 
 </div>
+
+<!-- Study Mode rendering surface — populated by recording-study.js (Task 11) -->
+<section class="rec-study-view" id="rec-study-view" style="display:none">
+  <div class="rec-study-stage" id="recStudyStage">
+    <!-- contents built by JS via DOM API based on s.study.state -->
+  </div>
+</section>

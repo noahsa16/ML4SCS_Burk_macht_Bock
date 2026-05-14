@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, Response
 
 from ..broadcast import _broadcast
@@ -302,6 +302,36 @@ async def flag_session(session_id: str, body: dict | None = None):
             "verdict": updates.get("verdict", "")}
 
 
+@router.post("/sessions/{session_id}/mark-test")
+async def mark_session_as_test(session_id: str) -> dict:
+    """Retroactively flag a study session as a test run.
+
+    Sets study_mode='test', prepends '[TEST] ' to the description if not
+    already present, and clears subject_index so the Latin Square counter
+    treats this slot as available for a future real study session.
+    """
+    rows: list[dict] = []
+    found = False
+    with open(SESSIONS_CSV, newline="") as f:
+        for row in csv.DictReader(f):
+            if row.get("session_id") == session_id:
+                found = True
+                row["study_mode"] = "test"
+                row["subject_index"] = ""
+                desc = (row.get("description") or "").strip()
+                if not desc.upper().startswith("[TEST]"):
+                    row["description"] = (f"[TEST] {desc}").rstrip()
+            rows.append(row)
+    if not found:
+        raise HTTPException(404, f"session {session_id!r} not found")
+    with open(SESSIONS_CSV, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=SESSIONS_FIELDNAMES)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k, "") for k in SESSIONS_FIELDNAMES})
+    return {"ok": True, "session_id": session_id}
+
+
 @router.get("/sessions/{session_id}/report")
 async def get_session_report(session_id: str, format: str = "json"):
     """Pro-Session-Report — JSON oder Markdown.
@@ -324,14 +354,18 @@ async def get_session_report(session_id: str, format: str = "json"):
     return report
 
 
-@router.post("/session/start")
-async def session_start(body: SessionStartBody = SessionStartBody()):
+async def _start_session_internal(
+    person_id: str,
+    description: str,
+    force_preflight: bool,
+    *,
+    study_mode: str = "free",
+    protocol_id: str = "",
+    subject_index: int | None = None,
+) -> dict:
     if state.active:
         return JSONResponse({"error": "Session already active"}, status_code=409)
 
-    person_id = body.person_id
-    description = body.description
-    force_preflight = body.force_preflight
     preflight = _session_preflight_payload()
     if preflight["blockers"]:
         return JSONResponse({
@@ -376,6 +410,9 @@ async def session_start(body: SessionStartBody = SessionStartBody()):
             "watch_samples": 0,
             "airpods_samples": 0,
             "status": "active",
+            "study_mode": study_mode,
+            "protocol_id": protocol_id,
+            "subject_index": "" if subject_index is None else str(subject_index),
         })
 
     # Falls der Pen noch mit "unsessioned" läuft, neu starten unter der richtigen Session-ID
@@ -404,12 +441,30 @@ async def session_start(body: SessionStartBody = SessionStartBody()):
     }
 
 
+@router.post("/session/start")
+async def session_start(body: SessionStartBody = SessionStartBody()):
+    return await _start_session_internal(
+        person_id=body.person_id,
+        description=body.description,
+        force_preflight=body.force_preflight,
+    )
+
+
 @router.post("/session/stop")
 async def session_stop():
     if not state.active:
         return JSONResponse({"error": "No active session"}, status_code=409)
 
     session_id = state.active.session_id
+
+    # If a study was running on this session, write a final abort marker so
+    # downstream analysis knows the schedule didn't complete naturally.
+    if state.study is not None:
+        from time import time as _t
+        from ..csv_io import write_marker as _wm
+        for ev in state.study.abort(now_ms=int(_t() * 1000)):
+            _wm(state.active.session_id, ev)
+        state.study = None
     end_time = datetime.now(timezone.utc).isoformat()
     command_id = _new_command_id("stop", session_id)
 

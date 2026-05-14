@@ -11,6 +11,7 @@ from typing import IO, Any, Optional
 
 from .config import (
     AIRPODS_FIELDNAMES, DATA_RAW_AIRPODS, DATA_RAW_PEN, DATA_RAW_WATCH,
+    MARKER_FIELDNAMES, MARKERS_DIR,
     SESSIONS_CSV, SESSIONS_FIELDNAMES, WATCH_FIELDNAMES,
 )
 from .state import state
@@ -64,7 +65,7 @@ def _next_session_id() -> str:
         pass
     # Also scan raw data folders so a stale pen/watch CSV from a prior run
     # cannot be silently re-used (would cause old dots to leak into a new session).
-    for folder in (DATA_RAW_PEN, DATA_RAW_WATCH, DATA_RAW_AIRPODS):
+    for folder in (DATA_RAW_PEN, DATA_RAW_WATCH, DATA_RAW_AIRPODS, MARKERS_DIR):
         try:
             for p in folder.glob("S[0-9][0-9][0-9]_*.csv"):
                 stem = p.stem.split("_", 1)[0]
@@ -327,3 +328,45 @@ def _pen_recent_dots(session_id: str) -> list[dict[str, Any]]:
         return []
 
 
+
+
+def write_marker(session_id: str, row: dict) -> None:
+    """Append one row to data/raw/markers/{session_id}_markers.csv.
+
+    Creates the file with header on first write. Missing keys become empty
+    strings (study_start / study_end legitimately have no task fields).
+    """
+    path = MARKERS_DIR / f"{session_id}_markers.csv"
+    _ensure_csv_header(path, MARKER_FIELDNAMES)
+    with open(path, "a", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=MARKER_FIELDNAMES)
+        writer.writerow({k: row.get(k, "") for k in MARKER_FIELDNAMES})
+
+
+def _subject_index_for_person_id(person_id: str) -> int:
+    """Resolve 1-based subject_index by scanning sessions.csv.
+
+    Only counts sessions whose ``study_mode`` column is ``"study"`` — free-
+    recording and test sessions are skipped so they don't pollute the
+    Latin Square counterbalance counter. The first distinct person_id
+    with a study session is subject 1, second is 2, etc. Returning
+    person_ids keep their original index; new ones get the next available.
+    Missing CSV -> 1.
+    """
+    if not SESSIONS_CSV.exists():
+        return 1
+    seen: list[str] = []
+    try:
+        with open(SESSIONS_CSV, newline="") as f:
+            for row in csv.DictReader(f):
+                pid = (row.get("person_id") or "").strip()
+                mode = (row.get("study_mode") or "").strip().lower()
+                if not pid or mode != "study":
+                    continue
+                if pid not in seen:
+                    seen.append(pid)
+    except Exception:
+        pass
+    if person_id in seen:
+        return seen.index(person_id) + 1
+    return len(seen) + 1

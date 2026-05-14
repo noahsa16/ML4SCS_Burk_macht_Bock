@@ -17,7 +17,7 @@ for arg in "$@"; do
     [0-9]*)              PORT="$arg" ;;
     -h|--help)
       echo "Usage: $0 [PORT] [--local|--tunnel]"
-      echo "  --local / --no-tunnel  : nur lokal, kein cloudflared"
+      echo "  --local / --nno-tunnel  : nur lokal, kein cloudflared"
       echo "  --tunnel               : cloudflared starten"
       echo "  ohne Flag: interaktive Abfrage (oder ML4SCS_TUNNEL=0/1)"
       exit 0 ;;
