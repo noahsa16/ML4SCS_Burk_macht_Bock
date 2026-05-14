@@ -149,6 +149,14 @@ def _status_payload(
     watch_reachable = _watch_reachable(phone_status)
     watch_polling = bool(phone_status and phone_status.get("watch_polling"))
 
+    # Always include `study` so the frontend doesn't have to branch on
+    # absence on every WS tick. Inactive → {"active": False}.
+    import time as _time
+    if state.study is not None:
+        _study_payload = state.study.snapshot(now_ms=int(_time.time() * 1000))
+    else:
+        _study_payload = {"active": False}
+
     return {
         "type": "status",
         "session_active": state.active is not None,
@@ -229,4 +237,5 @@ def _status_payload(
         "sample_log": list(state.sample_log)[-80:],
         "validation": _validation_payload(last_pen_dot),
         "pen_recent_dots": _pen_recent_dots(sid) if sid else [],
+        "study": _study_payload,
     }
