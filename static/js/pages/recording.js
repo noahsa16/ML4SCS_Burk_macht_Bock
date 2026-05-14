@@ -26,10 +26,15 @@ export function setRecMode(mode) {
     b.classList.toggle('is-active', isActive);
     b.setAttribute('aria-pressed', isActive ? 'true' : 'false');
   });
+  const isStudy = _recMode === 'study';
   const protoField = document.getElementById('protocolField');
-  if (protoField) protoField.style.display = (_recMode === 'study') ? '' : 'none';
+  if (protoField) protoField.style.display = isStudy ? '' : 'none';
   const testField = document.getElementById('testModeField');
-  if (testField) testField.style.display = (_recMode === 'study') ? '' : 'none';
+  if (testField) testField.style.display = isStudy ? '' : 'none';
+  // Toggle grid-column class on the controls stripe so the protocol field
+  // gets a real third column instead of relying on `:has()` selector hacks.
+  const controls = document.querySelector('.rec-console-controls');
+  if (controls) controls.classList.toggle('has-protocol', isStudy);
   const btnLabel = document.querySelector('#sessionBtn .rec-action-btn-label');
   if (btnLabel && !S.sessionActive) {
     btnLabel.textContent = (_recMode === 'study') ? 'START STUDY' : 'START';

@@ -61,7 +61,7 @@
                 onclick="setRecMode('study')" aria-pressed="false">study mode</button>
       </div>
 
-      <!-- Stripe 1: input fields + START/STOP ────────────────────── -->
+      <!-- Stripe 1: input fields only ──────────────────────────── -->
       <div class="rec-console-controls">
         <label class="rec-field">
           <span class="rec-field-label">person</span>
@@ -75,21 +75,25 @@
           <span class="rec-field-label">protocol</span>
           <select class="rec-field-input" id="protocolSelect"></select>
         </label>
-        <label class="rec-field rec-field--check" id="testModeField" style="display:none">
-          <input type="checkbox" id="testModeCheck">
-          <span class="rec-field-label">test run</span>
-        </label>
-        <button class="rec-action-btn" id="sessionBtn" onclick="toggleSession()">
-          <span class="rec-action-btn-label">START</span>
-          <span class="rec-action-btn-glyph" aria-hidden="true">●</span>
-        </button>
       </div>
 
-      <!-- Stripe 2: hero timer ───────────────────────────────────── -->
+      <!-- Stripe 2: hero timer + action ──────────────────────────── -->
       <div class="rec-console-timer">
-        <span class="rec-timer-eyebrow">/ elapsed</span>
-        <div class="rec-timer" id="timer">00:00:00</div>
-        <div class="rec-timer-label" id="timerLabel">Ready for a new recording</div>
+        <div class="rec-console-timer-block">
+          <span class="rec-timer-eyebrow">/ elapsed</span>
+          <div class="rec-timer" id="timer">00:00:00</div>
+          <div class="rec-timer-label" id="timerLabel">Ready for a new recording</div>
+        </div>
+        <div class="rec-console-action">
+          <label class="rec-field rec-field--check" id="testModeField" style="display:none">
+            <input type="checkbox" id="testModeCheck">
+            <span class="rec-field-label">test run</span>
+          </label>
+          <button class="rec-action-btn" id="sessionBtn" onclick="toggleSession()">
+            <span class="rec-action-btn-label">START</span>
+            <span class="rec-action-btn-glyph" aria-hidden="true">●</span>
+          </button>
+        </div>
       </div>
 
       <!-- Stripe 3: 4 live stat tiles ────────────────────────────── -->
