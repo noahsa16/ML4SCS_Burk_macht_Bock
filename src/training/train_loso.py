@@ -20,12 +20,14 @@ Optional kann nach der CV ein **finales Deployment-Modell** auf allen
 Daten trainiert und gedumpt werden (``--save-final-model``), und die
 per-fold Metriken als CSV gesichert werden (``--save-cv-csv``).
 
+Random Forest
+
 CLI
 ---
 ::
 
     python -m src.training.train_loso                          # by person
-    python -m src.training.train_loso --by session             # LOSO-session
+    python -m src.training.train_loso --by session             # LOSO-session10
     python -m src.training.train_loso --include-all            # ohne verdict-gate
     python -m src.training.train_loso --min-windows 200        # zusätzlicher size-filter
     python -m src.training.train_loso --save-final-model       # → models/rf_all.joblib
