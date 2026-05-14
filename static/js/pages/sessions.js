@@ -308,12 +308,14 @@ function applyFilters() {
 }
 
 function _buildMarkTestBtn(s) {
-  if ((s.study_mode || '').toLowerCase() !== 'study') return null;
+  // Hide only when already test — show for free + study so any non-test
+  // session can be retroactively flagged.
+  if ((s.study_mode || '').toLowerCase() === 'test') return null;
   const b = document.createElement('button');
   b.type = 'button';
   b.className = 'ssn-mark-test-btn';
   b.textContent = '↳ mark as test';
-  b.title = 'Retroactively flag this study as a test run (clears subject_index)';
+  b.title = 'Retroactively flag this session as a test run (clears subject_index, prefixes [TEST])';
   b.addEventListener('click', (e) => {
     e.stopPropagation();
     markSessionAsTest(s.session_id);
