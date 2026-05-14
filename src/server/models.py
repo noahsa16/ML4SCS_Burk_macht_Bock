@@ -20,6 +20,25 @@ class SessionStartBody(BaseModel):
         return str(v).strip() if v is not None else ""
 
 
+class StudyStartBody(BaseModel):
+    protocol_id: str = "v1"
+    person_id: str = "unknown"
+    description: str = ""
+    force_preflight: bool = False
+    test_mode: bool = False
+
+    @field_validator("person_id", mode="before")
+    @classmethod
+    def normalize_person_id(cls, v: object) -> str:
+        s = str(v).strip() if v is not None else ""
+        return s or "unknown"
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def normalize_description(cls, v: object) -> str:
+        return str(v).strip() if v is not None else ""
+
+
 class WatchSample(BaseModel):
     model_config = ConfigDict(extra="ignore")
 

@@ -143,12 +143,29 @@ def build_windows(
         raw_labels, times, max_gap_ms=max_gap_ms, max_spike_ms=max_spike_ms,
     ).astype(float)
 
+    has_task_id = "task_id" in df.columns
+    has_task_cat = "task_category" in df.columns
+    task_ids = df["task_id"].to_numpy() if has_task_id else None
+    task_cats = df["task_category"].to_numpy() if has_task_cat else None
+
     rows: list[dict[str, float]] = []
     for start in range(0, len(df) - win + 1, stride):
         end = start + win
         feats = _window_features(imu[start:end])
         feats["label"] = int(labels[start:end].mean() >= min_label_ratio)
         feats["t_center_ms"] = float(times[start:end].mean())
+        # Task metadata propagated from merged CSV when markers attached.
+        # Window-level value = mode of sample-level task_id over the window.
+        # If the merged DF has no task_id (legacy session), the column is
+        # silently absent from the output — keeps the schema clean.
+        if has_task_id:
+            tid_series = pd.Series(task_ids[start:end]).dropna()
+            if not tid_series.empty:
+                feats["task_id"] = tid_series.mode().iat[0]
+                if has_task_cat:
+                    cat_series = pd.Series(task_cats[start:end]).dropna()
+                    if not cat_series.empty:
+                        feats["task_category"] = cat_series.mode().iat[0]
         rows.append(feats)
 
     return pd.DataFrame(rows)

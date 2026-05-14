@@ -1,0 +1,56 @@
+{
+  "id": "v1",
+  "name": "ML4SCS Study Protocol v1",
+  "pre_task_seconds": 3,
+  "randomize": true,
+  "interleave": "latin_square",
+  "tasks": [
+    {
+      "id": "abschreiben",
+      "label": "Text abschreiben",
+      "category": "writing",
+      "duration_seconds": 240,
+      "instances": 1,
+      "instruction": "Schreibe den folgenden Text auf Papier ab.",
+      "content_type": "text",
+      "content": "Glaub nicht, ich sei verrückt, Eliot – viele haben merkwürdigere\nAbneigungen als diese. Weshalb lachst du nicht über Olivers\nGroßvater, der in kein Auto steigen will? Wenn ich diese ver-\nfluchte Untergrundbahn nicht mag, so ist das allein mein\nProblem; und mit dem Taxi sind wir ohnehin viel schneller\nhierhin gelangt. Wir hätten den Hügel von der Park Street aus\nhochgehen müssen, hätten wir die U-Bahn genommen.\nIch weiß, dass ich nervöser geworden bin seit unserem\nTreffen letztes Jahr, doch du musst mir ja nicht gleich eine\nDiagnose stellen. Es gibt genügend Gründe dafür, weiß Gott,\nund ich kann mich vermutlich glücklich schätzen, überhaupt\nnoch bei Verstand zu sein. Warum drängst du eigentlich so? Du\nwarst doch früher nicht so neugierig.\nNun, wenn du es denn unbedingt hören willst, warum soll ich\nes dir nicht erzählen. Ist vielleicht auch besser, denn sonst\nschreibst du mir wieder wie eine besorgte Mutter Briefe,\nweshalb ich den Kunstverein meide und mich von Pickman\nfern halte. Jetzt, da er verschwunden ist, gehe ich ab und an\nwieder in den Verein, aber meine Nerven sind nicht mehr das,\nwas sie einmal waren.\nNein, ich weiß nicht, was aus Pickman geworden ist, und ich\nmöchte auch keine Vermutungen darüber anstellen. Du hast\nwohl angenommen, ich habe ihn fallen gelassen, weil ich\nvertrauliche Informationen über ihn erhielt – und das ist auch\nder Grund, weshalb ich nicht daran denken möchte, wo er nun\nsteckt. Soll die Polizei doch nachforschen – viel wird nicht\nherauskommen angesichts der Tatsache, dass sie bislang noch\nnichts von dem alten Haus in North End wissen, das er unter\ndem Namen Peters gemietet hatte. Ich bin mir nicht mal sicher,\nob ich selbst es wiederfinden könnte – aber ich würde es niemals versuchen, nicht einmal bei hellem Tageslicht! Ja, ich\nweiß, oder besser: Ich fürchte, ich weiß, weshalb er dieses Haus\ngemietet hatte. Das werde ich dir gleich erklären. Und ich\nglaube, du wirst sofort verstehen, weshalb ich der Polizei nichts\nsage. Sie würden mich darum bitten, sie dorthin zu führen,\naber ich kann nicht dahin zurück, selbst wenn ich den Weg\nwüsste. Dort war etwas ... und nun traue ich mich nicht mehr,\nmit der Untergrundbahn zu fahren oder – ja, lach nur darüber\n– in einen Keller hinabzusteigen.\nIch hoffe sehr, du weißt, dass ich Pickman nicht aus den\nselben albernen Gründen fallen ließ wie Dr. Reid oder Joe\nMinot oder Rosworth – diese pedantischen alten Weiber.\nMorbide Kunst schockiert mich nicht, und wenn ein Mann über\nsolches Genie verfügt wie Pickman, so ist mir seine Bekannt-\nschaft eine Ehre, gleich welche Richtung sein Werk einschlägt.\nIn Boston gab es nie einen größeren Maler als Richard Upton\nPickman. Ich habe das schon früher gesagt, und ich sage es\nnach wie vor, und davon rückte ich auch keinen Zoll ab, selbst\nnachdem er mir sein Gemälde ›Leichenfresser beim Mahle‹\nzeigte. Das war, wie du dich erinnerst, der Moment, da Minot\nihn zu schneiden begann.\nWeißt du, es bedarf großer Kunstfertigkeit und profunder\nEinsicht in die Schöpfung, um solche Sujets malen zu können\nwie Pickman. Jeder lausige Titelbildzeichner kann wild mit\nFarbe herumklecksen und das dann als ›Nachtmahr‹ oder\n›Hexensabbat‹ oder ›Porträt des Teufels‹ bezeichnen, doch nur\nein großer Maler vermag, so zu arbeiten, dass das Bild wirklich\nAngst einflößt und in seiner Wahrhaftigkeit bestürzt. Denn nur\nein wahrer Künstler kennt die tatsächliche Gestalt des Grauens,\ndas Gesicht der Furcht – die genaue Anordnung von Linien\nund Lichteffekten, die verborgene Instinkte der Angst und des\nFremdartigen in uns erwecken. Ich muss dir nicht erklären,\nweshalb ein Füssli uns erschaudern lässt, während eine billige\nIllustration zu einer Geistergeschichte lediglich zum Lachen\nreizt. Es gibt etwas – irgendetwas von außerhalb unserer Welt –,\ndas diese Burschen einfangen und uns einen Augenblick lang spüren lassen."
+    },
+    {
+      "id": "math",
+      "label": "Mathe-Aufgaben",
+      "category": "writing",
+      "duration_seconds": 240,
+      "instances": 1,
+      "instruction": "Bearbeite die Aufgaben in deinem üblichen Tempo.",
+      "content_type": "list",
+      "content": [
+        "Ein Kuchen wird in 12 Stücke geschnitten. Drei Personen essen je 2 Stücke. Wie viele Stücke bleiben übrig?",
+        "Du gehst um 8:00 Uhr aus dem Haus und brauchst 25 Minuten zur Schule. Wann kommst du an?",
+        "Eine Klasse hat 18 Kinder. 7 davon sind Jungs. Wie viele Mädchen sind in der Klasse?",
+        "Tom ist doppelt so alt wie sein Bruder. Tom ist 16. Wie alt ist sein Bruder?",
+        "Du sparst jeden Monat 15 Euro. Wie viel hast du nach einem halben Jahr?",
+        "Eine Tafel Schokolade hat 24 Stücke. Du teilst sie mit 3 Freunden gleich auf. Wie viele bekommt jeder?"
+      ]
+    },
+    {
+      "id": "free_writing",
+      "label": "Freies Schreiben",
+      "category": "writing",
+      "duration_seconds": 240,
+      "instances": 1,
+      "instruction": "Schreibe einen frei gewählten Text — z. B. ein kurzer Erlebnisbericht.",
+      "content_type": "text",
+      "content": "Schreibe einfach drauf los — kein Thema vorgegeben."
+    },
+    {
+      "id": "pause",
+      "label": "Pause",
+      "category": "idle",
+      "duration_seconds": 90,
+      "instances": 2,
+      "instruction": "Lege den Stift weg. Mach was du willst — strecken, trinken, kurz reden. Hauptsache: du schreibst nicht.",
+      "content_type": "text",
+      "content": "Pause. Stift kann auf dem Tisch liegen bleiben."
+    }
+  ]
+}
