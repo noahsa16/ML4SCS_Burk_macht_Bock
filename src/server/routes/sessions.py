@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse, Response
 
 from ..broadcast import _broadcast
@@ -300,6 +300,36 @@ async def flag_session(session_id: str, body: dict | None = None):
     _update_session_row(session_id, updates)
     return {"session_id": session_id, "flagged": flagged, "flag_note": note,
             "verdict": updates.get("verdict", "")}
+
+
+@router.post("/sessions/{session_id}/mark-test")
+async def mark_session_as_test(session_id: str) -> dict:
+    """Retroactively flag a study session as a test run.
+
+    Sets study_mode='test', prepends '[TEST] ' to the description if not
+    already present, and clears subject_index so the Latin Square counter
+    treats this slot as available for a future real study session.
+    """
+    rows: list[dict] = []
+    found = False
+    with open(SESSIONS_CSV, newline="") as f:
+        for row in csv.DictReader(f):
+            if row.get("session_id") == session_id:
+                found = True
+                row["study_mode"] = "test"
+                row["subject_index"] = ""
+                desc = (row.get("description") or "").strip()
+                if not desc.upper().startswith("[TEST]"):
+                    row["description"] = (f"[TEST] {desc}").rstrip()
+            rows.append(row)
+    if not found:
+        raise HTTPException(404, f"session {session_id!r} not found")
+    with open(SESSIONS_CSV, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=SESSIONS_FIELDNAMES)
+        w.writeheader()
+        for r in rows:
+            w.writerow({k: r.get(k, "") for k in SESSIONS_FIELDNAMES})
+    return {"ok": True, "session_id": session_id}
 
 
 @router.get("/sessions/{session_id}/report")

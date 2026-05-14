@@ -100,6 +100,35 @@ def test_pause_when_inactive_returns_409(client):
     assert r.status_code == 409
 
 
+def test_mark_session_as_test_changes_columns(client):
+    # Start a real study (not test_mode) so study_mode='study' is persisted.
+    r = client.post("/study/start", json={
+        "protocol_id": "v1", "person_id": "REAL_SUBJECT",
+        "description": "real run", "force_preflight": True,
+    })
+    assert r.status_code == 200, r.text
+    sid = r.json()["session_id"]
+    client.post("/study/abort")
+    client.post("/session/stop")
+
+    pre = next(s for s in client.get("/sessions").json() if s["session_id"] == sid)
+    assert pre["study_mode"] == "study"
+    assert pre.get("subject_index", "") != ""
+
+    r = client.post(f"/sessions/{sid}/mark-test")
+    assert r.status_code == 200, r.text
+
+    post = next(s for s in client.get("/sessions").json() if s["session_id"] == sid)
+    assert post["study_mode"] == "test"
+    assert post.get("subject_index", "") == ""
+    assert post["description"].upper().startswith("[TEST]")
+
+
+def test_mark_session_as_test_404_for_unknown(client):
+    r = client.post("/sessions/S999/mark-test")
+    assert r.status_code == 404
+
+
 def test_test_mode_skips_subject_index(client):
     r = client.post("/study/start", json={
         "protocol_id": "v1", "person_id": "TEST_USER",

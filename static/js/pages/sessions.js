@@ -144,6 +144,22 @@ function saveFilters(f) {
 }
 function resetFilters() { localStorage.removeItem(FILTERS_KEY); }
 
+export async function markSessionAsTest(sessionId) {
+  if (!sessionId) return;
+  const ok = window.confirm(
+    `Mark ${sessionId} as test?\n\nThis clears subject_index and prefixes ` +
+    `[TEST] in the description so the Latin Square counter treats this ` +
+    `slot as available for the next real study session.`);
+  if (!ok) return;
+  const res = await apiResult('/sessions/' + encodeURIComponent(sessionId) + '/mark-test', 'POST');
+  if (!res.ok) {
+    toast('Mark as test failed: ' + (res.error?.message || res.error || 'unknown'));
+    return;
+  }
+  toast(`${sessionId} marked as test`);
+  await loadSessions();
+}
+
 export async function deleteSession(sessionId) {
   if (!sessionId) return;
   // Why: hard-delete is irreversible (raw CSVs, processed windows, RF
@@ -291,6 +307,20 @@ function applyFilters() {
   renderSessionsList(_sortRows(rows));
 }
 
+function _buildMarkTestBtn(s) {
+  if ((s.study_mode || '').toLowerCase() !== 'study') return null;
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'ssn-mark-test-btn';
+  b.textContent = '↳ mark as test';
+  b.title = 'Retroactively flag this study as a test run (clears subject_index)';
+  b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    markSessionAsTest(s.session_id);
+  });
+  return b;
+}
+
 function _buildModeBadge(s) {
   const mode = (s.study_mode || 'free').toLowerCase();
   const badge = document.createElement('span');
@@ -400,7 +430,11 @@ function renderSessionsList(rows) {
   const byId = new Map(rows.map(s => [s.session_id, s]));
   tbody.querySelectorAll('.ssn-mode-slot').forEach(slot => {
     const s = byId.get(slot.dataset.sessionId);
-    if (s) slot.replaceChildren(_buildModeBadge(s));
+    if (!s) return;
+    const children = [_buildModeBadge(s)];
+    const markBtn = _buildMarkTestBtn(s);
+    if (markBtn) children.push(markBtn);
+    slot.replaceChildren(...children);
   });
 }
 
