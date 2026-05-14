@@ -7,6 +7,17 @@
 // ════════════════════════════════════════════════════════════
 
 import { api } from '/static/js/core/api.js';
+import { toast } from '/static/js/core/toast.js';
+
+// Why: the VL panel was being re-built every WS tick (~1 Hz) via
+// stage.replaceChildren(), which detached/re-attached the
+// Pause/Next/Abort buttons. Clicks landing in the replace window were
+// silently dropped. We now rebuild only when the state KEY changes;
+// tick-only refresh updates the timer + progress fill in-place.
+let _renderedKey = null;
+let _timerEl = null;
+let _progressFillEl = null;
+let _hintEl = null;
 
 function _fmtClock(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -113,23 +124,45 @@ export function renderStudyView(s) {
   // Body class drives the fullscreen takeover via study-mode.css —
   // topbar + rec-shell fade out, #rec-study-view becomes a fixed
   // overlay covering the viewport. VL panel inside the study-view
-  // stays interactive (Pause/Next/Abort + keyboard shortcuts);
-  // the admin can still start/stop session via terminal / curl.
+  // stays interactive (Pause/Next/Abort + keyboard shortcuts).
   if (!s || !s.active) {
     wrap.style.display = 'none';
     document.body.classList.remove('study-active');
+    _renderedKey = null;
+    _timerEl = null;
+    _progressFillEl = null;
+    _hintEl = null;
     return;
   }
   wrap.style.display = '';
   document.body.classList.add('study-active');
 
-  stage.replaceChildren();  // clear previous frame
-  if (s.state === 'pre_task')      stage.appendChild(_buildPreTask(s));
-  else if (s.state === 'running')  stage.appendChild(_buildRunning(s, false));
-  else if (s.state === 'paused')   stage.appendChild(_buildRunning(s, true));
-  else if (s.state === 'done')     stage.appendChild(_buildDone());
+  const key = `${s.state}|${s.task?.id ?? ''}|${s.task_index ?? ''}`;
+  if (key !== _renderedKey) {
+    stage.replaceChildren();
+    if (s.state === 'pre_task')      stage.appendChild(_buildPreTask(s));
+    else if (s.state === 'running')  stage.appendChild(_buildRunning(s, false));
+    else if (s.state === 'paused')   stage.appendChild(_buildRunning(s, true));
+    else if (s.state === 'done')     stage.appendChild(_buildDone());
 
-  if (s.state !== 'done') stage.appendChild(_buildVLPanel());
+    if (s.state !== 'done') stage.appendChild(_buildVLPanel());
+
+    _timerEl = stage.querySelector('.study-timer-big, .study-timer-small');
+    _progressFillEl = stage.querySelector('.study-progress-fill');
+    _hintEl = stage.querySelector('.study-hint');
+    _renderedKey = key;
+    return;
+  }
+
+  // Same state key → only the timer / progress are mutating.
+  if (_timerEl) _timerEl.textContent = _fmtClock(s.task_remaining_ms);
+  if (_progressFillEl && Number.isFinite(s.task_duration_ms) && s.task_duration_ms > 0) {
+    const pct = (1 - s.task_remaining_ms / Math.max(1, s.task_duration_ms)) * 100;
+    _progressFillEl.style.width = pct.toFixed(1) + '%';
+  }
+  if (_hintEl && s.state === 'pre_task') {
+    _hintEl.textContent = `starts in ${_fmtClock(s.task_remaining_ms)} · ready your pen`;
+  }
 }
 
 export async function studyCmd(cmd) {
@@ -138,7 +171,22 @@ export async function studyCmd(cmd) {
                  : cmd === 'abort' ? '/study/abort'
                  : null;
   if (!endpoint) return;
-  await api(endpoint, 'POST');
+  try {
+    const res = await api(endpoint, 'POST');
+    if (cmd === 'abort') {
+      // Why: VL expectation is "abort = end everything". /study/abort only
+      // tears down the study state machine; the session keeps recording
+      // until /session/stop is called.
+      try { await api('/session/stop', 'POST'); } catch (e) { /* already stopped */ }
+      toast('Study aborted, session stopped');
+    } else if (cmd === 'pause') {
+      toast(res?.action === 'resume' ? 'Resumed' : 'Paused');
+    } else if (cmd === 'next') {
+      toast('Next task');
+    }
+  } catch (e) {
+    toast(`Error: ${e?.message ?? cmd}`);
+  }
 }
 
 // Keyboard shortcuts — only fire while study view is visible.

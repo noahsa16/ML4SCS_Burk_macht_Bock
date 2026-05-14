@@ -543,3 +543,20 @@
   color: oklch(0.97 0.008 80);
 }
 .ssn-chip:hover:not(.is-active) { color: oklch(0.22 0.025 55); }
+
+/* Retroactive "mark study as test" button — sits next to the mode badge */
+.ssn-mark-test-btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: lowercase;
+  color: oklch(0.55 0.018 58);
+  cursor: pointer;
+  padding: 4px 8px;
+  margin-left: 8px;
+  transition: color 120ms ease;
+}
+.ssn-mark-test-btn:hover { color: oklch(0.595 0.165 43); }

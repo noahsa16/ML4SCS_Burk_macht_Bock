@@ -16,7 +16,7 @@ import * as sessionDetail  from '/static/js/pages/session_detail.js';
 import * as admin          from '/static/js/pages/admin.js';
 import * as settings       from '/static/js/pages/settings.js';
 
-import { loadSessions, deleteSession, setSessionsModeFilter } from '/static/js/pages/sessions.js';
+import { loadSessions, deleteSession, markSessionAsTest, setSessionsModeFilter } from '/static/js/pages/sessions.js';
 import { openSessionDetail, toggleSessionFlag } from '/static/js/pages/session_detail.js';
 import {
   toggleSession, penConnect, penDisconnect, watchCmd, airpodsCmd,
@@ -221,7 +221,7 @@ _startAnimLoop();
 Object.assign(window, {
   goHome, toggleTheme, toggleSession, toggleCardDetails,
   penConnect, penDisconnect, watchCmd, airpodsCmd,
-  clearPenPreview, clearVisualLogs, loadSessions, deleteSession, closeSessionDetail,
+  clearPenPreview, clearVisualLogs, loadSessions, deleteSession, markSessionAsTest, closeSessionDetail,
   downloadDebugPackage, setTheme, setLogRows, openSessionDetail,
   setPenViewMode, toggleSessionFlag, setRecMode, studyCmd,
   setSessionsModeFilter,
