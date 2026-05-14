@@ -42,3 +42,6 @@ logs/
 
 # Visual Companion brainstorming session artefacts
 .superpowers/
+
+# Study Mode markers (regenerated per-session by the server)
+data/raw/markers/
