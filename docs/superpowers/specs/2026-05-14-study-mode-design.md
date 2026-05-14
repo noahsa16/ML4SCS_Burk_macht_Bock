@@ -146,7 +146,7 @@ The existing app topbar (Tabs, status pills) stays visible. The experimenter mus
 
 ## 6 · Protocol format
 
-`study_protocols/{id}.json`:
+`study_protocols/{id}.json`. **Concrete v1 protocol** (~15 min total, schedule pattern `W-P-W-P-W`):
 
 ```json
 {
@@ -161,38 +161,59 @@ The existing app topbar (Tabs, status pills) stays visible. The experimenter mus
       "label": "Text abschreiben",
       "category": "writing",
       "duration_seconds": 240,
+      "instances": 1,
       "instruction": "Schreibe den folgenden Text auf Papier ab.",
       "content_type": "text",
-      "content": "Lorem ipsum dolor sit amet..."
+      "content": "Lorem ipsum dolor sit amet, consectetur adipiscing elit..."
     },
     {
       "id": "math",
       "label": "Mathe-Aufgaben",
       "category": "writing",
       "duration_seconds": 240,
+      "instances": 1,
       "instruction": "Bearbeite die Aufgaben in deinem üblichen Tempo.",
       "content_type": "list",
-      "content": ["17 × 14 = ?", "..."]
+      "content": ["17 × 14 = ?", "Vereinfache: (3x + 5)(x − 2)", "..."]
     },
     {
-      "id": "pause_talk",
-      "label": "Pause — Gespräch",
+      "id": "free_writing",
+      "label": "Freies Schreiben",
+      "category": "writing",
+      "duration_seconds": 240,
+      "instances": 1,
+      "instruction": "Schreibe einen frei gewählten Text — z. B. ein kurzer Erlebnisbericht.",
+      "content_type": "text",
+      "content": "Schreibe einfach drauf los — kein Thema vorgegeben."
+    },
+    {
+      "id": "pause",
+      "label": "Pause",
       "category": "idle",
-      "duration_seconds": 60,
-      "instruction": "Lege den Stift weg und unterhalte dich kurz mit dem Versuchsleiter."
+      "duration_seconds": 90,
+      "instances": 2,
+      "instruction": "Lege den Stift weg. Mach was du willst — strecken, trinken, kurz reden. Hauptsache: du schreibst nicht.",
+      "content_type": "text",
+      "content": "Pause. Stift kann auf dem Tisch liegen bleiben."
     }
   ]
 }
 ```
 
+Schedule: `abschreiben` + `math` + `free_writing` + 2× `pause` = 5 slots × ~4 min ≈ 15 min total (3 × 240 s writing + 2 × 90 s pause = 900 s = 15 min, plus 5 × 3 s pre-task transitions ≈ 15 s).
+
 ### 6.1 Randomization
 
-Per session, seeded by `hash(session_id)`:
+Per session, seeded by `hash(session_id)`. Scheduler procedure:
 
-- `interleave: "writing_with_pauses"` (default): group tasks by `category`, shuffle each group independently, then weave `W₁ I₁ W₂ I₂ W₃ …`. If counts differ, trailing tasks of the larger group concatenate at the end.
-- `interleave: "shuffled"`: single shuffle ignoring category. Available as escape hatch but not the default — it can violate temporal-split / class-distribution assumptions.
+1. **Expand instances.** Each task in the JSON has an optional `instances` field (default `1`). A task with `instances: 2` becomes two scheduled slots that share the same content but get distinct `task_index` values in markers. For v1: `pause` has `instances: 2`, all writing tasks have `instances: 1`.
+2. **Group by category.** Build `W = [writing tasks…]` and `I = [idle tasks…]` from the expanded list.
+3. **Shuffle each group** independently with the seed.
+4. **Interleave** per the `interleave` field:
+   - `writing_with_pauses` (default): weave `W₁ I₁ W₂ I₂ W₃ I₃ …`. If `|W| > |I|`, trailing writing tasks concatenate at the end. If `|I| > |W|`, the opposite. For v1: `|W| = 3, |I| = 2 → W₁ I₁ W₂ I₂ W₃` — perfect alternation.
+   - `shuffled`: single shuffle ignoring category. Escape hatch, not the default — it can violate temporal-split / class-distribution assumptions.
 
-Seed function exposed in `study.py` so tests can pin behavior.
+Seed function and scheduler exposed in `study.py` so tests can pin behavior.
 
 ### 6.2 Content rendering
 
@@ -252,11 +273,15 @@ The point is: the **data side** is wired correctly from day one, so that any lat
 
 ## 10 · Open questions — for plan-time, not blocking
 
-- **Concrete protocol content**: which math problems, which text to copy, how many writing tasks, which pause activities. Owned by the team; lives in `study_protocols/v1.json`.
-- **Task durations**: 240 s feels right for the writing tasks, 60 s for pauses, total ~14 min. Verify with one pilot run.
-- **Multiple protocol versions**: v1 for pilot, v2 for main study? Or one evolving `v1` with git history? Lean toward separate files so the protocol used per session is recorded by `protocol_id`.
-- **Pause-task content variety**: should `pause_talk` and `pause_read` look different to the proband? Probably yes (different instruction), but they share the same `category: idle` for ML stratification.
+- **Concrete content for writing tasks**: which exact math problems, which abschreib-text. Decided by the team, lives in `study_protocols/v1.json`. Placeholder content in Section 6 is fine for scaffolding.
+- **Multiple protocol versions**: v1 for pilot, v2 for main study? Or one evolving `v1` with git history? Lean toward separate files so the `protocol_id` recorded per session uniquely identifies what ran.
 - **Behaviour on session-stop mid-protocol**: VL hits the master STOP button → study state machine should `abort` cleanly and write a final marker before the session CSV finalizes.
+- **Pilot-run timing verification**: 240 s writing + 90 s pause feels right, but a single pilot session might suggest adjustments. Spec'd durations are first-best-guess.
+
+**Resolved by user 2026-05-14:**
+- ✓ Protocol shape: 3 writing tasks (`abschreiben`, `math`, `free_writing`) + 1 idle task (`pause`) at 2 instances = `W-P-W-P-W` schedule.
+- ✓ Pause variety: single generic pause type. Instruction is open ("strecken, trinken, kurz reden — Hauptsache nicht schreiben").
+- ✓ Total session length: ~15 min.
 
 ## 11 · Out of scope (explicitly)
 
