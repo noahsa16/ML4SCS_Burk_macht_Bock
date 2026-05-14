@@ -31,10 +31,11 @@ export function setRecMode(mode) {
   if (protoField) protoField.style.display = isStudy ? '' : 'none';
   const testField = document.getElementById('testModeField');
   if (testField) testField.style.display = isStudy ? '' : 'none';
-  // Toggle grid-column class on the controls stripe so the protocol field
-  // gets a real third column instead of relying on `:has()` selector hacks.
-  const controls = document.querySelector('.rec-console-controls');
-  if (controls) controls.classList.toggle('has-protocol', isStudy);
+  // Toggle .has-protocol on the parent console so BOTH stripes (controls
+  // and timer) pick up the 1fr 2fr 1fr grid and stay column-aligned —
+  // START button below stays directly under the description input above.
+  const console_ = document.querySelector('.rec-console');
+  if (console_) console_.classList.toggle('has-protocol', isStudy);
   const btnLabel = document.querySelector('#sessionBtn .rec-action-btn-label');
   if (btnLabel && !S.sessionActive) {
     btnLabel.textContent = (_recMode === 'study') ? 'START STUDY' : 'START';
