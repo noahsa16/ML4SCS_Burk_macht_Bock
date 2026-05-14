@@ -67,3 +67,66 @@ def list_protocols(directory: Path) -> list[dict]:
             continue
         out.append({"id": proto.id, "name": proto.name})
     return out
+
+
+import random
+from dataclasses import dataclass
+
+
+@dataclass
+class ScheduledSlot:
+    """One slot in the per-session schedule.
+
+    `task_index` is 1-based and sequential across the schedule. Multiple
+    slots can share the same `task` when `instances > 1`.
+    """
+    task_index: int
+    task: StudyTask
+
+    @property
+    def category(self) -> str:
+        return self.task.category
+
+
+def _expand_instances(tasks: list[StudyTask]) -> list[StudyTask]:
+    out: list[StudyTask] = []
+    for t in tasks:
+        for _ in range(t.instances):
+            out.append(t)
+    return out
+
+
+def _interleave_writing_with_pauses(
+    writing: list[StudyTask], idle: list[StudyTask],
+) -> list[StudyTask]:
+    """Weave W and I, attach the longer-group tail at the end."""
+    out: list[StudyTask] = []
+    n = min(len(writing), len(idle))
+    for i in range(n):
+        out.append(writing[i])
+        out.append(idle[i])
+    out.extend(writing[n:])
+    out.extend(idle[n:])
+    return out
+
+
+def build_schedule(protocol: StudyProtocol, seed: int) -> list[ScheduledSlot]:
+    """Deterministic per-session schedule (seeded shuffle, then interleave)."""
+    expanded = _expand_instances(protocol.tasks)
+    writing = [t for t in expanded if t.category == "writing"]
+    idle = [t for t in expanded if t.category == "idle"]
+
+    rng = random.Random(seed)
+    if protocol.randomize:
+        rng.shuffle(writing)
+        rng.shuffle(idle)
+
+    if protocol.interleave == "writing_with_pauses":
+        ordered = _interleave_writing_with_pauses(writing, idle)
+    else:
+        ordered = writing + idle
+        if protocol.randomize:
+            rng.shuffle(ordered)
+
+    return [ScheduledSlot(task_index=i + 1, task=t)
+            for i, t in enumerate(ordered)]
