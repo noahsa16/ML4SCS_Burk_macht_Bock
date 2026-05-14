@@ -20,7 +20,7 @@ import { openSessionDetail, toggleSessionFlag } from '/static/js/pages/session_d
 import {
   toggleSession, penConnect, penDisconnect, watchCmd, airpodsCmd,
   toggleCardDetails, clearPenPreview, clearVisualLogs, setLogRows,
-  setPenViewMode,
+  setPenViewMode, setRecMode,
 } from '/static/js/pages/recording.js';
 
 // ════════════════════════════════════════════════════════════
@@ -220,5 +220,5 @@ Object.assign(window, {
   penConnect, penDisconnect, watchCmd, airpodsCmd,
   clearPenPreview, clearVisualLogs, loadSessions, deleteSession, closeSessionDetail,
   downloadDebugPackage, setTheme, setLogRows, openSessionDetail,
-  setPenViewMode, toggleSessionFlag,
+  setPenViewMode, toggleSessionFlag, setRecMode,
 });
