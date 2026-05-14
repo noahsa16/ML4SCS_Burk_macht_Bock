@@ -1,0 +1,220 @@
+/* ════════════════════════════════════════════════════════════
+   Study Mode — proband-facing view
+   Editorial language matching base.css + recording.css
+   ════════════════════════════════════════════════════════════ */
+
+.rec-study-view {
+  margin-top: 24px;
+}
+
+.rec-study-stage {
+  position: relative;
+  background: oklch(0.97 0.008 80);
+  border: 1px solid oklch(0.88 0.012 80);
+  border-radius: 12px;
+  min-height: 440px;
+  overflow: hidden;
+}
+
+/* ── Pre-task screen ─────────────────────────────────────── */
+.study-pre-task {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 440px;
+  padding: 40px;
+  position: relative;
+  text-align: center;
+}
+.study-pre-task::before {
+  content: '/';
+  position: absolute;
+  top: -50px; right: -30px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 320px;
+  color: rgba(0,0,0,0.04);
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+.study-eyebrow {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 11px;
+  color: oklch(0.45 0.018 58);
+  letter-spacing: 0.2em;
+  text-transform: lowercase;
+  margin-bottom: 12px;
+}
+.study-title-big {
+  font-family: 'Inter', sans-serif;
+  font-size: 56px;
+  font-weight: 600;
+  line-height: 1.05;
+  color: oklch(0.2 0.025 55);
+  margin-bottom: 24px;
+}
+.study-instruction {
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  color: oklch(0.45 0.018 58);
+  margin-bottom: 32px;
+  max-width: 540px;
+  line-height: 1.45;
+}
+.study-timer-big {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 96px;
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+  color: oklch(0.2 0.025 55);
+  transition: font-size 320ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+.study-hint {
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: oklch(0.55 0.018 58);
+  margin-top: 16px;
+}
+
+/* ── Running view (timer in topbar) ──────────────────────── */
+.study-running {
+  display: flex;
+  flex-direction: column;
+  min-height: 440px;
+  position: relative;
+}
+.study-topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 28px;
+  border-bottom: 1px solid oklch(0.88 0.012 80);
+  background: oklch(0.93 0.012 80);
+  font-family: 'IBM Plex Mono', monospace;
+  flex-shrink: 0;
+}
+.study-topbar-left { display: flex; gap: 10px; align-items: baseline; }
+.study-topbar-title { font-size: 14px; font-weight: 600; color: oklch(0.2 0.025 55); }
+.study-topbar-right { display: flex; align-items: center; gap: 14px; }
+.study-progress {
+  width: 110px;
+  height: 4px;
+  background: oklch(0.88 0.012 80);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.study-progress-fill {
+  height: 100%;
+  background: oklch(0.595 0.165 43);
+  transition: width 400ms linear;
+}
+.study-timer-small {
+  font-size: 22px;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  color: oklch(0.2 0.025 55);
+}
+.study-content-area {
+  flex: 1;
+  padding: 36px 44px;
+  font-family: 'Inter', sans-serif;
+  position: relative;
+}
+.study-content-area::before {
+  content: '/';
+  position: absolute;
+  top: -40px; right: -20px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 260px;
+  color: rgba(0,0,0,0.03);
+  font-weight: 700;
+  line-height: 1;
+  pointer-events: none;
+}
+.study-instruction-small {
+  font-size: 13px;
+  color: oklch(0.55 0.018 58);
+  margin-bottom: 20px;
+  font-family: 'IBM Plex Mono', monospace;
+}
+.study-content-text {
+  font-size: 22px;
+  line-height: 1.7;
+  color: oklch(0.2 0.025 55);
+  max-width: 780px;
+}
+.study-content-list {
+  font-size: 22px;
+  line-height: 1.85;
+  color: oklch(0.2 0.025 55);
+  padding-left: 1.5em;
+}
+.study-content-list li { margin-bottom: 12px; }
+
+/* ── Paused state ────────────────────────────────────────── */
+.study-running.is-paused .study-timer-small {
+  animation: study-pulse 1.2s ease-in-out infinite;
+}
+.study-paused-overlay {
+  position: absolute;
+  inset: 0;
+  background: oklch(0.97 0.008 80 / 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 18px;
+  color: oklch(0.595 0.165 43);
+  text-transform: lowercase;
+  letter-spacing: 0.1em;
+}
+@keyframes study-pulse {
+  0%, 100% { color: oklch(0.2 0.025 55); }
+  50%       { color: oklch(0.595 0.165 43); }
+}
+
+/* ── Done screen ─────────────────────────────────────────── */
+.study-done {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 440px;
+  text-align: center;
+  font-family: 'Inter', sans-serif;
+}
+.study-done-glyph { font-size: 96px; color: oklch(0.580 0.130 148); margin-bottom: 16px; }
+.study-done-title { font-size: 32px; font-weight: 600; color: oklch(0.2 0.025 55); margin-bottom: 12px; }
+.study-done-hint  { font-size: 14px; color: oklch(0.45 0.018 58); }
+
+/* ── VL override panel ───────────────────────────────────── */
+.study-vl-panel {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+  background: oklch(0.97 0.008 80);
+  border: 1px solid oklch(0.85 0.012 80);
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.study-vl-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  width: 32px;
+  height: 32px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  color: oklch(0.35 0.018 58);
+  transition: background 120ms ease;
+}
+.study-vl-btn:hover { background: oklch(0.92 0.012 80); }
+.study-vl-btn--danger { color: oklch(0.55 0.18 25); }
+.study-vl-btn--danger:hover { background: oklch(0.95 0.04 25); }
