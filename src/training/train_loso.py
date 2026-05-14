@@ -217,7 +217,8 @@ def train_loso(
     feature_cols = [
         c
         for c in all_windows.columns
-        if c not in {"label", "t_center_ms", "session_id", "person_id"}
+        if c not in {"label", "t_center_ms", "session_id", "person_id",
+                     "task_id", "task_category"}
     ]
     print(
         f"Total: {len(all_windows)} windows; {len(feature_cols)} features\n"
