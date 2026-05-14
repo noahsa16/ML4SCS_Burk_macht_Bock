@@ -1,0 +1,55 @@
+{
+  "id": "v1",
+  "name": "ML4SCS Study Protocol v1",
+  "pre_task_seconds": 3,
+  "randomize": true,
+  "interleave": "writing_with_pauses",
+  "tasks": [
+    {
+      "id": "abschreiben",
+      "label": "Text abschreiben",
+      "category": "writing",
+      "duration_seconds": 240,
+      "instances": 1,
+      "instruction": "Schreibe den folgenden Text auf Papier ab.",
+      "content_type": "text",
+      "content": "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat."
+    },
+    {
+      "id": "math",
+      "label": "Mathe-Aufgaben",
+      "category": "writing",
+      "duration_seconds": 240,
+      "instances": 1,
+      "instruction": "Bearbeite die Aufgaben in deinem üblichen Tempo.",
+      "content_type": "list",
+      "content": [
+        "17 × 14 = ?",
+        "Vereinfache: (3x + 5)(x − 2)",
+        "Berechne: ∫ x² dx von 0 bis 3",
+        "Faktorisiere: x² − 9x + 20",
+        "Löse: 2x² − 7x + 3 = 0"
+      ]
+    },
+    {
+      "id": "free_writing",
+      "label": "Freies Schreiben",
+      "category": "writing",
+      "duration_seconds": 240,
+      "instances": 1,
+      "instruction": "Schreibe einen frei gewählten Text — z. B. ein kurzer Erlebnisbericht.",
+      "content_type": "text",
+      "content": "Schreibe einfach drauf los — kein Thema vorgegeben."
+    },
+    {
+      "id": "pause",
+      "label": "Pause",
+      "category": "idle",
+      "duration_seconds": 90,
+      "instances": 2,
+      "instruction": "Lege den Stift weg. Mach was du willst — strecken, trinken, kurz reden. Hauptsache: du schreibst nicht.",
+      "content_type": "text",
+      "content": "Pause. Stift kann auf dem Tisch liegen bleiben."
+    }
+  ]
+}
