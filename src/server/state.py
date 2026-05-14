@@ -30,7 +30,19 @@ class SessionState:
         self.active: Optional[ActiveSession] = None
         self.pen_proc = None
         self.pen_log_task: Optional[Any] = None
+        self.pen_supervisor_task: Optional[Any] = None
         self.pen_session_id: Optional[str] = None
+        # Why: BLE pairing status parsed from pen_logger stdout. The
+        # subprocess can be "up" (pen_proc.returncode is None) while still
+        # scanning, so we need a separate signal for "actually paired".
+        self.pen_ble_ready: bool = False
+        # Why: tracks whether the most recent pen logger start was for a real
+        # session (no_write=False) so the supervisor can re-launch with the
+        # same flag after an idle-triggered BLE disconnect.
+        self.pen_no_write: bool = False
+        # Why: set by _stop_pen() before killing the subprocess so the
+        # supervisor knows the exit was intentional and skips auto-restart.
+        self.pen_stop_requested: bool = False
         self.watch_sample_count: int = 0
         self.watch_total_sample_count: int = 0
         self.server_start: float = time.time()

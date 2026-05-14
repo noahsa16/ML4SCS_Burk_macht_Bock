@@ -433,13 +433,21 @@ def _prepare_csv(path: str):
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
-async def run(password: str = "0000", output_path: str | None = None) -> None:
+async def run(password: str = "0000", output_path: str | None = None,
+              no_write: bool = False) -> None:
     # CSV output
-    if output_path:
+    # Why: no_write keeps the BLE pairing alive so the server can show the
+    # pen as "paired" before a session starts, but discards every dot. The
+    # server passes this when /pen/connect is called outside a session.
+    if no_write:
+        fname = "<discard>"
+        csvf, wr = None, None
+    elif output_path:
         fname = output_path
+        csvf, wr = _prepare_csv(fname)
     else:
         fname = f"pen_log_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
-    csvf, wr = _prepare_csv(fname)
+        csvf, wr = _prepare_csv(fname)
 
     loop = asyncio.get_running_loop()
     stop = loop.create_future()
@@ -450,7 +458,9 @@ async def run(password: str = "0000", output_path: str | None = None) -> None:
     device = await find_pen()
     if device is None:
         print("No pen found. Is it switched on and in range?")
-        csvf.close(); return
+        if csvf is not None:
+            csvf.close()
+        return
 
     print(f"Found: {device.name!r}  [{device.address}]")
 
@@ -594,6 +604,8 @@ async def run(password: str = "0000", output_path: str | None = None) -> None:
 
                 # CSV (raw Ncode values)
                 local_ts_ms = _now_ms()
+                if wr is None:
+                    continue
                 wr.writerow({
                     "local_ts": datetime.fromtimestamp(
                         local_ts_ms / 1000,
@@ -612,7 +624,8 @@ async def run(password: str = "0000", output_path: str | None = None) -> None:
                     "note": dot["note"],
                     "page": dot["page"],
                 })
-                csvf.flush()
+                if csvf is not None:
+                    csvf.flush()
 
         if connected:
             try:
@@ -624,8 +637,11 @@ async def run(password: str = "0000", output_path: str | None = None) -> None:
         print(f"[WARN] {parser.parse_errors} malformed BLE packet(s) discarded")
     if parser.dropped:
         print(f"[WARN] {parser.dropped} event(s) dropped (queue full)")
-    csvf.close()
-    print(f"\nSaved → {fname}")
+    if csvf is not None:
+        csvf.close()
+        print(f"\nSaved → {fname}")
+    else:
+        print("\n(no-write mode — dots discarded)")
 
 
 def main() -> None:
@@ -639,13 +655,16 @@ def main() -> None:
                     help="Pen password (default: '0000' = no password)")
     ap.add_argument("--session", default=None,
                     help="Session ID (e.g. S001); output goes to data/raw/pen/{session}_pen.csv")
+    ap.add_argument("--no-write", action="store_true",
+                    help="Keep BLE connection alive but discard all dots (for pre-session pairing).")
     args = ap.parse_args()
 
     output_path = None
     if args.session:
         output_path = str(Path(__file__).parent / "data" / "raw" / "pen" / f"{args.session}_pen.csv")
 
-    asyncio.run(run(password=args.password, output_path=output_path))
+    asyncio.run(run(password=args.password, output_path=output_path,
+                    no_write=args.no_write))
 
 
 if __name__ == "__main__":

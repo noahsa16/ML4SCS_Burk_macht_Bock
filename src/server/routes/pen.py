@@ -13,8 +13,13 @@ router = APIRouter()
 async def pen_connect():
     if state.pen_proc and state.pen_proc.returncode is None:
         return JSONResponse({"error": "Pen already running"}, status_code=409)
-    session_id = state.active.session_id if state.active else "unsessioned"
-    result = await _start_pen(session_id)
+    # Why: when /pen/connect is called outside a session, run pen_logger in
+    # discard mode so pre-session strokes don't accumulate on disk. On
+    # session start the logger is restarted with no_write=False.
+    if state.active:
+        result = await _start_pen(state.active.session_id, no_write=False)
+    else:
+        result = await _start_pen("unsessioned", no_write=True)
     if "ok" in result:
         return result
     return JSONResponse({"error": result["error"]}, status_code=500)
