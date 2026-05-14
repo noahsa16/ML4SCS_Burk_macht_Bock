@@ -80,9 +80,11 @@
       <!-- Stripe 2: hero timer + action ──────────────────────────── -->
       <div class="rec-console-timer">
         <div class="rec-console-timer-block">
-          <span class="rec-timer-eyebrow">/ elapsed</span>
+          <div class="rec-timer-meta">
+            <span class="rec-timer-eyebrow">/ elapsed</span>
+            <span class="rec-timer-label" id="timerLabel">ready for a new recording</span>
+          </div>
           <div class="rec-timer" id="timer">00:00:00</div>
-          <div class="rec-timer-label" id="timerLabel">Ready for a new recording</div>
         </div>
         <div class="rec-console-action">
           <label class="rec-field rec-field--check" id="testModeField" style="display:none">
