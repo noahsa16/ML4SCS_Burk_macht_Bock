@@ -24,9 +24,11 @@ def data_dirs(tmp_path, monkeypatch):
     pen_dir = tmp_path / "raw" / "pen"
     watch_dir = tmp_path / "raw" / "watch"
     airpods_dir = tmp_path / "raw" / "airpods"
+    markers_dir = tmp_path / "raw" / "markers"
     pen_dir.mkdir(parents=True)
     watch_dir.mkdir(parents=True)
     airpods_dir.mkdir(parents=True)
+    markers_dir.mkdir(parents=True)
     sessions_csv = tmp_path / "sessions.csv"
     with open(sessions_csv, "w", newline="") as f:
         csv.DictWriter(f, fieldnames=SESSIONS_FIELDNAMES).writeheader()
@@ -51,6 +53,10 @@ def data_dirs(tmp_path, monkeypatch):
             monkeypatch.setattr(mod, "DATA_RAW_WATCH", watch_dir, raising=False)
         if hasattr(mod, "DATA_RAW_AIRPODS"):
             monkeypatch.setattr(mod, "DATA_RAW_AIRPODS", airpods_dir, raising=False)
+        if hasattr(mod, "DATA_RAW_MARKERS"):
+            monkeypatch.setattr(mod, "DATA_RAW_MARKERS", markers_dir, raising=False)
+        if hasattr(mod, "MARKERS_DIR"):
+            monkeypatch.setattr(mod, "MARKERS_DIR", markers_dir, raising=False)
         if hasattr(mod, "SESSIONS_CSV"):
             monkeypatch.setattr(mod, "SESSIONS_CSV", sessions_csv, raising=False)
 
@@ -67,6 +73,7 @@ def data_dirs(tmp_path, monkeypatch):
         "pen": pen_dir,
         "watch": watch_dir,
         "airpods": airpods_dir,
+        "markers": markers_dir,
         "sessions": sessions_csv,
     })
 

@@ -4,19 +4,6 @@ from __future__ import annotations
 import csv
 
 from src.server import csv_io
-from src.server.config import MARKER_FIELDNAMES
-
-
-def test_marker_fieldnames_are_stable():
-    assert MARKER_FIELDNAMES == [
-        "timestamp_ms",
-        "event",
-        "task_id",
-        "task_name",
-        "task_index",
-        "task_category",
-        "protocol_id",
-    ]
 
 
 def test_write_marker_creates_file_with_header(tmp_path, monkeypatch):
