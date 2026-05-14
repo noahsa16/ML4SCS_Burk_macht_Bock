@@ -22,6 +22,7 @@ import {
   toggleCardDetails, clearPenPreview, clearVisualLogs, setLogRows,
   setPenViewMode, setRecMode,
 } from '/static/js/pages/recording.js';
+import { studyCmd } from '/static/js/pages/recording-study.js';
 
 // ════════════════════════════════════════════════════════════
 //  PAGE REGISTRY
@@ -220,5 +221,5 @@ Object.assign(window, {
   penConnect, penDisconnect, watchCmd, airpodsCmd,
   clearPenPreview, clearVisualLogs, loadSessions, deleteSession, closeSessionDetail,
   downloadDebugPackage, setTheme, setLogRows, openSessionDetail,
-  setPenViewMode, toggleSessionFlag, setRecMode,
+  setPenViewMode, toggleSessionFlag, setRecMode, studyCmd,
 });
