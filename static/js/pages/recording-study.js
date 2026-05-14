@@ -110,11 +110,18 @@ export function renderStudyView(s) {
   const stage = document.getElementById('recStudyStage');
   if (!wrap || !stage) return;
 
+  // Body class drives the fullscreen takeover via study-mode.css —
+  // topbar + rec-shell fade out, #rec-study-view becomes a fixed
+  // overlay covering the viewport. VL panel inside the study-view
+  // stays interactive (Pause/Next/Abort + keyboard shortcuts);
+  // the admin can still start/stop session via terminal / curl.
   if (!s || !s.active) {
     wrap.style.display = 'none';
+    document.body.classList.remove('study-active');
     return;
   }
   wrap.style.display = '';
+  document.body.classList.add('study-active');
 
   stage.replaceChildren();  // clear previous frame
   if (s.state === 'pre_task')      stage.appendChild(_buildPreTask(s));
