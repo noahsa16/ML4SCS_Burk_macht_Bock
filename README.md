@@ -34,13 +34,19 @@ Moleskine Smart Pen (BLE)                                            │
                                             data/raw/airpods/{session}_airpods.csv
                                                                      │
                                   src/alignment/pen_match.py   (recover δ)
-                                  src/merge/                   (±20 ms join)
+                                  src/merge/                   (watch-base, ±40 ms)
                                                                      │
                                   data/processed/{session}_merged.csv
                                                                      │
-                                  src/features/   →  src/training/   (TODO)
+                                  src/features/   (1 s windows, 0.5 s stride,
+                                                   42 stats + label smoothing)
                                                                      │
-                                  src/evaluation/evaluate.py
+                                  data/processed/{session}_windows.csv
+                                                                     │
+                                  src/training/train_rf.py     (RF baseline,
+                                                                temporal 80/20 split)
+                                                                     │
+                                  models/rf_{session}.joblib
 ```
 
 ---
@@ -101,8 +107,10 @@ static/js/core/                  Cross-cutting modules
 static/js/pages/                 Per-page modules (mount/onStatus/onShow/onHide)
   recording.js, sessions.js,
   session_detail.js, connections.js,
-  system.js                        WS ticks dispatched only to active page
+  system.js, settings.js           WS ticks dispatched only to active page
 static/views/*.html              View partials fetched once + cached
+                                 (recording / sessions / session-detail /
+                                  settings / …)
 static/css/                      Per-page + base + topbar stylesheets
 
 src/pen_schema.py                Shared pen-CSV schema (no deps;
@@ -133,18 +141,40 @@ src/alignment/
   pen_match.py                     Stroke-variance pen↔IMU clock-offset
                                    recovery (TH Zürich algorithm)
 src/merge/
-  prep.py                          Per-stream cleaning + per-sample features
-  merge.py                         merge_pen_watch() (±20 ms asof, δ-shifted)
+  prep.py                          Per-stream cleaning helpers
+  merge.py                         merge_watch_pen() — watch-base ±40 ms
+                                   asof join, δ-shifted when σ ≤ -2
   __main__.py                      CLI: python -m src.merge [SESSION_ID]
-src/features/                      (placeholder — TODO)
-src/training/                      (placeholder — TODO)
-src/evaluation/evaluate.py         Label distribution (metrics: TODO)
+src/features/
+  windows.py                       Sample-level label closing
+                                   (max_gap_ms) + 1 s sliding windows
+                                   @ 0.5 s stride → 42 stat features
+  __main__.py                      CLI: python -m src.features [SESSION_ID]
+src/training/
+  train_rf.py                      RandomForest baseline; temporal 80/20
+                                   split with 4-window gap at the cut
+src/evaluation/evaluate.py         Label distribution (real metrics live in
+                                   train_rf.py for now)
 
 scripts/
   start.sh                         Server + Cloudflare tunnel TTY UI
   tunnel.sh                        Standalone Cloudflare quick tunnel
   test_server.sh                   POST a synthetic batch to /watch
   plot_alignment.py                Render the 4-panel alignment figure
+  plot_merged.py                   Visualize ‖acc‖, ‖gyro‖ + label_writing
+                                   over a session (preview label smoothing)
+  backfill_session_quality.py      Rewrite sessions.csv quality columns
+                                   from current ISSUE_SPECS
+
+tests/                             Tier-1 smoke tests (~30 cases, <1 s)
+  test_quality.py                    Quality engine + ISSUE_SPECS regressions
+  test_merge.py                      Watch-base merge behaviour
+  test_pen_match.py                  Stroke-variance alignment
+  test_session_id.py                 _next_session_id stale-file safety
+  test_pen_parser_framing.py         STX/ETX/DLE state machine
+  test_endpoints.py                  FastAPI TestClient happy paths
+  test_chart_aggregation.py          5 Hz chart aggregator
+  test_dashboard_static.py           Every static asset reachable (404 trap)
 
 watch_streamer/
   WatchStreamer Watch App/
@@ -160,10 +190,15 @@ data/
   raw/watch/{session}_watch.csv    Raw IMU samples per session
   raw/airpods/{session}_airpods.csv  Raw head-IMU per session
   sessions.csv                     Session index
-  processed/                       Merged datasets (gitignored)
+  processed/                       Merged + windowed datasets (gitignored)
+
+models/                            Trained RF baselines (rf_{session}.joblib)
 notebooks/                         Exploration notebooks
 reports/                           Weekly progress reports
 results/plots/                     Generated figures (alignment, etc.)
+docs/
+  screenshots/                     Dashboard + app screenshots
+  superpowers/                     Internal design specs, plans, audits
 ```
 
 ---
@@ -198,6 +233,30 @@ Server logs go to the terminal *and* `logs/server.log` (rotating). The same log 
 
 ---
 
+## ML Pipeline
+
+Once a session is recorded, the full training pipeline is three commands:
+
+```bash
+python -m src.merge S029                      # watch-base merge → data/processed/S029_merged.csv
+python -m src.features S029 --max-gap-ms 300  # sliding windows  → data/processed/S029_windows.csv
+python -m src.training.train_rf S029          # RF baseline      → models/rf_S029.joblib
+```
+
+Without a session ID, `merge` and `features` operate on the most recent session. `train_rf` prints classification report, confusion matrix, ROC-AUC and the top-10 feature importances on the temporal hold-out.
+
+To preview the effect of label smoothing visually before training:
+```bash
+python scripts/plot_merged.py S029 --max-gap-ms 300
+```
+
+Run smoke tests:
+```bash
+pytest tests/     # ~30 cases, <1 s
+```
+
+---
+
 ## Data Formats
 
 **Watch CSV** — one row per IMU sample:
@@ -224,7 +283,9 @@ ts, ax, ay, az, rx, ry, rz, qw, qx, qy, qz, gx, gy, gz
 ```
 Accel + gyro + attitude quaternion (`qw/qx/qy/qz`) + gravity vector (`gx/gy/gz`).
 
-**Merged CSV** — pen rows as base, watch IMU joined at nearest timestamp within ±20 ms. Adds pen-derived features: `dt`, `dx`, `dy`, `distance`, `speed`.
+**Merged CSV** (`data/processed/{session}_merged.csv`) — **watch-base**: one row per watch sample, with `label_writing ∈ {0, 1}` derived from the nearest pen `dot_type` within ±40 ms of the δ-corrected pen wall-clock. Watch samples in pen-gaps → label `0` (the negative class for binary classification). Schema = all watch CSV columns + `label_writing`.
+
+**Windows CSV** (`data/processed/{session}_windows.csv`) — one row per 1 s sliding window (0.5 s stride) with 42 statistical features (mean/std/min/max/rms/range per axis + accel/gyro magnitude mean/std/energy), plus `label`, `t_center_ms`. Labels are smoothed at sample level (morphological closing, default 300 ms gap-fill) before windowing.
 
 ---
 
@@ -248,7 +309,7 @@ We recover the per-session offset **δ** automatically using a **stroke-window v
 
 **Search.** Coarse pass (±20 s @ 0.5 s) handles BLE buffering and clock drift; fine pass (±5 s @ 10 ms) refines around the coarse minimum. Confidence is reported as `sigma_minimal_variance` — a z-score of the minimum vs the search-grid distribution. More negative = stronger alignment.
 
-**Wiring.** `merge_pen_watch()` calls `match_pen_data()`, applies δ to `pen.local_ts_ms`, then runs the `merge_asof` ±20 ms join. When the signal is weak (`sigma > -2`) the shift is skipped and the quality engine surfaces a `low_sync_confidence` (warn) or `sync_failed` (bad) issue.
+**Wiring.** `merge_watch_pen()` calls `match_pen_data()`, applies δ to `pen.local_ts_ms`, then runs a **watch-base** `merge_asof` within ±40 ms — every watch sample is preserved and gets `label_writing = 1` iff the nearest pen `dot_type` is `PEN_DOWN`/`PEN_MOVE` within tolerance, else `0`. When the signal is weak (`sigma > -2`) the δ shift is skipped and the quality engine surfaces a `low_sync_confidence` (warn) or `sync_failed` (bad) issue. For ML training the practical filter is stricter: **σ ≤ -3** (borderline σ values around -2 sometimes find spurious local minima).
 
 This replaced an earlier plan to require a tap-sync recording protocol (3× tap with the watch hand at session start). Subjects no longer have to do anything special — alignment is fully post-hoc.
 
@@ -281,11 +342,12 @@ Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside
 | Phase | Status |
 |-------|--------|
 | Data collection | Operational |
-| Preprocessing & merging | Implemented |
+| Preprocessing & merging | Implemented (watch-base, ±40 ms) |
 | Pen↔IMU clock alignment | Implemented (stroke-variance, TH Zürich) |
-| Feature engineering | TODO |
-| Model training | TODO |
-| Evaluation & metrics | TODO |
+| Feature engineering | Implemented (1 s windows, 42 stats, label closing) |
+| Model training | Implemented (Random Forest baseline) |
+| Evaluation & metrics | Within-session: S029 acc 0.83 / ROC-AUC 0.85 |
+| Multi-session / cross-subject evaluation | TODO |
 
 ---
 
