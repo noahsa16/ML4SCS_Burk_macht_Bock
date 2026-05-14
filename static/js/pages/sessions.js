@@ -9,6 +9,7 @@ import { esc, escAttr } from '/static/js/core/dom.js';
 import { fmtDuration, scoreBadge } from '/static/js/core/format.js';
 import { S } from '/static/js/core/state.js';
 import { renderState } from '/static/js/core/states.js';
+import { toast } from '/static/js/core/toast.js';
 
 let _mounted = false;
 
@@ -142,6 +143,28 @@ function saveFilters(f) {
   try { localStorage.setItem(FILTERS_KEY, JSON.stringify(f)); } catch {}
 }
 function resetFilters() { localStorage.removeItem(FILTERS_KEY); }
+
+export async function deleteSession(sessionId) {
+  if (!sessionId) return;
+  // Why: hard-delete is irreversible (raw CSVs, processed windows, RF
+  // model all removed) — force an explicit confirmation that names the
+  // session so users can't fat-finger the wrong row.
+  const ok = window.confirm(
+    `Delete session ${sessionId}?\n\nThis removes:\n` +
+    `• raw pen / watch / airpods CSVs\n` +
+    `• processed merged / windows files\n` +
+    `• trained RF model (if any)\n\n` +
+    `This cannot be undone.`);
+  if (!ok) return;
+  const res = await apiResult('/sessions/' + encodeURIComponent(sessionId), 'DELETE');
+  if (!res.ok) {
+    toast('Delete failed: ' + (res.error || 'unknown'));
+    return;
+  }
+  toast(`${sessionId} deleted`);
+  await loadSessions();
+}
+
 
 export async function loadSessions() {
   const [sessionsR, qualityR] = await Promise.all([
@@ -333,6 +356,10 @@ function renderSessionsList(rows) {
       + '<td class="mono">' + dur + '</td>'
       + '<td>' + mlBadge + '</td>'
       + '<td class="mono">' + _sigmaPill(s.session_id) + '</td>'
+      + '<td class="ssn-delete-cell">'
+      +   '<button class="ssn-delete-btn" title="Delete session and all its data"'
+      +     ' onclick="event.stopPropagation(); window.deleteSession(\'' + escAttr(s.session_id) + '\')">✕</button>'
+      + '</td>'
       + '</tr>';
   }).join('');
 }

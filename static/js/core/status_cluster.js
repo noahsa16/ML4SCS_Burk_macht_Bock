@@ -85,14 +85,16 @@ function _hoverRow(device, info) {
 function _penStatusFromS(s) {
   if (!s) return { cls: 'err', state: 'offline', meta: '— Hz · —', mode: 'off' };
   const subProcUp = !!s.pen_connected;
+  const bleReady = !!s.pen_ble_ready;
   const rate = Number(s.pen_rate_hz || 0);
   const streaming = subProcUp && rate > 0;
-  const searching = subProcUp && rate === 0;
-  // Why: pen_connected only reflects subprocess liveness, not BLE pairing.
-  // Without rate>0 we treat it as "searching" so the topbar doesn't claim
-  // a real pen connection that hasn't happened yet.
-  const cls = streaming ? 'ok' : (searching ? 'warn' : 'err');
-  const state = streaming ? 'connected' : (searching ? 'searching…' : 'offline');
+  // Why: pen_connected only reflects subprocess liveness. pen_ble_ready is
+  // set when pen_logger reports the BLE handshake completed; before that
+  // we're still scanning/pairing.
+  const paired = subProcUp && bleReady;
+  const searching = subProcUp && !bleReady;
+  const cls = streaming || paired ? 'ok' : (searching ? 'warn' : 'err');
+  const state = streaming ? 'connected' : (paired ? 'paired' : (searching ? 'searching…' : 'offline'));
   const hz  = s.pen_rate_hz != null ? fmtHz(s.pen_rate_hz) : '—';
   const ago = s.pen_last_seen_ms_ago != null ? fmtAgo(s.pen_last_seen_ms_ago) : '—';
   return { cls, state, meta: `${hz} · last ${ago}`,
@@ -132,9 +134,10 @@ function _serverStatusFromS(s) {
 function _penActionView(s) {
   if (!s) return { mode: 'off', glyph: '▲', label: 'connect' };
   const subProcUp = !!s.pen_connected;
+  const bleReady = !!s.pen_ble_ready;
   const rate = Number(s.pen_rate_hz || 0);
-  if (subProcUp && rate > 0)  return { mode: 'on',        glyph: '▼', label: 'disconnect' };
-  if (subProcUp && rate === 0) return { mode: 'searching', glyph: '✕', label: 'cancel' };
+  if (subProcUp && (bleReady || rate > 0)) return { mode: 'on', glyph: '▼', label: 'disconnect' };
+  if (subProcUp) return { mode: 'searching', glyph: '✕', label: 'cancel' };
   return { mode: 'off', glyph: '▲', label: 'connect' };
 }
 
@@ -211,7 +214,7 @@ export function handleStatus(s, prevSessionId) {
   // Topbar status cluster
   const penRate = Number(s.pen_rate_hz || 0);
   const penDotState = s.pen_connected
-    ? (penRate > 0 ? 'ok' : 'warn')
+    ? ((penRate > 0 || s.pen_ble_ready) ? 'ok' : 'warn')
     : 'err';
   const watchDotState = (watchStreamActive || watchReachable || watchPolling)
     ? 'ok' : (watchBridgeConnected ? 'warn' : 'err');

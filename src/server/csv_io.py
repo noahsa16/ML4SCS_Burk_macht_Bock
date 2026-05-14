@@ -170,6 +170,29 @@ def _update_session_row(session_id: str, updates: dict):
         w.writerows(rows)
 
 
+def _delete_session_row(session_id: str) -> bool:
+    """Remove the session_id row from sessions.csv. Returns True if deleted."""
+    _ensure_csv_header(SESSIONS_CSV, SESSIONS_FIELDNAMES)
+    rows = []
+    deleted = False
+    try:
+        with open(SESSIONS_CSV, newline="") as f:
+            for row in csv.DictReader(f):
+                if row.get("session_id") == session_id:
+                    deleted = True
+                    continue
+                rows.append(row)
+    except Exception:
+        return False
+    if not deleted:
+        return False
+    with open(SESSIONS_CSV, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=SESSIONS_FIELDNAMES)
+        w.writeheader()
+        w.writerows(rows)
+    return True
+
+
 def _read_session_rows() -> list[dict[str, str]]:
     _ensure_csv_header(SESSIONS_CSV, SESSIONS_FIELDNAMES)
     try:

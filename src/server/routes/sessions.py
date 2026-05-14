@@ -15,10 +15,11 @@ from ..config import (
     SESSIONS_CSV, SESSIONS_FIELDNAMES,
 )
 from ..csv_io import (
-    _ensure_csv_header, _next_session_id, _pen_sample_count,
-    _read_session_rows, _update_session_row,
+    _delete_session_row, _ensure_csv_header, _next_session_id,
+    _pen_sample_count, _read_session_rows, _update_session_row,
     close_airpods_writer, close_watch_writer,
 )
+from ..config import ROOT
 from ..models import SessionStartBody
 from ..pen_proc import _start_pen, _stop_pen
 from ..quality import (
@@ -213,6 +214,56 @@ async def get_session_alignment(session_id: str):
         "variance_curve": [{"d": d, "v": v} for d, v in zip(curve_x, curve_y)],
         "timeline": timeline,
     }
+
+
+@router.delete("/sessions/{session_id}")
+async def delete_session(session_id: str):
+    """Hard-delete a session: removes sessions.csv row + all raw/processed
+    files + cached RF model. Refuses to touch the currently-active session.
+    """
+    if state.active and state.active.session_id == session_id:
+        return JSONResponse(
+            {"error": "Cannot delete the active session — stop it first."},
+            status_code=409,
+        )
+
+    rows = _read_session_rows()
+    in_csv = any(r.get("session_id") == session_id for r in rows)
+
+    # Why: collect candidate paths from all known data dirs so an old
+    # CSV-less session (manual upload) still gets cleaned up.
+    candidates = [
+        DATA_RAW_PEN / f"{session_id}_pen.csv",
+        DATA_RAW_WATCH / f"{session_id}_watch.csv",
+        DATA_RAW_AIRPODS / f"{session_id}_airpods.csv",
+        ROOT / "data" / "processed" / f"{session_id}_merged.csv",
+        ROOT / "data" / "processed" / f"{session_id}_windows.csv",
+        ROOT / "models" / f"rf_{session_id}.joblib",
+    ]
+    deleted_files: list[str] = []
+    for p in candidates:
+        try:
+            if p.exists():
+                p.unlink()
+                deleted_files.append(p.name)
+        except Exception as exc:
+            state.append_event("session", "warn",
+                f"Could not delete {p.name} for {session_id}: {exc}",
+                {"session_id": session_id})
+
+    csv_removed = _delete_session_row(session_id) if in_csv else False
+    if not csv_removed and not deleted_files:
+        return JSONResponse(
+            {"error": f"Session {session_id} not found"}, status_code=404)
+
+    state.append_event("session", "info", f"Session {session_id} deleted", {
+        "session_id": session_id,
+        "csv_removed": csv_removed,
+        "files": deleted_files,
+    })
+    await _broadcast({"type": "session_deleted", "session_id": session_id})
+    return {"ok": True, "session_id": session_id,
+            "csv_removed": csv_removed, "files_deleted": deleted_files}
 
 
 @router.post("/sessions/{session_id}/flag")

@@ -100,8 +100,8 @@ export function onStatus(s) {
   const watchBadgeClass = watchStreamActive || watchDirectConnected || watchReachable || watchPolling ? 'badge-ok' : (watchBridgeConnected ? 'badge-warn' : 'badge-err');
 
   // Why: pen 'Connected' badge requires actual streaming, not just subprocess up.
-  const penStreaming = !!s.pen_connected && penRate > 0;
-  const penSearching = !!s.pen_connected && penRate === 0;
+  const penStreaming = !!s.pen_connected && (penRate > 0 || !!s.pen_ble_ready);
+  const penSearching = !!s.pen_connected && !penStreaming;
   const penBadgeClass = penStreaming ? 'badge-ok' : (penSearching ? 'badge-warn' : 'badge-err');
   const penBadgeText = penStreaming ? 'Connected' : (penSearching ? 'Searching…' : 'Disconnected');
   setBadge('connPenBadge', penStreaming, penBadgeText, penBadgeClass);

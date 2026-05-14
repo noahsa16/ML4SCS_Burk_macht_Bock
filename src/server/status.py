@@ -117,6 +117,11 @@ def _status_payload(
     last_pen_dot: Optional[dict[str, Any]] = None,
 ) -> dict[str, Any]:
     sid = state.active.session_id if state.active else None
+    # Why: pen samples / last_dot / preview only when a session is active.
+    # Otherwise pre-session writing on `unsessioned_pen.csv` would show in the
+    # live whiteboard and counter, suggesting the session has already started.
+    # `pen_ble_ready` (subprocess-level pairing signal) is still propagated
+    # so the topbar can show "paired" before a session begins.
     if pen_samples is None:
         pen_samples = _pen_sample_count(sid) if sid else 0
     if last_pen_dot is None and sid:
@@ -155,6 +160,7 @@ def _status_payload(
         "watch_total_samples": state.watch_total_sample_count,
         "pen_samples": pen_samples,
         "pen_connected": pen_connected,
+        "pen_ble_ready": bool(state.pen_ble_ready and pen_connected),
         "pen_session_id": state.pen_session_id,
         "pen_pid": state.pen_proc.pid if pen_connected else None,
         "pen_rate_hz": round(state.pen_rate_hz, 1),
