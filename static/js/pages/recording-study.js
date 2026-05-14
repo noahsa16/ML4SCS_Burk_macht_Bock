@@ -19,6 +19,46 @@ let _timerEl = null;
 let _progressFillEl = null;
 let _hintEl = null;
 
+// ───── Audio cues — Web Audio API, no asset files ────────────
+// Tick on each of the last 5 seconds of a phase; soft two-tone chime
+// when crossing pre_task → running so the proband knows "go now".
+let _audioCtx = null;
+let _lastTickSec = null;
+let _lastState = null;
+
+function _audio() {
+  if (!_audioCtx && typeof AudioContext !== 'undefined') {
+    try { _audioCtx = new AudioContext(); } catch { return null; }
+  }
+  if (_audioCtx && _audioCtx.state === 'suspended') {
+    _audioCtx.resume().catch(() => {});
+  }
+  return _audioCtx;
+}
+
+function _tone(freq, duration, gain = 0.08) {
+  const ctx = _audio();
+  if (!ctx) return;
+  const osc = ctx.createOscillator();
+  const g = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.value = freq;
+  g.gain.value = 0;
+  osc.connect(g);
+  g.connect(ctx.destination);
+  const now = ctx.currentTime;
+  g.gain.linearRampToValueAtTime(gain, now + 0.005);
+  g.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  osc.start(now);
+  osc.stop(now + duration + 0.02);
+}
+
+function _playTick()  { _tone(880, 0.06, 0.05); }            // soft A5 click
+function _playChime() {
+  _tone(659.25, 0.16, 0.10);                                  // E5
+  setTimeout(() => _tone(987.77, 0.22, 0.10), 80);            // B5 (4th-up)
+}
+
 function _fmtClock(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
   const mm = String(Math.floor(s / 60)).padStart(2, '0');
@@ -132,10 +172,28 @@ export function renderStudyView(s) {
     _timerEl = null;
     _progressFillEl = null;
     _hintEl = null;
+    _lastTickSec = null;
+    _lastState = null;
     return;
   }
   wrap.style.display = '';
   document.body.classList.add('study-active');
+
+  // Chime on state crossing pre_task → running ("go now!")
+  if (_lastState === 'pre_task' && s.state === 'running') {
+    _playChime();
+  }
+  _lastState = s.state;
+
+  // Tick on each of the last 5 seconds of any timed phase.
+  const remainingSec = Math.ceil((s.task_remaining_ms ?? 0) / 1000);
+  if (remainingSec >= 1 && remainingSec <= 5 && remainingSec !== _lastTickSec) {
+    _playTick();
+    _lastTickSec = remainingSec;
+  } else if (remainingSec > 5 || remainingSec <= 0) {
+    _lastTickSec = null;
+  }
+  const urgent = remainingSec >= 1 && remainingSec <= 5;
 
   const key = `${s.state}|${s.task?.id ?? ''}|${s.task_index ?? ''}`;
   if (key !== _renderedKey) {
@@ -151,18 +209,20 @@ export function renderStudyView(s) {
     _progressFillEl = stage.querySelector('.study-progress-fill');
     _hintEl = stage.querySelector('.study-hint');
     _renderedKey = key;
-    return;
+  } else {
+    // Same state key → only the timer / progress are mutating.
+    if (_timerEl) _timerEl.textContent = _fmtClock(s.task_remaining_ms);
+    if (_progressFillEl && Number.isFinite(s.task_duration_ms) && s.task_duration_ms > 0) {
+      const pct = (1 - s.task_remaining_ms / Math.max(1, s.task_duration_ms)) * 100;
+      _progressFillEl.style.width = pct.toFixed(1) + '%';
+    }
+    if (_hintEl && s.state === 'pre_task') {
+      _hintEl.textContent = `starts in ${_fmtClock(s.task_remaining_ms)} · ready your pen`;
+    }
   }
 
-  // Same state key → only the timer / progress are mutating.
-  if (_timerEl) _timerEl.textContent = _fmtClock(s.task_remaining_ms);
-  if (_progressFillEl && Number.isFinite(s.task_duration_ms) && s.task_duration_ms > 0) {
-    const pct = (1 - s.task_remaining_ms / Math.max(1, s.task_duration_ms)) * 100;
-    _progressFillEl.style.width = pct.toFixed(1) + '%';
-  }
-  if (_hintEl && s.state === 'pre_task') {
-    _hintEl.textContent = `starts in ${_fmtClock(s.task_remaining_ms)} · ready your pen`;
-  }
+  // Visual urgency: data-attribute flag flicked on/off each tick.
+  if (_timerEl) _timerEl.dataset.urgent = urgent ? '1' : '0';
 }
 
 export async function studyCmd(cmd) {

@@ -24,11 +24,12 @@
       "instruction": "Bearbeite die Aufgaben in deinem üblichen Tempo.",
       "content_type": "list",
       "content": [
-        "17 × 14 = ?",
-        "Vereinfache: (3x + 5)(x − 2)",
-        "Berechne: ∫ x² dx von 0 bis 3",
-        "Faktorisiere: x² − 9x + 20",
-        "Löse: 2x² − 7x + 3 = 0"
+        "Ein Kuchen wird in 12 Stücke geschnitten. Drei Personen essen je 2 Stücke. Wie viele Stücke bleiben übrig?",
+        "Du gehst um 8:00 Uhr aus dem Haus und brauchst 25 Minuten zur Schule. Wann kommst du an?",
+        "Eine Klasse hat 18 Kinder. 7 davon sind Jungs. Wie viele Mädchen sind in der Klasse?",
+        "Tom ist doppelt so alt wie sein Bruder. Tom ist 16. Wie alt ist sein Bruder?",
+        "Du sparst jeden Monat 15 Euro. Wie viel hast du nach einem halben Jahr?",
+        "Eine Tafel Schokolade hat 24 Stücke. Du teilst sie mit 3 Freunden gleich auf. Wie viele bekommt jeder?"
       ]
     },
     {

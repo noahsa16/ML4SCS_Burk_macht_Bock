@@ -124,7 +124,17 @@ body.study-active .rec-study-stage {
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.02em;
   color: oklch(0.2 0.025 55);
-  transition: font-size 320ms cubic-bezier(0.4, 0, 0.2, 1);
+  transition: font-size 320ms cubic-bezier(0.4, 0, 0.2, 1), color 200ms ease;
+}
+/* Last 5 seconds — urgent pulse, matches the audio tick cadence. */
+.study-timer-big[data-urgent="1"],
+.study-timer-small[data-urgent="1"] {
+  color: oklch(0.595 0.165 43);
+  animation: studyTick 1s ease-in-out infinite;
+}
+@keyframes studyTick {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.06); }
 }
 .study-hint {
   font-family: 'IBM Plex Mono', monospace;
