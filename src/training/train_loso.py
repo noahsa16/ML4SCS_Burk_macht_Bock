@@ -80,8 +80,13 @@ def _load_windows(session_id: str) -> pd.DataFrame:
 def _select_sessions(include_all: bool, min_windows: int) -> pd.DataFrame:
     """Read sessions.csv and apply verdict + min-windows quality gates."""
     sessions = pd.read_csv(SESSIONS_CSV)
-    if not include_all and "verdict" in sessions.columns:
-        sessions = sessions[sessions["verdict"].isin(TRAINABLE_VERDICTS)]
+    if not include_all:
+        if "verdict" in sessions.columns:
+            sessions = sessions[sessions["verdict"].isin(TRAINABLE_VERDICTS)]
+        # Why: study_mode='test' = pilot/dry-run, laut CLAUDE.md aus default-
+        # LOSO ausgeschlossen. verdict allein filtert das nicht.
+        if "study_mode" in sessions.columns:
+            sessions = sessions[sessions["study_mode"].fillna("") != "test"]
     # Why: ohne windows-CSV kein training — skip statt fail.
     sessions = sessions[
         sessions["session_id"].apply(
@@ -144,6 +149,20 @@ def _burst_metrics(
             "f1_writing": float(f1_score(y_sorted, pred, pos_label=1, zero_division=0)),
             "roc_auc": auc_b,
         }
+    return out
+
+
+def _zscore_per_session(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
+    # Why: subject-dependent baselines (wrist size, handedness, tremor) shift the
+    # absolute feature distribution; per-session standardization brings every
+    # subject onto a common relative scale so the RF learns "above this person's
+    # typical level" rather than "above the training-pool's absolute level".
+    # σ=0 in a session (constant column) → replaced with 1.0 to keep finite values.
+    out = df.copy()
+    grouped = out.groupby("session_id", sort=False)[feature_cols]
+    mu = grouped.transform("mean")
+    sigma = grouped.transform("std").replace(0.0, 1.0).fillna(1.0)
+    out[feature_cols] = (out[feature_cols] - mu) / sigma
     return out
 
 
@@ -234,6 +253,7 @@ def train_loso(
     random_state: int = 42,
     save_final_model: Path | None = None,
     save_cv_csv: Path | None = None,
+    zscore_per_session: bool = True,
 ) -> dict:
     if by not in {"person", "session"}:
         raise ValueError(f"--by must be 'person' or 'session', got {by!r}")
@@ -276,8 +296,12 @@ def train_loso(
         if c not in {"label", "t_center_ms", "session_id", "person_id",
                      "task_id", "task_category"}
     ]
+    if zscore_per_session:
+        all_windows = _zscore_per_session(all_windows, feature_cols)
+
     print(
-        f"Total: {len(all_windows)} windows; {len(feature_cols)} features\n"
+        f"Total: {len(all_windows)} windows; {len(feature_cols)} features"
+        f"  | zscore_per_session={zscore_per_session}\n"
     )
 
     fold_results: list[dict] = []
@@ -431,6 +455,11 @@ def _parse_args() -> argparse.Namespace:
         default=0,
         help="Additional filter: drop sessions with < N windows (default: off).",
     )
+    p.add_argument(
+        "--no-zscore",
+        action="store_true",
+        help="Disable per-session z-score normalization of features (default: on).",
+    )
     p.add_argument("--n-estimators", type=int, default=200)
     p.add_argument("--random-state", type=int, default=42)
     p.add_argument(
@@ -461,4 +490,5 @@ if __name__ == "__main__":
         random_state=args.random_state,
         save_final_model=Path(args.save_final_model) if args.save_final_model else None,
         save_cv_csv=Path(args.save_cv_csv) if args.save_cv_csv else None,
+        zscore_per_session=not args.no_zscore,
     )
