@@ -39,7 +39,9 @@ Moleskine Smart Pen (BLE)                                            │
                                   data/processed/{session}_merged.csv
                                                                      │
                                   src/features/   (1 s windows, 0.5 s stride,
-                                                   42 stats + label smoothing)
+                                                   88 features + label smoothing:
+                                                   time-stats + spectral (FFT) +
+                                                   jerk + ZCR + correlations)
                                                                      │
                                   data/processed/{session}_windows.csv
                                                                      │
@@ -151,7 +153,9 @@ src/merge/
 src/features/
   windows.py                       Sample-level label closing
                                    (max_gap_ms) + 1 s sliding windows
-                                   @ 0.5 s stride → 42 stat features
+                                   @ 0.5 s stride → 88 features
+                                   (time-stats, spectral, jerk,
+                                   ZCR, cross-axis correlations)
   __main__.py                      CLI: python -m src.features [SESSION_ID]
 src/training/
   train_loso.py                    **Headline metric.** Leave-One-Out CV
@@ -268,7 +272,23 @@ python -m src.training.train_loso --by person      # true LOSO-by-person — onc
 
 This is the evaluation that actually matches the project goal: a general writing detector that should work regardless of who is wearing the watch. Each fold holds out one subject (or session) completely, so the held-out data is never seen during training. The script prints per-fold accuracy and ROC-AUC plus a mean ± std summary. By default it only includes sessions marked `verdict ∈ {trainable, usable}` in `data/sessions.csv` (use `--include-all` to override).
 
-`--by person` is the metric we're really after, but it doesn't say anything useful with only one subject. Until the second subject is recorded we fall back to `--by session`, which still measures cross-session generalisation (different watch position on the wrist, different day, different writing content). Our current 5-session result: accuracy 0.854 ± 0.018, ROC-AUC 0.917 ± 0.015.
+`--by person` is the metric we're really after, but it doesn't say anything useful with only one subject. Until the second subject is recorded we fall back to `--by session`, which still measures cross-session generalisation (different watch position on the wrist, different day, different writing content). Our current 5-session result: accuracy 0.854 ± 0.018, ROC-AUC 0.917 ± 0.015 (per-1-s window — see the burst-aggregated numbers below for the user-facing view).
+
+#### Burst-aggregated metrics (decision window)
+
+The 1-s sliding window is the right *feature* window — it's the size that gives us crisp FFT bands and sharp transitions in the labels. But it's rarely the right *decision* window for an application: a writing-time tracker doesn't need per-second accuracy, it needs to know "has the person been writing for the last 30 seconds?". So `train_loso.py` reports the same fold on four time scales — 1 s, 5 s, 10 s, 30 s — by smoothing the model's 1-s probabilities with a rolling mean (per session, never across session boundaries) and re-thresholding at 0.5. The stride is auto-derived from the median Δ(`t_center_ms`) per session, so the smoothing adapts if we change `--stride-sec`.
+
+The burst table is also diagnostic:
+
+- Accuracy rising monotonically with scale → the model error is high-frequency noise, which simple post-processing fixes.
+- 30 s worse than 10 s → typical writing phases are shorter than 30 s, and 10 s is the natural burst size for this dataset.
+- Aggregation barely helps → the error is systematic (often one subject end-to-end misclassified) — look at the per-fold table to find them.
+
+Per-fold output looks like this:
+```
+Burst-aggregated:  1s acc=0.86 f1=0.84 auc=0.92  5s acc=0.92 f1=0.91 auc=0.94  10s acc=0.94 f1=0.93 auc=0.95  30s acc=0.95 f1=0.94 auc=0.96
+```
+With `--save-cv-csv`, `models/loso_cv.csv` gets `acc_5s, f1_5s, auc_5s, acc_10s, …` columns alongside the 1-s metrics.
 
 ### Within-session baseline (for iterating)
 
@@ -388,10 +408,11 @@ Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside
 | Data collection | Operational |
 | Preprocessing & merging | Implemented (watch-base, ±40 ms) |
 | Pen↔IMU clock alignment | Implemented (stroke-variance, TH Zürich) |
-| Feature engineering | Implemented (1 s windows, 42 stats, label closing) |
+| Feature engineering | Implemented (1 s windows, 88 features: time-stats + spectral + jerk + ZCR + correlations, label closing) |
 | Model training | Implemented (Random Forest baseline) |
+| Burst-aggregated reporting | Implemented (1 s / 5 s / 10 s / 30 s decision-window scales in `train_loso.py`) |
 | Within-session sanity check | S029 acc 0.83 / ROC-AUC 0.85 (debug only) |
-| Cross-session LOSO (single subject) | acc 0.854 ± 0.018 / ROC-AUC 0.917 ± 0.015 over 5 sessions (S029/S031/S037/S039/S043) |
+| Cross-session LOSO (single subject, pre-88-feature baseline) | acc 0.854 ± 0.018 / ROC-AUC 0.917 ± 0.015 over 5 sessions (S029/S031/S037/S039/S043) |
 | Cross-subject LOSO | Pending — needs ≥ 2 subjects recorded |
 | Study Mode protocol runner | Operational (v1: 3 writing tasks × 240 s, Latin-Square counterbalance, fullscreen proband UI, VL admin monitor) |
 
