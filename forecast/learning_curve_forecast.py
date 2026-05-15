@@ -35,7 +35,7 @@ from sklearn.preprocessing import StandardScaler
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PROC = ROOT / "data" / "processed"
 SESSIONS_CSV = ROOT / "data" / "sessions.csv"
-OUT_DIR = ROOT / "reports"
+OUT_DIR = ROOT / "forecast"
 OUT_DIR.mkdir(exist_ok=True)
 
 FORECAST_N = [3, 5, 10, 20, 30, 40, 49]

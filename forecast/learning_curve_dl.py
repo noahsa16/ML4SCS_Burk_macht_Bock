@@ -43,7 +43,7 @@ from tqdm.auto import tqdm
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PROC = ROOT / "data" / "processed"
 SESSIONS_CSV = ROOT / "data" / "sessions.csv"
-OUT_DIR = ROOT / "reports"
+OUT_DIR = ROOT / "forecast"
 
 FS_HZ = 50
 WIN_SAMPLES = 50
@@ -320,7 +320,7 @@ def main():
     }
 
     # Build DL + sklearn job lists upfront so we can show ONE master progress bar.
-    from scripts.learning_curve_forecast import (
+    from forecast.learning_curve_forecast import (
         _load_windows, _zscore_per_session, _models as sk_models, _train_test,
     )
     sk_model_objs = sk_models()

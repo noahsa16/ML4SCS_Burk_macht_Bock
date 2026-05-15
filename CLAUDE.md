@@ -394,13 +394,16 @@ no longer vibrates continuously when the server is down.
 - `scripts/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag.
-- `scripts/learning_curve_forecast.py` + `scripts/learning_curve_dl.py`
+- `forecast/learning_curve_forecast.py` + `forecast/learning_curve_dl.py`
   — enumerate all (n_train, train_combo, test_p)-splits, fit
   power-law saturation curves per model, extrapolate to n=99. The
   `_dl` version adds PyTorch baselines (DeepMLP, 1D-CNN, BiLSTM,
   TinyTransformer); `--device {auto,cpu,mps,cuda}` switches the
-  training backend. Outputs land in `reports/` (gitignored
-  artefacts kept locally).
+  training backend. Outputs (PNG + CSV) land next to the scripts in
+  `forecast/`. Run via `PYTHONPATH=. python forecast/learning_curve_dl.py`.
+  Lives in `forecast/` (not `scripts/`) to keep research-grade
+  prognosis tooling and its artefacts separate from the operational
+  pipeline.
 - `src/evaluation/evaluate.py` — placeholder that loads
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
