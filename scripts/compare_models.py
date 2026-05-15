@@ -52,6 +52,19 @@ def _load_sessions(include_all: bool) -> pd.DataFrame:
     return s.reset_index(drop=True)
 
 
+def _zscore_per_session(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFrame:
+    # Why: same fix as train_loso._zscore_per_session — subject-dependent
+    # baselines shift absolute feature values; standardizing per session
+    # removes that domain shift so the model learns relative-to-baseline
+    # patterns rather than absolute thresholds.
+    out = df.copy()
+    grouped = out.groupby("session_id", sort=False)[feature_cols]
+    mu = grouped.transform("mean")
+    sigma = grouped.transform("std").replace(0.0, 1.0).fillna(1.0)
+    out[feature_cols] = (out[feature_cols] - mu) / sigma
+    return out
+
+
 def _load_all_windows(sessions: pd.DataFrame) -> pd.DataFrame:
     frames = []
     for sid in sessions["session_id"]:
@@ -155,6 +168,8 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--by", choices=["person", "session"], default="person")
     ap.add_argument("--include-all", action="store_true")
+    ap.add_argument("--no-zscore", action="store_true",
+                    help="Disable per-session z-score normalization (default: on).")
     args = ap.parse_args()
 
     sessions = _load_sessions(args.include_all)
@@ -171,7 +186,10 @@ def main() -> None:
         if c not in {"label", "t_center_ms", "session_id", "person_id",
                      "task_id", "task_category"}
     ]
-    print(f"Windows total: {len(all_w)}   Features: {len(feat_cols)}\n")
+    if not args.no_zscore:
+        all_w = _zscore_per_session(all_w, feat_cols)
+    print(f"Windows total: {len(all_w)}   Features: {len(feat_cols)}   "
+          f"zscore_per_session={not args.no_zscore}\n")
 
     rows = []
     for name, builder in _models().items():
@@ -208,7 +226,9 @@ def main() -> None:
     pd.set_option("display.float_format", lambda v: f"{v:.3f}")
     print(summary.to_string())
 
-    out_csv = ROOT / "models" / "model_compare.csv"
+    # Preserve the no-zscore baseline for comparison.
+    out_name = "model_compare.csv" if args.no_zscore else "model_compare_zscore.csv"
+    out_csv = ROOT / "models" / out_name
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(out_csv, index=False)
     print(f"\n→ {out_csv}")
