@@ -471,12 +471,18 @@ function _renderDetailStreams(session, quality) {
   const cov = (q) => q?.coverage_pct != null ? `${(q.coverage_pct * 100).toFixed(0)}%` : '–';
   // Why: All data is server-derived numbers/strings from trusted API — not user input.
   // esc() guards any string that could contain HTML-special chars.
+  const gaps = Number(watch.sequence_gaps || 0);
+  const regions = Array.isArray(watch.sequence_gap_regions) ? watch.sequence_gap_regions : [];
+  const gapsLine = gaps > 0
+    ? `<div class="k" style="margin-top:4px;color:var(--warn,#c80)">⚠ ${gaps} missing batch(es) in ${regions.length} gap region(s)</div>`
+    : '';
   const html = [
     '<div class="drift-grid" style="grid-template-columns: repeat(3, 1fr)">',
     '  <div class="drift-box">',
     '    <div class="k">Watch</div>',
     `    <div class="v">${Number(session.watch_samples || 0).toLocaleString()}</div>`,
     `    <div class="k" style="margin-top:6px">${watch.estimated_hz ? esc(fmtHz(watch.estimated_hz)) : '– Hz'} · coverage ${cov(watch)}</div>`,
+    gapsLine,
     '  </div>',
     '  <div class="drift-box">',
     '    <div class="k">Pen</div>',
