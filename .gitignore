@@ -50,3 +50,6 @@ data/raw/markers/
 # Previously tracked, which led to git operations overwriting working-tree
 # rows (e.g. uncommitted session_stop appends getting wiped on a checkout).
 data/sessions.csv
+
+# Local pipeline overview — personal cheat sheet, not part of repo docs.
+ML_PIPELINE_OVERVIEW.md

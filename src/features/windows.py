@@ -7,7 +7,7 @@ Liest ``data/processed/{session}_merged.csv`` (Output von
 ``python -m src.merge``), baut überlappende Fenster über den 50 Hz
 Watch-Stream und berechnet pro Achse + Magnitude statistische Features.
 
-Output: 1 Zeile pro Fenster (42 Features + ``label`` + ``t_center_ms``).
+Output: 1 Zeile pro Fenster (88 Features + ``label`` + ``t_center_ms``).
 ``t_center_ms`` erlaubt einen temporalen Train/Test-Split downstream.
 
 CLI
@@ -80,8 +80,63 @@ def smooth_labels(
     return out
 
 
-def _window_features(window: np.ndarray) -> dict[str, float]:
-    """Per-axis stats + magnitude features for a (N, 6) IMU window."""
+def _spectral_features(x: np.ndarray, fs: float) -> tuple[float, float, float, float]:
+    """Dominant freq, spectral centroid, spectral entropy, 3–8 Hz band ratio.
+
+    DC-Bin wird entfernt (Mean abziehen + rfft[1:]), damit ein konstanter
+    Offset nicht Centroid/Entropy verfälscht. Bei stiller Hand kollabiert
+    das Spektrum auf Rauschen → alle Returns gehen sauber gegen 0.
+    """
+    n = len(x)
+    if n < 4:
+        return 0.0, 0.0, 0.0, 0.0
+    x = x - np.mean(x)
+    spec = np.abs(np.fft.rfft(x))
+    psd = spec * spec
+    freqs = np.fft.rfftfreq(n, d=1.0 / fs)
+    psd = psd[1:]
+    freqs = freqs[1:]
+    total = float(psd.sum())
+    if total <= 1e-20:
+        return 0.0, 0.0, 0.0, 0.0
+    pn = psd / total
+    dom = float(freqs[int(np.argmax(psd))])
+    centroid = float(np.sum(freqs * pn))
+    entropy = float(-np.sum(pn * np.log(pn + 1e-12)))
+    band_mask = (freqs >= 3.0) & (freqs <= 8.0)
+    band_ratio = float(psd[band_mask].sum() / total)
+    return dom, centroid, entropy, band_ratio
+
+
+def _zero_crossing_rate(x: np.ndarray) -> float:
+    """Fraction of sign changes after mean-centering. Robuster Frequenz-Proxy."""
+    if len(x) < 2:
+        return 0.0
+    xc = x - np.mean(x)
+    signs = np.sign(xc)
+    signs[signs == 0] = 1
+    return float(np.mean(np.diff(signs) != 0))
+
+
+def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
+    sa, sb = np.std(a), np.std(b)
+    if sa < 1e-12 or sb < 1e-12:
+        return 0.0
+    return float(np.corrcoef(a, b)[0, 1])
+
+
+def _window_features(window: np.ndarray, fs_hz: float = 50.0) -> dict[str, float]:
+    """Per-axis stats + magnitude + spectral + jerk + correlation features.
+
+    Layout for one (N, 6) IMU window (axes: ax, ay, az, rx, ry, rz):
+      * 6 axes × 6 zeitliche Stats (mean/std/min/max/rms/range) = 36
+      * 6 axes × 4 Spektral-Features (dom_freq, centroid, entropy, band_3_8) = 24
+      * 6 axes × ZCR = 6
+      * 3 accel axes × 2 Jerk-Stats (std, mean_abs) = 6
+      * accel/gyro Magnitude: mean/std/energy + jerk std + jerk mean_abs = 10
+      * 6 Cross-Achsen-Korrelationen (accel-pairs + gyro-pairs) = 6
+      = 88 Features
+    """
     feats: dict[str, float] = {}
     for i, name in enumerate(IMU_COLS):
         x = window[:, i]
@@ -92,6 +147,21 @@ def _window_features(window: np.ndarray) -> dict[str, float]:
         feats[f"{name}_rms"] = float(np.sqrt(np.mean(x * x)))
         feats[f"{name}_range"] = feats[f"{name}_max"] - feats[f"{name}_min"]
 
+        dom, cent, ent, band = _spectral_features(x, fs_hz)
+        feats[f"{name}_dom_freq"] = dom
+        feats[f"{name}_spec_centroid"] = cent
+        feats[f"{name}_spec_entropy"] = ent
+        feats[f"{name}_band_3_8"] = band
+
+        feats[f"{name}_zcr"] = _zero_crossing_rate(x)
+
+    # Jerk = d(accel)/dt; multipliziert mit fs_hz, damit Einheit g/s ist
+    # und Features fs-skalierungs-invariant bleiben.
+    for i, name in enumerate(ACC_COLS):
+        dx = np.diff(window[:, i]) * fs_hz
+        feats[f"{name}_jerk_std"] = float(np.std(dx)) if len(dx) else 0.0
+        feats[f"{name}_jerk_mean_abs"] = float(np.mean(np.abs(dx))) if len(dx) else 0.0
+
     acc_mag = np.linalg.norm(window[:, 0:3], axis=1)
     gyro_mag = np.linalg.norm(window[:, 3:6], axis=1)
     feats["acc_mag_mean"] = float(np.mean(acc_mag))
@@ -100,6 +170,22 @@ def _window_features(window: np.ndarray) -> dict[str, float]:
     feats["gyro_mag_mean"] = float(np.mean(gyro_mag))
     feats["gyro_mag_std"] = float(np.std(gyro_mag))
     feats["gyro_mag_energy"] = float(np.mean(gyro_mag * gyro_mag))
+
+    acc_mag_jerk = np.diff(acc_mag) * fs_hz
+    gyro_mag_jerk = np.diff(gyro_mag) * fs_hz
+    feats["acc_mag_jerk_std"] = float(np.std(acc_mag_jerk)) if len(acc_mag_jerk) else 0.0
+    feats["acc_mag_jerk_mean_abs"] = float(np.mean(np.abs(acc_mag_jerk))) if len(acc_mag_jerk) else 0.0
+    feats["gyro_mag_jerk_std"] = float(np.std(gyro_mag_jerk)) if len(gyro_mag_jerk) else 0.0
+    feats["gyro_mag_jerk_mean_abs"] = float(np.mean(np.abs(gyro_mag_jerk))) if len(gyro_mag_jerk) else 0.0
+
+    ax, ay, az = window[:, 0], window[:, 1], window[:, 2]
+    rx, ry, rz = window[:, 3], window[:, 4], window[:, 5]
+    feats["corr_ax_ay"] = _safe_corr(ax, ay)
+    feats["corr_ax_az"] = _safe_corr(ax, az)
+    feats["corr_ay_az"] = _safe_corr(ay, az)
+    feats["corr_rx_ry"] = _safe_corr(rx, ry)
+    feats["corr_rx_rz"] = _safe_corr(rx, rz)
+    feats["corr_ry_rz"] = _safe_corr(ry, rz)
     return feats
 
 
@@ -151,7 +237,7 @@ def build_windows(
     rows: list[dict[str, float]] = []
     for start in range(0, len(df) - win + 1, stride):
         end = start + win
-        feats = _window_features(imu[start:end])
+        feats = _window_features(imu[start:end], fs_hz=fs_hz)
         feats["label"] = int(labels[start:end].mean() >= min_label_ratio)
         feats["t_center_ms"] = float(times[start:end].mean())
         # Task metadata propagated from merged CSV when markers attached.

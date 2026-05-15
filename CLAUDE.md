@@ -124,7 +124,9 @@ Moleskine Smart Pen (BLE)
        src/features/                 (sample-level label smoothing
                                       via morphological closing, then
                                       1 s / 0.5 s sliding windows →
-                                      42 stat features per window)
+                                      88 features per window: time-stats
+                                      + spectral (FFT) + jerk + ZCR +
+                                      cross-axis correlations)
                     ↓
          data/processed/{session}_windows.csv  (1 row per window)
                     ↓
@@ -337,11 +339,17 @@ no longer vibrates continuously when the server is down.
   Sample-level **morphological closing** on the binary label sequence
   (idle gaps ≤ `max_gap_ms` between writing runs → flipped to writing;
   default 300 ms) before windowing. Then 1 s sliding windows with
-  0.5 s stride → 42 stat features per window (mean/std/min/max/rms/range
-  per axis + accel/gyro magnitude mean/std/energy). Window label = 1
-  iff ≥ 60% of samples in the window have `label_writing == 1`.
-  Optional opening (`--max-spike-ms`) is implemented but defaults off —
-  empirically didn't help on S029.
+  0.5 s stride → **88 features per window**, in 6 semantic groups:
+  *time_stats* (36: mean/std/min/max/rms/range per axis), *spectral*
+  (24: dominant frequency, spectral centroid, spectral entropy, 3–8 Hz
+  band ratio per axis via rFFT — DC-bin removed before centroid/
+  entropy), *zcr* (6 per-axis zero-crossing rates), *jerk* (8: std +
+  mean-abs of d/dt on accel axes + magnitudes; `× fs_hz` for scale
+  invariance), *magnitude* (6 accel/gyro mag mean/std/energy), and
+  *correlation* (6 cross-axis Pearson pairs, accel-pairs + gyro-pairs,
+  zero-std-safe). Window label = 1 iff ≥ 60% of samples in the window
+  have `label_writing == 1`. Optional opening (`--max-spike-ms`) is
+  implemented but defaults off — empirically didn't help on S029.
 - `src/features/__main__.py` — CLI: `python -m src.features [SESSION_ID]
   [--max-gap-ms 300] [--max-spike-ms 0]`, writes
   `data/processed/{session}_windows.csv`.
@@ -364,7 +372,17 @@ no longer vibrates continuously when the server is down.
   `--include-all`). No `temporal_split` needed — the
   subject/session-hold-out is a strictly stronger leakage guarantee
   than zeitliche Trennung (held-out windows were never seen). Reports
-  per-fold accuracy/ROC-AUC plus mean ± std summary.
+  per-fold accuracy/ROC-AUC plus mean ± std summary, **plus
+  burst-aggregated metrics at multiple decision-window scales**
+  (1 s / 5 s / 10 s / 30 s — controlled by `BURST_SCALES_SEC`).
+  Probabilities are smoothed via per-session rolling mean (stride
+  derived from median Δ`t_center_ms`, robust to non-default window
+  configs), then re-thresholded at ≥ 0.5. Critical: smoothing groups
+  by `session_id` so predictions from temporally-distant sessions in
+  the same fold are never mixed. The burst scales surface the share
+  of model error that is high-frequency noise versus systematic, and
+  give the user-facing metric for aggregated use-cases (e.g.
+  Schreibzeit-tracking) without retraining.
 - `src/evaluation/evaluate.py` — placeholder that loads
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
@@ -592,6 +610,18 @@ guarantee** — the held-out subject/session was never in training, so
 window overlap across the cut is impossible by construction. Use
 within-session as a fast sanity check during development; LOSO is the
 metric that maps to the deployment scenario.
+
+**Feature-Window vs. Decision-Window.** The 1 s sliding window is the
+*feature* window (right size for FFT bandwidth + crisp temporal
+resolution), but is **not** the right size to report user-facing
+accuracy on. `train_loso.py` therefore reports the same fold on four
+*decision* scales (1 s / 5 s / 10 s / 30 s) by smoothing the model's
+1-s probabilities per-session before re-thresholding. The
+per-1-s number stays in the output as the model-quality metric, but
+the 10–30 s burst numbers are what matches a typical use-case
+(Schreibzeit-tracker, phase detection). Do not silently switch to the
+larger scale — always report all four with the decision-window
+explicitly named.
 
 **Two training entry points, two purposes.**
 - `python -m src.training.within_session.train_rf S029` — fast

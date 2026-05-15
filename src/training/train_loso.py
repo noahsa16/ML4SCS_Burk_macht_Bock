@@ -59,6 +59,12 @@ SESSIONS_CSV = ROOT / "data" / "sessions.csv"
 
 TRAINABLE_VERDICTS = {"trainable", "usable"}
 
+# Decision-Window-Skalen für Burst-Aggregation (Sekunden). Die 1-s-Per-Window
+# Metriken sind sub-optimal für User-facing Use-Cases — Tagestracker / Phasen-
+# erkennung arbeiten implizit auf längeren Skalen. Wir reporten 5/10/30 s
+# zusätzlich, um den Modell-Rauschen-Anteil sichtbar zu machen.
+BURST_SCALES_SEC: tuple[float, ...] = (5.0, 10.0, 30.0)
+
 
 def _load_windows(session_id: str) -> pd.DataFrame:
     cached = DATA_PROC / f"{session_id}_windows.csv"
@@ -94,6 +100,53 @@ def _select_sessions(include_all: bool, min_windows: int) -> pd.DataFrame:
     return sessions.reset_index(drop=True)
 
 
+def _burst_metrics(
+    proba: np.ndarray,
+    y_true: np.ndarray,
+    test_df: pd.DataFrame,
+    scales_sec: tuple[float, ...] = BURST_SCALES_SEC,
+) -> dict[str, dict[str, float]]:
+    """Per-Session Rolling-Mean-Smoothing der Wahrscheinlichkeiten, ausgewertet pro Skala.
+
+    Per Session, nicht über Session-Grenzen hinweg: ``t_center_ms`` ist nur
+    innerhalb einer Session monoton; ein Rolling-Window über mehrere Sessions
+    würde Predictions vermischen, die Stunden oder Tage auseinanderliegen.
+
+    Stride-Annahme wird per Session aus dem Median-Δ(t_center_ms) abgeleitet,
+    fällt auf 500 ms zurück (Default in ``build_windows``).
+    """
+    df = test_df.reset_index(drop=True).copy()
+    df["_proba"] = proba
+    df["_y"] = y_true
+    df = df.sort_values(["session_id", "t_center_ms"]).reset_index(drop=True)
+
+    out: dict[str, dict[str, float]] = {}
+    for scale in scales_sec:
+        smoothed_chunks: list[np.ndarray] = []
+        for _, g in df.groupby("session_id", sort=False):
+            t = g["t_center_ms"].to_numpy()
+            if len(t) >= 2:
+                stride_ms = float(np.median(np.diff(t))) or 500.0
+            else:
+                stride_ms = 500.0
+            n = max(1, int(round(scale * 1000.0 / stride_ms)))
+            s = g["_proba"].rolling(n, center=True, min_periods=1).mean().to_numpy()
+            smoothed_chunks.append(s)
+        smoothed = np.concatenate(smoothed_chunks)
+        y_sorted = df["_y"].to_numpy()
+        pred = (smoothed >= 0.5).astype(int)
+        try:
+            auc_b = float(roc_auc_score(y_sorted, smoothed))
+        except ValueError:
+            auc_b = float("nan")
+        out[f"{int(scale)}s"] = {
+            "accuracy": float((pred == y_sorted).mean()),
+            "f1_writing": float(f1_score(y_sorted, pred, pos_label=1, zero_division=0)),
+            "roc_auc": auc_b,
+        }
+    return out
+
+
 def _fit_eval_fold(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
@@ -126,6 +179,8 @@ def _fit_eval_fold(
     except ValueError:
         auc = float("nan")
 
+    bursts = _burst_metrics(y_proba, y_test, test_df)
+
     return {
         "n_train": len(train_df),
         "n_test": len(test_df),
@@ -137,6 +192,7 @@ def _fit_eval_fold(
         "roc_auc": auc,
         "confusion_matrix": confusion_matrix(y_test, y_pred, labels=[0, 1]),
         "report": classification_report(y_test, y_pred, digits=3, zero_division=0),
+        "bursts": bursts,
     }
 
 
@@ -259,6 +315,11 @@ def train_loso(
             f"F1(writing): {res['f1_writing']:.3f}   "
             f"ROC-AUC: {res['roc_auc']:.3f}"
         )
+        burst_line = "  ".join(
+            f"{scale} acc={m['accuracy']:.3f} f1={m['f1_writing']:.3f} auc={m['roc_auc']:.3f}"
+            for scale, m in res["bursts"].items()
+        )
+        print(f"Burst-aggregated:  1s acc={res['accuracy']:.3f} f1={res['f1_writing']:.3f} auc={res['roc_auc']:.3f}  {burst_line}")
         fold_results.append(res)
 
     if not fold_results:
@@ -281,6 +342,21 @@ def train_loso(
         "std_roc_auc": float(np.nanstd(aucs)),
     }
 
+    burst_summary: dict[str, dict[str, float]] = {}
+    burst_scale_keys = list(fold_results[0]["bursts"].keys())
+    for scale in burst_scale_keys:
+        scale_accs = np.array([r["bursts"][scale]["accuracy"] for r in fold_results], dtype=float)
+        scale_f1s = np.array([r["bursts"][scale]["f1_writing"] for r in fold_results], dtype=float)
+        scale_aucs = np.array([r["bursts"][scale]["roc_auc"] for r in fold_results], dtype=float)
+        burst_summary[scale] = {
+            "mean_accuracy": float(np.nanmean(scale_accs)),
+            "std_accuracy": float(np.nanstd(scale_accs)),
+            "mean_f1_writing": float(np.nanmean(scale_f1s)),
+            "mean_roc_auc": float(np.nanmean(scale_aucs)),
+            "std_roc_auc": float(np.nanstd(scale_aucs)),
+        }
+    summary["bursts"] = burst_summary
+
     print("\n=== LOSO summary ===")
     print(
         f"Folds: {summary['n_folds']}\n"
@@ -289,20 +365,32 @@ def train_loso(
         f"F1(writing): {summary['mean_f1_writing']:.3f}\n"
         f"ROC-AUC:  {summary['mean_roc_auc']:.3f} ± {summary['std_roc_auc']:.3f}"
     )
+    print("\n--- Burst-aggregated (Decision-Window) ---")
+    print(f"{'scale':>6}  {'acc':>14}  {'f1':>8}  {'auc':>14}")
+    print(f"{'1s':>6}  {summary['mean_accuracy']:.3f} ± {summary['std_accuracy']:.3f}  "
+          f"{summary['mean_f1_writing']:>8.3f}  "
+          f"{summary['mean_roc_auc']:.3f} ± {summary['std_roc_auc']:.3f}")
+    for scale, m in burst_summary.items():
+        print(f"{scale:>6}  {m['mean_accuracy']:.3f} ± {m['std_accuracy']:.3f}  "
+              f"{m['mean_f1_writing']:>8.3f}  "
+              f"{m['mean_roc_auc']:.3f} ± {m['std_roc_auc']:.3f}")
 
-    per_fold_table = pd.DataFrame(
-        [
-            {
-                "held_out": r["held_out"],
-                "n_test": r["n_test"],
-                "test_pct_writing": r["test_pct_writing"],
-                "accuracy": r["accuracy"],
-                "f1_writing": r["f1_writing"],
-                "roc_auc": r["roc_auc"],
-            }
-            for r in fold_results
-        ]
-    )
+    def _fold_row(r: dict) -> dict:
+        row = {
+            "held_out": r["held_out"],
+            "n_test": r["n_test"],
+            "test_pct_writing": r["test_pct_writing"],
+            "accuracy": r["accuracy"],
+            "f1_writing": r["f1_writing"],
+            "roc_auc": r["roc_auc"],
+        }
+        for scale, m in r["bursts"].items():
+            row[f"acc_{scale}"] = m["accuracy"]
+            row[f"f1_{scale}"] = m["f1_writing"]
+            row[f"auc_{scale}"] = m["roc_auc"]
+        return row
+
+    per_fold_table = pd.DataFrame([_fold_row(r) for r in fold_results])
     print("\nPer-fold:")
     print(per_fold_table.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
 
