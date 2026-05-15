@@ -50,6 +50,7 @@ class StudyProtocol(BaseModel):
     pre_task_seconds: int = Field(default=3, ge=0, le=30)
     randomize: bool = True
     interleave: InterleaveMode = "writing_with_pauses"
+    duration_jitter_pct: float = Field(default=0.0, ge=0.0, le=0.5)
     tasks: list[StudyTask] = Field(min_length=1)
 
     @field_validator("tasks")
@@ -92,13 +93,73 @@ class ScheduledSlot:
 
     `task_index` is 1-based and sequential across the schedule. Multiple
     slots can share the same `task` when `instances > 1`.
+
+    `effective_duration_seconds` defaults to `task.duration_seconds` but
+    may be jittered per-slot (see `_apply_jitter`). Storing it on the
+    slot (not mutating the task) lets the same StudyTask appear in
+    multiple slots with different effective durations.
     """
     task_index: int
     task: StudyTask
+    effective_duration_seconds: int = 0
+
+    def __post_init__(self) -> None:
+        if self.effective_duration_seconds <= 0:
+            self.effective_duration_seconds = self.task.duration_seconds
 
     @property
     def category(self) -> str:
         return self.task.category
+
+
+def _apply_jitter(
+    slots: list[ScheduledSlot], pct: float, rng: random.Random,
+) -> None:
+    """Apply zero-sum ±pct jitter to writing slots in-place.
+
+    Pause/idle slots are never jittered. The sum of writing-slot
+    offsets is exactly 0, so total session duration is preserved.
+    Each offset stays within ±pct of that slot's base duration.
+    """
+    if pct <= 0:
+        return
+    writing = [s for s in slots if s.category == "writing"]
+    if len(writing) < 2:
+        return
+
+    # Generate offsets uniformly in [-bound, +bound] per slot, then
+    # subtract the mean to enforce sum=0. If mean-subtraction pushed
+    # any offset out of bounds, scale all offsets uniformly to fit.
+    bounds = [s.task.duration_seconds * pct for s in writing]
+    offsets = [rng.uniform(-b, b) for b in bounds]
+    mean = sum(offsets) / len(offsets)
+    offsets = [o - mean for o in offsets]
+    over = max(
+        (abs(o) / b for o, b in zip(offsets, bounds) if b > 0),
+        default=0.0,
+    )
+    if over > 1.0:
+        offsets = [o / over for o in offsets]
+
+    for slot, off in zip(writing, offsets):
+        new_dur = max(1, round(slot.task.duration_seconds + off))
+        slot.effective_duration_seconds = new_dur
+
+    # Re-balance integer rounding drift onto the slot with the most
+    # headroom so total stays exactly equal to base sum.
+    base_total = sum(s.task.duration_seconds for s in writing)
+    actual_total = sum(s.effective_duration_seconds for s in writing)
+    drift = base_total - actual_total
+    if drift != 0:
+        idx = max(
+            range(len(writing)),
+            key=lambda i: writing[i].task.duration_seconds * pct
+                          - abs(writing[i].effective_duration_seconds
+                                - writing[i].task.duration_seconds + drift),
+        )
+        writing[idx].effective_duration_seconds = max(
+            1, writing[idx].effective_duration_seconds + drift,
+        )
 
 
 def _expand_instances(tasks: list[StudyTask]) -> list[StudyTask]:
@@ -158,8 +219,10 @@ def build_schedule(protocol: StudyProtocol, seed: int,
         if protocol.randomize:
             rng.shuffle(ordered)
 
-    return [ScheduledSlot(task_index=i + 1, task=t)
-            for i, t in enumerate(ordered)]
+    slots = [ScheduledSlot(task_index=i + 1, task=t)
+             for i, t in enumerate(ordered)]
+    _apply_jitter(slots, protocol.duration_jitter_pct, rng)
+    return slots
 
 
 class StudyRuntime:
@@ -216,7 +279,7 @@ class StudyRuntime:
         if self._slot_phase == "pre_task":
             duration_ms = self.protocol.pre_task_seconds * 1000
         else:
-            duration_ms = slot.task.duration_seconds * 1000
+            duration_ms = slot.effective_duration_seconds * 1000
 
         return {
             "active": True,
@@ -276,7 +339,7 @@ class StudyRuntime:
                 else:
                     break
             else:  # running
-                duration_ms = slot.task.duration_seconds * 1000
+                duration_ms = slot.effective_duration_seconds * 1000
                 phase_elapsed = eff_now - self._slot_phase_start_ms
                 if force_next or phase_elapsed >= duration_ms:
                     events.append(self._mk_event(now_ms, "task_end", slot))
