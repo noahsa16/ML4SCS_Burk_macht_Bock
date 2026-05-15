@@ -36,6 +36,9 @@ pen_log_*.csv
 data/session_*_report*.md
 data/raw/**/session_*_report*.md
 
+# Local model progression timeline (working doc, not for the repo)
+reports/model_progression.md
+
 # Server logs
 logs/
 
