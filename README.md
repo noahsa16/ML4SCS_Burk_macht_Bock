@@ -11,9 +11,9 @@ Team: Noah Samel · Ben Kriegsmann · Tajuddin Snasni
 
 ## Research Question
 
-> Can writing activity be detected and predicted from IMU data (accelerometer + gyroscope) of an Apple Watch?
+> Can writing activity be detected from IMU data (accelerometer + gyroscope) of an Apple Watch?
 
-The Moleskine Smart Pen acts as ground truth during data collection: its stroke events label each watch sample in time. Once the model is trained, the pen is no longer needed — inference runs on watch data alone.
+The Moleskine Smart Pen is used as ground truth during data collection — its stroke events tell us when the wearer is actually writing, which lets us label the watch samples. Once the model is trained the pen is no longer needed; inference runs on the watch alone, which is the whole point of the project.
 
 ---
 
@@ -257,33 +257,33 @@ python -m src.features S029 --max-gap-ms 300  # sliding windows  → data/proces
 
 Without a session ID, `merge` and `features` operate on the most recent session.
 
-**Training has two entry points with very different purposes.**
+There are two training entry points, and we use them for different things.
 
-### 1. Cross-subject evaluation — the headline metric
+### Cross-subject evaluation (this is what we report)
 
 ```bash
-python -m src.training.train_loso --by session     # leave-one-session-out (current default in the single-subject regime)
-python -m src.training.train_loso --by person      # true LOSO-by-person — use once ≥ 2 subjects are recorded
+python -m src.training.train_loso --by session     # leave-one-session-out (what we use now, since we only have one subject so far)
+python -m src.training.train_loso --by person      # true LOSO-by-person — once we have at least 2 subjects recorded
 ```
 
-This is the **real evaluation** for the project goal ("general writing detector, independent of who is wearing the watch"). Each fold holds out one subject (or session) entirely; the held-out unit is never seen during training. Reports per-fold accuracy / ROC-AUC plus a mean ± std summary. Only sessions with `verdict ∈ {trainable, usable}` from `data/sessions.csv` participate by default (override with `--include-all`).
+This is the evaluation that actually matches the project goal: a general writing detector that should work regardless of who is wearing the watch. Each fold holds out one subject (or session) completely, so the held-out data is never seen during training. The script prints per-fold accuracy and ROC-AUC plus a mean ± std summary. By default it only includes sessions marked `verdict ∈ {trainable, usable}` in `data/sessions.csv` (use `--include-all` to override).
 
-`--by person` is the right metric, but degenerates when only one subject is recorded. While the dataset has a single subject, `--by session` is the practical fallback — it still measures cross-session generalisation (different watch position, daily form, writing context). Current 5-session result: **accuracy 0.854 ± 0.018, ROC-AUC 0.917 ± 0.015**.
+`--by person` is the metric we're really after, but it doesn't say anything useful with only one subject. Until the second subject is recorded we fall back to `--by session`, which still measures cross-session generalisation (different watch position on the wrist, different day, different writing content). Our current 5-session result: accuracy 0.854 ± 0.018, ROC-AUC 0.917 ± 0.015.
 
-### 2. Within-session baseline — debug / feature iteration
+### Within-session baseline (for iterating)
 
 ```bash
 python -m src.training.within_session.train_rf S029
 ```
 
-This trains a Random Forest on the first 80% of one session and tests on the last 20% (with a 4-window gap to prevent overlap leakage from the 50%-overlapping sliding windows). It is **explicitly not a generalisation claim** — it only measures "can the model finish this session given the start of it". Use it for:
+This trains a Random Forest on the first 80 % of one session and tests on the last 20 %, with a 4-window gap to prevent leakage between adjacent windows (they overlap by 50 %). It does *not* tell us anything about generalisation — only "can the model finish this session if it has seen the start of it". We use it for:
 
-- Iterating on features (adding / removing / debugging a feature).
-- Tuning label-smoothing parameters (`max_gap_ms`).
-- Smoke-testing the pipeline end-to-end on a fresh session.
-- Sanity floor: if within-session ROC-AUC is already < 0.6, LOSO is hopeless and the features need more work first.
+- Quick iteration when adding / debugging a feature.
+- Tuning the label-smoothing parameter (`max_gap_ms`).
+- Smoke-testing the pipeline on a fresh session.
+- A sanity floor: if within-session ROC-AUC is already < 0.6 there's no point running LOSO yet.
 
-Dumps to `models/rf_{session}.joblib`. **Do not report within-session metrics as a project result** — always quote `train_loso` numbers in writeups.
+Dumps to `models/rf_{session}.joblib`. We don't quote these numbers in writeups — only the LOSO results.
 
 To preview the effect of label smoothing visually before training:
 ```bash
@@ -335,11 +335,11 @@ Accel + gyro + attitude quaternion (`qw/qx/qy/qz`) + gravity vector (`gx/gy/gz`)
 
 ## Pen ↔ IMU Time Alignment
 
-Pen and watch device clocks do not share an epoch. The Moleskine pen's hardware clock typically lands ~922 days off plus an arbitrary time-of-day shift, so a naïve wall-clock join would smear the labels by hundreds of milliseconds (or worse).
+The pen and the watch don't share a clock. The Moleskine pen's hardware clock is typically off by about 922 days plus some time-of-day offset, so a naïve wall-clock join would smear the labels by hundreds of milliseconds or worse — which would make the whole project pointless.
 
-We recover the per-session offset **δ** automatically using a **stroke-window variance-minimization** approach — a port of the TH Zürich method described in [`data/02_Pen_IMU_Timestamp_Alignment.pdf`](data/02_Pen_IMU_Timestamp_Alignment.pdf), implemented in [`src/alignment/pen_match.py`](src/alignment/pen_match.py).
+We recover the per-session offset **δ** automatically with a stroke-window variance-minimisation approach, ported from the TH Zürich method described in [`data/02_Pen_IMU_Timestamp_Alignment.pdf`](data/02_Pen_IMU_Timestamp_Alignment.pdf). The implementation is in [`src/alignment/pen_match.py`](src/alignment/pen_match.py).
 
-**Idea.** While the pen is on paper, the wrist holding the watch is comparatively still — strokes are short and constrained. The correct δ shifts the stroke mask onto the calmest portions of the IMU signal, so the right δ shows up as a clear minimum of the mean accelerometer variance under the shifted mask.
+The idea: while the pen is touching paper, the wrist holding the watch stays comparatively still — strokes are short and the motion is constrained. So the correct δ shifts the stroke mask onto the calmest parts of the IMU signal, and we can find it by minimising the mean accelerometer variance under the shifted mask.
 
 ```
                 δ wrong                                δ correct
@@ -351,17 +351,17 @@ We recover the per-session offset **δ** automatically using a **stroke-window v
          strokes overlap motion                  strokes sit on quiet IMU
 ```
 
-**Search.** Coarse pass (±20 s @ 0.5 s) handles BLE buffering and clock drift; fine pass (±5 s @ 10 ms) refines around the coarse minimum. Confidence is reported as `sigma_minimal_variance` — a z-score of the minimum vs the search-grid distribution. More negative = stronger alignment.
+The search runs in two passes: a coarse one (±20 s in 0.5 s steps) handles BLE buffering and clock drift, then a fine one (±5 s in 10 ms steps) refines around the coarse minimum. We report the confidence as `sigma_minimal_variance` — a z-score of the minimum against the rest of the search grid. More negative means a clearer alignment.
 
-**Wiring.** `merge_watch_pen()` calls `match_pen_data()`, applies δ to `pen.local_ts_ms`, then runs a **watch-base** `merge_asof` within ±40 ms — every watch sample is preserved and gets `label_writing = 1` iff the nearest pen `dot_type` is `PEN_DOWN`/`PEN_MOVE` within tolerance, else `0`. When the signal is weak (`sigma > -2`) the δ shift is skipped and the quality engine surfaces a `low_sync_confidence` (warn) or `sync_failed` (bad) issue. For ML training the practical filter is stricter: **σ ≤ -3** (borderline σ values around -2 sometimes find spurious local minima).
+`merge_watch_pen()` calls `match_pen_data()`, shifts `pen.local_ts_ms` by δ, then runs a watch-based `merge_asof` within ±40 ms. Every watch sample is preserved and gets `label_writing = 1` if the nearest pen `dot_type` is `PEN_DOWN` or `PEN_MOVE` within tolerance, else `0`. If the signal is too weak (`sigma > -2`) we skip the δ shift and the quality engine flags the session as `low_sync_confidence` (warn) or `sync_failed` (bad). For actual training we apply a stricter filter of `σ ≤ -3` — we noticed that values around -2 sometimes lock onto spurious local minima.
 
-This replaced an earlier plan to require a tap-sync recording protocol (3× tap with the watch hand at session start). Subjects no longer have to do anything special — alignment is fully post-hoc.
+This replaced an earlier idea to require a tap-sync protocol at the start of each recording (3× tap with the watch hand). We're glad we didn't go that route — alignment is now fully post-hoc and probands don't have to do anything special.
 
 ---
 
 ## Quality Checks
 
-Each session is scored against a fixed set of checks defined in `quality.py`. Every issue carries `code`, `check`, `threshold`, `observed`, and a short `rationale` so it's clear *why* a warning fired and what the assumption behind it was — useful when deciding whether the threshold itself needs adjusting.
+Each session is scored against a fixed set of checks defined in `quality.py`. Every issue carries `code`, `check`, `threshold`, `observed`, and a short `rationale` — so when a warning fires it's clear *why* and what assumption the threshold reflects. That came in handy: the first version of these checks had three thresholds set wrong, and we only noticed when we could actually read why each one was warning.
 
 | Check | Target |
 |-------|--------|
