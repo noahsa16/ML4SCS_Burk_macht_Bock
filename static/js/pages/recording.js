@@ -11,7 +11,7 @@ import { S } from '/static/js/core/state.js';
 import { setNumberSmooth } from '/static/js/core/anim.js';
 import { toast } from '/static/js/core/toast.js';
 import { renderState } from '/static/js/core/states.js';
-import { renderStudyView } from '/static/js/pages/recording-study.js';
+import { renderStudyView, primeStudyAudio } from '/static/js/pages/recording-study.js';
 
 // ════════════════════════════════════════════════════════════
 //  STUDY MODE — toggle + protocol picker
@@ -452,6 +452,10 @@ export async function toggleSession() {
   if (!preflight.canStart) return;
 
   if (_recMode === 'study') {
+    // Why: must run inside the START click's gesture stack to unlock
+    // the AudioContext. Once primed, tick/chime cues can fire from
+    // WS ticks for the rest of the session.
+    primeStudyAudio();
     const protocolId = document.getElementById('protocolSelect')?.value || 'v1';
     const testMode = document.getElementById('testModeCheck')?.checked === true;
     const res = await api('/study/start', 'POST', {

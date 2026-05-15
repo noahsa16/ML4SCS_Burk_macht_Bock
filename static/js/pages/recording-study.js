@@ -36,6 +36,25 @@ function _audio() {
   return _audioCtx;
 }
 
+// Why: AudioContext can only leave 'suspended' state in response to a
+// user gesture. Tick/chime calls fire from WS ticks (no gesture stack),
+// so we must construct + resume the ctx inside the START STUDY click
+// handler. Plays a near-silent 1-sample tick to actually unlock audio
+// on Safari (resume() alone is not always enough there).
+export function primeStudyAudio() {
+  const ctx = _audio();
+  if (!ctx) return;
+  try {
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    g.gain.value = 0.0001;
+    osc.connect(g);
+    g.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.01);
+  } catch { /* nothing to do */ }
+}
+
 function _tone(freq, duration, gain = 0.08) {
   const ctx = _audio();
   if (!ctx) return;
@@ -226,6 +245,9 @@ export function renderStudyView(s) {
 }
 
 export async function studyCmd(cmd) {
+  // Why: every VL gesture in the study view is also a chance to unlock
+  // audio if the page was reloaded mid-session and missed the START click.
+  primeStudyAudio();
   const endpoint = cmd === 'pause' ? '/study/pause'
                  : cmd === 'next'  ? '/study/next'
                  : cmd === 'abort' ? '/study/abort'

@@ -123,6 +123,51 @@ def test_latin_square_balanced_across_6_subjects():
         assert sorted(pos) == ["a", "a", "b", "b", "c", "c"]
 
 
+def test_duration_jitter_preserves_total_and_bounds():
+    p = StudyProtocol(
+        id="t", name="t", pre_task_seconds=5,
+        randomize=False, interleave="latin_square",
+        duration_jitter_pct=0.15,
+        tasks=[
+            StudyTask(id="a", label="A", category="writing", duration_seconds=240, instruction="i"),
+            StudyTask(id="b", label="B", category="writing", duration_seconds=240, instruction="i"),
+            StudyTask(id="c", label="C", category="writing", duration_seconds=240, instruction="i"),
+            StudyTask(id="pause", label="P", category="idle", duration_seconds=90, instances=2, instruction="i"),
+        ],
+    )
+    # Try several seeds — sum must hold for all, durations must stay in bounds, idle untouched.
+    saw_variation = False
+    for seed in range(20):
+        sched = build_schedule(p, seed=seed, subject_index=1)
+        writing = [s for s in sched if s.category == "writing"]
+        idle = [s for s in sched if s.category == "idle"]
+        assert sum(s.effective_duration_seconds for s in writing) == 240 * 3
+        for s in writing:
+            assert abs(s.effective_duration_seconds - 240) <= 240 * 0.15 + 1
+        for s in idle:
+            assert s.effective_duration_seconds == s.task.duration_seconds
+        if any(s.effective_duration_seconds != 240 for s in writing):
+            saw_variation = True
+    assert saw_variation, "Jitter never produced a different duration — RNG dead?"
+
+
+def test_zero_jitter_is_noop():
+    p = StudyProtocol(
+        id="t", name="t", pre_task_seconds=5,
+        randomize=False, interleave="latin_square",
+        duration_jitter_pct=0.0,
+        tasks=[
+            StudyTask(id="a", label="A", category="writing", duration_seconds=240, instruction="i"),
+            StudyTask(id="b", label="B", category="writing", duration_seconds=240, instruction="i"),
+            StudyTask(id="c", label="C", category="writing", duration_seconds=240, instruction="i"),
+            StudyTask(id="pause", label="P", category="idle", duration_seconds=90, instances=2, instruction="i"),
+        ],
+    )
+    sched = build_schedule(p, seed=0, subject_index=1)
+    for s in sched:
+        assert s.effective_duration_seconds == s.task.duration_seconds
+
+
 def test_latin_square_without_subject_index_falls_back_to_random():
     """If subject_index is None and interleave='latin_square', behave like writing_with_pauses (graceful degrade)."""
     p = StudyProtocol(
