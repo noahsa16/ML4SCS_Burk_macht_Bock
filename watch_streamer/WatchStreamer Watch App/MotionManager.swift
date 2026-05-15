@@ -18,6 +18,11 @@ class MotionManager: NSObject, ObservableObject {
 
     private var buffer: [[String: Any]] = []
     private var nextSequence = 0
+    // Why: WCSession-Race — replyHandler kann auch nach errorHandler eintreffen
+    // (Reply-Timeout, aber iPhone hatte die Message). Set hält fest, welche
+    // Sequenzen noch unbestätigt sind; der zuerst feuernde Handler entfernt
+    // die seq und macht die Aktion (deliver oder fallback) — der zweite no-op.
+    private var inFlightSequences: Set<Int> = []
     private var workoutSession: HKWorkoutSession?
     private var workoutBuilder: HKLiveWorkoutBuilder?
     private var finishingWorkout = false
@@ -136,6 +141,7 @@ class MotionManager: NSObject, ObservableObject {
     private func resetRunCounters() {
         buffer.removeAll()
         nextSequence = 0
+        inFlightSequences.removeAll()
         rawSampleCount = 0
         rawLastAccMag = 0
         rawLastGyroMag = 0
@@ -201,19 +207,32 @@ class MotionManager: NSObject, ObservableObject {
             return false
         }
         let message: [String: Any] = ["payload": payloadData]
+        let seq = nextSequence
+        inFlightSequences.insert(seq)
         backgroundQueuedSampleCount += samples.count
 
         WCSession.default.sendMessage(message, replyHandler: { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
+                // Why: wenn errorHandler bereits gefeuert hat (Reply-Timeout-Race),
+                // ist seq weg und der Fallback wurde schon angestoßen. Dann nur
+                // den UI-Counter aktualisieren, nicht doppelt zählen.
+                let stillInFlight = self.inFlightSequences.remove(seq) != nil
                 self.deliveredSampleCount += samples.count
                 self.backgroundQueuedSampleCount = max(0, self.backgroundQueuedSampleCount - samples.count)
                 self.status = self.isRunning ? "Recording" : "Stopped"
                 self.uploadMode = "Bridge"
+                _ = stillInFlight
             }
         }, errorHandler: { [weak self] error in
             DispatchQueue.main.async {
                 guard let self else { return }
+                // Why: nur fallback'n, wenn replyHandler noch nicht gewonnen hat.
+                // Verhindert die zweite Lieferung desselben Batches via
+                // transferUserInfo, wenn das iPhone die Message schon hatte.
+                guard self.inFlightSequences.remove(seq) != nil else {
+                    return
+                }
                 self.queueBridgeTransfer(message, reason: error.localizedDescription)
             }
         })

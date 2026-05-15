@@ -213,6 +213,49 @@ def test_session_id_skips_stale_csv_via_endpoint(client, data_dirs):
 
 # ── Quality endpoint (covers streams_do_not_overlap) ──────────────────────────
 
+def test_delete_then_reuse_session_persists_new_data(client, data_dirs):
+    """Regression for S004 bug: DELETE a session, then start a new one that
+    reuses the freed ID — fresh watch data must land on disk.
+
+    The leak was: delete unlinks the watch CSV but the cached writer in
+    `_watch_writers` keeps a handle on the deleted inode. The next session
+    under the same ID gets the stale writer and all writes go to /dev/null.
+    """
+    payload = {
+        "samples": [_imu_sample(1000 + i * 20) for i in range(5)],
+        "sequence": 0,
+        "sampleRateHz": 50.0,
+        "watchSentAt": 1_700_000_000_000,
+        "phoneReceivedAt": 1_700_000_000_010,
+        "source": "watch_phone_bridge",
+    }
+
+    # First session that gets deleted after some writes.
+    r = client.post("/session/start", json={"person_id": "X"})
+    sid = r.json()["session_id"]
+    payload["sessionId"] = sid
+    assert client.post("/watch", json=payload).status_code == 200
+    assert client.post("/session/stop").status_code == 200
+    assert client.delete(f"/sessions/{sid}").status_code == 200
+
+    # Second session — _next_session_id frees the ID after delete, so this
+    # gets the same SID. New samples must end up on disk.
+    r2 = client.post("/session/start", json={"person_id": "Y"})
+    assert r2.json()["session_id"] == sid
+    payload["sessionId"] = sid
+    payload["sequence"] = 1
+    payload["samples"] = [_imu_sample(2000 + i * 20) for i in range(7)]
+    assert client.post("/watch", json=payload).status_code == 200
+    _flush_watch_writers()
+
+    new_csv = data_dirs.watch / f"{sid}_watch.csv"
+    assert new_csv.exists(), "CSV must be (re)created for the new session"
+    with open(new_csv) as f:
+        rows = list(csv.DictReader(f))
+    # 7 fresh samples must persist — pre-fix this was 0.
+    assert len(rows) == 7
+
+
 def test_streams_do_not_overlap_via_validation_endpoint(client, data_dirs):
     """Pen at 10:00–10:30, Watch at 11:00–11:30 → overlap-check must fire."""
     sid = "S010"

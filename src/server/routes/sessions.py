@@ -21,7 +21,7 @@ from ..csv_io import (
 )
 from ..config import ROOT
 from ..models import SessionStartBody
-from ..pen_proc import _start_pen, _stop_pen
+from ..pen_proc import _rotate_pen, _start_pen, _stop_pen
 from ..quality import (
     _session_quality, _session_quality_cols, _session_validation,
     _session_report, _session_report_markdown,
@@ -232,14 +232,23 @@ async def delete_session(session_id: str):
 
     # Why: collect candidate paths from all known data dirs so an old
     # CSV-less session (manual upload) still gets cleaned up.
+    watch_path = DATA_RAW_WATCH / f"{session_id}_watch.csv"
+    airpods_path = DATA_RAW_AIRPODS / f"{session_id}_airpods.csv"
     candidates = [
         DATA_RAW_PEN / f"{session_id}_pen.csv",
-        DATA_RAW_WATCH / f"{session_id}_watch.csv",
-        DATA_RAW_AIRPODS / f"{session_id}_airpods.csv",
+        watch_path,
+        airpods_path,
         ROOT / "data" / "processed" / f"{session_id}_merged.csv",
         ROOT / "data" / "processed" / f"{session_id}_windows.csv",
         ROOT / "models" / f"rf_{session_id}.joblib",
     ]
+    # Why: any cached open writer for these files must be closed *before*
+    # unlink, otherwise we leak a file handle to a deleted inode. If the
+    # session ID is later reused (next_session_id frees deleted IDs), the
+    # cache returns the stale writer and all writes vanish into the void.
+    # Reproducible failure in S004: 2500 samples counted, 0 persisted.
+    close_watch_writer(watch_path)
+    close_airpods_writer(airpods_path)
     deleted_files: list[str] = []
     for p in candidates:
         try:
@@ -415,10 +424,15 @@ async def _start_session_internal(
             "subject_index": "" if subject_index is None else str(subject_index),
         })
 
-    # Falls der Pen noch mit "unsessioned" läuft, neu starten unter der richtigen Session-ID
+    # Falls der Pen mit "unsessioned" (no_write) läuft, in-place auf die echte
+    # Session-ID umrouten, ohne BLE zu trennen. Wenn die Rotate-Pipe nicht
+    # verfügbar ist (z. B. ältere pen_logger-Version), fall zurück auf den
+    # alten Kill+Restart-Pfad.
     if state.pen_proc and state.pen_proc.returncode is None and state.pen_session_id == "unsessioned":
-        await _stop_pen()
-        await _start_pen(session_id)
+        rotated = await _rotate_pen(session_id, no_write=False)
+        if not rotated:
+            await _stop_pen()
+            await _start_pen(session_id)
 
     state.append_event("session", "info", f"Session {session_id} started", {
         "person_id": person_id,
