@@ -90,4 +90,7 @@ Per-fold accuracies all sit in a tight `[0.83, 0.88]` band, which we found prett
 
 ### Taji
 
-- _to be filled in_
+- Worked on understanding and practicing the preprocessing pipeline for the pen and smartwatch data.
+- Reviewed how raw sensor data is prepared, structured, and aligned for later machine learning tasks.
+- Focused on the preprocessing logic step by step in order to better understand the workflow and its role in the overall project.
+- Strengthened understanding of how preprocessing supports later synchronization, feature extraction, and model preparation.
