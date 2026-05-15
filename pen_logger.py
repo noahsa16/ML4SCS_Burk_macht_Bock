@@ -35,6 +35,7 @@ Output
 
 import asyncio
 import csv
+import json
 import signal
 import struct
 import sys
@@ -454,6 +455,63 @@ async def run(password: str = "0000", output_path: str | None = None,
     loop.add_signal_handler(signal.SIGINT,
                             lambda: stop.done() or stop.set_result(None))
 
+    # Why: control channel from the server. We accept JSON lines on stdin like
+    # {"command": "rotate", "session_id": "S004", "no_write": false} so the
+    # server can re-target the CSV output on session start without killing the
+    # BLE connection. Previously every session start triggered a SIGINT + new
+    # subprocess + BLE re-handshake (~5–10 s where the pen LED visibly drops).
+    async def _command_reader():
+        nonlocal csvf, wr, fname, no_write
+        try:
+            reader = asyncio.StreamReader()
+            await loop.connect_read_pipe(
+                lambda: asyncio.StreamReaderProtocol(reader), sys.stdin,
+            )
+        except Exception as exc:
+            print(f"[CTRL] stdin not pipe-able ({exc!r}); rotate disabled")
+            return
+        while not stop.done():
+            try:
+                line = await reader.readline()
+            except Exception as exc:
+                print(f"[CTRL] stdin read error: {exc!r}")
+                return
+            if not line:
+                return
+            text = line.decode(errors="replace").strip()
+            if not text:
+                continue
+            try:
+                cmd = json.loads(text)
+            except json.JSONDecodeError:
+                print(f"[CTRL] bad JSON: {text[:120]!r}")
+                continue
+            if cmd.get("command") != "rotate":
+                print(f"[CTRL] unknown command: {cmd!r}")
+                continue
+            new_sid = cmd.get("session_id")
+            new_no_write = bool(cmd.get("no_write", False))
+            if csvf is not None:
+                try:
+                    csvf.flush()
+                    csvf.close()
+                except Exception:
+                    pass
+            csvf, wr = None, None
+            if new_no_write or not new_sid:
+                fname = "<discard>"
+            else:
+                new_path = str(
+                    Path(__file__).parent / "data" / "raw" / "pen"
+                    / f"{new_sid}_pen.csv"
+                )
+                fname = new_path
+                csvf, wr = _prepare_csv(new_path)
+            no_write = new_no_write
+            print(f"[ROTATE] session={new_sid} no_write={no_write} fname={fname}")
+
+    cmd_task = asyncio.create_task(_command_reader())
+
     # ── Scan ──────────────────────────────────────────────────────────────────
     device = await find_pen()
     if device is None:
@@ -632,6 +690,12 @@ async def run(password: str = "0000", output_path: str | None = None,
                 await client.stop_notify(noti_ch)
             except Exception:
                 pass
+
+    cmd_task.cancel()
+    try:
+        await cmd_task
+    except (asyncio.CancelledError, Exception):
+        pass
 
     if parser.parse_errors:
         print(f"[WARN] {parser.parse_errors} malformed BLE packet(s) discarded")

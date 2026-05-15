@@ -72,17 +72,39 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
     server_time_rows = sum(1 for r in watch_rows if r["has_server_ms"])
     pen_server_time_rows = sum(1 for r in pen_rows if r["has_local_ts_ms"])
 
-    # Sequence-Lücken
+    # Sequence-Lücken (Batches die zwischen min/max sequence fehlen)
     last_seq = None
     distinct_seqs: list[int] = []
+    seq_to_local_ms: dict[int, int] = {}
+    seq_to_batch_size: dict[int, int] = {}
     for r in watch_rows:
         seq = r.get("sequence")
-        if seq is not None and seq != last_seq:
+        if seq is None:
+            continue
+        if seq != last_seq:
             distinct_seqs.append(seq)
             last_seq = seq
+        seq_to_batch_size[seq] = seq_to_batch_size.get(seq, 0) + 1
+        if seq not in seq_to_local_ms and r.get("local_ts") is not None:
+            seq_to_local_ms[seq] = int(r["local_ts"])
     sequence_gaps = sum(
         cur - prev - 1 for prev, cur in zip(distinct_seqs, distinct_seqs[1:]) if cur > prev + 1
     )
+    # Why: Gaps als Regionen aggregieren — fortlaufende Lücken (z. B. nach #909
+    # fehlt 910..941, das sind 32 batches in einer einzigen Region) wollen wir
+    # nicht als 32 Issues melden, sondern als eine Lücke mit Größe + Zeitanker.
+    gap_regions: list[dict[str, Any]] = []
+    for prev, cur in zip(distinct_seqs, distinct_seqs[1:]):
+        if cur > prev + 1:
+            gap_regions.append({
+                "after_seq": prev,
+                "next_seq": cur,
+                "missing": cur - prev - 1,
+                # Wall-clock-Anker am Batch *direkt vor* der Lücke — hilft beim
+                # Korrelieren mit Netz/UI-Events.
+                "around_local_ts_ms": seq_to_local_ms.get(prev),
+            })
+    sequence_max_batch_size = max(seq_to_batch_size.values()) if seq_to_batch_size else 0
 
     # Hz-Schätzung
     watch_ts_values = [r["source_ts"] for r in watch_rows if r["source_ts"] is not None]
@@ -186,6 +208,10 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
             "estimated_hz": watch_est_hz,
             "sequence_gaps": sequence_gaps,
             "sequence_batches": len(distinct_seqs),
+            "sequence_gap_regions": gap_regions,
+            "sequence_max_batch_size": sequence_max_batch_size,
+            "sequence_seq_min": distinct_seqs[0] if distinct_seqs else None,
+            "sequence_seq_max": distinct_seqs[-1] if distinct_seqs else None,
             "clock": watch_clock,
             "expected_samples": expected_watch_samples,
             "session_csv_count": session_watch_samples,
@@ -271,9 +297,20 @@ def _build_issues(facts: dict[str, Any]) -> list[dict[str, Any]]:
         ))
 
     if w["sequence_gaps"]:
+        regions = w.get("sequence_gap_regions", [])
+        # Why: Erste paar Regionen direkt im observed-String zeigen, damit das
+        # Issue-Chip in der UI ohne Drill-Down schon sagt wo das Problem sitzt.
+        preview = ", ".join(
+            f"nach #{r['after_seq']} ({r['missing']})" for r in regions[:3]
+        )
+        more = f", +{len(regions) - 3} weitere" if len(regions) > 3 else ""
         out.append(_make_issue(
             "sequence_gaps",
-            observed=f"{w['sequence_gaps']} fehlende Batch-Nummer(n)",
+            observed=(
+                f"{w['sequence_gaps']} fehlende Batch-Nummer(n) "
+                f"in {len(regions)} Lücke(n)"
+                + (f" — {preview}{more}" if preview else "")
+            ),
         ))
 
     if not is_active and w["row_count"] != w["session_csv_count"]:
@@ -446,6 +483,10 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
             "server_received_ms_rows": w["server_time_rows"],
             "sequence_batches": w["sequence_batches"],
             "sequence_gaps": w["sequence_gaps"],
+            "sequence_gap_regions": w["sequence_gap_regions"],
+            "sequence_max_batch_size": w["sequence_max_batch_size"],
+            "sequence_seq_min": w["sequence_seq_min"],
+            "sequence_seq_max": w["sequence_seq_max"],
         },
         "pen": {
             "path": p["path"],
@@ -658,6 +699,14 @@ def _session_validation(session_id: str) -> dict[str, Any]:
         },
         "sync_estimate": sync,
         "sync_diagnostic": _sync_diagnostic(sync),
+        "sequence": {
+            "batches": w["sequence_batches"],
+            "gaps": w["sequence_gaps"],
+            "regions": w["sequence_gap_regions"],
+            "max_batch_size": w["sequence_max_batch_size"],
+            "seq_min": w["sequence_seq_min"],
+            "seq_max": w["sequence_seq_max"],
+        },
         "timeline_for_chart": {
             "session_start_ms": local_session_start,
             "watch_start_s": (
@@ -930,6 +979,23 @@ def _session_report_markdown(report: dict[str, Any]) -> str:
              f"({fmt_num(w['gyroscope_rows'])} rows) | required |")
     L.append(f"| Wall-clock stamp | {'yes' if w['has_server_received_ms'] else '**no**'} | required |")
     L.append(f"| Sequence batches | {fmt_num(w['sequence_batches'])} (gaps: {fmt_num(w['sequence_gaps'])}) | 0 gaps ideal |")
+    regions = w.get("sequence_gap_regions") or []
+    if regions:
+        L.append("")
+        L.append("**Missing batches** (server-side gaps — Watch sent these but they never landed in the CSV):")
+        L.append("")
+        L.append("| After seq | Missing | Next seq | Wall-clock |")
+        L.append("|---|---|---|---|")
+        for r in regions[:20]:
+            ts_ms = r.get("around_local_ts_ms")
+            ts_iso = (
+                datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).strftime("%H:%M:%S")
+                if isinstance(ts_ms, (int, float)) else "—"
+            )
+            L.append(f"| #{r['after_seq']} | {r['missing']} | #{r['next_seq']} | {ts_iso} |")
+        if len(regions) > 20:
+            L.append(f"| … | … | … | (+{len(regions) - 20} more) |")
+        L.append("")
     L.append("")
     if isinstance(est_hz, (int, float)):
         L.append(f"Rate vs. target: {bar(est_hz / target_hz)}")

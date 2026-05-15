@@ -61,6 +61,14 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     private var isUploading = false
     private var disconnectDebounce: DispatchWorkItem?
 
+    // Why: WatchConnectivity liefert denselben Batch manchmal zweimal aus
+    // (replyHandler-Timeout → Watch queued fallback via transferUserInfo,
+    // obwohl iPhone die Live-Message schon hatte). Dedup-Key = sessionId+seq.
+    // Bounded LRU verhindert unbegrenztes Wachstum bei langen Sessions.
+    private var seenBatchKeys: Set<String> = []
+    private var seenBatchOrder: [String] = []
+    private static let seenBatchCapacity = 1024
+
     /// Background queue für JSON-Encoding und Magnituden-Berechnung. UserInitiated
     /// QoS, weil's am Live-Datenpfad hängt — aber wir wollen den Main-Thread
     /// für UI freihalten.
@@ -231,6 +239,8 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         lastError = ""
         failedUploadCount = 0
         droppedBatchCount = 0
+        seenBatchKeys.removeAll(keepingCapacity: true)
+        seenBatchOrder.removeAll(keepingCapacity: true)
     }
 
     // MARK: – Receive (off-main heavy work)
@@ -266,6 +276,13 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             }
 
             DispatchQueue.main.async {
+                // Dedup: WatchConnectivity kann denselben Batch via Live+Fallback
+                // doppelt liefern. Wir gaten alles (receivedSampleCount, Queue,
+                // Chart) hinter dem (sessionId, sequence)-Check.
+                if self.isDuplicateBatch(normalized) {
+                    return
+                }
+
                 self.receivedSampleCount += samples.count
 
                 // Queue-Cap mit drop-oldest.
@@ -285,6 +302,33 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             }
         }
         return true
+    }
+
+    /// Returns true if this (sessionId, sequence) has already been processed.
+    /// Idempotent in the false branch — only inserts when unseen.
+    /// Must be called on main.
+    private func isDuplicateBatch(_ normalized: [String: Any]) -> Bool {
+        let sessionId = (normalized["sessionId"] as? String) ?? "_"
+        let seqRaw: Int?
+        if let i = normalized["sequence"] as? Int { seqRaw = i }
+        else if let d = normalized["sequence"] as? Double { seqRaw = Int(d) }
+        else if let s = normalized["sequence"] as? String { seqRaw = Int(s) }
+        else { seqRaw = nil }
+        // Without a sequence we can't dedup → pass through (better to over-count
+        // than to drop legitimate data).
+        guard let seq = seqRaw else { return false }
+
+        let key = "\(sessionId)#\(seq)"
+        if seenBatchKeys.contains(key) {
+            return true
+        }
+        seenBatchKeys.insert(key)
+        seenBatchOrder.append(key)
+        if seenBatchOrder.count > Self.seenBatchCapacity {
+            let drop = seenBatchOrder.removeFirst()
+            seenBatchKeys.remove(drop)
+        }
+        return false
     }
 
     private func normalizePayload(_ payload: [String: Any], source: String) -> [String: Any]? {

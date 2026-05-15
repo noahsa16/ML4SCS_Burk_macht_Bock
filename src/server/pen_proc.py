@@ -7,6 +7,7 @@ in den Event-Log weitergeleitet.
 """
 
 import asyncio
+import json
 import signal
 import sys
 from typing import Any
@@ -77,6 +78,7 @@ async def _start_pen(session_id: str, *, no_write: bool = False) -> dict[str, An
         state.pen_proc = await asyncio.create_subprocess_exec(
             sys.executable, "-u",
             str(ROOT / "pen_logger.py"), "--session", session_id, *extra_args,
+            stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
         )
@@ -128,6 +130,44 @@ async def _supervise_pen(proc: asyncio.subprocess.Process):
     if state.pen_stop_requested:
         return
     await _start_pen(session_id, no_write=no_write)
+
+
+async def _rotate_pen(session_id: str, *, no_write: bool = False) -> bool:
+    """Re-target the running pen_logger to a new session_id without
+    disconnecting BLE.
+
+    Sends a JSON `rotate` command over stdin. pen_logger closes its current
+    CSV, opens `data/raw/pen/{session_id}_pen.csv`, and resumes writing
+    incoming dots there. The BLE connection is untouched, so the user does
+    not see a "pen disconnected" flicker on session start.
+
+    Returns True if the rotate command was delivered (does not wait for
+    confirmation — pen_logger applies it on its next stdin read tick).
+    Returns False if no pen_logger is running or stdin is not writable.
+    """
+    proc = state.pen_proc
+    if proc is None or proc.returncode is not None or proc.stdin is None:
+        return False
+    payload = json.dumps({
+        "command": "rotate",
+        "session_id": session_id,
+        "no_write": no_write,
+    }) + "\n"
+    try:
+        proc.stdin.write(payload.encode())
+        await proc.stdin.drain()
+    except (BrokenPipeError, ConnectionResetError, RuntimeError) as exc:
+        state.append_event("pen", "warn",
+            f"Could not rotate pen logger ({exc!r}); falling back to restart",
+            {"session_id": session_id})
+        return False
+    state.pen_session_id = session_id
+    state.pen_no_write = no_write
+    state.append_event("pen", "info", "Pen logger rotated", {
+        "session_id": session_id,
+        "no_write": no_write,
+    })
+    return True
 
 
 async def _stop_pen():
