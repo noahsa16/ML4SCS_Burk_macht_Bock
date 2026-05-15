@@ -437,6 +437,24 @@ export function startTimer() {
 // ════════════════════════════════════════════════════════════
 //  SESSION CONTROL
 // ════════════════════════════════════════════════════════════
+async function _suggestNextPersonId() {
+  const el = document.getElementById('personId');
+  if (!el) return;
+  // Why: only overwrite the hardcoded placeholder "P01"; respect anything the VL already typed.
+  if (el.value.trim() && el.value.trim().toUpperCase() !== 'P01') return;
+  try {
+    const rows = await api('/sessions');
+    const re = /^P(\d{1,3})$/i;
+    let maxN = 0;
+    for (const r of (rows || [])) {
+      const m = (r.person_id || '').trim().match(re);
+      if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
+    }
+    const next = String(maxN + 1).padStart(2, '0');
+    el.value = `P${next}`;
+  } catch {}
+}
+
 export async function toggleSession() {
   if (S.sessionActive) {
     const res = await api('/session/stop', 'POST');
@@ -654,6 +672,8 @@ export function mount(container) {
   const timerEl = document.getElementById('timer');
   if (timerEl) timerEl.textContent = '00:00:00';
   setLogRows(S.logRows);
+
+  _suggestNextPersonId();
 
   const dismissBtn = document.getElementById('welcomeDismiss');
   if (dismissBtn) {
