@@ -394,16 +394,30 @@ no longer vibrates continuously when the server is down.
 - `scripts/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag.
-- `forecast/learning_curve_forecast.py` + `forecast/learning_curve_dl.py`
-  — enumerate all (n_train, train_combo, test_p)-splits, fit
-  power-law saturation curves per model, extrapolate to n=99. The
-  `_dl` version adds PyTorch baselines (DeepMLP, 1D-CNN, BiLSTM,
-  TinyTransformer); `--device {auto,cpu,mps,cuda}` switches the
-  training backend. Outputs (PNG + CSV) land next to the scripts in
-  `forecast/`. Run via `PYTHONPATH=. python forecast/learning_curve_dl.py`.
-  Lives in `forecast/` (not `scripts/`) to keep research-grade
-  prognosis tooling and its artefacts separate from the operational
-  pipeline.
+- `forecast/learning_curve.py` (+ shared helpers in `forecast/_common.py`)
+  — enumerate all (n_train, train_combo, test_p)-splits for
+  k=1..n_persons-1, fit power-law saturation curves per model,
+  extrapolate to n=99. Runs both classical sklearn baselines
+  (ExtraTrees / RandomForest / HistGradBoost / LogReg on the 88
+  engineered features) **and** PyTorch architectures (DeepMLP on
+  features; 1D-CNN / BiLSTM / TinyTransformer on raw IMU 50x6) in a
+  single pass. `--device {auto,cpu,mps,cuda}` switches the torch
+  backend. Outputs are tagged with the proband-count so successive
+  runs are comparable: `learning_curve_n{N}.csv` (forecast),
+  `learning_curve_raw_all_n{N}.csv` (per-fold rohwerte),
+  `learning_curve_n{N}.png`. Run via
+  `PYTHONPATH=. python forecast/learning_curve.py`. Lives in
+  `forecast/` (not `scripts/`) to keep research-grade prognosis
+  tooling and its artefacts separate from the operational pipeline.
+- `forecast/compare_runs.py` — liest alle vorhandenen
+  `learning_curve_raw_all_n*.csv`, fittet das Power-Law pro
+  (Modell, N_run) neu und rendert `learning_curve_compare.html` mit
+  zwei interaktiven Subplots: oben die Lernkurven (ältere Runs
+  gepunktet/transparent, neuester Run solid), unten die Asymptote
+  C vs N pro Modell. Letzteres ist der eigentliche
+  Forecast-Stabilitätsindikator — solange C noch wandert, ist die
+  Datenbasis zu klein. Run via
+  `PYTHONPATH=. python forecast/compare_runs.py`.
 - `src/evaluation/evaluate.py` — placeholder that loads
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
@@ -661,7 +675,7 @@ gesture produces different absolute feature values on different
 wrists. Per-session standardization removes the absolute-scale
 component while preserving the relative structure within a session.
 Lives in `_zscore_per_session()` in `train_loso.py` (and a copy in
-`compare_models.py` / `learning_curve_*.py`). Caveat for deployment:
+`compare_models.py` / `forecast/_common.py`). Caveat for deployment:
 production needs a calibration phase (or rolling stats) to estimate
 μ, σ from the live stream before the model can be applied.
 
@@ -674,7 +688,7 @@ grows but data doesn't. Recorded in `reports/model_progression.md`.
 Worth re-trying at N≥5.
 
 **Feature-engineering hits a ceiling at the 88-feature representation.**
-The learning-curve forecast (`scripts/learning_curve_dl.py`)
+The learning-curve forecast (`forecast/learning_curve.py`)
 extrapolates DeepMLP (on engineered features) to asymptote ~0.87,
 while 1D-CNN and Transformer (on raw IMU) project to ~0.93-0.95 at
 N=50. Read: at larger N, switching to raw-signal models is likely

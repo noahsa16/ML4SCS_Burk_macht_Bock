@@ -1,19 +1,20 @@
-"""Deep-Learning-Erweiterung der Lernkurven-Prognose.
+"""Lernkurven-Prognose ueber alle Modellfamilien.
 
-Trainiert drei Architekturen auf denselben Splits wie der sklearn-Vergleich:
-- DeepMLP: 88 engineered features -> 128 -> 64 -> 32 -> 2 (mit Dropout/BN)
-- 1D-CNN:  raw IMU (50 samples x 6 channels) -> 2x Conv1d -> GAP -> FC
-- Transformer: raw IMU als 50-Token-Sequenz, 6-dim -> linear 32 -> 2x EncoderLayer
+Trainiert klassische sklearn-Modelle (ExtraTrees / RandomForest /
+HistGradBoost / LogReg) auf den 88 engineered features UND PyTorch-
+Architekturen (DeepMLP auf features; 1D-CNN / BiLSTM / Transformer auf
+raw IMU 50x6) auf denselben Person-Splits, misst wie Accuracy mit der
+Anzahl Trainings-Probanden skaliert, und extrapoliert per Power-Law-
+Saettigungsfit auf n=99.
 
-Fuer jede Architektur:
-- n_train=1: alle 3 (train_person, test_person)-Kombinationen mit den
-  anderen 2 als Test (-> 6 Messungen)
-- n_train=2: alle 3 (train_pair, test_person)-Kombinationen (-> 3 Messungen)
+Empirische Stuetzpunkte pro Modell:
+- n_train=k: alle C(n_persons, k) Trainings-Kombinationen, jede
+  verbleibende Person als Test-Fold (k=1..n_persons-1).
 
-
-->trainiert 8 verschiedene Modelle auf allen möglichen Aufteilungen deiner 3 Probanden, misst wie sehr ein Modell besser wird wenn es mehr Probanden im Training sieht, und
-  extrapoliert dann mathematisch, wie die Performance bei 10, 50, oder 100 Probanden aussehen würde.
-
+Outputs (N=Anzahl Probanden in der Datenbasis):
+- forecast/learning_curve_n{N}.csv         -- Power-Law-Prognose pro Modell
+- forecast/learning_curve_raw_all_n{N}.csv -- pro-Fold Rohmessungen
+- forecast/learning_curve_n{N}.png         -- vereinter Graph (alle Modelle)
 """
 
 from __future__ import annotations
@@ -38,7 +39,6 @@ import torch.nn as nn
 from scipy.optimize import curve_fit
 from sklearn.metrics import roc_auc_score
 from torch.utils.data import DataLoader, TensorDataset
-from tqdm.auto import tqdm
 
 ROOT = Path(__file__).resolve().parents[1]
 DATA_PROC = ROOT / "data" / "processed"
@@ -292,15 +292,14 @@ def main():
     args = ap.parse_args()
     global DEVICE
     DEVICE = _resolve_device(args.device)
-    print(f"Device: {DEVICE}")
 
-    print("Loading + windowing sessions...")
-    raw, feat, y, sid_to_person = _load_data()
+    from forecast._ui import boot_sequence, ForecastUI, reveal_finale, CONSOLE
+
+    with CONSOLE.status("[bold cyan]loading sessions + building windows ...",
+                        spinner="dots12"):
+        raw, feat, y, sid_to_person = _load_data()
     persons = sorted(set(sid_to_person.values()))
-    print(f"Persons: {persons}")
-    for p in persons:
-        n = sum(len(y[s]) for s, pp in sid_to_person.items() if pp == p)
-        print(f"  {p}: {n} windows")
+    n_persons = len(persons)
 
     def _stack(sids):
         return (
@@ -319,20 +318,21 @@ def main():
         "Transformer": (TinyTransformer, "raw"),
     }
 
-    # Build DL + sklearn job lists upfront so we can show ONE master progress bar.
-    from forecast.learning_curve_forecast import (
-        _load_windows, _zscore_per_session, _models as sk_models, _train_test,
+    from forecast._common import (
+        load_windows, zscore_per_session, sklearn_models, train_test_sklearn,
     )
-    sk_model_objs = sk_models()
+    sk_model_objs = sklearn_models()
 
-    all_w = _load_windows()
+    all_w = load_windows()
     feat_cols_sk = [c for c in all_w.columns if c not in
                     {"label", "t_center_ms", "session_id", "person_id",
                      "task_id", "task_category"}]
-    all_w = _zscore_per_session(all_w, feat_cols_sk)
+    all_w = zscore_per_session(all_w, feat_cols_sk)
+
+    n_train_range = range(1, n_persons)
 
     dl_jobs = []
-    for n_train in (1, 2):
+    for n_train in n_train_range:
         for train_combo in combinations(persons, n_train):
             test_persons = [p for p in persons if p not in train_combo]
             for test_p in test_persons:
@@ -341,7 +341,7 @@ def main():
                                     name, builder, kind))
 
     sk_jobs = []
-    for n_train in (1, 2):
+    for n_train in n_train_range:
         for train_combo in combinations(persons, n_train):
             test_persons = [p for p in persons if p not in train_combo]
             for test_p in test_persons:
@@ -350,71 +350,117 @@ def main():
                                     name, model))
 
     total = len(dl_jobs) + len(sk_jobs)
-    print(f"\nGesamt: {total} Fits ({len(dl_jobs)} Deep Learning + {len(sk_jobs)} sklearn)\n")
-    bar = tqdm(total=total, desc="Lernkurve", unit="fit", colour="cyan")
+    boot_sequence(persons, DEVICE, total)
 
-    rows = []  # DL rows
-    for _, n_train, train_combo, test_p, name, builder, kind in dl_jobs:
-        bar.set_postfix_str(f"DL  n={n_train} {'+'.join(train_combo)}→{test_p} | {name}")
-        train_sids = [s for p in train_combo for s in sids_by_person[p]]
-        test_sids = sids_by_person[test_p]
-        Xraw_tr, Xfeat_tr, ytr = _stack(train_sids)
-        Xraw_te, Xfeat_te, yte = _stack(test_sids)
-        X_tr = Xraw_tr if kind == "raw" else Xfeat_tr
-        X_te = Xraw_te if kind == "raw" else Xfeat_te
-        r = _torch_run(builder, X_tr, ytr, X_te, yte, desc=name)
-        rows.append({"model": name, "n_train": n_train,
-                     "test_person": test_p, **r})
-        bar.update(1)
+    model_order_ui = ["ExtraTrees", "RandomForest", "HistGradBoost", "LogReg",
+                      "DeepMLP", "1D-CNN", "BiLSTM", "Transformer"]
+    n_train_values = list(n_train_range)
+
+    rows = []       # DL rows
+    sk_rows = []    # SK rows
+    with ForecastUI(persons, model_order_ui, n_train_values, total) as ui:
+        for _, n_train, train_combo, test_p, name, builder, kind in dl_jobs:
+            ui.start_job("DL", n_train, train_combo, test_p, name)
+            train_sids = [s for p in train_combo for s in sids_by_person[p]]
+            test_sids = sids_by_person[test_p]
+            Xraw_tr, Xfeat_tr, ytr = _stack(train_sids)
+            Xraw_te, Xfeat_te, yte = _stack(test_sids)
+            X_tr = Xraw_tr if kind == "raw" else Xfeat_tr
+            X_te = Xraw_te if kind == "raw" else Xfeat_te
+            r = _torch_run(builder, X_tr, ytr, X_te, yte, desc=name)
+            rows.append({"model": name, "n_train": n_train,
+                         "test_person": test_p, **r})
+            ui.finish_job(r["acc"], r.get("auc"))
+
+        for _, n_train, train_combo, test_p, name, model in sk_jobs:
+            ui.start_job("SK", n_train, train_combo, test_p, name)
+            train = all_w[all_w["person_id"].isin(set(train_combo))]
+            test = all_w[all_w["person_id"] == test_p]
+            r = train_test_sklearn(model, train, test, feat_cols_sk)
+            if r is not None:
+                sk_rows.append({"model": name, "n_train": n_train,
+                                "test_person": test_p, **r})
+                ui.finish_job(r["acc"], r.get("auc"))
+            else:
+                ui.finish_job(float("nan"), None)
+
     df_dl = pd.DataFrame(rows)
-
-    sk_rows = []
-    for _, n_train, train_combo, test_p, name, model in sk_jobs:
-        bar.set_postfix_str(f"SK  n={n_train} {'+'.join(train_combo)}→{test_p} | {name}")
-        train = all_w[all_w["person_id"].isin(set(train_combo))]
-        test = all_w[all_w["person_id"] == test_p]
-        r = _train_test(model, train, test, feat_cols_sk)
-        if r is not None:
-            sk_rows.append({"model": name, "n_train": n_train,
-                            "test_person": test_p, **r})
-        bar.update(1)
-    bar.close()
     df_sk = pd.DataFrame(sk_rows)
     df_all = pd.concat([df_sk[["model", "n_train", "test_person", "acc", "auc"]],
                         df_dl], ignore_index=True)
-    df_all.to_csv(OUT_DIR / "learning_curve_raw_all.csv", index=False)
-
-    print("\nEmpirische Stuetzpunkte (alle Modelle):")
-    print(df_all.groupby(["model", "n_train"])["acc"]
-          .agg(["mean", "std", "count"]).round(3))
+    df_all["n_persons"] = n_persons
+    df_all.to_csv(OUT_DIR / f"learning_curve_raw_all_n{n_persons}.csv", index=False)
 
     def _power(n, c, a, b):
         return c - a * np.power(n, -b)
 
-    forecasts = {}
-    for name in df_all["model"].unique():
-        sub = df_all[df_all["model"] == name]
-        try:
-            popt, _ = curve_fit(_power, sub["n_train"].values, sub["acc"].values,
-                                p0=[0.95, 0.3, 0.4],
-                                bounds=([0.5, 0.0, 0.05], [1.0, 5.0, 3.0]),
-                                maxfev=5000)
-            forecasts[name] = tuple(popt)
-        except Exception:
-            forecasts[name] = (0.9, 0.3, 0.3)
+    from forecast._stats import (
+        fit_power_law, bootstrap_ci, loso_curve_validation,
+    )
 
-    print("\nProgose-Tabelle:")
-    head = ["Modell"] + [f"n={n}" for n in [2, *FORECAST_N]]
-    print(" | ".join(f"{h:>14}" for h in head))
+    forecasts = {}
+    ci_bands: dict[str, dict] = {}
+    validation: dict[str, dict] = {}
+
+    n_grid_ci = np.logspace(np.log10(1), np.log10(110), 250)
+
+    with CONSOLE.status("[bold cyan]bootstrap CIs + LOSO validation ...",
+                        spinner="dots12"):
+        for name in df_all["model"].unique():
+            sub = df_all[df_all["model"] == name]
+            xs = sub["n_train"].to_numpy(float)
+            ys = sub["acc"].to_numpy(float)
+
+            fit = fit_power_law(xs, ys)
+            if fit is None:
+                forecasts[name] = (0.9, 0.3, 0.3)
+                continue
+            forecasts[name] = fit
+
+            band = bootstrap_ci(xs, ys, n_grid_ci, n_boot=1000)
+            ci_bands[name] = dict(
+                n_grid=band.n_grid, lo=band.lo, mid=band.mid, hi=band.hi,
+                asymptotes=band.asymptote_samples,
+                n_successful=band.n_successful,
+            )
+
+            loso = loso_curve_validation(sub[["test_person", "n_train", "acc"]])
+
+            ci_lo = (float(np.percentile(band.asymptote_samples, 5))
+                     if len(band.asymptote_samples) >= 10 else float("nan"))
+            ci_hi = (float(np.percentile(band.asymptote_samples, 95))
+                     if len(band.asymptote_samples) >= 10 else float("nan"))
+
+            validation[name] = dict(
+                ci_lo=ci_lo, ci_hi=ci_hi,
+                loso_mae=loso.mae_mean,
+            )
+
+    reveal_finale(forecasts, FORECAST_N, validation=validation)
+
+    # persist bootstrap bands for downstream consumers
+    ci_rows = []
+    for name, b in ci_bands.items():
+        for i, n in enumerate(b["n_grid"]):
+            ci_rows.append({
+                "model": name, "n_train": float(n),
+                "lo_5pct": float(b["lo"][i]) if not np.isnan(b["lo"][i]) else None,
+                "median": float(b["mid"][i]) if not np.isnan(b["mid"][i]) else None,
+                "hi_95pct": float(b["hi"][i]) if not np.isnan(b["hi"][i]) else None,
+                "n_persons": n_persons,
+            })
+    if ci_rows:
+        pd.DataFrame(ci_rows).to_csv(
+            OUT_DIR / f"learning_curve_ci_n{n_persons}.csv", index=False)
+
     rows_fc = []
     for name, (c, a, b) in forecasts.items():
-        vals = [_power(n, c, a, b) for n in [2, *FORECAST_N]]
-        print(" | ".join([f"{name:>14}"] + [f"{v:>14.3f}" for v in vals]))
         for n in [2, *FORECAST_N]:
             rows_fc.append({"model": name, "n_train": n,
                             "acc_predicted": _power(n, c, a, b),
-                            "asymptote_c": c, "a": a, "b": b})
-    pd.DataFrame(rows_fc).to_csv(OUT_DIR / "learning_curve_forecast.csv", index=False)
+                            "asymptote_c": c, "a": a, "b": b,
+                            "n_persons": n_persons})
+    pd.DataFrame(rows_fc).to_csv(OUT_DIR / f"learning_curve_n{n_persons}.csv", index=False)
 
     plt.style.use("dark_background")
     fig, ax = plt.subplots(figsize=(12.5, 7.0), dpi=110)
@@ -452,18 +498,30 @@ def main():
                         markeredgecolor="white", markeredgewidth=0.5,
                         elinewidth=1.0, zorder=4)
         ys = _power(n_grid, c, a, b)
-        emp_mask = n_grid <= 2.0
-        extra_mask = n_grid >= 2.0
+        max_emp = float(n_persons - 1)
+        emp_mask = n_grid <= max_emp
+        extra_mask = n_grid >= max_emp
+
+        band = ci_bands.get(name)
+        if band is not None and not np.all(np.isnan(band["lo"])):
+            ax.fill_between(band["n_grid"], band["lo"], band["hi"],
+                            color=colors[name], alpha=0.12, zorder=1,
+                            linewidth=0)
+
         ax.plot(n_grid[emp_mask], ys[emp_mask],
                 "-", color=colors[name], lw=2.2, label=name, zorder=3)
         ax.plot(n_grid[extra_mask], ys[extra_mask],
                 linestyle=dash.get(name, "--"),
                 color=colors[name], lw=1.8, alpha=0.85, zorder=2)
 
-    ax.axvspan(2.0, 110, alpha=0.06, color="white", zorder=0)
-    ax.text(2.5, 0.435,
-            "Extrapolation\n(2 empirische Stuetzpunkte -\nUnsicherheit waechst stark mit n)",
-            color="#bbbbbb", fontsize=8.5, ha="left", va="bottom", style="italic")
+    max_emp = float(n_persons - 1)
+    ax.axvspan(max_emp, 110, alpha=0.06, color="white", zorder=0)
+    ax.text(max_emp * 1.25, 0.435,
+            f"EXTRAPOLATION  ({n_persons - 1} empirische Stuetzpunkte)\n"
+            f"schattierte Baender = 90% Bootstrap-CI ueber {len(df_all)} Fold-Messungen\n"
+            "bei n_train > 5 wachsen die Baender stark - Werte qualitativ behandeln",
+            color="#cccccc", fontsize=8.5, ha="left", va="bottom",
+            style="italic")
     for nf in FORECAST_N:
         ax.axvline(nf, color="white", alpha=0.06, lw=0.8, zorder=0)
 
@@ -475,7 +533,7 @@ def main():
     ax.set_xlabel("Probanden im Trainings-Pool  (n_train)", fontsize=11)
     ax.set_ylabel("Cross-subject LOSO Accuracy", fontsize=11)
     ax.set_title(
-        "Lernkurven-Prognose inkl. Deep Learning\n"
+        f"Lernkurven-Prognose - alle Modelle (Basis: n={n_persons} Probanden)\n"
         "(durchgezogen = empirisch  /  gestrichelt = extrapoliert  -  "
         "DL hat eigene Strichmuster)",
         fontsize=12, pad=12,
@@ -484,10 +542,111 @@ def main():
     ax.legend(loc="lower right", framealpha=0.85, fontsize=9, ncol=2)
 
     fig.tight_layout()
-    out_png = OUT_DIR / "learning_curve_forecast_with_dl.png"
+    out_png = OUT_DIR / f"learning_curve_n{n_persons}.png"
     fig.savefig(out_png, dpi=140, bbox_inches="tight",
                 facecolor=fig.get_facecolor())
     print(f"\n-> {out_png}")
+
+    import plotly.graph_objects as go
+
+    pfig = go.Figure()
+    for name in order:
+        if name not in forecasts:
+            continue
+        c, a, b = forecasts[name]
+        col = colors[name]
+        ys_curve = _power(n_grid, c, a, b)
+        emp_mask = n_grid <= max_emp
+        extra_mask = n_grid >= max_emp
+
+        # rgba for translucent CI fill
+        r, g, bl = int(col[1:3], 16), int(col[3:5], 16), int(col[5:7], 16)
+        fill_rgba = f"rgba({r},{g},{bl},0.12)"
+
+        band = ci_bands.get(name)
+        if band is not None and not np.all(np.isnan(band["lo"])):
+            pfig.add_trace(go.Scatter(
+                x=band["n_grid"], y=band["hi"], mode="lines",
+                line=dict(width=0), showlegend=False,
+                legendgroup=name, hoverinfo="skip",
+            ))
+            pfig.add_trace(go.Scatter(
+                x=band["n_grid"], y=band["lo"], mode="lines",
+                line=dict(width=0), fill="tonexty", fillcolor=fill_rgba,
+                showlegend=False, legendgroup=name,
+                hovertemplate=(f"<b>{name}</b> 90% CI<br>n=%{{x:.1f}}<br>"
+                               "acc=%{y:.3f}<extra></extra>"),
+            ))
+
+        pfig.add_trace(go.Scatter(
+            x=n_grid[emp_mask], y=ys_curve[emp_mask],
+            mode="lines", name=name, legendgroup=name,
+            line=dict(color=col, width=2.5),
+            hovertemplate=f"<b>{name}</b><br>n=%{{x:.1f}}<br>acc=%{{y:.3f}}<extra></extra>",
+        ))
+        pfig.add_trace(go.Scatter(
+            x=n_grid[extra_mask], y=ys_curve[extra_mask],
+            mode="lines", name=name, legendgroup=name, showlegend=False,
+            line=dict(color=col, width=1.8, dash="dash"),
+            hovertemplate=f"<b>{name}</b> (extrapoliert)<br>n=%{{x:.1f}}<br>acc=%{{y:.3f}}<extra></extra>",
+        ))
+
+        sub = df_all[df_all["model"] == name]
+        agg = sub.groupby("n_train")["acc"].agg(["mean", "std"]).reset_index()
+        pfig.add_trace(go.Scatter(
+            x=agg["n_train"], y=agg["mean"],
+            error_y=dict(type="data", array=agg["std"].fillna(0), thickness=1.2,
+                         color=col, width=4),
+            mode="markers", name=name, legendgroup=name, showlegend=False,
+            marker=dict(color=col, size=10, line=dict(color="white", width=0.8)),
+            hovertemplate=(f"<b>{name}</b><br>n_train=%{{x}}<br>"
+                           "acc=%{y:.3f} (empirisch)<extra></extra>"),
+        ))
+
+    pfig.add_vrect(x0=max_emp, x1=110, fillcolor="white", opacity=0.04,
+                   layer="below", line_width=0)
+    pfig.add_annotation(
+        x=max_emp * 1.4, y=0.46, xref="x", yref="y",
+        text=(f"<b><i>EXTRAPOLATION</i></b><br>"
+              f"<i>{n_persons - 1} empirische Stuetzpunkte<br>"
+              "schattierte Baender = 90% Bootstrap-CI<br>"
+              "n>5: Werte qualitativ behandeln</i>"),
+        showarrow=False, font=dict(color="#dddddd", size=11),
+        align="left",
+        bgcolor="rgba(0,0,0,0.45)",
+        bordercolor="rgba(255,255,255,0.15)", borderwidth=1, borderpad=6,
+    )
+
+    pfig.update_layout(
+        title=dict(
+            text=(f"Lernkurven-Prognose - alle Modelle (Basis: n={n_persons} Probanden)"
+                  "<br><sub>Klick auf Modell in Legende = aus/ein  |  "
+                  "Doppelklick = nur dieses Modell</sub>"),
+            x=0.5, xanchor="center",
+        ),
+        xaxis=dict(
+            type="log", title="Probanden im Trainings-Pool  (n_train)",
+            tickvals=[1, 2, 3, 5, 10, 20, 30, 50, 70, 100],
+            ticktext=["1", "2", "3", "5", "10", "20", "30", "50", "70", "100"],
+            range=[np.log10(0.85), np.log10(110)],
+            gridcolor="rgba(255,255,255,0.08)",
+        ),
+        yaxis=dict(
+            title="Cross-subject LOSO Accuracy",
+            range=[0.40, 1.0],
+            gridcolor="rgba(255,255,255,0.08)",
+        ),
+        template="plotly_dark",
+        hovermode="closest",
+        legend=dict(orientation="v", x=1.02, y=1.0, bgcolor="rgba(0,0,0,0.4)"),
+        margin=dict(l=70, r=180, t=80, b=60),
+        width=1200, height=700,
+    )
+
+    out_html = OUT_DIR / f"learning_curve_n{n_persons}.html"
+    pfig.write_html(str(out_html), include_plotlyjs="cdn",
+                    full_html=True)
+    print(f"-> {out_html}")
 
 
 if __name__ == "__main__":
