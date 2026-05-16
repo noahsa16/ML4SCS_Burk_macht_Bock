@@ -22,6 +22,8 @@ build/
 
 # Data / outputs — regenerierbar (python -m src.merge, plot_alignment.py …)
 data/processed/
+data/raw/
+models/
 results/plots/*.png
 results/plots/*.jpg
 results/metrics/*.csv
@@ -36,12 +38,16 @@ pen_log_*.csv
 data/session_*_report*.md
 data/raw/**/session_*_report*.md
 
+# Local model progression timeline (working doc, not for the repo)
+reports/model_progression.md
+
 # Server logs
 logs/
 
 
 # Visual Companion brainstorming session artefacts
 .superpowers/
+docs/superpowers/
 
 # Study Mode markers (regenerated per-session by the server)
 data/raw/markers/

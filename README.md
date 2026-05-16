@@ -48,7 +48,8 @@ Moleskine Smart Pen (BLE)                                            │
                                   src/training/within_session/    (RF baseline,
                                     train_rf.py                    temporal 80/20 —
                                                                    debug only)
-                                  src/training/train_loso.py      (LOSO cross-val —
+                                  src/training/train_loso.py      (per-session z-score
+                                                                   → LOSO cross-val —
                                                                    headline metric)
                                                                      │
                                   models/rf_{session}.joblib
@@ -97,123 +98,23 @@ The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 sampl
 ## Project Structure
 
 ```
-server.py                        FastAPI entry point (thin, ~50 lines)
-pen_logger.py                    BLE logger for the Moleskine Smart Pen
-dashboard.html                   ~88-line shell (head, slots, modulepreload)
-static/dashboard.js              Bootstrap: lazy-mounts page partials,
-                                 owns hash routing + active-page WS dispatch
-static/js/core/                  Cross-cutting modules
-  state.js                         S object + named getters/mutators
-  ws.js                            WebSocket connection + reconnect
-  status_cluster.js                Topbar status + handleStatus dispatcher
-  router.js                        Hash routing, tab indicator, page strip
-  api.js, dom.js, format.js        Pure helpers (fetch, esc, formatters)
-  theme.js, anim.js, toast.js      Leaf services
-static/js/pages/                 Per-page modules (mount/onStatus/onShow/onHide)
-  recording.js, sessions.js,
-  session_detail.js, connections.js,
-  system.js, settings.js           WS ticks dispatched only to active page
-static/views/*.html              View partials fetched once + cached
-                                 (recording / sessions / session-detail /
-                                  settings / …)
-static/css/                      Per-page + base + topbar stylesheets
-
-src/pen_schema.py                Shared pen-CSV schema (no deps;
-                                 imported by pen_logger.py and server)
-
-src/server/                      Modular server package
-  config.py                        Paths, field names, logs/ dir
-  state.py                         In-memory session state
-  utils.py                         Pure helper functions
-  logging_setup.py                 File + stream + event-log handlers
-  csv_io.py                        CSV read/write (pen + watch + airpods),
-                                   live-preview tail
-  status.py                        Connection checks + status payload
-  issues.py                        ISSUE_SPECS table + sample-rate targets
-                                   (single source of truth)
-  sync.py                          Sync-confidence helpers
-  timelines.py                     Per-session timeline reconstruction
-  quality.py                       Session quality, validation, report
-  models.py                        Pydantic request/response models
-  broadcast.py                     WebSocket broadcast + 1-s status loop
-  pen_proc.py                      Pen logger subprocess management
-  routes/                          One APIRouter per concern
-    watch.py, airpods.py, pen.py,
-    sessions.py, dashboard.py, ws.py,
-    _helpers.py                    aggregated in __init__.py
-
-src/alignment/
-  pen_match.py                     Stroke-variance pen↔IMU clock-offset
-                                   recovery (TH Zürich algorithm)
-src/merge/
-  prep.py                          Per-stream cleaning helpers
-  merge.py                         merge_watch_pen() — watch-base ±40 ms
-                                   asof join, δ-shifted when σ ≤ -2
-  __main__.py                      CLI: python -m src.merge [SESSION_ID]
-src/features/
-  windows.py                       Sample-level label closing
-                                   (max_gap_ms) + 1 s sliding windows
-                                   @ 0.5 s stride → 88 features
-                                   (time-stats, spectral, jerk,
-                                   ZCR, cross-axis correlations)
-  __main__.py                      CLI: python -m src.features [SESSION_ID]
-src/training/
-  train_loso.py                    **Headline metric.** Leave-One-Out CV
-                                   (by person or session); cross-subject
-                                   generalisation for the actual goal.
-  within_session/
-    train_rf.py                    **Debug / feature iteration only.**
-                                   RandomForest baseline within a single
-                                   session; temporal 80/20 split with
-                                   4-window gap. Not a generalisation
-                                   claim.
-src/evaluation/evaluate.py         Label distribution (real metrics live
-                                   in train_loso.py / within_session/train_rf.py)
-
-scripts/
-  start.sh                         Server + Cloudflare tunnel TTY UI
-  tunnel.sh                        Standalone Cloudflare quick tunnel
-  test_server.sh                   POST a synthetic batch to /watch
-  plot_alignment.py                Render the 4-panel alignment figure
-  plot_merged.py                   Visualize ‖acc‖, ‖gyro‖ + label_writing
-                                   over a session (preview label smoothing)
-  backfill_session_quality.py      Rewrite sessions.csv quality columns
-                                   from current ISSUE_SPECS
-
-tests/                             Tier-1 smoke tests (138 cases, ~1.5 s)
-  test_quality.py                    Quality engine + ISSUE_SPECS regressions
-  test_merge.py                      Watch-base merge behaviour
-  test_pen_match.py                  Stroke-variance alignment
-  test_session_id.py                 _next_session_id stale-file safety
-  test_pen_parser_framing.py         STX/ETX/DLE state machine
-  test_endpoints.py                  FastAPI TestClient happy paths
-  test_chart_aggregation.py          5 Hz chart aggregator
-  test_dashboard_static.py           Every static asset reachable (404 trap)
-
-watch_streamer/
-  WatchStreamer Watch App/
-    MotionManager.swift            IMU capture + WatchConnectivity send
-    WatchView_v2.swift             Watch UI
-  WatchStreamer/
-    PhoneBridge.swift              WatchConnectivity → HTTP bridge
-    iPhoneView_v4.swift            iPhone UI
-    ServerCommandListener.swift    Listens for start/stop over WebSocket
-
-data/
-  raw/pen/{session}_pen.csv        Raw pen dots per session
-  raw/watch/{session}_watch.csv    Raw IMU samples per session
-  raw/airpods/{session}_airpods.csv  Raw head-IMU per session
-  sessions.csv                     Session index
-  processed/                       Merged + windowed datasets (gitignored)
-
-models/                            Trained RF baselines (rf_{session}.joblib)
-notebooks/                         Exploration notebooks
-reports/                           Weekly progress reports
-results/plots/                     Generated figures (alignment, etc.)
-docs/
-  screenshots/                     Dashboard + app screenshots
-  superpowers/                     Internal design specs, plans, audits
+server.py / pen_logger.py    FastAPI entry point + standalone BLE pen logger
+src/server/                  Modular server (config, state, csv_io, quality,
+                             routes/, study.py — Study Mode runner)
+src/alignment/               Pen↔IMU clock-offset recovery (stroke-variance)
+src/merge/                   Watch-base merge (1 row per IMU sample + label)
+src/features/                Sliding windows → 88 features per window
+src/training/                train_loso.py (headline) + within_session/ (debug)
+forecast/                    Learning-curve projection to N=99 probands
+scripts/                     Plot helpers, multi-model comparison, dev tools
+tests/                       138 smoke tests (~1.5 s)
+static/, dashboard.html      Web dashboard (page-modular ES modules)
+watch_streamer/              iOS + watchOS Xcode targets
+data/raw/, data/processed/   Per-session CSVs (raw committed, processed gitignored)
+study_protocols/             Study Mode protocol definitions (v1.json)
 ```
+
+See [CLAUDE.md](CLAUDE.md) for the per-module breakdown.
 
 ---
 
@@ -274,21 +175,11 @@ This is the evaluation that actually matches the project goal: a general writing
 
 `--by person` is the metric we're really after, but it doesn't say anything useful with only one subject. Until the second subject is recorded we fall back to `--by session`, which still measures cross-session generalisation (different watch position on the wrist, different day, different writing content). Our current 5-session result: accuracy 0.854 ± 0.018, ROC-AUC 0.917 ± 0.015 (per-1-s window — see the burst-aggregated numbers below for the user-facing view).
 
+**Per-session z-score normalization** (on by default, `--no-zscore` to disable). Before fitting, each feature column is standardised per `session_id` — subtract that session's mean, divide by its std. The motivation is that the hardest cross-subject problem is *not* "which feature distinguishes writing"; it's that the same gesture produces different absolute feature values on different wrists (size, handedness, watch position, tightness of the strap). Per-session standardisation removes that absolute-scale component while preserving the relative structure within a session. Empirically the single biggest ML-side win of the project so far: on the 3-person dataset it jumped accuracy from 0.812 → 0.838 and tightened fold-σ ~4× (0.042 → 0.009). Headline result with ExtraTrees + per-session z-score on 3-person cross-subject LOSO: **accuracy 0.842 ± 0.007, ROC-AUC 0.909**. Caveat for deployment: production needs a calibration phase (or rolling stats) to estimate μ, σ from the live stream before the model can be applied — a model trained with z-score cannot be served raw IMU features without that step.
+
 #### Burst-aggregated metrics (decision window)
 
-The 1-s sliding window is the right *feature* window — it's the size that gives us crisp FFT bands and sharp transitions in the labels. But it's rarely the right *decision* window for an application: a writing-time tracker doesn't need per-second accuracy, it needs to know "has the person been writing for the last 30 seconds?". So `train_loso.py` reports the same fold on four time scales — 1 s, 5 s, 10 s, 30 s — by smoothing the model's 1-s probabilities with a rolling mean (per session, never across session boundaries) and re-thresholding at 0.5. The stride is auto-derived from the median Δ(`t_center_ms`) per session, so the smoothing adapts if we change `--stride-sec`.
-
-The burst table is also diagnostic:
-
-- Accuracy rising monotonically with scale → the model error is high-frequency noise, which simple post-processing fixes.
-- 30 s worse than 10 s → typical writing phases are shorter than 30 s, and 10 s is the natural burst size for this dataset.
-- Aggregation barely helps → the error is systematic (often one subject end-to-end misclassified) — look at the per-fold table to find them.
-
-Per-fold output looks like this:
-```
-Burst-aggregated:  1s acc=0.86 f1=0.84 auc=0.92  5s acc=0.92 f1=0.91 auc=0.94  10s acc=0.94 f1=0.93 auc=0.95  30s acc=0.95 f1=0.94 auc=0.96
-```
-With `--save-cv-csv`, `models/loso_cv.csv` gets `acc_5s, f1_5s, auc_5s, acc_10s, …` columns alongside the 1-s metrics.
+The 1-s window is right for *features* (FFT bands, label transitions) but rarely the right *decision* window for an app — a writing-time tracker cares about "has the person written in the last 30 s?", not per-second accuracy. So `train_loso.py` reports the same fold at 1/5/10/30 s by smoothing the 1-s probabilities per session and re-thresholding at 0.5. With `--save-cv-csv` these land as extra columns in `models/loso_cv.csv`.
 
 ### Within-session baseline (for iterating)
 
@@ -296,21 +187,8 @@ With `--save-cv-csv`, `models/loso_cv.csv` gets `acc_5s, f1_5s, auc_5s, acc_10s,
 python -m src.training.within_session.train_rf S029
 ```
 
-This trains a Random Forest on the first 80 % of one session and tests on the last 20 %, with a 4-window gap to prevent leakage between adjacent windows (they overlap by 50 %). It does *not* tell us anything about generalisation — only "can the model finish this session if it has seen the start of it". We use it for:
+Temporal 80/20 split on a single session, 4-window gap to avoid leakage. **Not a generalisation claim** — used only for feature-iteration and label-smoothing tuning. Real numbers come from `train_loso.py`.
 
-- Quick iteration when adding / debugging a feature.
-- Tuning the label-smoothing parameter (`max_gap_ms`).
-- Smoke-testing the pipeline on a fresh session.
-- A sanity floor: if within-session ROC-AUC is already < 0.6 there's no point running LOSO yet.
-
-Dumps to `models/rf_{session}.joblib`. We don't quote these numbers in writeups — only the LOSO results.
-
-To preview the effect of label smoothing visually before training:
-```bash
-python scripts/plot_merged.py S029 --max-gap-ms 300
-```
-
-Run smoke tests:
 ```bash
 pytest tests/     # 138 cases, ~1.5 s
 ```
@@ -319,37 +197,12 @@ pytest tests/     # 138 cases, ~1.5 s
 
 ## Data Formats
 
-**Watch CSV** — one row per IMU sample:
-```
-local_ts, local_ts_ms, session_id, sequence, sample_rate_hz,
-watch_sent_at, phone_received_at, server_received_ms, source,
-ts, ax, ay, az, rx, ry, rz
-```
-`ts` is the canonical device timestamp (Watch's own clock, milliseconds). `ax/ay/az` = accelerometer, `rx/ry/rz` = gyroscope.
+The two files that actually feed the model:
 
-**Pen CSV** — one row per dot event:
-```
-local_ts, local_ts_ms, timestamp, x, y, pressure, dot_type,
-tilt_x, tilt_y, section, owner, note, page
-```
-`dot_type` values: `PEN_DOWN`, `PEN_MOVE`, `PEN_UP`, `PEN_HOVER`.  
-Label derivation: `label_writing = 1` if `dot_type ∈ {PEN_DOWN, PEN_MOVE}`, else `0`.
+- **`data/processed/{session}_merged.csv`** — watch-base: one row per IMU sample + `label_writing ∈ {0, 1}` from the nearest pen `dot_type` within ±40 ms of the δ-corrected pen clock. Watch samples in pen-gaps → label 0.
+- **`data/processed/{session}_windows.csv`** — one row per 1 s sliding window (0.5 s stride) with 88 features (time-stats + spectral + jerk + ZCR + correlations), plus `label` and `t_center_ms`. Labels are morphologically closed (default 300 ms) at sample level before windowing.
 
-**AirPods CSV** — one row per head-IMU sample:
-```
-local_ts, local_ts_ms, session_id, sequence, sample_rate_hz,
-airpods_sent_at, phone_received_at, server_received_ms, source,
-ts, ax, ay, az, rx, ry, rz, qw, qx, qy, qz, gx, gy, gz
-```
-Accel + gyro + attitude quaternion (`qw/qx/qy/qz`) + gravity vector (`gx/gy/gz`).
-
-**Merged CSV** (`data/processed/{session}_merged.csv`) — **watch-base**: one row per watch sample, with `label_writing ∈ {0, 1}` derived from the nearest pen `dot_type` within ±40 ms of the δ-corrected pen wall-clock. Watch samples in pen-gaps → label `0` (the negative class for binary classification). Schema = all watch CSV columns + `label_writing`.
-
-**Sessions index** (`data/sessions.csv`) — **gitignored**, owned by the running server and regenerated/extended on every session. Columns: `session_id, person_id, description, start_time, end_time, pen_samples, watch_samples, airpods_samples, status, study_mode, protocol_id, subject_index`. `study_mode ∈ {free, study, test}`; `subject_index` keys the Latin-Square counterbalance and is auto-assigned by counting prior `study_mode='study'` sessions for that `person_id`.
-
-**Markers CSV** (`data/raw/markers/{session}_markers.csv`) — written by Study Mode; one row per state transition (`study_start`, `task_start`, `task_end`, `pause_start`, `pause_end`, `next`, `abort`, `study_end`).
-
-**Windows CSV** (`data/processed/{session}_windows.csv`) — one row per 1 s sliding window (0.5 s stride) with 42 statistical features (mean/std/min/max/rms/range per axis + accel/gyro magnitude mean/std/energy), plus `label`, `t_center_ms`. Labels are smoothed at sample level (morphological closing, default 300 ms gap-fill) before windowing.
+Raw CSV schemas (watch, pen, AirPods, sessions index, Study-Mode markers) are documented in [CLAUDE.md](CLAUDE.md).
 
 ---
 
@@ -403,18 +256,7 @@ Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside
 
 ## Current Status
 
-| Phase | Status |
-|-------|--------|
-| Data collection | Operational |
-| Preprocessing & merging | Implemented (watch-base, ±40 ms) |
-| Pen↔IMU clock alignment | Implemented (stroke-variance, TH Zürich) |
-| Feature engineering | Implemented (1 s windows, 88 features: time-stats + spectral + jerk + ZCR + correlations, label closing) |
-| Model training | Implemented (Random Forest baseline) |
-| Burst-aggregated reporting | Implemented (1 s / 5 s / 10 s / 30 s decision-window scales in `train_loso.py`) |
-| Within-session sanity check | S029 acc 0.83 / ROC-AUC 0.85 (debug only) |
-| Cross-session LOSO (single subject, pre-88-feature baseline) | acc 0.854 ± 0.018 / ROC-AUC 0.917 ± 0.015 over 5 sessions (S029/S031/S037/S039/S043) |
-| Cross-subject LOSO | Pending — needs ≥ 2 subjects recorded |
-| Study Mode protocol runner | Operational (v1: 3 writing tasks × 240 s, Latin-Square counterbalance, fullscreen proband UI, VL admin monitor) |
+The full pipeline is operational: capture → alignment → merge → features → training, plus Study Mode for counterbalanced recording. **Headline metric: 3-person cross-subject LOSO with ExtraTrees + per-session z-score — accuracy 0.842 ± 0.007, ROC-AUC 0.909.** Next milestone is N ≥ 5 probands so the learning-curve forecast (`forecast/`) becomes statistically meaningful.
 
 ---
 
