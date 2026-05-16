@@ -27,10 +27,11 @@ Sensors during training-data collection:
 Status: data collection + preprocessing + watch-base merge + quality
 checks + sliding-window features + Random Forest baseline + LOSO
 cross-validation + Study Mode (counterbalanced protocol runner with
-fullscreen proband UI and VL admin monitor) are operational. Headline
-metric on the current single-subject dataset: LOSO accuracy ~0.85,
-ROC-AUC ~0.92 across 5 sessions. Multi-subject recording is the next
-milestone.
+fullscreen proband UI and VL admin monitor) are operational. **Current
+headline (3-person cross-subject LOSO, ExtraTrees + per-session
+z-score): accuracy 0.842 ± 0.007, ROC-AUC 0.909.** Multi-subject
+recording continues — next milestone is reaching N≥5 probands so the
+learning-curve forecast becomes statistically meaningful.
 
 ## Setup
 
@@ -382,7 +383,27 @@ no longer vibrates continuously when the server is down.
   the same fold are never mixed. The burst scales surface the share
   of model error that is high-frequency noise versus systematic, and
   give the user-facing metric for aggregated use-cases (e.g.
-  Schreibzeit-tracking) without retraining.
+  Schreibzeit-tracking) without retraining. Per-session z-score
+  normalization of features is on by default (`--no-zscore` to
+  disable). It standardises each feature column per `session_id`
+  before fitting so subject-dependent baselines (wrist size,
+  handedness, watch position) don't shift the model's decision
+  threshold. Empirically: jumped acc from 0.812 → 0.838 on the
+  3-person dataset and tightened fold-σ 4× (0.042 → 0.009) — the
+  biggest single ML-side improvement of the project.
+- `scripts/compare_models.py` — runs LOSO on the same splits with
+  RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
+  RF is still competitive. Same `--no-zscore` flag.
+- `forecast/learning_curve_forecast.py` + `forecast/learning_curve_dl.py`
+  — enumerate all (n_train, train_combo, test_p)-splits, fit
+  power-law saturation curves per model, extrapolate to n=99. The
+  `_dl` version adds PyTorch baselines (DeepMLP, 1D-CNN, BiLSTM,
+  TinyTransformer); `--device {auto,cpu,mps,cuda}` switches the
+  training backend. Outputs (PNG + CSV) land next to the scripts in
+  `forecast/`. Run via `PYTHONPATH=. python forecast/learning_curve_dl.py`.
+  Lives in `forecast/` (not `scripts/`) to keep research-grade
+  prognosis tooling and its artefacts separate from the operational
+  pipeline.
 - `src/evaluation/evaluate.py` — placeholder that loads
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
@@ -633,6 +654,31 @@ explicitly named.
   additionally re-trains on all data and dumps the deployment model
   to `models/rf_all.joblib`; `--save-cv-csv` writes per-fold metrics
   to `models/loso_cv.csv` for tracking across data-collection rounds.
+
+**Per-session z-score, briefly.** The hardest cross-subject problem
+isn't "what feature distinguishes writing" — it's that the same
+gesture produces different absolute feature values on different
+wrists. Per-session standardization removes the absolute-scale
+component while preserving the relative structure within a session.
+Lives in `_zscore_per_session()` in `train_loso.py` (and a copy in
+`compare_models.py` / `learning_curve_*.py`). Caveat for deployment:
+production needs a calibration phase (or rolling stats) to estimate
+μ, σ from the live stream before the model can be applied.
+
+**Negative result: catch22 + DWT-Energy features.** Tried adding the
+22-feature catch22 bank (`pycatch22`) and DWT-Energy coefficients
+(`pywt`, db4 wavelet) per axis on top of the 88 engineered features.
+At N=3 probands, no systematic gain (Δacc ≈ ±0.003) and fold-σ
+roughly doubled — classic overfitting signature when feature count
+grows but data doesn't. Recorded in `reports/model_progression.md`.
+Worth re-trying at N≥5.
+
+**Feature-engineering hits a ceiling at the 88-feature representation.**
+The learning-curve forecast (`scripts/learning_curve_dl.py`)
+extrapolates DeepMLP (on engineered features) to asymptote ~0.87,
+while 1D-CNN and Transformer (on raw IMU) project to ~0.93-0.95 at
+N=50. Read: at larger N, switching to raw-signal models is likely
+the way forward, not adding more handcrafted features.
 
 ## Testing
 
