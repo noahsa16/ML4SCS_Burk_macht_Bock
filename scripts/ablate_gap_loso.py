@@ -41,6 +41,8 @@ def _zscore_per_session(df: pd.DataFrame, fcols: list[str]) -> pd.DataFrame:
 def main(gaps: list[int]) -> None:
     sessions = pd.read_csv(ROOT / "data/sessions.csv")
     sessions = sessions[sessions.verdict.isin({"trainable", "usable"})]
+    if "study_mode" in sessions.columns:
+        sessions = sessions[sessions["study_mode"].fillna("") != "test"]
     merged_cache = {
         sid: pd.read_csv(ROOT / f"data/processed/{sid}_merged.csv")
         for sid in sessions.session_id
