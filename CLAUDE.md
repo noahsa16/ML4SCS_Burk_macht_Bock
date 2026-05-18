@@ -28,11 +28,13 @@ Status: data collection + preprocessing + watch-base merge + quality
 checks + sliding-window features + Random Forest baseline + LOSO
 cross-validation + Study Mode (counterbalanced protocol runner with
 fullscreen proband UI and VL admin monitor) are operational. **Current
-headline (5-person cross-subject LOSO, RF + per-session z-score +
-`max_gap_ms=2000` label closing): accuracy 0.872 ± 0.020, ROC-AUC
-0.940 ± 0.018, F1(writing) 0.887.** Vorgänger-Headlines: 3-Probanden
-acc 0.842 ± 0.007 / AUC 0.909 (ExtraTrees, gap=300); 5-Probanden mit
-altem gap=300: acc 0.832 ± 0.018 / AUC 0.908.
+headline (7-person cross-subject LOSO, RF + per-session z-score +
+`max_gap_ms=2500` label closing): accuracy 0.868 ± 0.024, ROC-AUC
+0.943 ± 0.014, F1(writing) 0.885. Burst-aggregated @5s: acc 0.904,
+AUC 0.978.** Vorgänger-Headlines: 5-Probanden gap=2000
+acc 0.872 ± 0.020 / AUC 0.940; 7-Probanden gap=2000 acc 0.864 ± 0.026
+/ AUC 0.940; 3-Probanden gap=300 acc 0.842 ± 0.007 / AUC 0.909
+(ExtraTrees).
 
 ## Setup
 
@@ -591,21 +593,29 @@ the pen is briefly lifted — the writer is still in *writing mode* but
 the raw pen label flips to 0, and the watch IMU during those gaps
 looks identical to the surrounding strokes. Without smoothing the
 model sees the same wrist motion with contradictory labels and learns
-ambivalence. **Chosen closing (headline pipeline):** `max_gap_ms=2000` —
-idle runs ≤ 2 s between writing runs are flipped to writing. (Code-
+ambivalence. **Chosen closing (headline pipeline):** `max_gap_ms=2500` —
+idle runs ≤ 2.5 s between writing runs are flipped to writing. (Code-
 Default in `build_windows()` ist historisch noch `300`; Headline-
-Runs werden mit explizitem `--max-gap-ms 2000` gefahren bis der
-Default geflippt wird.) Semantik: damit detektiert das Modell "Person ist im
-Schreibmodus" (inkl. Mikropausen ≤ 2 s) und nicht "Pen aktuell auf
-Papier". Für einen Schreibzeit-Tracker ist das die User-facing-Wahrheit.
+Runs werden mit explizitem `--max-gap-ms 2500` gefahren bis der
+Default geflippt wird.) Semantik: damit detektiert das Modell "Person
+ist im Schreibmodus" (inkl. Mikropausen ≤ 2.5 s) und nicht "Pen
+aktuell auf Papier". Für einen Schreibzeit-Tracker ist das die
+User-facing-Wahrheit.
 
-LOSO-Ablation auf N=5 (siehe `reports/model_progression.md` Run 07
-+ `scripts/ablate_gap_loso.py`): Headline gap=300 → 2000 hob acc
-0.830 → 0.872 (+4.2 pp), AUC 0.905 → 0.940 (+3.5 pp), F1(w)
-0.798 → 0.887 (+8.9 pp). Alle 5 Folds verbesserten sich monoton,
-keiner regredierte. Gap=2500 testete noch +0.3 pp acc, aber P02
-regredierte erstmals — `2000` ist die letzte Stelle mit universellem
-Per-Fold-Gewinn und σ-Tightening (0.026 → 0.020).
+LOSO-Ablation auf N=7 (2026-05-18): Headline gap=2000 → 2500 hob
+acc 0.864 → 0.868 (+0.4 pp), AUC 0.940 → 0.943 (+0.3 pp), F1(w)
+0.875 → 0.885 (+1.0 pp). 6 von 7 Folds verbesserten sich, P02/P03
+marginal regrediert (≤0.7 pp). Wichtig: P05 (neue, schwächste Fold)
+profitierte (acc 0.816 → 0.825, FP 307 → 295) — was die Hypothese
+aus der Marker-Analyse stützt, dass P05's lange Denkpausen in der
+math-Task länger als 2 s sind. Gap=3000 testete noch +0.2 pp F1,
+aber P05 regredierte (acc 0.802, FP 340) weil Fidgeting in geplanten
+Pausen ≥ 2.5 s fälschlich als writing geschluckt wird — und σ-acc
+sprang von 0.026 auf 0.035. `2500` ist die letzte Stelle mit
+near-universellem Per-Fold-Gewinn und σ-Tightening. Vorgänger-Switch
+auf N=5 von gap=300 → 2000 hatte +4.2 pp acc gebracht; bei N=7 ist
+das Plateau erreicht — weitere Smoothing-Gains brauchen entweder
+Features (z. B. „still sitting" Detektor) oder Threshold-Tuning.
 
 Opening (`max_spike_ms`) ist implementiert aber bleibt off; flipping
 short writing spikes hurt S029 — real quick strokes (i-dots,
