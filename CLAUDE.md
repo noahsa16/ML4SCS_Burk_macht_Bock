@@ -28,10 +28,13 @@ Status: data collection + preprocessing + watch-base merge + quality
 checks + sliding-window features + Random Forest baseline + LOSO
 cross-validation + Study Mode (counterbalanced protocol runner with
 fullscreen proband UI and VL admin monitor) are operational. **Current
-headline (3-person cross-subject LOSO, ExtraTrees + per-session
-z-score): accuracy 0.842 ± 0.007, ROC-AUC 0.909.** Multi-subject
-recording continues — next milestone is reaching N≥5 probands so the
-learning-curve forecast becomes statistically meaningful.
+headline (7-person cross-subject LOSO, RF + per-session z-score +
+`max_gap_ms=2500` label closing): accuracy 0.868 ± 0.024, ROC-AUC
+0.943 ± 0.014, F1(writing) 0.885. Burst-aggregated @5s: acc 0.904,
+AUC 0.978.** Vorgänger-Headlines: 5-Probanden gap=2000
+acc 0.872 ± 0.020 / AUC 0.940; 7-Probanden gap=2000 acc 0.864 ± 0.026
+/ AUC 0.940; 3-Probanden gap=300 acc 0.842 ± 0.007 / AUC 0.909
+(ExtraTrees).
 
 ## Setup
 
@@ -393,17 +396,16 @@ no longer vibrates continuously when the server is down.
   biggest single ML-side improvement of the project.
 - `scripts/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
-  RF is still competitive. Same `--no-zscore` flag.
-- `forecast/learning_curve_forecast.py` + `forecast/learning_curve_dl.py`
-  — enumerate all (n_train, train_combo, test_p)-splits, fit
-  power-law saturation curves per model, extrapolate to n=99. The
-  `_dl` version adds PyTorch baselines (DeepMLP, 1D-CNN, BiLSTM,
-  TinyTransformer); `--device {auto,cpu,mps,cuda}` switches the
-  training backend. Outputs (PNG + CSV) land next to the scripts in
-  `forecast/`. Run via `PYTHONPATH=. python forecast/learning_curve_dl.py`.
-  Lives in `forecast/` (not `scripts/`) to keep research-grade
-  prognosis tooling and its artefacts separate from the operational
-  pipeline.
+  RF is still competitive. Same `--no-zscore` flag. Liest
+  vor-generierte `{session}_windows.csv` aus `data/processed/`.
+- `scripts/compare_models_at_gap.py` — gleiches Modell-Panel, aber
+  baut die Features on-the-fly bei beliebigem `--gap` neu, ohne die
+  Cache-Dateien anzufassen. Nützlich, um Modell-Rangfolge bei
+  alternativen Label-Closing-Werten zu prüfen ohne Re-Generation.
+- `scripts/ablate_gap_loso.py` — Label-Closing-Ablation: fährt den
+  vollen LOSO-Lauf bei mehreren `max_gap_ms`-Werten und reportiert
+  per-Fold + Mean/Std. Quelle der Headline-Entscheidung
+  `max_gap_ms=2000` (siehe *Label smoothing* unten).
 - `src/evaluation/evaluate.py` — placeholder that loads
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
@@ -585,24 +587,59 @@ protocol — no special user action at session start is required.
 ## ML pipeline gotchas
 
 **Label smoothing (morphological closing).** The pen reports DOWN/MOVE
-only while in contact / near the paper. Between letters and across word
-boundaries there are 50–300 ms gaps where the pen is briefly lifted —
-the writer is still in *writing mode* but the raw pen label flips to 0,
-and the watch IMU during those gaps looks identical to the surrounding
-strokes. Without smoothing the model sees the same wrist motion with
-contradictory labels and learns ambivalence. **Default closing:**
-`max_gap_ms=300` in `build_windows()` — idle runs ≤ 300 ms between
-writing runs are flipped to writing. Empirically lifted within-session
-test accuracy on S029 from 0.66 → 0.83 and ROC-AUC from 0.75 → 0.85.
-Opening (`max_spike_ms`) is implemented but defaults off; flipping
-short writing spikes hurt S029 because real quick strokes (i-dots,
-punctuation) are short and informative.
+only while in contact / near the paper. Between letters, across word
+boundaries and during short denkpausen there are 50 ms–2 s gaps where
+the pen is briefly lifted — the writer is still in *writing mode* but
+the raw pen label flips to 0, and the watch IMU during those gaps
+looks identical to the surrounding strokes. Without smoothing the
+model sees the same wrist motion with contradictory labels and learns
+ambivalence. **Chosen closing (headline pipeline):** `max_gap_ms=2500` —
+idle runs ≤ 2.5 s between writing runs are flipped to writing. (Code-
+Default in `build_windows()` ist historisch noch `300`; Headline-
+Runs werden mit explizitem `--max-gap-ms 2500` gefahren bis der
+Default geflippt wird.) Semantik: damit detektiert das Modell "Person
+ist im Schreibmodus" (inkl. Mikropausen ≤ 2.5 s) und nicht "Pen
+aktuell auf Papier". Für einen Schreibzeit-Tracker ist das die
+User-facing-Wahrheit.
+
+LOSO-Ablation auf N=7 (2026-05-18): Headline gap=2000 → 2500 hob
+acc 0.864 → 0.868 (+0.4 pp), AUC 0.940 → 0.943 (+0.3 pp), F1(w)
+0.875 → 0.885 (+1.0 pp). 6 von 7 Folds verbesserten sich, P02/P03
+marginal regrediert (≤0.7 pp). Wichtig: P05 (neue, schwächste Fold)
+profitierte (acc 0.816 → 0.825, FP 307 → 295) — was die Hypothese
+aus der Marker-Analyse stützt, dass P05's lange Denkpausen in der
+math-Task länger als 2 s sind. Gap=3000 testete noch +0.2 pp F1,
+aber P05 regredierte (acc 0.802, FP 340) weil Fidgeting in geplanten
+Pausen ≥ 2.5 s fälschlich als writing geschluckt wird — und σ-acc
+sprang von 0.026 auf 0.035. `2500` ist die letzte Stelle mit
+near-universellem Per-Fold-Gewinn und σ-Tightening. Vorgänger-Switch
+auf N=5 von gap=300 → 2000 hatte +4.2 pp acc gebracht; bei N=7 ist
+das Plateau erreicht — weitere Smoothing-Gains brauchen entweder
+Features (z. B. „still sitting" Detektor) oder Threshold-Tuning.
+
+Opening (`max_spike_ms`) ist implementiert aber bleibt off; flipping
+short writing spikes hurt S029 — real quick strokes (i-dots,
+punctuation) sind kurz und informativ.
 
 **Smoothing lives in the feature step, not the merge.** The merged
 CSV is intentionally the "raw pen truth" — smoothing is a feature-
 engineering hypothesis and must remain reversible. Anyone wanting the
 unsmoothed labels can call `build_windows(..., max_gap_ms=0)` or read
 `label_writing` directly from `{session}_merged.csv`.
+
+**Marker-driven per-task error analysis.** Seit Study Mode v1 schreibt
+jeder Run einen `data/raw/markers/{session}_markers.csv` mit allen
+Task-Übergängen (Schreib-Tasks vs. geplante Pausen). Beim Diagnose
+von LOSO-Fehlern ist das die wichtigste Cross-Reference: man kann
+jedes Test-Window über `t_center_ms` auf die laufende Task mappen
+und FP/FN-Cluster getrennt nach `writing`- vs. `idle`-Kategorie
+analysieren. Beispiel-Insight aus dem 2026-05-17-Taji-Fold: die
+meisten FPs lagen *nicht* in den geplanten Pausen (Pause-FPR=0.01,
+nahezu perfekt), sondern an Pen-Lift-Mikropausen innerhalb der
+Schreib-Tasks — was die Hypothese „Pen-Truth ist zu hart" stützte
+und letztlich zum `max_gap_ms`-Switch geführt hat. Wenn neue
+LOSO-Folds verschlechtert wirken: erst Markers über die Predictions
+legen, bevor Modell- oder Feature-Änderungen angefasst werden.
 
 **Session length minimum.** Within-session 80/20 temporal splits need
 enough windows that both train and test see both classes. Empirically:
@@ -661,7 +698,7 @@ gesture produces different absolute feature values on different
 wrists. Per-session standardization removes the absolute-scale
 component while preserving the relative structure within a session.
 Lives in `_zscore_per_session()` in `train_loso.py` (and a copy in
-`compare_models.py` / `learning_curve_*.py`). Caveat for deployment:
+`compare_models.py`). Caveat for deployment:
 production needs a calibration phase (or rolling stats) to estimate
 μ, σ from the live stream before the model can be applied.
 
@@ -672,13 +709,6 @@ At N=3 probands, no systematic gain (Δacc ≈ ±0.003) and fold-σ
 roughly doubled — classic overfitting signature when feature count
 grows but data doesn't. Recorded in `reports/model_progression.md`.
 Worth re-trying at N≥5.
-
-**Feature-engineering hits a ceiling at the 88-feature representation.**
-The learning-curve forecast (`scripts/learning_curve_dl.py`)
-extrapolates DeepMLP (on engineered features) to asymptote ~0.87,
-while 1D-CNN and Transformer (on raw IMU) project to ~0.93-0.95 at
-N=50. Read: at larger N, switching to raw-signal models is likely
-the way forward, not adding more handcrafted features.
 
 ## Testing
 
