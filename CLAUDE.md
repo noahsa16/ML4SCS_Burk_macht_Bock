@@ -28,13 +28,14 @@ Status: data collection + preprocessing + watch-base merge + quality
 checks + sliding-window features + Random Forest baseline + LOSO
 cross-validation + Study Mode (counterbalanced protocol runner with
 fullscreen proband UI and VL admin monitor) are operational. **Current
-headline (7-person cross-subject LOSO, RF + per-session z-score +
-`max_gap_ms=2500` label closing): accuracy 0.868 ± 0.024, ROC-AUC
-0.943 ± 0.014, F1(writing) 0.885. Burst-aggregated @5s: acc 0.904,
-AUC 0.978.** Vorgänger-Headlines: 5-Probanden gap=2000
-acc 0.872 ± 0.020 / AUC 0.940; 7-Probanden gap=2000 acc 0.864 ± 0.026
-/ AUC 0.940; 3-Probanden gap=300 acc 0.842 ± 0.007 / AUC 0.909
-(ExtraTrees).
+headline (8-person cross-subject LOSO, RF + per-session z-score +
+`max_gap_ms=2500` label closing): accuracy 0.861 ± 0.035, ROC-AUC
+0.932 ± 0.035, F1(writing) 0.879. Burst-aggregated @5s: acc 0.899,
+AUC 0.967; @10s: acc 0.882, AUC 0.959; @30s: acc 0.847, AUC 0.928.**
+Vorgänger-Headlines: 7-Probanden gap=2500 acc 0.868 ± 0.024 /
+AUC 0.943 ± 0.014; 7-Probanden gap=2000 acc 0.864 ± 0.026 /
+AUC 0.940; 5-Probanden gap=2000 acc 0.872 ± 0.020 / AUC 0.940;
+3-Probanden gap=300 acc 0.842 ± 0.007 / AUC 0.909 (ExtraTrees).
 
 ## Setup
 
@@ -616,6 +617,24 @@ near-universellem Per-Fold-Gewinn und σ-Tightening. Vorgänger-Switch
 auf N=5 von gap=300 → 2000 hatte +4.2 pp acc gebracht; bei N=7 ist
 das Plateau erreicht — weitere Smoothing-Gains brauchen entweder
 Features (z. B. „still sitting" Detektor) oder Threshold-Tuning.
+
+N=8 (2026-05-18, +P07/S019): Headline-Acc fällt 0.868 → 0.861, AUC
+0.943 → 0.932, σ wächst 0.024 → 0.035 — komplett von P07-Fold
+getrieben (acc 0.808, AUC 0.848). Per-Block-Diagnose: P07 versagt
+*ausschließlich* im Math-Block (acc 0.578, 96 FPs, 61 FNs), während
+abschreiben/free_writing/pause sauber sind (acc 0.83–0.96). Sample-
+Level am `S019_merged.csv`: P07 hat in 225 s Math-Block nur **22 s
+echte Pen-Zeit (10 %)**; 6 Idle-Stretches > 10 s (längste 22 s),
+die `max_gap_ms=2500` strukturell nicht schließen kann. Free_writing
+zum Vergleich beim selben Subject: 58 % Pen-Zeit, acc 0.951. Math
+ist also eine *strukturelle* Limitation (Denk-Task mit Schreib-
+Mikrobursts), kein Modell- oder Featureproblem. **30 s-Burst-AUC für
+P07 erholt sich auf 0.932** — Modell trifft Phasen, nur nicht
+einzelne Sekunden. Gegenmaßnahmen brauchen task-aware Labeling oder
+math-Protokoll-Überarbeitung, nicht Gap-Tuning. Nebenbefund: 3 FP-
+Bursts in Pause 2 (+8 s, +49 s, +74 s) korrespondieren mit Noah's
+in-room Beobachtung dass P07 in der Pause aufs Handy getippt hat —
+Phone-Typing als echter Wrist-Confound, für Protokoll v2 dokumentiert.
 
 Opening (`max_spike_ms`) ist implementiert aber bleibt off; flipping
 short writing spikes hurt S029 — real quick strokes (i-dots,

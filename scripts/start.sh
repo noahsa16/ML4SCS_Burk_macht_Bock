@@ -279,6 +279,8 @@ try_ngrok() {
 }
 
 # Garantierter Endpunkt: LAN-IP des Macs (oder localhost wenn auch das fehlschlägt).
+# Erkennt iPhone-USB-Tethering (172.20.10.x ist Apple's Personal-Hotspot-Subnetz)
+# und gibt einen entsprechenden Hinweis.
 fallback_lan() {
   local ip
   ip=$(detect_lan_ip)
@@ -289,7 +291,11 @@ fallback_lan() {
     URL="http://${ip}:${PORT}"
   fi
   ACTIVE_PROVIDER="lan"
-  ok "lokal    ${C_DIM}LAN-IP · kein Tunnel${C_RESET}"
+  if [[ "$ip" == 172.20.10.* ]]; then
+    ok "lokal    ${C_DIM}iPhone-USB-Tethering erkannt · ${ip}${C_RESET}"
+  else
+    ok "lokal    ${C_DIM}LAN-IP · kein Tunnel${C_RESET}"
+  fi
 }
 
 if [[ "$TUNNEL_MODE" == "on" ]]; then
