@@ -6,19 +6,28 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # ── Args ──────────────────────────────────────────────────────────────────
-# Usage: start.sh [PORT] [--local|--no-tunnel|--tunnel]
+# Usage: start.sh [PORT] [--local|--no-tunnel|--tunnel|--ngrok] [--ngrok-domain=X]
 # Default: interactive prompt (oder via $ML4SCS_TUNNEL=0/1 im Environment).
 PORT="8000"
-TUNNEL_MODE=""   # "", "on", "off"
+TUNNEL_MODE=""        # "", "on", "off"
+TUNNEL_PROVIDER="auto"  # "auto" (cf→ngrok→lan), "ngrok" (ngrok→lan), "cloudflare" (cf→lan)
+NGROK_DOMAIN="${ML4SCS_NGROK_DOMAIN:-}"
 for arg in "$@"; do
   case "$arg" in
     --local|--no-tunnel) TUNNEL_MODE="off" ;;
     --tunnel)            TUNNEL_MODE="on" ;;
+    --ngrok)             TUNNEL_MODE="on"; TUNNEL_PROVIDER="ngrok" ;;
+    --cloudflare)        TUNNEL_MODE="on"; TUNNEL_PROVIDER="cloudflare" ;;
+    --ngrok-domain=*)    NGROK_DOMAIN="${arg#--ngrok-domain=}" ;;
     [0-9]*)              PORT="$arg" ;;
     -h|--help)
-      echo "Usage: $0 [PORT] [--local|--tunnel]"
-      echo "  --local / --nno-tunnel  : nur lokal, kein cloudflared"
-      echo "  --tunnel               : cloudflared starten"
+      echo "Usage: $0 [PORT] [--local|--tunnel|--ngrok|--cloudflare] [--ngrok-domain=X]"
+      echo "  --local / --no-tunnel  : nur lokal, kein Tunnel"
+      echo "  --tunnel               : Auto-Chain: cloudflare → ngrok → LAN-IP fallback"
+      echo "  --cloudflare           : nur cloudflared (Fallback auf LAN-IP wenn fail)"
+      echo "  --ngrok                : nur ngrok (Fallback auf LAN-IP wenn fail)"
+      echo "  --ngrok-domain=X       : reservierte ngrok-Subdomain (z.B. noah-ml4scs.ngrok-free.app)"
+      echo "                           Alternative: ML4SCS_NGROK_DOMAIN=X im Environment"
       echo "  ohne Flag: interaktive Abfrage (oder ML4SCS_TUNNEL=0/1)"
       exit 0 ;;
   esac
@@ -33,10 +42,22 @@ fi
 LOG_DIR="$(mktemp -d -t ml4scs)"
 SERVER_LOG="$LOG_DIR/server.log"
 TUNNEL_LOG="$LOG_DIR/tunnel.log"
+NGROK_LOG="$LOG_DIR/ngrok.log"
 
 SERVER_PID=""
 TUNNEL_PID=""
+ACTIVE_PROVIDER=""   # gesetzt sobald ein Tunnel/LAN steht: "cloudflare", "ngrok", "lan"
 WE_STARTED_SERVER=0
+
+# LAN-IP des Macs ermitteln (en0 wifi, en1 ethernet, ifconfig fallback).
+detect_lan_ip() {
+  local ip
+  ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
+  if [[ -z "$ip" ]]; then
+    ip=$(ifconfig 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}')
+  fi
+  echo "$ip"
+}
 
 # ── Farb-Tokens (mirror der Web-/App-Theme-Werte) ─────────────────────────
 if [[ -t 1 ]]; then
@@ -90,7 +111,11 @@ banner() {
   local A="$C_ACCENT" R="$C_RESET" D="$C_DIM" T2="$C_TEXT2" B="$C_BOLD" G="$C_GREEN"
   local mode_tag mode_dot
   if [[ "$TUNNEL_MODE" == "on" ]]; then
-    mode_tag="cloudflare tunnel"
+    case "$TUNNEL_PROVIDER" in
+      cloudflare) mode_tag="cloudflare → lan" ;;
+      ngrok)      mode_tag="ngrok → lan" ;;
+      *)          mode_tag="auto: cloudflare → ngrok → lan" ;;
+    esac
     mode_dot="${A}●${R}"
   else
     mode_tag="LAN-only"
@@ -121,11 +146,19 @@ if [[ -z "$TUNNEL_MODE" ]]; then
   fi
 fi
 
+# Werkzeug-Verfügbarkeit nur als Info — Auto-Chain entscheidet selbst was geht.
 if [[ "$TUNNEL_MODE" == "on" ]]; then
-  if ! command -v cloudflared >/dev/null 2>&1; then
-    err "cloudflared nicht installiert"
+  HAVE_CF=0; HAVE_NGROK=0
+  command -v cloudflared >/dev/null 2>&1 && HAVE_CF=1
+  command -v ngrok       >/dev/null 2>&1 && HAVE_NGROK=1
+  if [[ "$TUNNEL_PROVIDER" == "cloudflare" && $HAVE_CF -eq 0 ]]; then
+    warn "cloudflared nicht installiert — fallback auf LAN-IP"
     printf "%s   ${C_DIM}brew install cloudflared${C_RESET}\n" "$PAD"
-    exit 1
+  elif [[ "$TUNNEL_PROVIDER" == "ngrok" && $HAVE_NGROK -eq 0 ]]; then
+    warn "ngrok nicht installiert — fallback auf LAN-IP"
+    printf "%s   ${C_DIM}brew install ngrok && ngrok config add-authtoken <TOKEN>${C_RESET}\n" "$PAD"
+  elif [[ "$TUNNEL_PROVIDER" == "auto" && $HAVE_CF -eq 0 && $HAVE_NGROK -eq 0 ]]; then
+    warn "weder cloudflared noch ngrok installiert — fallback auf LAN-IP"
   fi
 fi
 
@@ -163,37 +196,122 @@ else
   fi
 fi
 
-# ── 3. Tunnel starten (oder LAN-IP ermitteln) ─────────────────────────────
+# ── 3. Tunnel-Chain: cloudflare → ngrok → LAN-IP ──────────────────────────
+# Setzt am Ende garantiert $URL und $ACTIVE_PROVIDER; bricht nie ab.
 URL=""
-if [[ "$TUNNEL_MODE" == "on" ]]; then
-  step "tunnel   ${C_DIM}starting cloudflared…${C_RESET}"
-  cloudflared tunnel --url "http://localhost:${PORT}" > "$TUNNEL_LOG" 2>&1 &
-  TUNNEL_PID=$!
+TUNNEL_PID=""
 
-  for _ in {1..30}; do
-    URL=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" "$TUNNEL_LOG" | head -1 || true)
-    [[ -n "$URL" ]] && break
+# Versuch cloudflared mit 2 Retries gegen trycloudflare 1101.
+try_cloudflare() {
+  command -v cloudflared >/dev/null 2>&1 || return 1
+  local max=2
+  for attempt in $(seq 1 $max); do
+    if [[ $attempt -eq 1 ]]; then
+      step "tunnel   ${C_DIM}starting cloudflared…${C_RESET}"
+    else
+      step "tunnel   ${C_DIM}cloudflared retry ${attempt}/${max}…${C_RESET}"
+    fi
+    : > "$TUNNEL_LOG"
+    cloudflared tunnel --url "http://localhost:${PORT}" > "$TUNNEL_LOG" 2>&1 &
+    local pid=$!
+    local url=""
+    for _ in {1..20}; do
+      if ! kill -0 "$pid" 2>/dev/null; then break; fi
+      url=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" "$TUNNEL_LOG" | head -1 || true)
+      [[ -n "$url" ]] && break
+      if grep -qE "failed to unmarshal|error code: 1101" "$TUNNEL_LOG"; then break; fi
+      sleep 0.5
+    done
+    if [[ -n "$url" ]]; then
+      URL="$url"
+      TUNNEL_PID="$pid"
+      ACTIVE_PROVIDER="cloudflare"
+      ok "tunnel   ${C_DIM}cloudflared up · pid $pid${C_RESET}"
+      return 0
+    fi
+    if kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+    [[ $attempt -lt $max ]] && { warn "trycloudflare 1101 — warte 2s…"; sleep 2; }
+  done
+  return 1
+}
+
+# Versuch ngrok via lokaler Inspector-API (Port 4040 → JSON public_url).
+try_ngrok() {
+  command -v ngrok >/dev/null 2>&1 || return 1
+  step "tunnel   ${C_DIM}starting ngrok…${C_RESET}"
+  : > "$NGROK_LOG"
+  local args=(http "$PORT" --log=stdout --log-level=info)
+  if [[ -n "$NGROK_DOMAIN" ]]; then
+    args=(http --domain="$NGROK_DOMAIN" "$PORT" --log=stdout --log-level=info)
+  fi
+  ngrok "${args[@]}" > "$NGROK_LOG" 2>&1 &
+  local pid=$!
+  local url=""
+  for _ in {1..20}; do
+    if ! kill -0 "$pid" 2>/dev/null; then break; fi
+    # Inspector-API erst nach ~1s verfügbar; -m 1 sorgt für schnelles Skippen.
+    url=$(curl -sS -m 1 http://127.0.0.1:4040/api/tunnels 2>/dev/null \
+          | grep -oE '"public_url":"https://[^"]+"' | head -1 \
+          | sed -E 's/.*"public_url":"([^"]+)"/\1/' || true)
+    [[ -n "$url" ]] && break
+    if grep -qiE "authtoken|ERR_NGROK|failed to start" "$NGROK_LOG"; then break; fi
     sleep 0.5
   done
+  if [[ -n "$url" ]]; then
+    URL="$url"
+    TUNNEL_PID="$pid"
+    ACTIVE_PROVIDER="ngrok"
+    ok "tunnel   ${C_DIM}ngrok up · pid $pid${C_RESET}"
+    return 0
+  fi
+  if kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  fi
+  # Why: häufigster ngrok-Fail ist fehlender authtoken — direkt anzeigen.
+  if grep -qiE "authtoken" "$NGROK_LOG"; then
+    warn "ngrok: authtoken fehlt → ${C_DIM}ngrok config add-authtoken <TOKEN>${C_RESET}"
+  fi
+  return 1
+}
 
-  if [[ -z "$URL" ]]; then
-    err "konnte tunnel-URL nicht extrahieren"
-    tail -20 "$TUNNEL_LOG" | sed "s/^/${PAD}   ${C_DIM}/; s/$/${C_RESET}/"
-    exit 1
-  fi
-  ok "tunnel   ${C_DIM}up · pid $TUNNEL_PID${C_RESET}"
-else
-  LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || true)
-  if [[ -z "$LAN_IP" ]]; then
-    LAN_IP=$(ifconfig 2>/dev/null | awk '/inet / && $2 != "127.0.0.1" {print $2; exit}')
-  fi
-  if [[ -z "$LAN_IP" ]]; then
+# Garantierter Endpunkt: LAN-IP des Macs (oder localhost wenn auch das fehlschlägt).
+fallback_lan() {
+  local ip
+  ip=$(detect_lan_ip)
+  if [[ -z "$ip" ]]; then
     warn "LAN-IP nicht gefunden — fallback auf localhost"
     URL="http://localhost:${PORT}"
   else
-    URL="http://${LAN_IP}:${PORT}"
+    URL="http://${ip}:${PORT}"
   fi
-  ok "lokal    ${C_DIM}kein tunnel · LAN-only${C_RESET}"
+  ACTIVE_PROVIDER="lan"
+  ok "lokal    ${C_DIM}LAN-IP · kein Tunnel${C_RESET}"
+}
+
+if [[ "$TUNNEL_MODE" == "on" ]]; then
+  case "$TUNNEL_PROVIDER" in
+    cloudflare)
+      try_cloudflare || { warn "cloudflared failed — fallback auf LAN-IP"; fallback_lan; }
+      ;;
+    ngrok)
+      try_ngrok || { warn "ngrok failed — fallback auf LAN-IP"; fallback_lan; }
+      ;;
+    auto)
+      if ! try_cloudflare; then
+        warn "cloudflared failed — versuche ngrok…"
+        if ! try_ngrok; then
+          warn "ngrok failed — fallback auf LAN-IP"
+          fallback_lan
+        fi
+      fi
+      ;;
+  esac
+else
+  fallback_lan
 fi
 
 # ── 4. Clipboard ──────────────────────────────────────────────────────────
@@ -209,7 +327,12 @@ LEN=${#URL}
 PAD_INNER=3
 WIDTH=$((LEN + PAD_INNER * 2))
 LINE=$(printf '─%.0s' $(seq 1 "$WIDTH"))
-LABEL=" endpoint "
+case "$ACTIVE_PROVIDER" in
+  cloudflare) LABEL=" cloudflare " ;;
+  ngrok)      LABEL=" ngrok " ;;
+  lan)        LABEL=" lan " ;;
+  *)          LABEL=" endpoint " ;;
+esac
 LABEL_LEN=${#LABEL}
 HEAD_FILL=$(printf '─%.0s' $(seq 1 $((WIDTH - LABEL_LEN - 2))))
 printf "%s${C_ACCENT}╭─${C_RESET}${C_DIM}%s${C_RESET}${C_ACCENT}%s╮${C_RESET}\n" \

@@ -36,20 +36,49 @@ if ! curl -sS -m 2 "http://127.0.0.1:${PORT}/" -o /dev/null; then
   echo
 fi
 
-# 3. Tunnel starten
-echo "starting cloudflared tunnel → http://localhost:${PORT}…"
-cloudflared tunnel --url "http://localhost:${PORT}" > "$LOG" 2>&1 &
-CF_PID=$!
+# 3. Tunnel starten — mit Retries gegen trycloudflare 1101.
+MAX_ATTEMPTS=3
+for attempt in $(seq 1 $MAX_ATTEMPTS); do
+  if [[ $attempt -eq 1 ]]; then
+    echo "starting cloudflared tunnel → http://localhost:${PORT}…"
+  else
+    echo "retry ${attempt}/${MAX_ATTEMPTS} …"
+  fi
 
-# 4. URL aus dem Log fischen (max ~15 s warten)
-for i in {1..30}; do
-  URL=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" "$LOG" | head -1 || true)
+  : > "$LOG"
+  cloudflared tunnel --url "http://localhost:${PORT}" > "$LOG" 2>&1 &
+  CF_PID=$!
+
+  URL=""
+  for _ in {1..30}; do
+    if ! kill -0 "$CF_PID" 2>/dev/null; then
+      break
+    fi
+    URL=$(grep -oE "https://[a-z0-9-]+\.trycloudflare\.com" "$LOG" | head -1 || true)
+    [[ -n "$URL" ]] && break
+    # Why: trycloudflare returns HTTP 500 (error 1101) intermittently; fail fast on that.
+    if grep -qE "failed to unmarshal|error code: 1101" "$LOG"; then
+      break
+    fi
+    sleep 0.5
+  done
+
   [[ -n "$URL" ]] && break
-  sleep 0.5
+
+  if kill -0 "$CF_PID" 2>/dev/null; then
+    kill "$CF_PID" 2>/dev/null || true
+    wait "$CF_PID" 2>/dev/null || true
+  fi
+  unset CF_PID
+
+  if [[ $attempt -lt $MAX_ATTEMPTS ]]; then
+    echo "⚠  tunnel-URL nicht erhalten (trycloudflare 1101?) — warte 3s…"
+    sleep 3
+  fi
 done
 
 if [[ -z "$URL" ]]; then
-  echo "✗ Konnte keine Tunnel-URL extrahieren. Letzte Log-Zeilen:"
+  echo "✗ Konnte nach ${MAX_ATTEMPTS} Versuchen keine Tunnel-URL extrahieren. Letzte Log-Zeilen:"
   tail -20 "$LOG"
   exit 1
 fi
