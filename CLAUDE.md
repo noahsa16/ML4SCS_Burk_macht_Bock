@@ -28,11 +28,12 @@ Status: data collection + preprocessing + watch-base merge + quality
 checks + sliding-window features + Random Forest baseline + LOSO
 cross-validation + Study Mode (counterbalanced protocol runner with
 fullscreen proband UI and VL admin monitor) are operational. **Current
-headline (8-person cross-subject LOSO, RF + per-session z-score +
-`max_gap_ms=2500` label closing): accuracy 0.861 ± 0.035, ROC-AUC
-0.932 ± 0.035, F1(writing) 0.879. Burst-aggregated @5s: acc 0.899,
-AUC 0.967; @10s: acc 0.882, AUC 0.959; @30s: acc 0.847, AUC 0.928.**
-Vorgänger-Headlines: 7-Probanden gap=2500 acc 0.868 ± 0.024 /
+headline (10-person cross-subject LOSO, RF + per-session z-score +
+`max_gap_ms=2500` label closing): accuracy 0.856 ± 0.032, ROC-AUC
+0.928 ± 0.033, F1(writing) 0.864. Burst-aggregated @5s: acc 0.887,
+AUC 0.960; @10s: acc 0.870, AUC 0.944; @30s: acc 0.831, AUC 0.909.**
+Vorgänger-Headlines: 8-Probanden gap=2500 acc 0.861 ± 0.035 /
+AUC 0.932 ± 0.035; 7-Probanden gap=2500 acc 0.868 ± 0.024 /
 AUC 0.943 ± 0.014; 7-Probanden gap=2000 acc 0.864 ± 0.026 /
 AUC 0.940; 5-Probanden gap=2000 acc 0.872 ± 0.020 / AUC 0.940;
 3-Probanden gap=300 acc 0.842 ± 0.007 / AUC 0.909 (ExtraTrees).
@@ -625,16 +626,37 @@ getrieben (acc 0.808, AUC 0.848). Per-Block-Diagnose: P07 versagt
 abschreiben/free_writing/pause sauber sind (acc 0.83–0.96). Sample-
 Level am `S019_merged.csv`: P07 hat in 225 s Math-Block nur **22 s
 echte Pen-Zeit (10 %)**; 6 Idle-Stretches > 10 s (längste 22 s),
-die `max_gap_ms=2500` strukturell nicht schließen kann. Free_writing
-zum Vergleich beim selben Subject: 58 % Pen-Zeit, acc 0.951. Math
-ist also eine *strukturelle* Limitation (Denk-Task mit Schreib-
-Mikrobursts), kein Modell- oder Featureproblem. **30 s-Burst-AUC für
-P07 erholt sich auf 0.932** — Modell trifft Phasen, nur nicht
-einzelne Sekunden. Gegenmaßnahmen brauchen task-aware Labeling oder
-math-Protokoll-Überarbeitung, nicht Gap-Tuning. Nebenbefund: 3 FP-
-Bursts in Pause 2 (+8 s, +49 s, +74 s) korrespondieren mit Noah's
-in-room Beobachtung dass P07 in der Pause aufs Handy getippt hat —
-Phone-Typing als echter Wrist-Confound, für Protokoll v2 dokumentiert.
+die `max_gap_ms=2500` strukturell nicht schließen kann. **30 s-Burst-
+AUC für P07 erholt sich auf 0.932** — Modell trifft Phasen, nur nicht
+einzelne Sekunden. Nebenbefund: 3 FP-Bursts in Pause 2 (+8 s, +49 s,
++74 s) korrespondieren mit Noah's in-room Beobachtung dass P07 in der
+Pause aufs Handy getippt hat — Phone-Typing als echter Wrist-Confound,
+für Protokoll v2 dokumentiert.
+
+N=10 (2026-05-19, +P08/S020, +P09/S022): Headline-Acc 0.861 → 0.856,
+AUC 0.932 → 0.928, F1(w) 0.879 → 0.864 — **alle Bewegungen innerhalb
+σ-fold, σ tightens sogar 0.035 → 0.032 trotz +2 Folds**, Modell
+stabilisiert sich mit N. **P08-Math widerlegt die N=8-These "Math
+ist strukturell schwer":** P08 hat in Math 26 % Pen-Zeit (ähnlich
+niedrig wie P07's 10 %), erreicht aber acc 0.843 / AUC 0.942 im
+Math-Block. Math-Schwierigkeit war **P07-individuell** (lange
+Denkpausen + fidgety hands), nicht task-inhärent — die N=8-Diagnose
+"strukturelle Limitation" ist insofern zu stark formuliert. **P09 ist
+neue Fehlerklasse** (acc 0.812, AUC 0.896): Pausen exzellent
+(acc 0.92–0.96), aber beide Writing-Tasks symmetrisch schwach
+(Free 0.791 / AUC 0.843, Abschreiben 0.782 / AUC 0.844).
+Abschreiben-Pen-Zeit nur **58 % (Norm 75–80 %)** — Soft-Writer-Stil
+mit langen Mikropausen *innerhalb* der Schreibphasen. Anders als P07:
+**Burst-Aggregation @30 s verschlechtert P09** (acc 0.812 → 0.782,
+AUC 0.896 → 0.851) statt zu helfen — die einzige Fold im Datensatz
+mit @30 s < @1 s AUC. Erklärung: P09's Fehler sind zeitlich
+geclustert, nicht verrauscht — längere Decision-Windows mitteln
+korrekte Predictions weg statt Noise zu glätten. → **Zwei distinkte
+Failure-Modi** im Datensatz mit unterschiedlichen Lösungswegen:
+P07-Klasse (high-frequency Noise) braucht task-aware Labeling oder
+profitiert from Burst-Aggregation; P09-Klasse (systematische Soft-
+Writer-Confusion) braucht Per-Subject-Threshold oder weichere
+Pen-Truth-Definition.
 
 Opening (`max_spike_ms`) ist implementiert aber bleibt off; flipping
 short writing spikes hurt S029 — real quick strokes (i-dots,
