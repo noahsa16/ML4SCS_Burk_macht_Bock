@@ -120,28 +120,38 @@ Moleskine Smart Pen (BLE)
   → data/raw/pen/{session}_pen.csv
                     ↓
        src/alignment/pen_match.py    (recover per-session δ via
-                                      stroke-variance minimization)
-       src/merge/                    (watch-base: 1 row per watch
+                                      stroke-variance minimization;
+                                      σ ≤ -3 → use for ML)
+                    ↓
+       src/merge/merge.py            (watch-base: 1 row per watch
                                       sample with label_writing from
                                       pen activity in ±40 ms)
                     ↓
-         data/processed/{session}_merged.csv  (50 Hz watch + label)
+         data/processed/{session}_merged.csv  (50 Hz watch + raw label)
                     ↓
-       src/features/                 (sample-level label smoothing
-                                      via morphological closing, then
-                                      1 s / 0.5 s sliding windows →
-                                      88 features per window: time-stats
-                                      + spectral (FFT) + jerk + ZCR +
+       src/features/windows.py       (sample-level label closing,
+                                      max_gap_ms=2500 → "writing mode"
+                                      semantics; then 1 s / 0.5 s
+                                      sliding windows → 88 features
+                                      in 6 groups: time-stats, spectral
+                                      (FFT), jerk, ZCR, magnitude,
                                       cross-axis correlations)
                     ↓
          data/processed/{session}_windows.csv  (1 row per window)
                     ↓
-       src/training/within_session/  (temporal 80/20 split, RF — *debug only*,
-         train_rf.py                   feature/label-smoothing iteration)
-       src/training/train_loso.py    (LOSO by person or session — *headline
-                                      metric* for the cross-subject goal)
+       src/training/train_loso.py    (HEADLINE: LOSO by person, N=10,
+                                      RF 200 trees + per-session z-score,
+                                      class_weight=balanced, then per-
+                                      session rolling-mean burst-agg
+                                      @1s/5s/10s/30s decision-windows)
+       src/training/within_session/  (debug only — temporal 80/20 split
+         train_rf.py                  for feature/smoothing iteration)
                     ↓
-         models/rf_{session}.joblib  +  per-fold metrics on stdout
+         models/rf_all.joblib  (deployment, --save-final-model)
+         models/loso_cv.csv    (per-fold metrics, --save-cv-csv)
+                    ↓
+         acc 0.856 ± 0.032  |  AUC 0.928 ± 0.033  |  F1(w) 0.864
+         burst @30s: acc 0.831 / AUC 0.909  (Schreibzeit-tracking)
 ```
 
 ### Server (`server.py` + `src/server/`)
