@@ -466,7 +466,9 @@ export async function toggleSession() {
 
   const pid = document.getElementById('personId').value.trim() || 'unknown';
   const description = document.getElementById('sessionDescription').value.trim();
-  const preflight = await runStartPreflight();
+  const studyTestMode = _recMode === 'study'
+    && document.getElementById('testModeCheck')?.checked === true;
+  const preflight = await runStartPreflight(studyTestMode);
   if (!preflight.canStart) return;
 
   if (_recMode === 'study') {
@@ -508,8 +510,9 @@ export async function toggleSession() {
   if (res?.session_id) toast(`Recording session ${res.session_id} started`);
 }
 
-async function runStartPreflight() {
-  const preflight = await api('/session/preflight');
+async function runStartPreflight(testMode = false) {
+  const qs = testMode ? '?test_mode=true' : '';
+  const preflight = await api('/session/preflight' + qs);
   if (!preflight) return { canStart: false, force: false };
   if (preflight.blockers?.length) {
     showPreflightResult(preflight);

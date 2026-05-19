@@ -61,7 +61,7 @@ def client(data_dirs, monkeypatch):
         monkeypatch.setattr(mod, "_broadcast", fake_broadcast)
 
     # Skip the preflight gate (no iPhone bridge / watch in test env).
-    def fake_preflight():
+    def fake_preflight(**_kwargs):
         return {"ok": True, "can_start": True, "blockers": [], "warnings": [], "status": {}}
     monkeypatch.setattr(sessions_routes, "_session_preflight_payload", fake_preflight)
 
@@ -165,6 +165,47 @@ def test_session_stop_finalizes_row(client, data_dirs):
         rows = list(csv.DictReader(f))
     assert rows[-1]["status"] == "completed"
     assert rows[-1]["end_time"] != ""
+
+
+def test_session_stop_uses_disk_truth_for_watch_samples(client, data_dirs):
+    """Regression for S019: in the prod race window between writing CSV rows
+    and snapshotting state.watch_sample_count, late WatchConnectivity batches
+    can land in the CSV while state.active is already None. sessions.csv must
+    reflect the on-disk row count, not the in-memory counter.
+
+    We simulate that race deterministically by injecting watch rows directly
+    through the disk path while keeping state.watch_sample_count at zero,
+    then asserting /session/stop reports the disk truth."""
+    import src.server.state as state_mod
+
+    start = client.post("/session/start", json={"person_id": "P01"})
+    sid = start.json()["session_id"]
+
+    payload_in = {
+        "samples": [_imu_sample(1000 + i * 20) for i in range(5)],
+        "sequence": 0, "sampleRateHz": 50.0, "sessionId": sid,
+    }
+    assert client.post("/watch", json=payload_in).status_code == 200
+
+    # Simulate 3 late-arrival samples that hit the CSV but not the counter
+    # (mirrors the real race: state.active=None when the request is handled).
+    state_mod.state.watch_sample_count = 5  # pre-race counter snapshot
+    from src.server.csv_io import get_watch_writer, close_watch_writer, _watch_count_cache
+    _watch_count_cache.pop(sid, None)
+    path = data_dirs.watch / f"{sid}_watch.csv"
+    w = get_watch_writer(path)
+    for i in range(3):
+        w.writerow({k: "" for k in WATCH_FIELDNAMES} | {
+            "session_id": sid, "ts": 2000 + i * 20,
+            "ax": 0.0, "ay": 0.0, "az": 1.0, "rx": 0.0, "ry": 0.0, "rz": 0.0,
+        })
+    close_watch_writer(path)
+
+    assert client.post("/session/stop").status_code == 200
+
+    with open(data_dirs.sessions) as f:
+        rows = list(csv.DictReader(f))
+    assert int(rows[-1]["watch_samples"]) == 8
 
 
 def test_session_stop_without_start_is_409(client):
