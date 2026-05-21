@@ -61,3 +61,27 @@ def test_build_raw_windows_missing_column_raises():
     merged = _synthetic_merged().drop(columns=["rz"])
     with pytest.raises(ValueError, match="missing columns"):
         build_raw_windows(merged, seq_len=50)
+
+
+from src.training.deep.data import zscore_channels
+
+
+def test_zscore_channels_normalises_per_channel():
+    rng = np.random.default_rng(1)
+    X = rng.normal(loc=5.0, scale=3.0, size=(40, 50, 6)).astype(np.float32)
+    Xz = zscore_channels(X)
+    flat = Xz.reshape(-1, 6)
+    assert np.allclose(flat.mean(axis=0), 0.0, atol=1e-4)
+    assert np.allclose(flat.std(axis=0), 1.0, atol=1e-4)
+    assert Xz.dtype == np.float32
+
+
+def test_zscore_channels_constant_channel_safe():
+    X = np.ones((10, 50, 6), dtype=np.float32)
+    Xz = zscore_channels(X)
+    assert np.all(np.isfinite(Xz))
+
+
+def test_zscore_channels_empty_safe():
+    X = np.empty((0, 50, 6), dtype=np.float32)
+    assert zscore_channels(X).shape == (0, 50, 6)
