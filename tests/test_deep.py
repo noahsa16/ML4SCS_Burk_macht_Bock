@@ -104,3 +104,19 @@ def test_cnn_forward_batch_one():
     model.eval()
     out = model(torch.randn(1, 50, 6))
     assert out.shape == (1,)
+
+
+from src.training.deep.models import MODELS
+
+
+@pytest.mark.parametrize("name", ["cnn", "lstm", "gru"])
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_model_registry_forward(name, seq_len):
+    model = MODELS[name]()
+    out = model(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_models_registry_keys():
+    assert set(MODELS.keys()) == {"cnn", "lstm", "gru"}
