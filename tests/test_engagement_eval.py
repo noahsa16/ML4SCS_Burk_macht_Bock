@@ -100,3 +100,40 @@ def test_assign_tasks_maps_windows_into_blocks():
     assert out["task_index"].tolist()[:2] == [1.0, 2.0]
     assert pd.isna(out["task_index"].iloc[2])  # Fenster außerhalb → NaN
     assert out["task_category"].tolist()[:2] == ["writing", "idle"]
+
+
+def test_engagement_per_task_aggregates_per_block():
+    # Block 1 (writing): 4 Fenster, alle label 1, proba 0.9 → 100/100
+    # Block 2 (idle):    4 Fenster, alle label 0, proba 0.1 → 0/0
+    oof = _oof("S001", "P01",
+               [1200.0, 1400.0, 1600.0, 1800.0,
+                2200.0, 2400.0, 2600.0, 2800.0],
+               [1, 1, 1, 1, 0, 0, 0, 0],
+               [0.9, 0.9, 0.9, 0.9, 0.1, 0.1, 0.1, 0.1])
+
+    out = eng.engagement_per_task(
+        oof, timeline_loader=lambda s: _timeline_two_blocks())
+
+    assert len(out) == 2
+    assert list(out.columns) == [
+        "session_id", "person_id", "task_index", "task_id", "task_name",
+        "task_category", "n_windows", "true_pct", "pred_pct", "error_pp"]
+    w = out[out["task_category"] == "writing"].iloc[0]
+    assert w["true_pct"] == pytest.approx(100.0)
+    assert w["pred_pct"] == pytest.approx(100.0)
+    assert w["error_pp"] == pytest.approx(0.0)
+    assert w["n_windows"] == 4
+    idle = out[out["task_category"] == "idle"].iloc[0]
+    assert idle["true_pct"] == pytest.approx(0.0)
+
+
+def test_engagement_per_task_skips_session_without_markers():
+    oof = _oof("S001", "P01", [1500.0, 2500.0], [1, 0], [0.9, 0.1])
+
+    out = eng.engagement_per_task(
+        oof, timeline_loader=lambda s: pd.DataFrame(columns=eng.TIMELINE_COLS))
+
+    assert out.empty
+    assert list(out.columns) == [
+        "session_id", "person_id", "task_index", "task_id", "task_name",
+        "task_category", "n_windows", "true_pct", "pred_pct", "error_pp"]
