@@ -98,13 +98,32 @@ betrifft nur Pen↔Watch und ist hier irrelevant.
 | `load_oof(path)` | OOF-CSV laden | wiederverwendet aus `regression.py` (Import) |
 | `task_timeline(session_id)` | Marker-CSV lesen, `task_start`↔`task_end` je `task_index` paaren | `data/raw/markers/` |
 | `assign_tasks(oof_session, timeline)` | jedem OOF-Fenster per `t_center_ms` einen Task-Block zuordnen | — |
-| `engagement_per_task(oof_df, timeline_loader)` | 1 Zeile pro `(Session, task_index)` aggregieren | obige |
+| `engagement_per_task(oof_df, timeline_loader)` | 1 Zeile pro `(Session, task_index)` aggregieren | `block_percentages` + obige |
 | `plot_engagement_heatmap(eng_df, out_path)` | Proband × Task-Grid + Pausen-Streifen | matplotlib |
 | `evaluate(...)` | Orchestrator: CSV + Plot schreiben, Diagnose loggen | alle obigen |
 
 `task_timeline` und `assign_tasks` sind der wiederverwendbare,
 deployment-fähige Kern (Marker → Task → zugeordnete Fenster). `evaluate`
 ist die Präsi-Schicht obendrauf.
+
+### Geteilte Per-Block-Berechnung — keine Doppel-Implementierung
+
+Die Umrechnung „Block von 1-s-Vorhersagen → eine Prozentzahl" ist
+identisch mit dem, was `regression.aggregate()` pro Zeitblock tut
+(`pred_pct = mean(proba_cal ≥ 0.5)·100`, `true_pct = mean(label)·100`).
+Diese Berechnung wird **nicht** in `engagement.py` neu implementiert,
+sondern als kleiner Helfer `block_percentages(group)` aus
+`regression.py` exportiert und von beiden Modulen importiert — so lebt
+die Definition des binären Schätzers an *einer* Stelle und kann nicht
+auseinanderlaufen. Die kleine Anpassung an `regression.py` (Helfer
+extrahieren, `aggregate()` ruft ihn statt der Inline-Formel) ist Teil
+der Engagement-Implementierung; das Verhalten von `regression.py`
+bleibt unverändert (durch dessen Tests abgesichert).
+
+Engagement und Regression bleiben **getrennte Module** — sie schneiden
+die Session nach unterschiedlichen Blockgrenzen (feste Zeit vs.
+Marker-Tasks) und haben unterschiedliche Outputs. Geteilt wird nur die
+eine gemeinsame Formel, nicht die Modul-Struktur.
 
 ### Marker-Timeline
 
@@ -170,4 +189,7 @@ Kontrolle.
   niedrigeren `true_pct` als die Schreib-Tasks.
 - Der P07-Math-Block erscheint als Zelle mit niedrigem `true_pct` —
   die Auswertung reproduziert den bekannten Befund.
-- `pytest tests/` grün inklusive `test_engagement_eval.py`.
+- `pytest tests/` grün inklusive `test_engagement_eval.py` — und die
+  bestehenden `test_regression_eval.py` bleiben unverändert grün
+  (Beleg, dass die `block_percentages`-Extraktion das Regression-
+  Verhalten nicht ändert).
