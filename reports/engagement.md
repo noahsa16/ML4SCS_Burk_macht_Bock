@@ -35,4 +35,33 @@ Per-Block-Prozent-Formel wird über `block_percentages()` mit
 
 ## Ergebnisse
 
-(wird beim ersten echten Lauf gefüllt)
+Erster Lauf 2026-05-21 über `models/loso_oof.csv` (N=10 Probanden,
+29 Schreib-Task-Blöcke, 20 Pausen-Blöcke).
+
+**Schreib-Tasks — echter Schreibzeit-Anteil je Aufgabentyp:**
+
+| Task | `true_pct` Ø | n |
+|------|-------------|---|
+| `abschreiben`   | 83,3 % | 10 |
+| `free_writing`  | 81,7 % | 10 |
+| `math`          | **39,6 %** | 9 |
+
+Der Math-Block hat über *alle* Probanden hinweg nur rund die Hälfte
+des Schreibzeit-Anteils der anderen beiden Aufgaben. Das bestätigt den
+N=10-Befund aus CLAUDE.md: P07s schwache Math-Accuracy (0.58) ist kein
+Modellfehler — Mathe ist strukturell schreibarm (Denkzeit). P07-Math
+konkret: `true_pct` 39,2 %, `pred_pct` 47,6 %.
+
+**Schätzgüte:** mittlerer |`error_pp`| über die Schreib-Tasks = 6,4 pp
+— das Modell schätzt den Schreibzeit-Anteil ohne Pen im Schnitt auf
+~6 Prozentpunkte genau.
+
+**Pausen-Kontrolle:** `true_pct` ist über alle 20 Pausen-Blöcke exakt
+0,0 % — die Methode erfindet keinen Schreibanteil, wo keiner ist.
+`pred_pct` in den Pausen Ø 6,4 %, Maximum 20,2 %; 4 von 20 Pausen
+liegen über 10 % (P05 ×2, P07 Pause 4, P08 Pause 4). Diese
+Pausen-FPs decken sich mit dem dokumentierten Phone-Typing-Confound
+(Handy-Tippen in Idle-Blocks erzeugt schreibähnliche Wrist-IMU-Muster).
+
+Artefakte: `models/engagement_metrics.csv`,
+`reports/figures/engagement_heatmap.png`.
