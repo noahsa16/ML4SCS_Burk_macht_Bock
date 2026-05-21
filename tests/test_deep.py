@@ -137,3 +137,22 @@ def test_train_one_model_runs_and_predicts():
     proba = predict_proba(model, Xv)
     assert proba.shape == (16,)
     assert np.all((proba >= 0.0) & (proba <= 1.0))
+
+
+from src.training.deep.train_loso import fold_metrics
+
+
+def test_fold_metrics_keys_and_ranges():
+    """fold_metrics liefert 1-s- + Burst-Metriken auf einem Test-Fold."""
+    rng = np.random.default_rng(3)
+    n = 120
+    proba = rng.uniform(size=n)
+    y_true = rng.integers(0, 2, size=n)
+    test_df = pd.DataFrame({
+        "session_id": ["S001"] * n,
+        "t_center_ms": 1_700_000_000_000.0 + np.arange(n) * 500.0,
+    })
+    m = fold_metrics(proba, y_true, test_df)
+    assert {"accuracy", "f1_writing", "roc_auc", "bursts"} <= set(m)
+    assert {"5s", "10s", "30s"} == set(m["bursts"])
+    assert 0.0 <= m["accuracy"] <= 1.0
