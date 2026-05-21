@@ -160,3 +160,35 @@ def test_plot_engagement_heatmap_writes_file(tmp_path):
     # Why: out.exists() allein wäre auch bei einer leeren/degenerierten
     # Figur grün — die Größenschwelle belegt, dass real gerendert wurde.
     assert out.stat().st_size > 5_000
+
+
+def test_evaluate_writes_engagement_csv(tmp_path, monkeypatch):
+    monkeypatch.setattr(eng, "MARKERS_DIR", tmp_path)
+    monkeypatch.setattr(eng, "FIG_DIR", tmp_path / "figures")
+    _write_markers(tmp_path / "S001_markers.csv", [
+        (1000, "study_start", "", "", "", ""),
+        (1100, "task_start", "abschreiben", "Text", 1, "writing"),
+        (2000, "task_end",   "abschreiben", "Text", 1, "writing"),
+        (2100, "task_start", "pause", "Pause", 2, "idle"),
+        (3000, "task_end",   "pause", "Pause", 2, "idle"),
+        (3100, "study_end",  "", "", "", ""),
+    ])
+    # 4 Fenster im writing-Block, 4 im idle-Block
+    oof = _oof("S001", "P01",
+               [1200.0, 1400.0, 1600.0, 1800.0,
+                2200.0, 2400.0, 2600.0, 2800.0],
+               [1, 1, 1, 0, 0, 0, 0, 0],
+               [0.9, 0.9, 0.9, 0.1, 0.1, 0.1, 0.1, 0.1])
+    oof_path = tmp_path / "loso_oof.csv"
+    oof.to_csv(oof_path, index=False)
+    out_csv = tmp_path / "engagement_metrics.csv"
+
+    result = eng.evaluate(oof_path=oof_path, out_csv=out_csv)
+
+    assert out_csv.exists()
+    df = pd.read_csv(out_csv)
+    assert list(df.columns) == eng.ENGAGEMENT_COLS
+    assert len(df) == 2
+    assert set(df["task_category"]) == {"writing", "idle"}
+    assert (tmp_path / "figures" / "engagement_heatmap.png").exists()
+    assert "engagement" in result
