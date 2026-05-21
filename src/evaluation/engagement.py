@@ -72,6 +72,35 @@ def task_timeline(session_id: str) -> pd.DataFrame:
         "start_ms").reset_index(drop=True)
 
 
+def assign_tasks(oof_session: pd.DataFrame,
+                 timeline: pd.DataFrame) -> pd.DataFrame:
+    """Ordnet jedem OOF-Fenster einer Session seinen Task-Block zu.
+
+    Fügt die Spalten task_index/task_id/task_name/task_category hinzu.
+    Fenster, deren ``t_center_ms`` in keinem ``[start_ms, end_ms)``
+    liegt (Vor-Task-Countdown, Übergänge), bekommen ``NaN``.
+    """
+    out = oof_session.copy()
+    # Initialize columns with NaN
+    out["task_index"] = np.nan
+    # Convert string columns to object dtype to allow both NaN and strings
+    out["task_id"] = np.nan
+    out["task_id"] = out["task_id"].astype(object)
+    out["task_name"] = np.nan
+    out["task_name"] = out["task_name"].astype(object)
+    out["task_category"] = np.nan
+    out["task_category"] = out["task_category"].astype(object)
+
+    t = out["t_center_ms"]
+    for _, blk in timeline.iterrows():
+        mask = (t >= blk["start_ms"]) & (t < blk["end_ms"])
+        out.loc[mask, "task_index"] = blk["task_index"]
+        out.loc[mask, "task_id"] = blk["task_id"]
+        out.loc[mask, "task_name"] = blk["task_name"]
+        out.loc[mask, "task_category"] = blk["task_category"]
+    return out
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--oof", default=str(MODEL_DIR / "loso_oof.csv"),

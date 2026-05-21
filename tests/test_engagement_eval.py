@@ -76,3 +76,27 @@ def test_task_timeline_missing_file_returns_empty(tmp_path, monkeypatch):
 
     assert tl.empty
     assert list(tl.columns) == eng.TIMELINE_COLS
+
+
+def _timeline_two_blocks():
+    """Zwei Blöcke: writing [1000,2000), idle [2000,3000)."""
+    return pd.DataFrame({
+        "task_index": [1, 2],
+        "task_id": ["abschreiben", "pause"],
+        "task_name": ["Text", "Pause"],
+        "task_category": ["writing", "idle"],
+        "start_ms": [1000.0, 2000.0],
+        "end_ms": [2000.0, 3000.0],
+    })
+
+
+def test_assign_tasks_maps_windows_into_blocks():
+    # Fenster bei 1500 (Block 1), 2500 (Block 2), 3500 (Übergang/außerhalb)
+    oof = _oof("S001", "P01", [1500.0, 2500.0, 3500.0], [1, 0, 1],
+               [0.9, 0.1, 0.5])
+
+    out = eng.assign_tasks(oof, _timeline_two_blocks())
+
+    assert out["task_index"].tolist()[:2] == [1.0, 2.0]
+    assert pd.isna(out["task_index"].iloc[2])  # Fenster außerhalb → NaN
+    assert out["task_category"].tolist()[:2] == ["writing", "idle"]
