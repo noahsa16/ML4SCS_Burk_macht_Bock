@@ -122,3 +122,60 @@ def regression_metrics(agg_df: pd.DataFrame) -> dict[str, dict[str, float]]:
             "bias": float(np.mean(err)) if n else float("nan"),
         }
     return out
+
+
+def plot_calibration(oof_df: pd.DataFrame, out_path: Path,
+                      n_bins: int = 10) -> None:
+    """Reliability-Diagramm der kalibrierten Sekunden-Proba."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    p = oof_df["proba_cal"].to_numpy()
+    y = oof_df["label"].to_numpy()
+    edges = np.linspace(0.0, 1.0, n_bins + 1)
+    idx = np.clip(np.digitize(p, edges) - 1, 0, n_bins - 1)
+    xs, ys = [], []
+    for b in range(n_bins):
+        m = idx == b
+        if m.any():
+            xs.append(p[m].mean())
+            ys.append(y[m].mean())
+
+    fig, ax = plt.subplots(figsize=(5, 5))
+    ax.plot([0, 1], [0, 1], "--", color="grey", label="perfekt kalibriert")
+    ax.plot(xs, ys, "o-", label="kalibrierte Proba")
+    ax.set_xlabel("vorhergesagte Schreib-Wahrscheinlichkeit")
+    ax.set_ylabel("empirische Schreib-Frequenz")
+    ax.set_title("Calibration (Sekunden-Ebene)")
+    ax.legend()
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=130)
+    plt.close(fig)
+
+
+def plot_scatter(aggs: dict[str, pd.DataFrame], out_path: Path) -> None:
+    """Pro Skala ein Panel: geschätztes % vs. wahres % je Zeitblock."""
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    fig, axes = plt.subplots(1, len(aggs), figsize=(5 * len(aggs), 5),
+                             squeeze=False)
+    for ax, (label, agg) in zip(axes[0], aggs.items()):
+        d = agg.dropna(subset=["truth_closed_pct", "pred_pct"])
+        ax.plot([0, 100], [0, 100], "--", color="grey")
+        ax.scatter(d["truth_closed_pct"], d["pred_pct"], alpha=0.6)
+        err = d["pred_pct"] - d["truth_closed_pct"]
+        mae = float(np.mean(np.abs(err))) if len(d) else float("nan")
+        bias = float(np.mean(err)) if len(d) else float("nan")
+        ax.set_title(f"{label}  (MAE={mae:.1f}, Bias={bias:+.1f})")
+        ax.set_xlabel("wahres % (geschlossen)")
+        ax.set_ylabel("geschätztes %")
+        ax.set_xlim(0, 100)
+        ax.set_ylim(0, 100)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=130)
+    plt.close(fig)
