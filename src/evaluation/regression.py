@@ -49,3 +49,55 @@ def pen_truth_per_session(session_id: str) -> pd.DataFrame:
     return df.dropna(subset=["local_ts_ms"]).sort_values(
         "local_ts_ms"
     ).reset_index(drop=True)
+
+
+def _pen_pct(merged: pd.DataFrame, block_start: float,
+             block_end: float | None, anchor: float) -> float:
+    """Anteil Pen-down-Samples im Zeitblock [block_start, block_end), in %."""
+    if merged.empty:
+        return float("nan")
+    if block_end is None:
+        sel = merged
+    else:
+        t = merged["local_ts_ms"]
+        # Why: Block 0 (block_start == anchor) muss die ~0.5 s vor dem
+        # ersten Fenster-Zentrum mitnehmen — sonst fallen frühe Samples
+        # durch den window-center-Inset still raus.
+        lo = -np.inf if block_start <= anchor else block_start
+        sel = merged[(t >= lo) & (t < block_end)]
+    if sel.empty:
+        return float("nan")
+    return float(sel["label_writing"].mean()) * 100.0
+
+
+def aggregate(oof_df: pd.DataFrame, scale_sec: float | None,
+              merged_loader=pen_truth_per_session) -> pd.DataFrame:
+    """Eine Zeile pro (Session, Zeitblock).
+
+    ``scale_sec=None`` → ein Block je Session (ganze Session). Sonst
+    nicht-überlappende Blöcke der Länge ``scale_sec``, verankert am
+    ersten ``t_center_ms`` der Session.
+    """
+    scale_ms = None if scale_sec is None else scale_sec * 1000.0
+    rows: list[dict] = []
+    for sid, g in oof_df.groupby("session_id", sort=False):
+        g = g.sort_values("t_center_ms")
+        anchor = float(g["t_center_ms"].min())
+        if scale_ms is None:
+            blk = pd.Series(0, index=g.index)
+        else:
+            blk = ((g["t_center_ms"] - anchor) // scale_ms).astype(int)
+        merged = merged_loader(sid)
+        for blk_idx, bg in g.groupby(blk, sort=True):
+            block_start = anchor if scale_ms is None else anchor + blk_idx * scale_ms
+            block_end = None if scale_ms is None else block_start + scale_ms
+            rows.append({
+                "session_id": sid,
+                "person_id": bg["person_id"].iat[0],
+                "block_start_ms": block_start,
+                "n_windows": int(len(bg)),
+                "pred_pct": float(bg["proba_cal"].mean()) * 100.0,
+                "truth_closed_pct": float(bg["label"].mean()) * 100.0,
+                "truth_pen_pct": _pen_pct(merged, block_start, block_end, anchor),
+            })
+    return pd.DataFrame(rows)

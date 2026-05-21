@@ -31,3 +31,52 @@ def test_pen_truth_per_session_reads_writing_fraction(tmp_path, monkeypatch):
     assert list(out.columns) == ["local_ts_ms", "label_writing"]
     assert len(out) == 100
     assert out["label_writing"].mean() == pytest.approx(0.60)
+
+
+def _oof_one_session(n_windows, proba_cal, label, session="S001", person="P01"):
+    """Synthetische OOF-Zeilen: 1 Fenster / 0.5 s, t_center_ms ab 500 ms."""
+    return pd.DataFrame(
+        {
+            "session_id": session,
+            "person_id": person,
+            "t_center_ms": 500.0 + np.arange(n_windows) * 500.0,
+            "label": np.asarray(label, dtype=int),
+            "proba_raw": np.asarray(proba_cal, dtype=float),
+            "proba_cal": np.asarray(proba_cal, dtype=float),
+        }
+    )
+
+
+def test_aggregate_whole_session_one_block_per_session():
+    # 120 Fenster (= 60 s @ 0.5 s Stride), halb schreibend
+    oof = _oof_one_session(120, [0.8] * 120, [1] * 60 + [0] * 60)
+    out = reg.aggregate(oof, scale_sec=None, merged_loader=lambda s: pd.DataFrame())
+
+    assert len(out) == 1
+    assert out["session_id"].iat[0] == "S001"
+    assert out["pred_pct"].iat[0] == pytest.approx(80.0)
+    assert out["truth_closed_pct"].iat[0] == pytest.approx(50.0)
+    assert out["n_windows"].iat[0] == 120
+
+
+def test_aggregate_fixed_scale_splits_into_blocks():
+    # 240 Fenster = 120 s; bei 60-s-Blöcken → 2 Blöcke à 120 Fenster
+    oof = _oof_one_session(240, [0.5] * 240, [1] * 240)
+    out = reg.aggregate(oof, scale_sec=60.0, merged_loader=lambda s: pd.DataFrame())
+
+    assert len(out) == 2
+    assert list(out["n_windows"]) == [120, 120]
+
+
+def test_aggregate_pen_pct_from_merged_loader():
+    oof = _oof_one_session(120, [0.9] * 120, [1] * 120)
+    # merged: 3000 Samples @ 50 Hz = 60 s, 30 s schreibend
+    merged = pd.DataFrame(
+        {
+            "local_ts_ms": np.arange(3000, dtype=float) * 20.0,
+            "label_writing": [1] * 1500 + [0] * 1500,
+        }
+    )
+    out = reg.aggregate(oof, scale_sec=None, merged_loader=lambda s: merged)
+
+    assert out["truth_pen_pct"].iat[0] == pytest.approx(50.0)
