@@ -7,6 +7,10 @@ Post-Processing über ``models/loso_oof.csv`` (von ``train_loso.py
 geschätzten Schreib-Prozente gegen zwei Ground-Truth-Definitionen plus
 Calibration-Plots.
 
+Headline misst gegen unsere Modell-Labels (Mikropausen ≤2.5 s als
+writing). Diagnostic misst gegen rohe Pen-Down-Samples — die Differenz
+ist inhärenter Bias unserer Label-Closing-Politik, kein Modell-Fehler.
+
 CLI
 ---
 ::
@@ -31,6 +35,11 @@ FIG_DIR = ROOT / "reports" / "figures"
 # Spaltenschema der OOF-CSV, die train_loso.py --save-oof schreibt.
 OOF_COLS = ["session_id", "person_id", "t_center_ms",
             "label", "proba_raw", "proba_cal"]
+
+# Welche Ground-Truth ist die Headline-Aussage, welche nur Diagnose.
+# closed = Modell-Labels (Mikropausen ≤2.5 s als writing) → Headline.
+# pen = rohe Pen-Down-Samples → Diagnostic (zeigt Label-Closing-Bias).
+TRUTH_ROLE = {"closed": "headline", "pen": "diagnostic"}
 
 
 def load_oof(path: Path) -> pd.DataFrame:
@@ -203,12 +212,23 @@ def evaluate(oof_path: Path = MODEL_DIR / "loso_oof.csv",
         agg = aggregate(oof, scale)
         aggs[label] = agg
         for truth, vals in regression_metrics(agg).items():
-            metric_rows.append({"scale": label, "truth": truth, **vals})
+            metric_rows.append({"role": TRUTH_ROLE[truth], "scale": label,
+                                "truth": truth, **vals})
 
-    metrics = pd.DataFrame(metric_rows)
+    metrics = pd.DataFrame(
+        metric_rows,
+        columns=["role", "scale", "truth", "n", "mae", "rmse", "bias"],
+    )
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     metrics.to_csv(out_csv, index=False)
-    print(metrics.to_string(index=False))
+
+    headline = metrics[metrics["role"] == "headline"].drop(columns="role")
+    diagnostic = metrics[metrics["role"] == "diagnostic"].drop(columns="role")
+    print("=== HEADLINE (truth = closed labels) ===")
+    print(headline.to_string(index=False))
+    print()
+    print("=== DIAGNOSTIC (truth = raw pen-down, zeigt Label-Closing-Bias) ===")
+    print(diagnostic.to_string(index=False))
 
     plot_calibration(oof, FIG_DIR / "regression_calibration.png")
     plot_scatter(aggs, FIG_DIR / "regression_scatter.png")

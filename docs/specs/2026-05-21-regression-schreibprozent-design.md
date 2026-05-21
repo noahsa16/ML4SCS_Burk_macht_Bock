@@ -143,6 +143,15 @@ Neue Datei `tests/test_regression_eval.py` (Tier-1-Smoke, Stil von
 - Engagement-Aufsplittung pro Task/Proband (Prio 2, separates Spec).
 - Deployment-Inferenz-Pfad / Live-Eichphase.
 
+**Warum keine Stunden-Skala:** Unsere Sessions sind ~15 min lang. Eine
+Stunden-Aggregation hätte pro Session keinen einzigen vollständigen Block —
+die Skala ist mit den aktuellen Daten nicht auswertbar. Für ein
+Deployment-Szenario ("wie viel hat User X heute geschrieben?") wäre
+60-Min-Aggregation der natürliche Output; das setzt aber längere
+Sessions oder kontinuierliches Tracking im Feld voraus. Beides ist
+außerhalb des aktuellen Scopes; die Aggregations-Logik in `aggregate()`
+akzeptiert beliebige `scale_sec`-Werte und ist damit zukunftsoffen.
+
 ## Erfolgskriterien
 
 - `python -m src.training.train_loso --save-oof` erzeugt
