@@ -83,6 +83,7 @@ python -m src.features S029 --max-gap-ms 300      # sliding-window features → 
 python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
 python -m src.training.train_loso --save-oof      # + OOF-CSV für Regression
 python -m src.evaluation.regression               # Schreib-Prozent: MAE/RMSE/Bias + Plots
+python -m src.evaluation.engagement               # Schreibzeit-Anteil pro Aufgabe + Heatmap
 python -m src.training.within_session.train_rf S029   # within-session 80/20 RF (debug/feature-iteration)
 python -m src.evaluation.evaluate S029            # placeholder, prints label distribution
 python scripts/plots/plot_merged.py S029 --max-gap-ms 300   # visualize IMU + label overlay
@@ -441,6 +442,17 @@ no longer vibrates continuously when the server is down.
   der Diagnostic-Bias (~+21 pp) ist der inhärente Label-Closing-Bias
   unserer Politik, **kein Modellfehler** — nur Headline ist die
   vorzeigbare Aussage.
+- `src/evaluation/engagement.py` — Engagement-Auswertung (Stufe 2,
+  Prio 2). Reines Post-Processing über `models/loso_oof.csv` + den
+  Study-Mode-`markers`-CSVs. Ordnet jedes 1-s-Fenster über `t_center_ms`
+  einem Task-Block zu (`task_start`/`task_end` aus den Markern) und
+  aggregiert pro `(Session, Task)` den Schreibzeit-Anteil: `true_pct`
+  (geschlossene Labels) und `pred_pct` (binärer Schätzer, geteilt mit
+  `regression.py` via `block_percentages()`). Output:
+  `models/engagement_metrics.csv` (1 Zeile pro Task-Block, Schreib-Tasks
+  + Pausen als Kontrolle) plus `reports/figures/engagement_heatmap.png`
+  (Proband × Task). Der Wert ist ein **Engagement-Proxy**, kein
+  Aufmerksamkeits-Detektor — Schreibzeit ≠ Aufmerksamkeit.
 - `scripts/plots/plot_merged.py` — visualizes ‖acc‖, ‖gyro‖, and
   `label_writing` over the session; supports `--max-gap-ms` /
   `--max-spike-ms` to preview label smoothing effects.
