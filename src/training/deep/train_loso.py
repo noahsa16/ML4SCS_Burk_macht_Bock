@@ -113,3 +113,138 @@ def predict_proba(model: torch.nn.Module, X: np.ndarray) -> np.ndarray:
     with torch.no_grad():
         logits = model(torch.from_numpy(X).to(DEVICE)).cpu().numpy()
     return 1.0 / (1.0 + np.exp(-logits))
+
+
+def fold_metrics(
+    proba: np.ndarray,
+    y_true: np.ndarray,
+    test_df: pd.DataFrame,
+) -> dict:
+    """1-s-Metriken + Burst-Aggregation (@5/10/30 s) fuer einen Test-Fold.
+
+    ``test_df`` braucht die Spalten ``session_id`` und ``t_center_ms`` --
+    :func:`src.training.train_loso._burst_metrics` glaettet pro Session.
+    """
+    pred = (proba >= 0.5).astype(int)
+    try:
+        auc = float(roc_auc_score(y_true, proba))
+    except ValueError:
+        auc = float("nan")
+    return {
+        "accuracy": float((pred == y_true).mean()),
+        "f1_writing": float(f1_score(y_true, pred, pos_label=1, zero_division=0)),
+        "roc_auc": auc,
+        "bursts": _burst_metrics(proba, y_true, test_df),
+    }
+
+
+def _load_all_sessions(
+    sessions: pd.DataFrame, seq_len: int, max_gap_ms: float
+) -> dict[str, dict]:
+    """Lade alle Sessions als rohe Sequenz-Windows.
+
+    Returns ``{session_id: {"X", "y", "t", "person_id"}}``.
+    """
+    out: dict[str, dict] = {}
+    for row in sessions.itertuples():
+        sid = row.session_id
+        X, y, t = load_session_raw(sid, seq_len, max_gap_ms=max_gap_ms)
+        if len(X) == 0:
+            print(f"  skip {sid} -- keine Fenster")
+            continue
+        out[sid] = {"X": X, "y": y, "t": t, "person_id": row.person_id}
+    return out
+
+
+def train_deep_loso(
+    model_name: str,
+    window_sec: int,
+    include_all: bool = False,
+    max_gap_ms: float = 2500.0,
+    seed: int = 42,
+) -> pd.DataFrame:
+    """LOSO-by-person fuer ein Deep-Modell. Returns per-fold Metrik-Tabelle.
+
+    Pro Fold: Test = 1 Person, Val = 1 rotierende Person, Train = Rest.
+    """
+    _set_seed(seed)
+    seq_len = WIN_SEQ_LEN[window_sec]
+    sessions = _select_sessions(include_all=include_all, min_windows=0)
+    if sessions.empty:
+        raise RuntimeError("Keine Sessions -- sessions.csv / verdict-Gate pruefen.")
+
+    data = _load_all_sessions(sessions, seq_len, max_gap_ms)
+    # person_id -> Liste von session_ids
+    persons: dict[str, list[str]] = {}
+    for sid, d in data.items():
+        persons.setdefault(d["person_id"], []).append(sid)
+    person_ids = sorted(persons)
+    if len(person_ids) < 3:
+        raise RuntimeError(
+            f"LOSO mit Val-Holdout braucht >= 3 Personen, hat {len(person_ids)}."
+        )
+
+    print(
+        f"\n=== {model_name.upper()} | {window_sec}s-Fenster ({seq_len} Samples) "
+        f"| {len(person_ids)} Folds | device={DEVICE} ==="
+    )
+
+    rows: list[dict] = []
+    for i, test_p in enumerate(person_ids):
+        val_p = person_ids[(i + 1) % len(person_ids)]
+        train_ps = [p for p in person_ids if p not in (test_p, val_p)]
+
+        def _stack(plist: list[str], key: str) -> np.ndarray:
+            return np.concatenate(
+                [data[s][key] for p in plist for s in persons[p]]
+            )
+
+        train_X = _stack(train_ps, "X")
+        train_y = _stack(train_ps, "y")
+        val_X = _stack([val_p], "X")
+        val_y = _stack([val_p], "y")
+        test_X = _stack([test_p], "X")
+        test_y = _stack([test_p], "y")
+
+        if len(np.unique(test_y)) < 2:
+            print(f"  Fold {test_p}: uebersprungen -- Test-Fold einklassig")
+            continue
+
+        # test_df fuer die per-Session-Burst-Aggregation.
+        test_df = pd.concat(
+            [
+                pd.DataFrame({
+                    "session_id": s,
+                    "t_center_ms": data[s]["t"],
+                })
+                for s in persons[test_p]
+            ],
+            ignore_index=True,
+        )
+
+        model = MODELS[model_name]()
+        model = train_one_model(model, train_X, train_y, val_X, val_y)
+        proba = predict_proba(model, test_X)
+        m = fold_metrics(proba, test_y, test_df)
+
+        row = {
+            "model": model_name,
+            "window_sec": window_sec,
+            "held_out": test_p,
+            "n_test": len(test_y),
+            "accuracy": m["accuracy"],
+            "f1_writing": m["f1_writing"],
+            "roc_auc": m["roc_auc"],
+        }
+        for scale, bm in m["bursts"].items():
+            row[f"acc_{scale}"] = bm["accuracy"]
+            row[f"auc_{scale}"] = bm["roc_auc"]
+        rows.append(row)
+        print(
+            f"  Fold {test_p}: acc={m['accuracy']:.3f} "
+            f"f1={m['f1_writing']:.3f} auc={m['roc_auc']:.3f}  "
+            f"(@30s acc={m['bursts']['30s']['accuracy']:.3f} "
+            f"auc={m['bursts']['30s']['roc_auc']:.3f})"
+        )
+
+    return pd.DataFrame(rows)
