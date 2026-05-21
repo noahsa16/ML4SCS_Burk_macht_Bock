@@ -101,3 +101,24 @@ def aggregate(oof_df: pd.DataFrame, scale_sec: float | None,
                 "truth_pen_pct": _pen_pct(merged, block_start, block_end, anchor),
             })
     return pd.DataFrame(rows)
+
+
+def regression_metrics(agg_df: pd.DataFrame) -> dict[str, dict[str, float]]:
+    """MAE/RMSE/Bias der Schätzung gegen beide Ground-Truth-Definitionen.
+
+    Alle Werte in Prozentpunkten. Bias = mittlerer vorzeichenbehafteter
+    Fehler (pred − truth) — positiv = Überschätzung.
+    """
+    out: dict[str, dict[str, float]] = {}
+    for truth_col, name in [("truth_closed_pct", "closed"),
+                            ("truth_pen_pct", "pen")]:
+        d = agg_df.dropna(subset=[truth_col, "pred_pct"])
+        err = d["pred_pct"].to_numpy() - d[truth_col].to_numpy()
+        n = len(err)
+        out[name] = {
+            "n": int(n),
+            "mae": float(np.mean(np.abs(err))) if n else float("nan"),
+            "rmse": float(np.sqrt(np.mean(err ** 2))) if n else float("nan"),
+            "bias": float(np.mean(err)) if n else float("nan"),
+        }
+    return out

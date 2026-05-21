@@ -80,3 +80,36 @@ def test_aggregate_pen_pct_from_merged_loader():
     out = reg.aggregate(oof, scale_sec=None, merged_loader=lambda s: merged)
 
     assert out["truth_pen_pct"].iat[0] == pytest.approx(50.0)
+
+
+def test_regression_metrics_known_error():
+    # pred immer 10 pp über der Wahrheit → MAE=RMSE=Bias=10
+    agg = pd.DataFrame(
+        {
+            "pred_pct": [60.0, 30.0, 90.0],
+            "truth_closed_pct": [50.0, 20.0, 80.0],
+            "truth_pen_pct": [40.0, 10.0, 70.0],
+        }
+    )
+    m = reg.regression_metrics(agg)
+
+    assert m["closed"]["mae"] == pytest.approx(10.0)
+    assert m["closed"]["rmse"] == pytest.approx(10.0)
+    assert m["closed"]["bias"] == pytest.approx(10.0)
+    # pred liegt 20 pp über der rohen Pen-Wahrheit → positiver Bias
+    assert m["pen"]["bias"] == pytest.approx(20.0)
+    assert m["closed"]["n"] == 3
+
+
+def test_regression_metrics_ignores_nan_truth():
+    agg = pd.DataFrame(
+        {
+            "pred_pct": [60.0, 30.0],
+            "truth_closed_pct": [50.0, 20.0],
+            "truth_pen_pct": [40.0, float("nan")],
+        }
+    )
+    m = reg.regression_metrics(agg)
+
+    assert m["pen"]["n"] == 1
+    assert m["pen"]["bias"] == pytest.approx(20.0)
