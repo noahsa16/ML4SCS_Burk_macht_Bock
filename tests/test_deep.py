@@ -8,6 +8,7 @@ import torch
 
 from src.training.deep.data import build_raw_windows, zscore_channels
 from src.training.deep.models import CNN1D, MODELS
+from src.training.deep.train_loso import fold_metrics, predict_proba, train_one_model
 
 
 def _synthetic_merged(n_samples: int = 600) -> pd.DataFrame:
@@ -117,9 +118,6 @@ def test_models_registry_keys():
     assert set(MODELS.keys()) == {"cnn", "lstm", "gru"}
 
 
-from src.training.deep.train_loso import train_one_model, predict_proba
-
-
 def test_train_one_model_runs_and_predicts():
     """Mini-Lauf: lernbares Muster, wenige Epochen -- nur Smoke, kein Metrik-Ziel."""
     rng = np.random.default_rng(2)
@@ -137,9 +135,6 @@ def test_train_one_model_runs_and_predicts():
     proba = predict_proba(model, Xv)
     assert proba.shape == (16,)
     assert np.all((proba >= 0.0) & (proba <= 1.0))
-
-
-from src.training.deep.train_loso import fold_metrics
 
 
 def test_fold_metrics_keys_and_ranges():
