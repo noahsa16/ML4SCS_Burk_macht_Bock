@@ -426,9 +426,14 @@ no longer vibrates continuously when the server is down.
   `within_session/train_rf.py` (within-session sanity check).
 - `src/evaluation/regression.py` — Schreib-Prozent-Regression (Stufe 2).
   Reines Post-Processing über `models/loso_oof.csv`: aggregiert die
-  kalibrierten OOF-Proba auf 60 s / 300 s / ganze-Session-Blöcke und
-  reportet MAE/RMSE/Bias gegen geschlossene und rohe Pen-Wahrheit, plus
-  Calibration- und Scatter-Plot in `reports/figures/`.
+  OOF-Vorhersagen auf 60 s / 300 s / ganze-Session-Blöcke und reportet
+  MAE/RMSE/Bias gegen geschlossene und rohe Pen-Wahrheit, plus
+  Calibration- und Scatter-Plot in `reports/figures/`. `pred_pct` ist
+  der **binäre** Schätzer `mean(proba_cal ≥ 0.5)` — das Mitteln roher
+  Wahrscheinlichkeiten (`pred_pct_proba`) schrumpft zur Mitte (~53 %)
+  und generalisiert nicht auf schiefe Schreibanteile (siehe
+  `reports/regression.md`, Abschnitt „Shrinkage"). Headline binär:
+  Session-MAE 3,5 pp, 60 s 7,6 pp.
 - `scripts/plots/plot_merged.py` — visualizes ‖acc‖, ‖gyro‖, and
   `label_writing` over the session; supports `--max-gap-ms` /
   `--max-spike-ms` to preview label smoothing effects.
