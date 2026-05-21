@@ -113,3 +113,27 @@ def test_regression_metrics_ignores_nan_truth():
 
     assert m["pen"]["n"] == 1
     assert m["pen"]["bias"] == pytest.approx(20.0)
+
+
+def test_evaluate_writes_metrics_csv(tmp_path, monkeypatch):
+    monkeypatch.setattr(reg, "DATA_PROC", tmp_path)
+    monkeypatch.setattr(reg, "FIG_DIR", tmp_path / "figures")
+    _write_merged(tmp_path / "S001_merged.csv", 6000, [1] * 3000 + [0] * 3000)
+
+    oof = _oof_one_session(240, [0.6] * 240, [1] * 120 + [0] * 120)
+    oof_path = tmp_path / "loso_oof.csv"
+    oof.to_csv(oof_path, index=False)
+    out_csv = tmp_path / "regression_metrics.csv"
+
+    result = reg.evaluate(oof_path=oof_path, scales=(60.0, None),
+                          out_csv=out_csv)
+
+    assert out_csv.exists()
+    df = pd.read_csv(out_csv)
+    # 2 Skalen × 2 Wahrheiten = 4 Zeilen
+    assert len(df) == 4
+    assert set(df["scale"]) == {"60s", "session"}
+    assert set(df["truth"]) == {"closed", "pen"}
+    assert (tmp_path / "figures" / "regression_calibration.png").exists()
+    assert (tmp_path / "figures" / "regression_scatter.png").exists()
+    assert "metrics" in result and "aggregates" in result
