@@ -82,6 +82,24 @@ def _pen_pct(merged: pd.DataFrame, block_start: float,
     return float(sel["label_writing"].mean()) * 100.0
 
 
+def block_percentages(group: pd.DataFrame) -> dict[str, float]:
+    """Per-Block-Prozente aus den OOF-Fenstern eines Blocks.
+
+    Geteilt von ``regression.py`` (Zeitblöcke) und ``engagement.py``
+    (Task-Blöcke), damit die Definition des binären Schätzers an einer
+    Stelle lebt. ``pred_pct`` = binärer Schätzer
+    ``mean(proba_cal >= 0.5)``; ``pred_pct_proba`` = Proba-Mittel
+    (Vergleich); ``true_pct`` = Mittel der geschlossenen Labels.
+    Alle Werte in Prozent.
+    """
+    return {
+        "n_windows": int(len(group)),
+        "pred_pct": float((group["proba_cal"] >= 0.5).mean()) * 100.0,
+        "pred_pct_proba": float(group["proba_cal"].mean()) * 100.0,
+        "true_pct": float(group["label"].mean()) * 100.0,
+    }
+
+
 def aggregate(oof_df: pd.DataFrame, scale_sec: float | None,
               merged_loader=pen_truth_per_session) -> pd.DataFrame:
     """Eine Zeile pro (Session, Zeitblock).
@@ -107,14 +125,15 @@ def aggregate(oof_df: pd.DataFrame, scale_sec: float | None,
         for blk_idx, bg in g.groupby(blk, sort=True):
             block_start = anchor if scale_ms is None else anchor + blk_idx * scale_ms
             block_end = None if scale_ms is None else block_start + scale_ms
+            pcts = block_percentages(bg)
             rows.append({
                 "session_id": sid,
                 "person_id": bg["person_id"].iat[0],
                 "block_start_ms": block_start,
-                "n_windows": int(len(bg)),
-                "pred_pct": float((bg["proba_cal"] >= 0.5).mean()) * 100.0,
-                "pred_pct_proba": float(bg["proba_cal"].mean()) * 100.0,
-                "truth_closed_pct": float(bg["label"].mean()) * 100.0,
+                "n_windows": pcts["n_windows"],
+                "pred_pct": pcts["pred_pct"],
+                "pred_pct_proba": pcts["pred_pct_proba"],
+                "truth_closed_pct": pcts["true_pct"],
                 "truth_pen_pct": _pen_pct(merged, block_start, block_end, anchor),
             })
     cols = ["session_id", "person_id", "block_start_ms", "n_windows",

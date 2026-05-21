@@ -205,3 +205,20 @@ def test_aggregate_block_zero_includes_pre_window_pen_samples():
     # wäre der -inf-Trick weg, zählte Block 0 erst ab block_start=500ms,
     # die 25 idle-Samples fielen raus → 500/500 = 100 % und der Test bräche.
     assert out["truth_pen_pct"].iat[0] == pytest.approx(95.0, abs=0.5)
+
+
+def test_block_percentages_binary_proba_and_closed_label():
+    # 6 Fenster: 4 mit proba 0.8 (>=0.5), 2 mit 0.2; labels 5×1, 1×0
+    group = pd.DataFrame({
+        "proba_cal": [0.8, 0.8, 0.8, 0.8, 0.2, 0.2],
+        "label": [1, 1, 1, 1, 1, 0],
+    })
+    p = reg.block_percentages(group)
+
+    assert p["n_windows"] == 6
+    # binärer Schätzer: 4 von 6 Fenstern über 0.5
+    assert p["pred_pct"] == pytest.approx(4 / 6 * 100.0)
+    # Proba-Mittel: (4*0.8 + 2*0.2) / 6
+    assert p["pred_pct_proba"] == pytest.approx((4 * 0.8 + 2 * 0.2) / 6 * 100.0)
+    # closed label: 5 von 6
+    assert p["true_pct"] == pytest.approx(5 / 6 * 100.0)
