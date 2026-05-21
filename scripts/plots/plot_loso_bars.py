@@ -1,14 +1,14 @@
 """Per-Subject LOSO Bar-Chart: macht aus '0.856 ± 0.032' eine Verteilung.
 
 Liest die gecachten Per-Fold-Predictions aus models/burst_sweep_preds.csv
-(generiert von scripts/plot_burst_sweep.py — falls noch nicht vorhanden,
+(generiert von scripts/plots/plot_burst_sweep.py — falls noch nicht vorhanden,
 muss der Sweep einmal vollständig laufen) und plottet pro Proband acc + AUC
 als Doppel-Bar, mit Mean-Linien quer durch beide Serien.
 
 CLI
 ---
-    python scripts/plot_loso_bars.py
-    python scripts/plot_loso_bars.py --sort by-auc      # vs. by-name (default)
+    python scripts/plots/plot_loso_bars.py
+    python scripts/plots/plot_loso_bars.py --sort by-auc      # vs. by-name (default)
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import roc_auc_score, f1_score
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 CACHE = ROOT / "models" / "burst_sweep_preds.csv"
 OUT_FIG = ROOT / "reports" / "figures" / "loso_bars.png"
 OUT_CSV = ROOT / "models" / "loso_per_fold.csv"
@@ -57,7 +57,7 @@ def main() -> None:
     if not CACHE.exists():
         raise SystemExit(
             f"Cache fehlt: {CACHE.relative_to(ROOT)}\n"
-            f"Erst einmal scripts/plot_burst_sweep.py ohne --use-cache laufen lassen."
+            f"Erst einmal scripts/plots/plot_burst_sweep.py ohne --use-cache laufen lassen."
         )
     preds = pd.read_csv(CACHE)
     df = _per_fold_metrics(preds)

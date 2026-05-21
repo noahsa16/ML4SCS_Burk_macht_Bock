@@ -11,9 +11,9 @@ dort plotten, wo sie 2D ist) und rendert:
 
 CLI
 ---
-    python scripts/plot_svm_pca.py
-    python scripts/plot_svm_pca.py --subsample 5000   # weniger Punkte
-    python scripts/plot_svm_pca.py --no-zscore        # ohne Normalisierung
+    python scripts/plots/plot_svm_pca.py
+    python scripts/plots/plot_svm_pca.py --subsample 5000   # weniger Punkte
+    python scripts/plots/plot_svm_pca.py --no-zscore        # ohne Normalisierung
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from matplotlib.colors import ListedColormap
 from sklearn.decomposition import PCA
 from sklearn.svm import SVC
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DATA_PROC = ROOT / "data" / "processed"
 SESSIONS_CSV = ROOT / "data" / "sessions.csv"
 OUT_PATH = ROOT / "reports" / "figures" / "svm_pca.png"

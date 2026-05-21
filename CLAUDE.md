@@ -64,15 +64,15 @@ otherwise to `pen_log_YYYYMMDD_HHMMSS.csv` in the working directory.
 
 **Test the watch HTTP endpoint:**
 ```bash
-./scripts/test_server.sh [IP]    # defaults to 127.0.0.1
+./scripts/ops/test_server.sh [IP]    # defaults to 127.0.0.1
 ```
 
 **Convenience scripts:**
-- `scripts/start.sh` — boots the server and (optionally) a Cloudflare
+- `scripts/ops/start.sh` — boots the server and (optionally) a Cloudflare
   tunnel in one TTY UI; Ctrl+C cleans up both.
-- `scripts/tunnel.sh` — standalone Cloudflare quick tunnel
+- `scripts/ops/tunnel.sh` — standalone Cloudflare quick tunnel
   (`https://*.trycloudflare.com → localhost:8000`).
-- `scripts/plot_alignment.py` — runs the pen↔IMU alignment for a
+- `scripts/plots/plot_alignment.py` — runs the pen↔IMU alignment for a
   session and renders the explanatory 4-panel figure (top: variance
   with stroke overlay raw vs δ-shifted; bottom: J(δ) coarse + fine).
 
@@ -83,7 +83,7 @@ python -m src.features S029 --max-gap-ms 300      # sliding-window features → 
 python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
 python -m src.training.within_session.train_rf S029   # within-session 80/20 RF (debug/feature-iteration)
 python -m src.evaluation.evaluate S029            # placeholder, prints label distribution
-python scripts/plot_merged.py S029 --max-gap-ms 300   # visualize IMU + label overlay
+python scripts/plots/plot_merged.py S029 --max-gap-ms 300   # visualize IMU + label overlay
 ```
 Without args, `src.merge` / `src.features` operate on the most recent session.
 
@@ -406,15 +406,15 @@ no longer vibrates continuously when the server is down.
   threshold. Empirically: jumped acc from 0.812 → 0.838 on the
   3-person dataset and tightened fold-σ 4× (0.042 → 0.009) — the
   biggest single ML-side improvement of the project.
-- `scripts/compare_models.py` — runs LOSO on the same splits with
+- `scripts/ml/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
   vor-generierte `{session}_windows.csv` aus `data/processed/`.
-- `scripts/compare_models_at_gap.py` — gleiches Modell-Panel, aber
+- `scripts/ml/compare_models_at_gap.py` — gleiches Modell-Panel, aber
   baut die Features on-the-fly bei beliebigem `--gap` neu, ohne die
   Cache-Dateien anzufassen. Nützlich, um Modell-Rangfolge bei
   alternativen Label-Closing-Werten zu prüfen ohne Re-Generation.
-- `scripts/ablate_gap_loso.py` — Label-Closing-Ablation: fährt den
+- `scripts/ml/ablate_gap_loso.py` — Label-Closing-Ablation: fährt den
   vollen LOSO-Lauf bei mehreren `max_gap_ms`-Werten und reportiert
   per-Fold + Mean/Std. Quelle der Headline-Entscheidung
   `max_gap_ms=2000` (siehe *Label smoothing* unten).
@@ -422,7 +422,7 @@ no longer vibrates continuously when the server is down.
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
   `within_session/train_rf.py` (within-session sanity check).
-- `scripts/plot_merged.py` — visualizes ‖acc‖, ‖gyro‖, and
+- `scripts/plots/plot_merged.py` — visualizes ‖acc‖, ‖gyro‖, and
   `label_writing` over the session; supports `--max-gap-ms` /
   `--max-spike-ms` to preview label smoothing effects.
 

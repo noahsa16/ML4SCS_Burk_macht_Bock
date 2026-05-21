@@ -8,8 +8,8 @@ Recalls. Eine zusätzliche Footer-Zeile fasst die globalen Metriken
 
 CLI
 ---
-    python scripts/plot_confusion_matrix.py
-    python scripts/plot_confusion_matrix.py --no-zscore
+    python scripts/plots/plot_confusion_matrix.py
+    python scripts/plots/plot_confusion_matrix.py --no-zscore
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.training.train_loso import (  # noqa: E402
     _load_windows,

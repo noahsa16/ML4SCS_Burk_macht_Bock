@@ -2,8 +2,8 @@
 Visualize a trained RF model from models/rf_{session}.joblib.
 
 Usage:
-    python scripts/inspect_model.py S037
-    python scripts/inspect_model.py S037 --tree-idx 0 --max-depth 4
+    python scripts/ml/inspect_model.py S037
+    python scripts/ml/inspect_model.py S037 --tree-idx 0 --max-depth 4
 """
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ from sklearn.metrics import (
 )
 from sklearn.tree import plot_tree
 
-ROOT = Path(__file__).parents[1]
+ROOT = Path(__file__).parents[2]
 
 
 def _temporal_split(df: pd.DataFrame, frac: float = 0.8, gap: int = 4):

@@ -8,8 +8,8 @@ die Burst-Aggregation aus :file:`compare_models.py`.
 
 Usage::
 
-    python scripts/compare_models_at_gap.py --gap 2000
-    python scripts/compare_models_at_gap.py --gap 2000 --gap 300  # mehrere
+    python scripts/ml/compare_models_at_gap.py --gap 2000
+    python scripts/ml/compare_models_at_gap.py --gap 2000 --gap 300  # mehrere
 """
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import f1_score, roc_auc_score
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.features.windows import build_windows  # noqa: E402
 from scripts.compare_models import _models, _eval_fold  # noqa: E402

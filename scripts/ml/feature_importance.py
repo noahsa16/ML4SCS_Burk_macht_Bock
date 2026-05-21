@@ -18,9 +18,9 @@ CLI
 ---
 ::
 
-    python scripts/feature_importance.py
-    python scripts/feature_importance.py --top 20 --n-repeats 5
-    python scripts/feature_importance.py --plot models/feature_importance.png
+    python scripts/ml/feature_importance.py
+    python scripts/ml/feature_importance.py --top 20 --n-repeats 5
+    python scripts/ml/feature_importance.py --plot models/feature_importance.png
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.inspection import permutation_importance
 from sklearn.model_selection import train_test_split
 
-ROOT = Path(__file__).parents[1]
+ROOT = Path(__file__).parents[2]
 sys.path.insert(0, str(ROOT))
 
 from src.training.train_loso import _load_windows, _select_sessions  # noqa: E402

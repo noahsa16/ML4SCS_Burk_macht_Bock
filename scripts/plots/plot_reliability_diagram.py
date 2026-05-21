@@ -15,8 +15,8 @@ Aufbau:
 
 CLI
 ---
-    python scripts/plot_reliability_diagram.py
-    python scripts/plot_reliability_diagram.py --bins 15
+    python scripts/plots/plot_reliability_diagram.py
+    python scripts/plots/plot_reliability_diagram.py --bins 15
 """
 
 from __future__ import annotations
@@ -28,10 +28,18 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.ensemble import (
+    HistGradientBoostingClassifier,
+    RandomForestClassifier,
+)
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.training.train_loso import (  # noqa: E402
     _load_windows,
@@ -39,7 +47,41 @@ from src.training.train_loso import (  # noqa: E402
     _zscore_per_session,
 )
 
-OUT_PATH = ROOT / "reports" / "figures" / "reliability_diagram.png"
+
+MODELS = {
+    "rf": ("Random Forest", lambda: RandomForestClassifier(
+        n_estimators=200, class_weight="balanced",
+        n_jobs=-1, random_state=42,
+    )),
+    "rf_platt": ("Random Forest + Platt Scaling", lambda: CalibratedClassifierCV(
+        RandomForestClassifier(
+            n_estimators=200, class_weight="balanced",
+            n_jobs=-1, random_state=42,
+        ),
+        method="sigmoid", cv=5,
+    )),
+    "rf_isotonic": ("Random Forest + Isotonic Regression", lambda: CalibratedClassifierCV(
+        RandomForestClassifier(
+            n_estimators=200, class_weight="balanced",
+            n_jobs=-1, random_state=42,
+        ),
+        method="isotonic", cv=5,
+    )),
+    "mlp": ("MLP (64, 32)", lambda: MLPClassifier(
+        hidden_layer_sizes=(64, 32), max_iter=400,
+        random_state=42, early_stopping=True,
+    )),
+    "histgb": ("HistGradBoost", lambda: HistGradientBoostingClassifier(
+        max_iter=300, random_state=42,
+    )),
+    "logreg": ("Logistic Regression", lambda: LogisticRegression(
+        max_iter=1000, class_weight="balanced",
+    )),
+    "svm": ("SVM-RBF", lambda: SVC(
+        kernel="rbf", probability=True, class_weight="balanced",
+        random_state=42,
+    )),
+}
 
 
 def _reliability_curve(
@@ -86,7 +128,11 @@ def main() -> None:
     ap.add_argument("--no-zscore", action="store_true")
     ap.add_argument("--bins", type=int, default=10,
                     help="Anzahl Bins für das Reliability-Diagramm")
+    ap.add_argument("--model", choices=list(MODELS.keys()), default="rf",
+                    help="Modellfamilie (default: rf)")
     args = ap.parse_args()
+    model_name, model_factory = MODELS[args.model]
+    out_path = ROOT / "reports" / "figures" / f"reliability_diagram_{args.model}.png"
 
     sessions = _select_sessions(args.include_all, 0)
     if sessions.empty:
@@ -113,17 +159,20 @@ def main() -> None:
           f"Windows: {len(all_windows)}   Bins: {args.bins}")
 
     # Pro Fold: train + collect (proba, y_true)
+    # Why: MLP / SVM brauchen vor-skalierte Features (z-score je Fold-Train);
+    # bei Trees ist es unschädlich, also einheitlich anwenden.
     per_fold: list[tuple[str, np.ndarray, np.ndarray]] = []
+    print(f"Modell: {model_name}")
     for held in persons:
         test_mask = all_windows["person_id"] == held
         train = all_windows.loc[~test_mask]
         test = all_windows.loc[test_mask]
-        clf = RandomForestClassifier(
-            n_estimators=200, class_weight="balanced",
-            n_jobs=-1, random_state=42,
-        )
-        clf.fit(train[feature_cols], train["label"])
-        proba = clf.predict_proba(test[feature_cols])[:, 1]
+        scaler = StandardScaler()
+        X_train = scaler.fit_transform(train[feature_cols])
+        X_test = scaler.transform(test[feature_cols])
+        clf = model_factory()
+        clf.fit(X_train, train["label"])
+        proba = clf.predict_proba(X_test)[:, 1]
         per_fold.append((held, test["label"].to_numpy(), proba))
         print(f"  fold {held:6s}  n={len(proba):5d}")
 
@@ -211,7 +260,7 @@ def main() -> None:
     )
     ax_top.set_title(
         f"Reliability Diagramm — sind die Wahrscheinlichkeiten ehrlich?\n"
-        f"Random Forest, LOSO-by-person, N={len(persons)} Probanden, "
+        f"{model_name}, LOSO-by-person, N={len(persons)} Probanden, "
         f"{len(y_all):,} Predictions",
         fontsize=13, fontweight="bold", pad=14,
     )
@@ -247,9 +296,9 @@ def main() -> None:
     )
 
     fig.tight_layout(rect=[0, 0.05, 1, 1])
-    OUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(OUT_PATH, dpi=160, bbox_inches="tight")
-    print(f"→ {OUT_PATH.relative_to(ROOT)}")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=160, bbox_inches="tight")
+    print(f"→ {out_path.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

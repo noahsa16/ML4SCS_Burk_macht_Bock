@@ -7,8 +7,8 @@ Schreib- vs. Idle-Momenten aussieht.
 
 Aufruf::
 
-    python scripts/plot_merged.py            # neueste merged CSV
-    python scripts/plot_merged.py S029       # spezifische Session
+    python scripts/plots/plot_merged.py            # neueste merged CSV
+    python scripts/plots/plot_merged.py S029       # spezifische Session
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import pandas as pd
 
 import sys
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.features.windows import smooth_labels  # noqa: E402
 DATA_PROC = ROOT / "data" / "processed"
