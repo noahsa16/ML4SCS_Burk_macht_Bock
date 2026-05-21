@@ -131,10 +131,16 @@ def test_evaluate_writes_metrics_csv(tmp_path, monkeypatch):
 
     assert out_csv.exists()
     df = pd.read_csv(out_csv)
-    # 2 Skalen × 2 Wahrheiten = 4 Zeilen
+    # 2 Skalen × 2 Rollen (headline/diagnostic) = 4 Zeilen
     assert len(df) == 4
     assert set(df["scale"]) == {"60s", "session"}
     assert set(df["truth"]) == {"closed", "pen"}
+    # role-Spalte kennzeichnet Headline- vs. Diagnose-Aussage explizit
+    assert "role" in df.columns
+    assert set(df["role"]) == {"headline", "diagnostic"}
+    # closed ↔ headline, pen ↔ diagnostic — Paarung muss konsistent sein
+    assert set(df.loc[df["role"] == "headline", "truth"]) == {"closed"}
+    assert set(df.loc[df["role"] == "diagnostic", "truth"]) == {"pen"}
     assert (tmp_path / "figures" / "regression_calibration.png").exists()
     assert (tmp_path / "figures" / "regression_scatter.png").exists()
     assert "metrics" in result and "aggregates" in result
@@ -169,3 +175,33 @@ def test_aggregate_binary_estimator_differs_from_proba_mean():
     assert out["pred_pct"].iat[0] == pytest.approx(60.0)
     # proba-Mittel: (60*0.9 + 40*0.1) / 100 = 0.58 → 58.0 %
     assert out["pred_pct_proba"].iat[0] == pytest.approx(58.0)
+
+
+def test_aggregate_block_zero_includes_pre_window_pen_samples():
+    """Block 0 muss merged-Samples VOR dem ersten t_center_ms mitzählen,
+    sonst frisst der Window-Center-Inset den Anfang.
+
+    Regression-Guard für den ``lo = -np.inf``-Sonderfall in ``_pen_pct``:
+    das erste Fenster-Zentrum liegt ~0.5 s nach dem ersten merged-Sample.
+    Ohne den -inf-Trick würde Block 0 erst ab ``block_start`` (== erstes
+    t_center_ms) zählen und die frühen Pen-Samples still verlieren.
+    """
+    # OOF: 60 Fenster, erstes Zentrum bei t=500ms, Stride 500ms.
+    oof = _oof_one_session(60, [0.5] * 60, [1] * 60)
+
+    # merged: 1500 Samples @ 50 Hz = 30 s, Start bei t=0ms — also 500 ms
+    # VOR dem ersten Fenster-Zentrum. Asymmetrie: die ersten 25 Samples
+    # (t=0..480ms, = 500ms @ 50Hz) sind idle, alles danach writing.
+    merged = pd.DataFrame({
+        "local_ts_ms": np.arange(1500, dtype=float) * 20.0,
+        "label_writing": [0] * 25 + [1] * 1475,
+    })
+
+    out = reg.aggregate(oof, scale_sec=10.0, merged_loader=lambda s: merged)
+
+    # Block 0 = [-inf, 10500ms) wegen lo=-inf → umfasst t=0..10480ms,
+    # das sind 525 Samples: 25 idle + 500 writing = 500/525 ≈ 95.2 %.
+    # Erwartung 95.0 ± 0.5 deckt diesen Wert ab. WICHTIG: NICHT 100 % —
+    # wäre der -inf-Trick weg, zählte Block 0 erst ab block_start=500ms,
+    # die 25 idle-Samples fielen raus → 500/500 = 100 % und der Test bräche.
+    assert out["truth_pen_pct"].iat[0] == pytest.approx(95.0, abs=0.5)
