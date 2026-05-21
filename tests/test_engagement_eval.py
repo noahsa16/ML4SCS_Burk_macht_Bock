@@ -157,3 +157,6 @@ def test_plot_engagement_heatmap_writes_file(tmp_path):
     eng.plot_engagement_heatmap(eng_df, out)
 
     assert out.exists()
+    # Why: out.exists() allein wäre auch bei einer leeren/degenerierten
+    # Figur grün — die Größenschwelle belegt, dass real gerendert wurde.
+    assert out.stat().st_size > 5_000
