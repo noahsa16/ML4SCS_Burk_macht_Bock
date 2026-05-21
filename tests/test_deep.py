@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.training.deep.data import build_raw_windows
+from src.training.deep.data import build_raw_windows, zscore_channels
 
 
 def _synthetic_merged(n_samples: int = 600) -> pd.DataFrame:
@@ -61,9 +61,6 @@ def test_build_raw_windows_missing_column_raises():
     merged = _synthetic_merged().drop(columns=["rz"])
     with pytest.raises(ValueError, match="missing columns"):
         build_raw_windows(merged, seq_len=50)
-
-
-from src.training.deep.data import zscore_channels
 
 
 def test_zscore_channels_normalises_per_channel():
