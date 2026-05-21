@@ -43,6 +43,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.calibration import CalibratedClassifierCV
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
@@ -193,6 +194,33 @@ def _fit_eval_fold(
     y_pred = clf.predict(X_test)
     y_proba = clf.predict_proba(X_test)[:, 1]
 
+    # Isotonische Kalibrierung für die Schreib-Prozent-Regression (Stufe 1).
+    # Why: cv=3 splittet die Trainings-Folds NICHT personen-gruppiert —
+    # bei N=10 und monotoner Kalibrierung vertretbar (bekannte Vereinfachung,
+    # siehe docs/specs/2026-05-21-regression-schreibprozent-design.md).
+    # Eigene Estimator-Instanz, damit der Headline-clf unangetastet bleibt.
+    cal = CalibratedClassifierCV(
+        RandomForestClassifier(
+            n_estimators=n_estimators,
+            random_state=random_state,
+            class_weight="balanced",
+            n_jobs=-1,
+        ),
+        method="isotonic",
+        cv=3,
+    )
+    cal.fit(X_train, y_train)
+    y_proba_cal = cal.predict_proba(X_test)[:, 1]
+
+    oof = pd.DataFrame({
+        "session_id": test_df["session_id"].to_numpy(),
+        "person_id": test_df["person_id"].to_numpy(),
+        "t_center_ms": test_df["t_center_ms"].to_numpy(),
+        "label": y_test,
+        "proba_raw": y_proba,
+        "proba_cal": y_proba_cal,
+    })
+
     try:
         auc = roc_auc_score(y_test, y_proba)
     except ValueError:
@@ -212,6 +240,7 @@ def _fit_eval_fold(
         "confusion_matrix": confusion_matrix(y_test, y_pred, labels=[0, 1]),
         "report": classification_report(y_test, y_pred, digits=3, zero_division=0),
         "bursts": bursts,
+        "oof": oof,
     }
 
 
@@ -253,6 +282,7 @@ def train_loso(
     random_state: int = 42,
     save_final_model: Path | None = None,
     save_cv_csv: Path | None = None,
+    save_oof: Path | None = None,
     zscore_per_session: bool = True,
 ) -> dict:
     if by not in {"person", "session"}:
@@ -418,6 +448,14 @@ def train_loso(
     print("\nPer-fold:")
     print(per_fold_table.to_string(index=False, float_format=lambda v: f"{v:.3f}"))
 
+    if save_oof is not None:
+        oof_all = pd.concat(
+            [r["oof"] for r in fold_results], ignore_index=True
+        )
+        save_oof.parent.mkdir(parents=True, exist_ok=True)
+        oof_all.to_csv(save_oof, index=False)
+        print(f"\n→ {save_oof}  ({len(oof_all)} OOF-Zeilen)")
+
     if save_cv_csv is not None:
         save_cv_csv.parent.mkdir(parents=True, exist_ok=True)
         per_fold_table.to_csv(save_cv_csv, index=False)
@@ -477,6 +515,14 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Write per-fold metrics to PATH (default: models/loso_cv.csv).",
     )
+    p.add_argument(
+        "--save-oof",
+        nargs="?",
+        const=str(MODEL_DIR / "loso_oof.csv"),
+        default=None,
+        help="Write per-window out-of-fold predictions (raw + calibrated "
+        "proba) to PATH (default: models/loso_oof.csv).",
+    )
     return p.parse_args()
 
 
@@ -490,5 +536,6 @@ if __name__ == "__main__":
         random_state=args.random_state,
         save_final_model=Path(args.save_final_model) if args.save_final_model else None,
         save_cv_csv=Path(args.save_cv_csv) if args.save_cv_csv else None,
+        save_oof=Path(args.save_oof) if args.save_oof else None,
         zscore_per_session=not args.no_zscore,
     )

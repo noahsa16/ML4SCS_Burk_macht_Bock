@@ -81,6 +81,8 @@ otherwise to `pen_log_YYYYMMDD_HHMMSS.csv` in the working directory.
 python -m src.merge S029                          # watch-base merge → data/processed/S029_merged.csv
 python -m src.features S029 --max-gap-ms 300      # sliding-window features → data/processed/S029_windows.csv
 python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
+python -m src.training.train_loso --save-oof      # + OOF-CSV für Regression
+python -m src.evaluation.regression               # Schreib-Prozent: MAE/RMSE/Bias + Plots
 python -m src.training.within_session.train_rf S029   # within-session 80/20 RF (debug/feature-iteration)
 python -m src.evaluation.evaluate S029            # placeholder, prints label distribution
 python scripts/plots/plot_merged.py S029 --max-gap-ms 300   # visualize IMU + label overlay
@@ -422,6 +424,16 @@ no longer vibrates continuously when the server is down.
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
   `within_session/train_rf.py` (within-session sanity check).
+- `src/evaluation/regression.py` — Schreib-Prozent-Regression (Stufe 2).
+  Reines Post-Processing über `models/loso_oof.csv`: aggregiert die
+  OOF-Vorhersagen auf 60 s / 300 s / ganze-Session-Blöcke und reportet
+  MAE/RMSE/Bias gegen geschlossene und rohe Pen-Wahrheit, plus
+  Calibration- und Scatter-Plot in `reports/figures/`. `pred_pct` ist
+  der **binäre** Schätzer `mean(proba_cal ≥ 0.5)` — das Mitteln roher
+  Wahrscheinlichkeiten (`pred_pct_proba`) schrumpft zur Mitte (~53 %)
+  und generalisiert nicht auf schiefe Schreibanteile (siehe
+  `reports/regression.md`, Abschnitt „Shrinkage"). Headline binär:
+  Session-MAE 3,5 pp, 60 s 7,6 pp.
 - `scripts/plots/plot_merged.py` — visualizes ‖acc‖, ‖gyro‖, and
   `label_writing` over the session; supports `--max-gap-ms` /
   `--max-spike-ms` to preview label smoothing effects.
