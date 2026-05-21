@@ -80,6 +80,10 @@ def aggregate(oof_df: pd.DataFrame, scale_sec: float | None,
     ``scale_sec=None`` → ein Block je Session (ganze Session). Sonst
     nicht-überlappende Blöcke der Länge ``scale_sec``, verankert am
     ersten ``t_center_ms`` der Session.
+
+    ``pred_pct`` = binärer Schätzer ``mean(proba_cal >= 0.5) * 100``
+    (kein Shrinkage-Effekt). ``pred_pct_proba`` = Proba-Mittel, zum
+    Vergleich aufbewahrt.
     """
     scale_ms = None if scale_sec is None else scale_sec * 1000.0
     rows: list[dict] = []
@@ -99,12 +103,13 @@ def aggregate(oof_df: pd.DataFrame, scale_sec: float | None,
                 "person_id": bg["person_id"].iat[0],
                 "block_start_ms": block_start,
                 "n_windows": int(len(bg)),
-                "pred_pct": float(bg["proba_cal"].mean()) * 100.0,
+                "pred_pct": float((bg["proba_cal"] >= 0.5).mean()) * 100.0,
+                "pred_pct_proba": float(bg["proba_cal"].mean()) * 100.0,
                 "truth_closed_pct": float(bg["label"].mean()) * 100.0,
                 "truth_pen_pct": _pen_pct(merged, block_start, block_end, anchor),
             })
     cols = ["session_id", "person_id", "block_start_ms", "n_windows",
-            "pred_pct", "truth_closed_pct", "truth_pen_pct"]
+            "pred_pct", "pred_pct_proba", "truth_closed_pct", "truth_pen_pct"]
     return pd.DataFrame(rows, columns=cols)
 
 

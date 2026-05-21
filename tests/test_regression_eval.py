@@ -54,7 +54,8 @@ def test_aggregate_whole_session_one_block_per_session():
 
     assert len(out) == 1
     assert out["session_id"].iat[0] == "S001"
-    assert out["pred_pct"].iat[0] == pytest.approx(80.0)
+    assert out["pred_pct"].iat[0] == pytest.approx(100.0)
+    assert out["pred_pct_proba"].iat[0] == pytest.approx(80.0)
     assert out["truth_closed_pct"].iat[0] == pytest.approx(50.0)
     assert out["n_windows"].iat[0] == 120
 
@@ -153,7 +154,18 @@ def test_aggregate_two_sessions_independent_anchors():
 
     assert len(out) == 2
     by_session = out.set_index("session_id")
-    assert by_session.loc["S001", "pred_pct"] == pytest.approx(80.0)
-    assert by_session.loc["S002", "pred_pct"] == pytest.approx(20.0)
+    assert by_session.loc["S001", "pred_pct"] == pytest.approx(100.0)
+    assert by_session.loc["S002", "pred_pct"] == pytest.approx(0.0)
     assert by_session.loc["S001", "person_id"] == "P01"
     assert by_session.loc["S002", "person_id"] == "P02"
+
+
+def test_aggregate_binary_estimator_differs_from_proba_mean():
+    # 60 Fenster bei proba 0.9, 40 bei proba 0.1
+    oof = _oof_one_session(100, [0.9] * 60 + [0.1] * 40, [1] * 100)
+    out = reg.aggregate(oof, scale_sec=None,
+                        merged_loader=lambda s: pd.DataFrame())
+    # binär: 60 von 100 Fenstern über 0.5 → 60.0 %
+    assert out["pred_pct"].iat[0] == pytest.approx(60.0)
+    # proba-Mittel: (60*0.9 + 40*0.1) / 100 = 0.58 → 58.0 %
+    assert out["pred_pct_proba"].iat[0] == pytest.approx(58.0)
