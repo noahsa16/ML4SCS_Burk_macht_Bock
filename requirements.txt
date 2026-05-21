@@ -5,6 +5,7 @@ plotly
 plotext
 rich
 scikit-learn
+torch
 jupyter
 notebook
 bleak
