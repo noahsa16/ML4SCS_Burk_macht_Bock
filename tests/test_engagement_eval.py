@@ -137,3 +137,23 @@ def test_engagement_per_task_skips_session_without_markers():
     assert list(out.columns) == [
         "session_id", "person_id", "task_index", "task_id", "task_name",
         "task_category", "n_windows", "true_pct", "pred_pct", "error_pp"]
+
+
+def test_plot_engagement_heatmap_writes_file(tmp_path):
+    eng_df = pd.DataFrame({
+        "session_id": ["S001", "S001", "S002", "S002"],
+        "person_id": ["P01", "P01", "P02", "P02"],
+        "task_index": [1, 2, 1, 2],
+        "task_id": ["abschreiben", "pause", "abschreiben", "pause"],
+        "task_name": ["Text", "Pause", "Text", "Pause"],
+        "task_category": ["writing", "idle", "writing", "idle"],
+        "n_windows": [100, 80, 100, 80],
+        "true_pct": [72.0, 4.0, 65.0, 6.0],
+        "pred_pct": [70.0, 5.0, 71.0, 8.0],
+        "error_pp": [-2.0, 1.0, 6.0, 2.0],
+    })
+    out = tmp_path / "engagement_heatmap.png"
+
+    eng.plot_engagement_heatmap(eng_df, out)
+
+    assert out.exists()
