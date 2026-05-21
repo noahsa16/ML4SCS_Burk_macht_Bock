@@ -19,6 +19,7 @@ from .utils import _as_float, _as_int, _utc_iso_from_ms
 
 # session_id → (file_size_bytes, raw_line_count_including_header)
 _pen_count_cache: dict[str, tuple[int, int]] = {}
+_watch_count_cache: dict[str, tuple[int, int]] = {}
 
 # csv_path (str) → (open file handle, DictWriter)
 _watch_writers: dict[str, tuple[IO[str], csv.DictWriter]] = {}
@@ -94,6 +95,30 @@ def _pen_sample_count(session_id: str) -> int:
             new_lines = f.read().count(b"\n")
         total = cached_lines + new_lines
         _pen_count_cache[session_id] = (size, total)
+        return max(0, total - 1)
+    except Exception:
+        return 0
+
+
+def _watch_sample_count(session_id: str) -> int:
+    """Disk-truth count of watch samples. Why: late WatchConnectivity
+    batches can land in the CSV after /session/stop snapshotted the
+    in-memory counter, so the on-disk file is the only reliable source."""
+    path = DATA_RAW_WATCH / f"{session_id}_watch.csv"
+    if not path.exists():
+        return 0
+    try:
+        size = path.stat().st_size
+        cached_size, cached_lines = _watch_count_cache.get(session_id, (0, 0))
+        if size == cached_size:
+            return max(0, cached_lines - 1)
+        if size < cached_size:
+            cached_size, cached_lines = 0, 0
+        with open(path, "rb") as f:
+            f.seek(cached_size)
+            new_lines = f.read().count(b"\n")
+        total = cached_lines + new_lines
+        _watch_count_cache[session_id] = (size, total)
         return max(0, total - 1)
     except Exception:
         return 0

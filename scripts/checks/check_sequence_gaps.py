@@ -7,9 +7,9 @@ when a session's iPhone-reported "uploaded" count exceeds the server-CSV
 row count — sequence gaps localise where the loss occurred in time.
 
 Usage:
-    python scripts/check_sequence_gaps.py S002
-    python scripts/check_sequence_gaps.py path/to/S002_watch.csv
-    python scripts/check_sequence_gaps.py            # most recent session
+    python scripts/checks/check_sequence_gaps.py S002
+    python scripts/checks/check_sequence_gaps.py path/to/S002_watch.csv
+    python scripts/checks/check_sequence_gaps.py            # most recent session
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 RAW = ROOT / "data" / "raw" / "watch"
 
 

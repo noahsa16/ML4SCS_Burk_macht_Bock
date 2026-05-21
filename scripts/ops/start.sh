@@ -3,7 +3,7 @@
 # Ctrl+C beendet beide Prozesse sauber.
 
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 # ── Args ──────────────────────────────────────────────────────────────────
 # Usage: start.sh [PORT] [--local|--no-tunnel|--tunnel|--ngrok] [--ngrok-domain=X]

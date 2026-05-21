@@ -3,13 +3,15 @@
 Lädt alle Sessions mit verdict ∈ {trainable, usable} aus sessions.csv und
 trainiert pro Modell eine LOSO-by-person Kreuzvalidierung. Reportet
 acc / F1(writing) / ROC-AUC pro Fold und Mittelwerte sowie eine
-10-s Burst-aggregierte AUC (Decision-Window, vgl. train_loso.py).
+Burst-aggregierte AUC (Decision-Window, vgl. train_loso.py;
+Skala via --burst-sec, Default 10 s).
 
 CLI
 ---
-    python scripts/compare_models.py
-    python scripts/compare_models.py --by session
-    python scripts/compare_models.py --include-all
+    python scripts/ml/compare_models.py
+    python scripts/ml/compare_models.py --burst-sec 5
+    python scripts/ml/compare_models.py --by session
+    python scripts/ml/compare_models.py --include-all
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DATA_PROC = ROOT / "data" / "processed"
 SESSIONS_CSV = ROOT / "data" / "sessions.csv"
 TRAINABLE = {"trainable", "usable"}
@@ -130,7 +132,8 @@ def _burst_auc(proba: np.ndarray, y_true: np.ndarray, test_df: pd.DataFrame,
     return acc, auc
 
 
-def _eval_fold(model, train_df, test_df, feat_cols) -> dict:
+def _eval_fold(model, train_df, test_df, feat_cols,
+               burst_sec: float = BURST_SCALE_SEC) -> dict:
     y_test = test_df["label"].to_numpy()
     X_train = train_df[feat_cols].to_numpy()
     y_train = train_df["label"].to_numpy()
@@ -153,14 +156,14 @@ def _eval_fold(model, train_df, test_df, feat_cols) -> dict:
         auc = float(roc_auc_score(y_test, y_proba))
     except ValueError:
         auc = float("nan")
-    b_acc, b_auc = _burst_auc(y_proba, y_test, test_df)
+    b_acc, b_auc = _burst_auc(y_proba, y_test, test_df, scale_sec=burst_sec)
     return {
         "fit_s": fit_s,
         "accuracy": float((y_pred == y_test).mean()),
         "f1_writing": float(f1_score(y_test, y_pred, pos_label=1, zero_division=0)),
         "roc_auc": auc,
-        "acc_10s": b_acc,
-        "auc_10s": b_auc,
+        "acc_burst": b_acc,
+        "auc_burst": b_auc,
     }
 
 
@@ -170,6 +173,9 @@ def main() -> None:
     ap.add_argument("--include-all", action="store_true")
     ap.add_argument("--no-zscore", action="store_true",
                     help="Disable per-session z-score normalization (default: on).")
+    ap.add_argument("--burst-sec", type=float, default=BURST_SCALE_SEC,
+                    help=f"Burst-aggregation decision window in seconds "
+                         f"(default: {BURST_SCALE_SEC:.0f}).")
     args = ap.parse_args()
 
     sessions = _load_sessions(args.include_all)
@@ -206,11 +212,12 @@ def main() -> None:
             if len(np.unique(test_df["label"])) < 2:
                 print(f"  [{held}] skipped (single-class test)")
                 continue
-            r = _eval_fold(model, train_df, test_df, feat_cols)
+            r = _eval_fold(model, train_df, test_df, feat_cols,
+                           burst_sec=args.burst_sec)
             print(f"  hold-out={held:>6}  fit={r['fit_s']:6.2f}s  "
                   f"acc={r['accuracy']:.3f}  f1={r['f1_writing']:.3f}  "
-                  f"auc={r['roc_auc']:.3f}  |10s burst: "
-                  f"acc={r['acc_10s']:.3f}  auc={r['auc_10s']:.3f}")
+                  f"auc={r['roc_auc']:.3f}  |{args.burst_sec:.0f}s burst: "
+                  f"acc={r['acc_burst']:.3f}  auc={r['auc_burst']:.3f}")
             rows.append({"model": name, "held_out": held, **r})
         print()
 
@@ -219,10 +226,10 @@ def main() -> None:
         print("No valid folds — nothing to summarise.")
         return
     summary = (df.groupby("model", sort=False)
-                 [["accuracy", "f1_writing", "roc_auc", "acc_10s", "auc_10s"]]
+                 [["accuracy", "f1_writing", "roc_auc", "acc_burst", "auc_burst"]]
                  .agg(["mean", "std"]))
     print("=" * 78)
-    print("Mean ± Std across folds:\n")
+    print(f"Mean ± Std across folds  (burst = {args.burst_sec:.0f}s):\n")
     pd.set_option("display.float_format", lambda v: f"{v:.3f}")
     print(summary.to_string())
 

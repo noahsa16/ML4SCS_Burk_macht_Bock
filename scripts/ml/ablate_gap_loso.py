@@ -10,8 +10,8 @@ sein. Siehe :file:`CLAUDE.md` (Label smoothing).
 
 Usage::
 
-    python scripts/ablate_gap_loso.py
-    python scripts/ablate_gap_loso.py --gaps 300 600 1000 2000 4000
+    python scripts/ml/ablate_gap_loso.py
+    python scripts/ml/ablate_gap_loso.py --gaps 300 600 1000 2000 4000
 """
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import confusion_matrix, f1_score, roc_auc_score
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.features.windows import build_windows  # noqa: E402
 

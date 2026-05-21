@@ -28,11 +28,12 @@ Status: data collection + preprocessing + watch-base merge + quality
 checks + sliding-window features + Random Forest baseline + LOSO
 cross-validation + Study Mode (counterbalanced protocol runner with
 fullscreen proband UI and VL admin monitor) are operational. **Current
-headline (8-person cross-subject LOSO, RF + per-session z-score +
-`max_gap_ms=2500` label closing): accuracy 0.861 ± 0.035, ROC-AUC
-0.932 ± 0.035, F1(writing) 0.879. Burst-aggregated @5s: acc 0.899,
-AUC 0.967; @10s: acc 0.882, AUC 0.959; @30s: acc 0.847, AUC 0.928.**
-Vorgänger-Headlines: 7-Probanden gap=2500 acc 0.868 ± 0.024 /
+headline (10-person cross-subject LOSO, RF + per-session z-score +
+`max_gap_ms=2500` label closing): accuracy 0.856 ± 0.032, ROC-AUC
+0.928 ± 0.033, F1(writing) 0.864. Burst-aggregated @5s: acc 0.887,
+AUC 0.960; @10s: acc 0.870, AUC 0.944; @30s: acc 0.831, AUC 0.909.**
+Vorgänger-Headlines: 8-Probanden gap=2500 acc 0.861 ± 0.035 /
+AUC 0.932 ± 0.035; 7-Probanden gap=2500 acc 0.868 ± 0.024 /
 AUC 0.943 ± 0.014; 7-Probanden gap=2000 acc 0.864 ± 0.026 /
 AUC 0.940; 5-Probanden gap=2000 acc 0.872 ± 0.020 / AUC 0.940;
 3-Probanden gap=300 acc 0.842 ± 0.007 / AUC 0.909 (ExtraTrees).
@@ -63,15 +64,15 @@ otherwise to `pen_log_YYYYMMDD_HHMMSS.csv` in the working directory.
 
 **Test the watch HTTP endpoint:**
 ```bash
-./scripts/test_server.sh [IP]    # defaults to 127.0.0.1
+./scripts/ops/test_server.sh [IP]    # defaults to 127.0.0.1
 ```
 
 **Convenience scripts:**
-- `scripts/start.sh` — boots the server and (optionally) a Cloudflare
+- `scripts/ops/start.sh` — boots the server and (optionally) a Cloudflare
   tunnel in one TTY UI; Ctrl+C cleans up both.
-- `scripts/tunnel.sh` — standalone Cloudflare quick tunnel
+- `scripts/ops/tunnel.sh` — standalone Cloudflare quick tunnel
   (`https://*.trycloudflare.com → localhost:8000`).
-- `scripts/plot_alignment.py` — runs the pen↔IMU alignment for a
+- `scripts/plots/plot_alignment.py` — runs the pen↔IMU alignment for a
   session and renders the explanatory 4-panel figure (top: variance
   with stroke overlay raw vs δ-shifted; bottom: J(δ) coarse + fine).
 
@@ -82,7 +83,7 @@ python -m src.features S029 --max-gap-ms 300      # sliding-window features → 
 python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
 python -m src.training.within_session.train_rf S029   # within-session 80/20 RF (debug/feature-iteration)
 python -m src.evaluation.evaluate S029            # placeholder, prints label distribution
-python scripts/plot_merged.py S029 --max-gap-ms 300   # visualize IMU + label overlay
+python scripts/plots/plot_merged.py S029 --max-gap-ms 300   # visualize IMU + label overlay
 ```
 Without args, `src.merge` / `src.features` operate on the most recent session.
 
@@ -119,28 +120,38 @@ Moleskine Smart Pen (BLE)
   → data/raw/pen/{session}_pen.csv
                     ↓
        src/alignment/pen_match.py    (recover per-session δ via
-                                      stroke-variance minimization)
-       src/merge/                    (watch-base: 1 row per watch
+                                      stroke-variance minimization;
+                                      σ ≤ -3 → use for ML)
+                    ↓
+       src/merge/merge.py            (watch-base: 1 row per watch
                                       sample with label_writing from
                                       pen activity in ±40 ms)
                     ↓
-         data/processed/{session}_merged.csv  (50 Hz watch + label)
+         data/processed/{session}_merged.csv  (50 Hz watch + raw label)
                     ↓
-       src/features/                 (sample-level label smoothing
-                                      via morphological closing, then
-                                      1 s / 0.5 s sliding windows →
-                                      88 features per window: time-stats
-                                      + spectral (FFT) + jerk + ZCR +
+       src/features/windows.py       (sample-level label closing,
+                                      max_gap_ms=2500 → "writing mode"
+                                      semantics; then 1 s / 0.5 s
+                                      sliding windows → 88 features
+                                      in 6 groups: time-stats, spectral
+                                      (FFT), jerk, ZCR, magnitude,
                                       cross-axis correlations)
                     ↓
          data/processed/{session}_windows.csv  (1 row per window)
                     ↓
-       src/training/within_session/  (temporal 80/20 split, RF — *debug only*,
-         train_rf.py                   feature/label-smoothing iteration)
-       src/training/train_loso.py    (LOSO by person or session — *headline
-                                      metric* for the cross-subject goal)
+       src/training/train_loso.py    (HEADLINE: LOSO by person, N=10,
+                                      RF 200 trees + per-session z-score,
+                                      class_weight=balanced, then per-
+                                      session rolling-mean burst-agg
+                                      @1s/5s/10s/30s decision-windows)
+       src/training/within_session/  (debug only — temporal 80/20 split
+         train_rf.py                  for feature/smoothing iteration)
                     ↓
-         models/rf_{session}.joblib  +  per-fold metrics on stdout
+         models/rf_all.joblib  (deployment, --save-final-model)
+         models/loso_cv.csv    (per-fold metrics, --save-cv-csv)
+                    ↓
+         acc 0.856 ± 0.032  |  AUC 0.928 ± 0.033  |  F1(w) 0.864
+         burst @30s: acc 0.831 / AUC 0.909  (Schreibzeit-tracking)
 ```
 
 ### Server (`server.py` + `src/server/`)
@@ -395,15 +406,15 @@ no longer vibrates continuously when the server is down.
   threshold. Empirically: jumped acc from 0.812 → 0.838 on the
   3-person dataset and tightened fold-σ 4× (0.042 → 0.009) — the
   biggest single ML-side improvement of the project.
-- `scripts/compare_models.py` — runs LOSO on the same splits with
+- `scripts/ml/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
   vor-generierte `{session}_windows.csv` aus `data/processed/`.
-- `scripts/compare_models_at_gap.py` — gleiches Modell-Panel, aber
+- `scripts/ml/compare_models_at_gap.py` — gleiches Modell-Panel, aber
   baut die Features on-the-fly bei beliebigem `--gap` neu, ohne die
   Cache-Dateien anzufassen. Nützlich, um Modell-Rangfolge bei
   alternativen Label-Closing-Werten zu prüfen ohne Re-Generation.
-- `scripts/ablate_gap_loso.py` — Label-Closing-Ablation: fährt den
+- `scripts/ml/ablate_gap_loso.py` — Label-Closing-Ablation: fährt den
   vollen LOSO-Lauf bei mehreren `max_gap_ms`-Werten und reportiert
   per-Fold + Mean/Std. Quelle der Headline-Entscheidung
   `max_gap_ms=2000` (siehe *Label smoothing* unten).
@@ -411,7 +422,7 @@ no longer vibrates continuously when the server is down.
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
   `within_session/train_rf.py` (within-session sanity check).
-- `scripts/plot_merged.py` — visualizes ‖acc‖, ‖gyro‖, and
+- `scripts/plots/plot_merged.py` — visualizes ‖acc‖, ‖gyro‖, and
   `label_writing` over the session; supports `--max-gap-ms` /
   `--max-spike-ms` to preview label smoothing effects.
 
@@ -625,16 +636,37 @@ getrieben (acc 0.808, AUC 0.848). Per-Block-Diagnose: P07 versagt
 abschreiben/free_writing/pause sauber sind (acc 0.83–0.96). Sample-
 Level am `S019_merged.csv`: P07 hat in 225 s Math-Block nur **22 s
 echte Pen-Zeit (10 %)**; 6 Idle-Stretches > 10 s (längste 22 s),
-die `max_gap_ms=2500` strukturell nicht schließen kann. Free_writing
-zum Vergleich beim selben Subject: 58 % Pen-Zeit, acc 0.951. Math
-ist also eine *strukturelle* Limitation (Denk-Task mit Schreib-
-Mikrobursts), kein Modell- oder Featureproblem. **30 s-Burst-AUC für
-P07 erholt sich auf 0.932** — Modell trifft Phasen, nur nicht
-einzelne Sekunden. Gegenmaßnahmen brauchen task-aware Labeling oder
-math-Protokoll-Überarbeitung, nicht Gap-Tuning. Nebenbefund: 3 FP-
-Bursts in Pause 2 (+8 s, +49 s, +74 s) korrespondieren mit Noah's
-in-room Beobachtung dass P07 in der Pause aufs Handy getippt hat —
-Phone-Typing als echter Wrist-Confound, für Protokoll v2 dokumentiert.
+die `max_gap_ms=2500` strukturell nicht schließen kann. **30 s-Burst-
+AUC für P07 erholt sich auf 0.932** — Modell trifft Phasen, nur nicht
+einzelne Sekunden. Nebenbefund: 3 FP-Bursts in Pause 2 (+8 s, +49 s,
++74 s) korrespondieren mit Noah's in-room Beobachtung dass P07 in der
+Pause aufs Handy getippt hat — Phone-Typing als echter Wrist-Confound,
+für Protokoll v2 dokumentiert.
+
+N=10 (2026-05-19, +P08/S020, +P09/S022): Headline-Acc 0.861 → 0.856,
+AUC 0.932 → 0.928, F1(w) 0.879 → 0.864 — **alle Bewegungen innerhalb
+σ-fold, σ tightens sogar 0.035 → 0.032 trotz +2 Folds**, Modell
+stabilisiert sich mit N. **P08-Math widerlegt die N=8-These "Math
+ist strukturell schwer":** P08 hat in Math 26 % Pen-Zeit (ähnlich
+niedrig wie P07's 10 %), erreicht aber acc 0.843 / AUC 0.942 im
+Math-Block. Math-Schwierigkeit war **P07-individuell** (lange
+Denkpausen + fidgety hands), nicht task-inhärent — die N=8-Diagnose
+"strukturelle Limitation" ist insofern zu stark formuliert. **P09 ist
+neue Fehlerklasse** (acc 0.812, AUC 0.896): Pausen exzellent
+(acc 0.92–0.96), aber beide Writing-Tasks symmetrisch schwach
+(Free 0.791 / AUC 0.843, Abschreiben 0.782 / AUC 0.844).
+Abschreiben-Pen-Zeit nur **58 % (Norm 75–80 %)** — Soft-Writer-Stil
+mit langen Mikropausen *innerhalb* der Schreibphasen. Anders als P07:
+**Burst-Aggregation @30 s verschlechtert P09** (acc 0.812 → 0.782,
+AUC 0.896 → 0.851) statt zu helfen — die einzige Fold im Datensatz
+mit @30 s < @1 s AUC. Erklärung: P09's Fehler sind zeitlich
+geclustert, nicht verrauscht — längere Decision-Windows mitteln
+korrekte Predictions weg statt Noise zu glätten. → **Zwei distinkte
+Failure-Modi** im Datensatz mit unterschiedlichen Lösungswegen:
+P07-Klasse (high-frequency Noise) braucht task-aware Labeling oder
+profitiert from Burst-Aggregation; P09-Klasse (systematische Soft-
+Writer-Confusion) braucht Per-Subject-Threshold oder weichere
+Pen-Truth-Definition.
 
 Opening (`max_spike_ms`) ist implementiert aber bleibt off; flipping
 short writing spikes hurt S029 — real quick strokes (i-dots,
