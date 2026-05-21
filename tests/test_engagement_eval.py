@@ -125,6 +125,9 @@ def test_engagement_per_task_aggregates_per_block():
     assert w["n_windows"] == 4
     idle = out[out["task_category"] == "idle"].iloc[0]
     assert idle["true_pct"] == pytest.approx(0.0)
+    # Pausen-Kontrolle: kein Schreiben → pred_pct und error_pp = 0
+    assert idle["pred_pct"] == pytest.approx(0.0)
+    assert idle["error_pp"] == pytest.approx(0.0)
 
 
 def test_engagement_per_task_skips_session_without_markers():
