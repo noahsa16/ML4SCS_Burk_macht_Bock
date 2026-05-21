@@ -45,6 +45,9 @@ def task_timeline(session_id: str) -> pd.DataFrame:
     ``task_index``. Rückgabe: eine Zeile pro Block (Spalten
     ``TIMELINE_COLS``), nach ``start_ms`` sortiert. Ein ``task_start``
     ohne passendes ``task_end`` (abgebrochene Session) wird verworfen.
+    Umgekehrt wird ein ``task_end`` ohne ``task_start`` still ignoriert
+    — die Fenster dieses Blocks bleiben dann unzugeordnet (kommt real
+    vor, z. B. S022, wenn ein ``task_start``-Marker fehlt).
     Fehlt die Marker-CSV, kommt ein leerer DataFrame zurück.
     """
     path = MARKERS_DIR / f"{session_id}_markers.csv"
