@@ -179,3 +179,44 @@ def plot_scatter(aggs: dict[str, pd.DataFrame], out_path: Path) -> None:
     fig.tight_layout()
     fig.savefig(out_path, dpi=130)
     plt.close(fig)
+
+
+def evaluate(oof_path: Path = MODEL_DIR / "loso_oof.csv",
+             scales: tuple[float | None, ...] = (60.0, 300.0, None),
+             out_csv: Path = MODEL_DIR / "regression_metrics.csv") -> dict:
+    """Orchestriert die Regression über alle Skalen, schreibt CSV + Plots."""
+    oof = load_oof(oof_path)
+    aggs: dict[str, pd.DataFrame] = {}
+    metric_rows: list[dict] = []
+    for scale in scales:
+        label = "session" if scale is None else f"{int(scale)}s"
+        agg = aggregate(oof, scale)
+        aggs[label] = agg
+        for truth, vals in regression_metrics(agg).items():
+            metric_rows.append({"scale": label, "truth": truth, **vals})
+
+    metrics = pd.DataFrame(metric_rows)
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    metrics.to_csv(out_csv, index=False)
+    print(metrics.to_string(index=False))
+
+    plot_calibration(oof, FIG_DIR / "regression_calibration.png")
+    plot_scatter(aggs, FIG_DIR / "regression_scatter.png")
+    print(f"→ {out_csv}")
+    print(f"→ {FIG_DIR / 'regression_calibration.png'}")
+    print(f"→ {FIG_DIR / 'regression_scatter.png'}")
+    return {"metrics": metrics, "aggregates": aggs}
+
+
+def _parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--oof", default=str(MODEL_DIR / "loso_oof.csv"),
+                   help="Pfad zur OOF-CSV (default: models/loso_oof.csv).")
+    p.add_argument("--out", default=str(MODEL_DIR / "regression_metrics.csv"),
+                   help="Ziel-CSV für die Metriken.")
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    args = _parse_args()
+    evaluate(oof_path=Path(args.oof), out_csv=Path(args.out))
