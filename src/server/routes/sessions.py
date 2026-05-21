@@ -17,7 +17,7 @@ from ..config import (
 from ..csv_io import (
     _delete_session_row, _ensure_csv_header, _next_session_id,
     _pen_sample_count, _read_session_rows, _update_session_row,
-    close_airpods_writer, close_watch_writer,
+    _watch_sample_count, close_airpods_writer, close_watch_writer,
 )
 from ..config import ROOT
 from ..models import SessionStartBody
@@ -375,7 +375,12 @@ async def _start_session_internal(
     if state.active:
         return JSONResponse({"error": "Session already active"}, status_code=409)
 
-    preflight = _session_preflight_payload()
+    test_mode = study_mode == "test"
+    # Why: in test_mode the operator is explicitly acknowledging the run is
+    # not for analysis — so warnings shouldn't gate the start either.
+    if test_mode:
+        force_preflight = True
+    preflight = _session_preflight_payload(test_mode=test_mode)
     if preflight["blockers"]:
         return JSONResponse({
             "error": "Preflight blocked session start",
@@ -504,7 +509,10 @@ async def session_stop():
     close_airpods_writer(DATA_RAW_AIRPODS / f"{session_id}_airpods.csv")
 
     pen_samples = _pen_sample_count(session_id)
-    watch_samples = state.watch_sample_count
+    # Why: late WatchConnectivity batches arrive after stop and append to
+    # the CSV, so the on-disk row count is more reliable than the
+    # in-memory counter (which only ticks while state.active is set).
+    watch_samples = _watch_sample_count(session_id)
     airpods_samples = state.airpods_sample_count
 
 

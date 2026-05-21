@@ -57,7 +57,7 @@ def client(data_dirs, monkeypatch, tmp_path):
     for mod in (sessions_routes, watch_routes, airpods_routes):
         monkeypatch.setattr(mod, "_broadcast", fake_broadcast)
 
-    def fake_preflight():
+    def fake_preflight(**_kwargs):
         return {"ok": True, "can_start": True, "blockers": [], "warnings": [], "status": {}}
     monkeypatch.setattr(sessions_routes, "_session_preflight_payload", fake_preflight)
 

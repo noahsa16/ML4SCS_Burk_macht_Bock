@@ -32,8 +32,8 @@ async def get_status():
 
 
 @router.get("/session/preflight")
-async def session_preflight():
-    return _session_preflight_payload()
+async def session_preflight(test_mode: bool = False):
+    return _session_preflight_payload(test_mode=test_mode)
 
 
 @router.get("/debug/package")

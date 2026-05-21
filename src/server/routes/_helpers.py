@@ -17,18 +17,23 @@ def _new_command_id(command: str, session_id: str | None = None) -> str:
     return f"{command}-{scope}-{uuid.uuid4().hex[:8]}"
 
 
-def _session_preflight_payload() -> dict:
+def _session_preflight_payload(*, test_mode: bool = False) -> dict:
+    # Why: test_mode runs (pilots, UI screenshots, dry-runs) don't have to
+    # carry the hardware-attached invariants. Watch-related blockers get
+    # demoted to warnings so the operator can still see the issue but
+    # force_preflight=True (auto-set in test_mode) lets the start through.
     status = _status_payload()
     blockers = []
     warnings = []
+    watch_bucket = warnings if test_mode else blockers
 
     if not status.get("watch_bridge_connected"):
-        blockers.append({
+        watch_bucket.append({
             "code": "iphone_bridge_missing",
             "message": "iPhone bridge WebSocket is not connected.",
         })
     if not status.get("watch_polling"):
-        blockers.append({
+        watch_bucket.append({
             "code": "watch_not_polling",
             "message": "Apple Watch has not polled the iPhone bridge recently.",
         })
