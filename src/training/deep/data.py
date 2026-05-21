@@ -37,7 +37,15 @@ def build_raw_windows(
     ``stride`` ist in Samples (25 = 0,5 s @ 50 Hz, wie der RF-Window-Stride).
     Wird wie in :func:`src.features.windows.build_windows` unabhaengig von
     ``seq_len`` gehalten, damit die Burst-Aggregation denselben dt sieht.
+
+    ``max_gap_ms`` defaultet auf den Headline-Pipeline-Wert 2500 (nicht auf
+    den historischen 300er-Default von :func:`build_windows`) — die
+    Deep-Modelle werden ausschliesslich in der Headline-Konfiguration
+    trainiert, ein Closing-Wert hier ist die richtige Voreinstellung.
     """
+    if seq_len < 2 or stride < 1:
+        raise ValueError(f"seq_len/stride too small: seq_len={seq_len}, stride={stride}")
+
     needed = {*IMU_COLS, "label_writing", "local_ts_ms"}
     missing = needed - set(merged.columns)
     if missing:
