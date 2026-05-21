@@ -101,6 +101,50 @@ def assign_tasks(oof_session: pd.DataFrame,
     return out
 
 
+ENGAGEMENT_COLS = ["session_id", "person_id", "task_index", "task_id",
+                   "task_name", "task_category", "n_windows", "true_pct",
+                   "pred_pct", "error_pp"]
+
+
+def engagement_per_task(oof_df: pd.DataFrame,
+                        timeline_loader=task_timeline) -> pd.DataFrame:
+    """Eine Zeile pro (Session, Task-Block): Schreibzeit-Anteil.
+
+    ``true_pct``/``pred_pct`` über den mit ``regression.py`` geteilten
+    ``block_percentages()``. Sessions ohne Marker-CSV (leere Timeline)
+    werden mit einer Warnung übersprungen. Fenster ohne Task-Zuordnung
+    (Übergänge) zählen pro Session als Diagnose-Ausgabe.
+    """
+    rows: list[dict] = []
+    for sid, g in oof_df.groupby("session_id", sort=False):
+        timeline = timeline_loader(sid)
+        if timeline.empty:
+            print(f"  ⚠ {sid}: keine Marker-CSV — übersprungen")
+            continue
+        assigned = assign_tasks(g, timeline)
+        n_unassigned = int(assigned["task_index"].isna().sum())
+        if n_unassigned:
+            print(f"  {sid}: {n_unassigned}/{len(assigned)} Fenster "
+                  f"ohne Task (Übergänge)")
+        tagged = assigned.dropna(subset=["task_index"])
+        for tidx, bg in tagged.groupby("task_index", sort=True):
+            first = bg.iloc[0]
+            pcts = block_percentages(bg)
+            rows.append({
+                "session_id": sid,
+                "person_id": bg["person_id"].iat[0],
+                "task_index": int(tidx),
+                "task_id": first["task_id"],
+                "task_name": first["task_name"],
+                "task_category": first["task_category"],
+                "n_windows": pcts["n_windows"],
+                "true_pct": pcts["true_pct"],
+                "pred_pct": pcts["pred_pct"],
+                "error_pp": pcts["pred_pct"] - pcts["true_pct"],
+            })
+    return pd.DataFrame(rows, columns=ENGAGEMENT_COLS)
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--oof", default=str(MODEL_DIR / "loso_oof.csv"),
