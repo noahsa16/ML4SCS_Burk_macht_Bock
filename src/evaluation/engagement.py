@@ -145,6 +145,74 @@ def engagement_per_task(oof_df: pd.DataFrame,
     return pd.DataFrame(rows, columns=ENGAGEMENT_COLS)
 
 
+def plot_engagement_heatmap(eng_df: pd.DataFrame, out_path: Path) -> None:
+    """Proband × Schreib-Task Heatmap plus Pausen-Kontrollstreifen.
+
+    Zellfarbe = ``true_pct``; Zell-Text zeigt ``echt/geschätzt``. Der
+    Pausen-Streifen rechts sollte durchgehend niedrige Werte zeigen.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    persons = sorted(eng_df["person_id"].unique())
+    writing = eng_df[eng_df["task_category"] == "writing"]
+    tasks = [t for t in WRITING_TASKS if t in set(writing["task_id"])]
+
+    true_grid = np.full((len(persons), len(tasks)), np.nan)
+    pred_grid = np.full((len(persons), len(tasks)), np.nan)
+    for i, p in enumerate(persons):
+        for j, t in enumerate(tasks):
+            cell = writing[(writing["person_id"] == p)
+                           & (writing["task_id"] == t)]
+            if not cell.empty:
+                true_grid[i, j] = cell["true_pct"].mean()
+                pred_grid[i, j] = cell["pred_pct"].mean()
+
+    # Pausen-Kontrolle: mittlerer true_pct der idle-Blöcke je Proband.
+    idle = eng_df[eng_df["task_category"] == "idle"]
+    pause_col = np.array([
+        idle.loc[idle["person_id"] == p, "true_pct"].mean()
+        for p in persons
+    ]).reshape(-1, 1)
+
+    fig, (ax, axp) = plt.subplots(
+        1, 2, figsize=(2.2 * len(tasks) + 3.0, 0.55 * len(persons) + 1.6),
+        gridspec_kw={"width_ratios": [max(len(tasks), 1), 1]})
+
+    im = ax.imshow(true_grid, cmap="viridis", vmin=0, vmax=100,
+                   aspect="auto")
+    ax.set_xticks(range(len(tasks)))
+    ax.set_xticklabels(tasks, rotation=20, ha="right")
+    ax.set_yticks(range(len(persons)))
+    ax.set_yticklabels(persons)
+    ax.set_title("Schreibzeit-Anteil je Aufgabe  (echt / geschätzt)")
+    for i in range(len(persons)):
+        for j in range(len(tasks)):
+            if not np.isnan(true_grid[i, j]):
+                ax.text(j, i,
+                        f"{true_grid[i, j]:.0f}/{pred_grid[i, j]:.0f}",
+                        ha="center", va="center", fontsize=8,
+                        color="white" if true_grid[i, j] < 55 else "black")
+
+    axp.imshow(pause_col, cmap="viridis", vmin=0, vmax=100, aspect="auto")
+    axp.set_xticks([0])
+    axp.set_xticklabels(["Pause"], rotation=20, ha="right")
+    axp.set_yticks([])
+    axp.set_title("Kontrolle")
+    for i in range(len(persons)):
+        if not np.isnan(pause_col[i, 0]):
+            axp.text(0, i, f"{pause_col[i, 0]:.0f}", ha="center",
+                     va="center", fontsize=8,
+                     color="white" if pause_col[i, 0] < 55 else "black")
+
+    fig.colorbar(im, ax=[ax, axp], fraction=0.04,
+                 label="echter Schreibzeit-Anteil (%)")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out_path, dpi=130, bbox_inches="tight")
+    plt.close(fig)
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--oof", default=str(MODEL_DIR / "loso_oof.csv"),
