@@ -63,6 +63,9 @@ def _pen_pct(merged: pd.DataFrame, block_start: float,
         # Why: Block 0 (block_start == anchor) muss die ~0.5 s vor dem
         # ersten Fenster-Zentrum mitnehmen — sonst fallen frühe Samples
         # durch den window-center-Inset still raus.
+        # Der letzte Block schneidet umgekehrt ~0.5 s Pen-Samples am
+        # Session-Ende ab (Fenster-Zentrum liegt vor dem echten Ende) —
+        # bewusst akzeptiert, Effekt < 1 % und nur im letzten Block.
         lo = -np.inf if block_start <= anchor else block_start
         sel = merged[(t >= lo) & (t < block_end)]
     if sel.empty:
@@ -100,7 +103,9 @@ def aggregate(oof_df: pd.DataFrame, scale_sec: float | None,
                 "truth_closed_pct": float(bg["label"].mean()) * 100.0,
                 "truth_pen_pct": _pen_pct(merged, block_start, block_end, anchor),
             })
-    return pd.DataFrame(rows)
+    cols = ["session_id", "person_id", "block_start_ms", "n_windows",
+            "pred_pct", "truth_closed_pct", "truth_pen_pct"]
+    return pd.DataFrame(rows, columns=cols)
 
 
 def regression_metrics(agg_df: pd.DataFrame) -> dict[str, dict[str, float]]:

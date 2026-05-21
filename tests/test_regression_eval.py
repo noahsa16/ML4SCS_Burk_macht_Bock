@@ -137,3 +137,23 @@ def test_evaluate_writes_metrics_csv(tmp_path, monkeypatch):
     assert (tmp_path / "figures" / "regression_calibration.png").exists()
     assert (tmp_path / "figures" / "regression_scatter.png").exists()
     assert "metrics" in result and "aggregates" in result
+
+
+def test_aggregate_two_sessions_independent_anchors():
+    s1 = _oof_one_session(120, [0.8] * 120, [1] * 120,
+                          session="S001", person="P01")
+    s2 = _oof_one_session(120, [0.2] * 120, [0] * 120,
+                          session="S002", person="P02")
+    # S002 läuft zeitlich versetzt — anderer Anker als S001
+    s2 = s2.assign(t_center_ms=s2["t_center_ms"] + 1_000_000.0)
+    oof = pd.concat([s1, s2], ignore_index=True)
+
+    out = reg.aggregate(oof, scale_sec=None,
+                        merged_loader=lambda s: pd.DataFrame())
+
+    assert len(out) == 2
+    by_session = out.set_index("session_id")
+    assert by_session.loc["S001", "pred_pct"] == pytest.approx(80.0)
+    assert by_session.loc["S002", "pred_pct"] == pytest.approx(20.0)
+    assert by_session.loc["S001", "person_id"] == "P01"
+    assert by_session.loc["S002", "person_id"] == "P02"
