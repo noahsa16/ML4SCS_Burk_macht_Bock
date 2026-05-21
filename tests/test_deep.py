@@ -115,3 +115,25 @@ def test_model_registry_forward(name, seq_len):
 
 def test_models_registry_keys():
     assert set(MODELS.keys()) == {"cnn", "lstm", "gru"}
+
+
+from src.training.deep.train_loso import train_one_model, predict_proba
+
+
+def test_train_one_model_runs_and_predicts():
+    """Mini-Lauf: lernbares Muster, wenige Epochen -- nur Smoke, kein Metrik-Ziel."""
+    rng = np.random.default_rng(2)
+    # Klasse 1 = hoehere Varianz auf allen Kanaelen; klar trennbar.
+    def _make(n, scale):
+        return (rng.normal(scale=scale, size=(n, 50, 6))).astype(np.float32)
+    X = np.concatenate([_make(32, 0.2), _make(32, 2.0)])
+    y = np.concatenate([np.zeros(32), np.ones(32)]).astype(np.int64)
+    Xv = np.concatenate([_make(8, 0.2), _make(8, 2.0)])
+    yv = np.concatenate([np.zeros(8), np.ones(8)]).astype(np.int64)
+
+    model = train_one_model(
+        CNN1D(), X, y, Xv, yv, max_epochs=4, patience=4, batch_size=16
+    )
+    proba = predict_proba(model, Xv)
+    assert proba.shape == (16,)
+    assert np.all((proba >= 0.0) & (proba <= 1.0))
