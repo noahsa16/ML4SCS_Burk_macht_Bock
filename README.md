@@ -106,7 +106,11 @@ src/merge/                   Watch-base merge (1 row per IMU sample + label)
 src/features/                Sliding windows → 88 features per window
 src/training/                train_loso.py (headline) + within_session/ (debug)
 forecast/                    Learning-curve projection to N=99 probands
-scripts/                     Plot helpers, multi-model comparison, dev tools
+scripts/plots/               Figure generation (plot_*.py)
+scripts/ml/                  Training, multi-model comparison, gap ablation
+scripts/analysis/            Per-proband LOSO error analysis
+scripts/checks/              Data-quality / forensic checks
+scripts/ops/                 Server + tunnel shell helpers
 tests/                       138 smoke tests (~1.5 s)
 static/, dashboard.html      Web dashboard (page-modular ES modules)
 watch_streamer/              iOS + watchOS Xcode targets
@@ -177,7 +181,7 @@ Current 5-subject LOSO result (Noah, P01, P02, P03, Taji) with RandomForest + pe
 
 **Per-session z-score normalization** (on by default, `--no-zscore` to disable). Before fitting, each feature column is standardised per `session_id` — subtract that session's mean, divide by its std. The motivation is that the hardest cross-subject problem is *not* "which feature distinguishes writing"; it's that the same gesture produces different absolute feature values on different wrists (size, handedness, watch position, tightness of the strap). Per-session standardisation removes that absolute-scale component while preserving the relative structure within a session. Empirically the single biggest ML-side win of the early project: on the 3-person dataset it jumped accuracy from 0.812 → 0.838 and tightened fold-σ ~4× (0.042 → 0.009). Caveat for deployment: production needs a calibration phase (or rolling stats) to estimate μ, σ from the live stream before the model can be applied — a model trained with z-score cannot be served raw IMU features without that step.
 
-**Label-closing decision (`max_gap_ms`).** Default was historically 300 ms — close any pen-up gap shorter than that into a continuous "writing" label. After N=5 we ran a full LOSO ablation across `300 / 600 / 1000 / 1500 / 2000 / 2500` ms (`scripts/ablate_gap_loso.py`); `2000` came out as the sweet spot: largest single-step gain of the project (acc +4.2 pp / AUC +3.5 pp / F1 +8.9 pp vs. 300), all 5 folds improving monotonically, σ tightening from 0.026 → 0.020. 2500 squeezed +0.3 pp more on the average but caused P02 to regress for the first time — 2000 is the last "no fold regresses" step. Semantically this redefines the label from "pen currently on paper" to "person in writing mode incl. micro-pauses ≤ 2 s", which is closer to what a writing-time tracker actually wants to detect.
+**Label-closing decision (`max_gap_ms`).** Default was historically 300 ms — close any pen-up gap shorter than that into a continuous "writing" label. After N=5 we ran a full LOSO ablation across `300 / 600 / 1000 / 1500 / 2000 / 2500` ms (`scripts/ml/ablate_gap_loso.py`); `2000` came out as the sweet spot: largest single-step gain of the project (acc +4.2 pp / AUC +3.5 pp / F1 +8.9 pp vs. 300), all 5 folds improving monotonically, σ tightening from 0.026 → 0.020. 2500 squeezed +0.3 pp more on the average but caused P02 to regress for the first time — 2000 is the last "no fold regresses" step. Semantically this redefines the label from "pen currently on paper" to "person in writing mode incl. micro-pauses ≤ 2 s", which is closer to what a writing-time tracker actually wants to detect.
 
 **Model comparison at the new label.** With `gap=2000`, the model family stops mattering — top-3 (SVM-RBF / HistGradBoost / RF) are within 0.6 pp accuracy of each other (0.872–0.878), all at AUC 0.940 ± 0.018. RF stays the headline default for stability and reproducibility; ExtraTrees is the speed champion (~0.9 s fit per fold, AUC 0.940). Full table in `reports/model_progression.md` under "Modellvergleich auf Run-08-Basis".
 

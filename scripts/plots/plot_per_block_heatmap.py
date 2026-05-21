@@ -13,8 +13,8 @@ zur Burst-Aggregation in `train_loso._burst_metrics`).
 
 CLI
 ---
-    python scripts/plot_per_block_heatmap.py                # alle 4 Skalen
-    python scripts/plot_per_block_heatmap.py --scales 1 30  # nur ausgewählte
+    python scripts/plots/plot_per_block_heatmap.py                # alle 4 Skalen
+    python scripts/plots/plot_per_block_heatmap.py --scales 1 30  # nur ausgewählte
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import RandomForestClassifier
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.training.train_loso import (  # noqa: E402
     _load_windows,

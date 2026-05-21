@@ -9,8 +9,8 @@ gleiche Projektion nach person_id (Subject-Shift-Diagnose).
 
 CLI
 ---
-    python scripts/plot_svm_pca_3d.py
-    python scripts/plot_svm_pca_3d.py --grid 60 --subsample 5000
+    python scripts/plots/plot_svm_pca_3d.py
+    python scripts/plots/plot_svm_pca_3d.py --grid 60 --subsample 5000
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from skimage import measure
 from sklearn.decomposition import PCA
 from sklearn.svm import SVC
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 DATA_PROC = ROOT / "data" / "processed"
 SESSIONS_CSV = ROOT / "data" / "sessions.csv"
 OUT_PATH = ROOT / "reports" / "figures" / "svm_pca_3d.png"

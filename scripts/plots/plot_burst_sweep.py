@@ -19,9 +19,9 @@ gespeichert. Mit --use-cache lädt der Sweep daraus ohne RF-Retraining.
 
 CLI
 ---
-    python scripts/plot_burst_sweep.py                  # full pipeline
-    python scripts/plot_burst_sweep.py --use-cache      # nur Plot neu rendern
-    python scripts/plot_burst_sweep.py --scales "1,2,3,5,8,10,15,20,30"
+    python scripts/plots/plot_burst_sweep.py                  # full pipeline
+    python scripts/plots/plot_burst_sweep.py --use-cache      # nur Plot neu rendern
+    python scripts/plots/plot_burst_sweep.py --scales "1,2,3,5,8,10,15,20,30"
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from src.training.train_loso import (
