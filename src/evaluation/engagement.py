@@ -213,6 +213,30 @@ def plot_engagement_heatmap(eng_df: pd.DataFrame, out_path: Path) -> None:
     plt.close(fig)
 
 
+def evaluate(oof_path: Path = MODEL_DIR / "loso_oof.csv",
+             out_csv: Path = MODEL_DIR / "engagement_metrics.csv") -> dict:
+    """Orchestriert die Engagement-Auswertung: CSV + Heatmap."""
+    oof = load_oof(oof_path)
+    eng_df = engagement_per_task(oof)
+
+    out_csv.parent.mkdir(parents=True, exist_ok=True)
+    eng_df.to_csv(out_csv, index=False)
+
+    writing = eng_df[eng_df["task_category"] == "writing"]
+    idle = eng_df[eng_df["task_category"] == "idle"]
+    print("=== Schreib-Tasks (Engagement: echter Schreibzeit-Anteil) ===")
+    print(writing.to_string(index=False))
+    print()
+    print("=== Pausen (Kontrolle — true_pct sollte niedrig sein) ===")
+    print(idle.to_string(index=False))
+
+    heatmap = FIG_DIR / "engagement_heatmap.png"
+    plot_engagement_heatmap(eng_df, heatmap)
+    print(f"→ {out_csv}")
+    print(f"→ {heatmap}")
+    return {"engagement": eng_df}
+
+
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--oof", default=str(MODEL_DIR / "loso_oof.csv"),
@@ -220,3 +244,8 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--out", default=str(MODEL_DIR / "engagement_metrics.csv"),
                    help="Ziel-CSV für die Engagement-Metriken.")
     return p.parse_args()
+
+
+if __name__ == "__main__":
+    args = _parse_args()
+    evaluate(oof_path=Path(args.oof), out_csv=Path(args.out))
