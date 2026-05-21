@@ -7,7 +7,6 @@ Stopping auf einem Person-Holdout trainiert.
 """
 from __future__ import annotations
 
-import argparse
 from pathlib import Path
 
 import numpy as np
@@ -18,11 +17,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from src.training.deep.data import load_session_raw
 from src.training.deep.models import MODELS
-from src.training.train_loso import (
-    BURST_SCALES_SEC,
-    _burst_metrics,
-    _select_sessions,
-)
+from src.training.train_loso import _burst_metrics, _select_sessions
 
 ROOT = Path(__file__).parents[3]
 MODEL_DIR = ROOT / "models"
@@ -111,8 +106,8 @@ def predict_proba(model: torch.nn.Module, X: np.ndarray) -> np.ndarray:
     """Sigmoid-Wahrscheinlichkeiten fuer die positive Klasse (writing)."""
     model.eval()
     with torch.no_grad():
-        logits = model(torch.from_numpy(X).to(DEVICE)).cpu().numpy()
-    return 1.0 / (1.0 + np.exp(-logits))
+        logits = model(torch.from_numpy(X).to(DEVICE))
+        return torch.sigmoid(logits).cpu().numpy()
 
 
 def fold_metrics(
@@ -156,6 +151,16 @@ def _load_all_sessions(
     return out
 
 
+def _stack_persons(
+    plist: list[str],
+    key: str,
+    data: dict[str, dict],
+    persons: dict[str, list[str]],
+) -> np.ndarray:
+    """Konkateniere ``data[session][key]`` ueber alle Sessions der Personen in ``plist``."""
+    return np.concatenate([data[s][key] for p in plist for s in persons[p]])
+
+
 def train_deep_loso(
     model_name: str,
     window_sec: int,
@@ -169,6 +174,9 @@ def train_deep_loso(
     """
     _set_seed(seed)
     seq_len = WIN_SEQ_LEN[window_sec]
+    # Why: min_windows=0 -- das Deep-Pipeline baut Fenster direkt aus der
+    # merged CSV, nicht aus dem gecachten {session}_windows.csv; der
+    # windows-Count-Gate ist hier gegenstandslos.
     sessions = _select_sessions(include_all=include_all, min_windows=0)
     if sessions.empty:
         raise RuntimeError("Keine Sessions -- sessions.csv / verdict-Gate pruefen.")
@@ -191,20 +199,17 @@ def train_deep_loso(
 
     rows: list[dict] = []
     for i, test_p in enumerate(person_ids):
+        # Val: naechste Person in sortierter Reihenfolge, wrap-around --
+        # jede Person ist genau einmal Test und genau einmal Val.
         val_p = person_ids[(i + 1) % len(person_ids)]
         train_ps = [p for p in person_ids if p not in (test_p, val_p)]
 
-        def _stack(plist: list[str], key: str) -> np.ndarray:
-            return np.concatenate(
-                [data[s][key] for p in plist for s in persons[p]]
-            )
-
-        train_X = _stack(train_ps, "X")
-        train_y = _stack(train_ps, "y")
-        val_X = _stack([val_p], "X")
-        val_y = _stack([val_p], "y")
-        test_X = _stack([test_p], "X")
-        test_y = _stack([test_p], "y")
+        train_X = _stack_persons(train_ps, "X", data, persons)
+        train_y = _stack_persons(train_ps, "y", data, persons)
+        val_X = _stack_persons([val_p], "X", data, persons)
+        val_y = _stack_persons([val_p], "y", data, persons)
+        test_X = _stack_persons([test_p], "X", data, persons)
+        test_y = _stack_persons([test_p], "y", data, persons)
 
         if len(np.unique(test_y)) < 2:
             print(f"  Fold {test_p}: uebersprungen -- Test-Fold einklassig")
