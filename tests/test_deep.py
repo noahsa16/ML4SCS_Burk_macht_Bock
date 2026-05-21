@@ -4,8 +4,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
 from src.training.deep.data import build_raw_windows, zscore_channels
+from src.training.deep.models import CNN1D, MODELS
 
 
 def _synthetic_merged(n_samples: int = 600) -> pd.DataFrame:
@@ -84,11 +86,6 @@ def test_zscore_channels_empty_safe():
     assert zscore_channels(X).shape == (0, 50, 6)
 
 
-import torch
-
-from src.training.deep.models import CNN1D
-
-
 @pytest.mark.parametrize("seq_len", [50, 250])
 def test_cnn_forward_shape(seq_len):
     model = CNN1D()
@@ -104,9 +101,7 @@ def test_cnn_forward_batch_one():
     model.eval()
     out = model(torch.randn(1, 50, 6))
     assert out.shape == (1,)
-
-
-from src.training.deep.models import MODELS
+    assert torch.all(torch.isfinite(out))
 
 
 @pytest.mark.parametrize("name", ["cnn", "lstm", "gru"])

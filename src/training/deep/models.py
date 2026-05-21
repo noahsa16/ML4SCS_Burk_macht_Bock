@@ -43,7 +43,9 @@ class CNN1D(nn.Module):
 class _RNNClassifier(nn.Module):
     """Gemeinsame Basis fuer LSTM/GRU -- ein RNN-Layer, letzter Hidden-State -> FC."""
 
-    def __init__(self, rnn_cls, n_channels: int = 6, hidden: int = 32) -> None:
+    def __init__(
+        self, rnn_cls: type[nn.RNNBase], n_channels: int = 6, hidden: int = 32
+    ) -> None:
         super().__init__()
         self.rnn = rnn_cls(
             input_size=n_channels, hidden_size=hidden, batch_first=True
@@ -58,7 +60,7 @@ class _RNNClassifier(nn.Module):
 
 
 class LSTMClassifier(_RNNClassifier):
-    """1-Layer-LSTM, hidden=32. ~5k Parameter. Funks RNN-Wunsch."""
+    """1-Layer-LSTM, hidden=32. ~5k Parameter."""
 
     def __init__(self, n_channels: int = 6, hidden: int = 32) -> None:
         super().__init__(nn.LSTM, n_channels, hidden)
