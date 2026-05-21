@@ -83,6 +83,7 @@ python -m src.features S029 --max-gap-ms 300      # sliding-window features → 
 python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
 python -m src.training.train_loso --save-oof      # + OOF-CSV für Regression
 python -m src.evaluation.regression               # Schreib-Prozent: MAE/RMSE/Bias + Plots
+python -m src.evaluation.engagement               # Schreibzeit-Anteil pro Aufgabe + Heatmap
 python -m src.training.within_session.train_rf S029   # within-session 80/20 RF (debug/feature-iteration)
 python -m src.evaluation.evaluate S029            # placeholder, prints label distribution
 python scripts/plots/plot_merged.py S029 --max-gap-ms 300   # visualize IMU + label overlay
@@ -433,7 +434,25 @@ no longer vibrates continuously when the server is down.
   Wahrscheinlichkeiten (`pred_pct_proba`) schrumpft zur Mitte (~53 %)
   und generalisiert nicht auf schiefe Schreibanteile (siehe
   `reports/regression.md`, Abschnitt „Shrinkage"). Headline binär:
-  Session-MAE 3,5 pp, 60 s 7,6 pp.
+  Session-MAE 3,5 pp, 60 s 7,6 pp. Der `evaluate()`-Output trennt
+  zwei beschriftete Abschnitte: **HEADLINE** (truth = `closed`
+  labels, = Modell-Labels mit Mikropausen ≤2,5 s als writing) und
+  **DIAGNOSTIC** (truth = rohe Pen-Down-Samples). `regression_metrics.csv`
+  trägt dafür eine `role`-Spalte (`headline`/`diagnostic`). Wichtig:
+  der Diagnostic-Bias (~+21 pp) ist der inhärente Label-Closing-Bias
+  unserer Politik, **kein Modellfehler** — nur Headline ist die
+  vorzeigbare Aussage.
+- `src/evaluation/engagement.py` — Engagement-Auswertung (Stufe 2,
+  Prio 2). Reines Post-Processing über `models/loso_oof.csv` + den
+  Study-Mode-`markers`-CSVs. Ordnet jedes 1-s-Fenster über `t_center_ms`
+  einem Task-Block zu (`task_start`/`task_end` aus den Markern) und
+  aggregiert pro `(Session, Task)` den Schreibzeit-Anteil: `true_pct`
+  (geschlossene Labels) und `pred_pct` (binärer Schätzer, geteilt mit
+  `regression.py` via `block_percentages()`). Output:
+  `models/engagement_metrics.csv` (1 Zeile pro Task-Block, Schreib-Tasks
+  + Pausen als Kontrolle) plus `reports/figures/engagement_heatmap.png`
+  (Proband × Task). Der Wert ist ein **Engagement-Proxy**, kein
+  Aufmerksamkeits-Detektor — Schreibzeit ≠ Aufmerksamkeit.
 - `scripts/plots/plot_merged.py` — visualizes ‖acc‖, ‖gyro‖, and
   `label_writing` over the session; supports `--max-gap-ms` /
   `--max-spike-ms` to preview label smoothing effects.
@@ -505,15 +524,22 @@ server fully owns the file; any environment can reconstruct it by
 scanning `data/raw/`.
 
 **Markers CSV** (`data/raw/markers/{session_id}_markers.csv`): one
-row per Study-Mode state transition or VL action. Schema:
+row per Study-Mode state transition. Schema:
 ```
-local_ts, local_ts_ms, session_id, event, task_id, task_index,
-task_label, category, duration_seconds, instance, note
+timestamp_ms, event, task_id, task_name, task_index, task_category,
+protocol_id
 ```
-Events include `study_start`, `task_start`, `task_end`, `pause_start`,
-`pause_end`, `next`, `abort`, `study_end`. The marker stream is the
-ground-truth timeline for downstream per-task analyses and lets the
-training pipeline filter windows by task category if needed.
+Events: `study_start`, `task_start`, `task_end`, `study_end`, `abort`.
+There are **no** `pause_start`/`pause_end` events — pauses are ordinary
+task blocks (`task_id='pause'`, `task_category='idle'`) delimited by
+their own `task_start`/`task_end`. A task block is thus a `task_start`
+paired with the matching `task_end` (same `task_index`).
+`timestamp_ms` is Unix-ms wall clock — the **same epoch** as the watch
+CSV's `local_ts_ms` / `server_received_ms` (the server stamps both),
+so marker times are directly comparable to window `t_center_ms` with
+no offset correction. The marker stream is the ground-truth timeline
+for downstream per-task analyses and lets the training/evaluation
+pipeline filter windows by task category.
 
 **Merged CSV** (`data/processed/{session}_merged.csv`): **watch-base**
 — every watch sample is preserved, with `label_writing` ∈ {0, 1}
