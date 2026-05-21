@@ -82,3 +82,25 @@ def test_zscore_channels_constant_channel_safe():
 def test_zscore_channels_empty_safe():
     X = np.empty((0, 50, 6), dtype=np.float32)
     assert zscore_channels(X).shape == (0, 50, 6)
+
+
+import torch
+
+from src.training.deep.models import CNN1D
+
+
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_cnn_forward_shape(seq_len):
+    model = CNN1D()
+    x = torch.randn(8, seq_len, 6)
+    out = model(x)
+    # Output: ein Logit pro Sample, Shape (batch,)
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_cnn_forward_batch_one():
+    model = CNN1D()
+    model.eval()
+    out = model(torch.randn(1, 50, 6))
+    assert out.shape == (1,)
