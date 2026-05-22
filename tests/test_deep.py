@@ -66,6 +66,13 @@ def test_build_raw_windows_missing_column_raises():
         build_raw_windows(merged, seq_len=50)
 
 
+@pytest.mark.parametrize("seq_len,stride", [(1, 25), (0, 25), (50, 0)])
+def test_build_raw_windows_bad_bounds_raise(seq_len, stride):
+    merged = _synthetic_merged()
+    with pytest.raises(ValueError, match="too small"):
+        build_raw_windows(merged, seq_len=seq_len, stride=stride)
+
+
 def test_zscore_channels_normalises_per_channel():
     rng = np.random.default_rng(1)
     X = rng.normal(loc=5.0, scale=3.0, size=(40, 50, 6)).astype(np.float32)
