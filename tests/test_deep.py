@@ -8,7 +8,12 @@ import torch
 
 from src.training.deep.data import build_raw_windows, zscore_channels
 from src.training.deep.models import CNN1D, MODELS
-from src.training.deep.train_loso import fold_metrics, predict_proba, train_one_model
+from src.training.deep.train_loso import (
+    _acc_auc,
+    fold_metrics,
+    predict_proba,
+    train_one_model,
+)
 
 
 def _synthetic_merged(n_samples: int = 600) -> pd.DataFrame:
@@ -136,12 +141,29 @@ def test_train_one_model_runs_and_predicts():
     Xv = np.concatenate([_make(8, 0.2), _make(8, 2.0)])
     yv = np.concatenate([np.zeros(8), np.ones(8)]).astype(np.int64)
 
-    model = train_one_model(
+    model, best_epoch = train_one_model(
         CNN1D(), X, y, Xv, yv, max_epochs=4, patience=4, batch_size=16
     )
+    assert isinstance(best_epoch, int)
+    assert -1 <= best_epoch <= 3  # 0-indexiert, max_epochs=4
     proba = predict_proba(model, Xv)
     assert proba.shape == (16,)
     assert np.all((proba >= 0.0) & (proba <= 1.0))
+
+
+def test_acc_auc_ranges_and_perfect_split():
+    """_acc_auc: Wertebereich + perfekt trennbarer Fall."""
+    rng = np.random.default_rng(7)
+    y = np.concatenate([np.zeros(20), np.ones(20)]).astype(np.int64)
+    # Wahrscheinlichkeiten, die die Klassen sauber trennen.
+    proba = np.concatenate([rng.uniform(0.0, 0.4, 20), rng.uniform(0.6, 1.0, 20)])
+    acc, auc = _acc_auc(proba, y)
+    assert acc == 1.0
+    assert auc == 1.0
+    # Einklassiges y -> AUC undefiniert -> nan, acc weiterhin endlich.
+    acc1, auc1 = _acc_auc(np.full(10, 0.7), np.ones(10, dtype=np.int64))
+    assert 0.0 <= acc1 <= 1.0
+    assert np.isnan(auc1)
 
 
 def test_fold_metrics_keys_and_ranges():
