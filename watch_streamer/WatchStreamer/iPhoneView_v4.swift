@@ -1662,6 +1662,10 @@ struct SettingsTab: View {
     @AppStorage("serverIP")     private var serverIP   = "192.168.178.147"
     @AppStorage("ft_showStats") private var showStats  = true
     @AppStorage("ft_showLog")   private var showLog    = true
+    // H3 — Motion-Config. Wird von ServerCommandListener.watchPayload aus
+    // UserDefaults gelesen und über den 1-s-Watch-Poll an die Watch getragen.
+    @AppStorage("requestedHz")  private var requestedHz = 50.0
+    @AppStorage("batchSize")    private var batchSize   = 10
     @State private var editingIP = false
     @FocusState private var ipFocused: Bool
 
@@ -1763,12 +1767,39 @@ struct SettingsTab: View {
                                       : (bridge.isBridgeCapable ? t.yellow : t.red))
                         deviceRow("IMU rate",
                                   server.watchActualHz > 1 ? "\(Int(server.watchActualHz.rounded())) Hz (measured)"
-                                      : (server.currentSessionId != nil ? "max Hz" : "— Hz"))
-                        deviceRow("Batch size", server.currentSessionId != nil ? "5 samples" : "—")
+                                      : "\(Int(requestedHz)) Hz (set)")
+                        deviceRow("Batch size", "\(batchSize) samples")
                         deviceRow("Transport",  "WatchConnectivity")
                         deviceRow("Last data",  server.currentSessionId != nil ? "just now" : "—", isLast: true)
                     }
                     .padding(.horizontal, 14).padding(.vertical, 6)
+                }
+
+                sectionHeader("Motion — Watch")
+                FTCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            FTSLabel(text: "Sample rate")
+                            Spacer()
+                            Picker("", selection: $requestedHz) {
+                                Text("50 Hz").tag(50.0)
+                                Text("100 Hz").tag(100.0)
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 150)
+                        }
+                        HStack {
+                            FTSLabel(text: "Batch size")
+                            Spacer()
+                            Stepper("\(batchSize) samples",
+                                    value: $batchSize, in: 5...40, step: 5)
+                                .font(FT.mono(13)).foregroundColor(t.text)
+                        }
+                        Text("Wirkt ab der nächsten Aufnahme — die Watch übernimmt die Werte über den 1-s-Poll. Bei 100 Hz Batch 20 für gleiche Link-Last.")
+                            .font(FT.mono(9)).foregroundColor(t.text3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(14)
                 }
 
                 HStack {

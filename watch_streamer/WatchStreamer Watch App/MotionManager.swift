@@ -16,6 +16,19 @@ class MotionManager: NSObject, ObservableObject {
     private let healthStore = HKHealthStore()
     private let sessionId = UUID().uuidString
 
+    // H3 — effektive Sample-Rate / Batch-Größe. Default = Config; per
+    // applyMotionConfig() vom iPhone (Phone-App-Setting, über den 1-s-Poll)
+    // überschreibbar, in UserDefaults persistiert. Wirkt ab dem nächsten
+    // start() — die Rate mitten in einer Aufnahme zu ändern wäre unsauber.
+    private lazy var effectiveHz: Double = {
+        let stored = UserDefaults.standard.double(forKey: "effectiveHz")
+        return (10...200).contains(stored) ? stored : Config.requestedHz
+    }()
+    private lazy var effectiveBatchSize: Int = {
+        let stored = UserDefaults.standard.integer(forKey: "effectiveBatchSize")
+        return (1...200).contains(stored) ? stored : Config.batchSize
+    }()
+
     private var buffer: [[String: Any]] = []
     private var nextSequence = 0
     // Why: WCSession-Race — replyHandler kann auch nach errorHandler eintreffen
@@ -114,7 +127,7 @@ class MotionManager: NSObject, ObservableObject {
         runStartedAt = Date()
         status = "Recording"
         uploadMode = isReachable ? "Bridge" : "Bridge (polling)"
-        cm.deviceMotionUpdateInterval = 1.0 / Config.requestedHz
+        cm.deviceMotionUpdateInterval = 1.0 / effectiveHz
         cm.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
             guard let self, let motion else { return }
             let ts = Self.currentTimestampMillis()
@@ -177,7 +190,7 @@ class MotionManager: NSObject, ObservableObject {
     }
 
     private func flushBuffer(force: Bool) {
-        guard buffer.count >= Config.batchSize || (force && !buffer.isEmpty) else { return }
+        guard buffer.count >= effectiveBatchSize || (force && !buffer.isEmpty) else { return }
 
         // Publish UI counters at batch rate (~5 Hz) instead of per-sample.
         sampleCount = rawSampleCount
@@ -188,7 +201,7 @@ class MotionManager: NSObject, ObservableObject {
             actualSampleRateHz = Double(rawSampleCount) / max(0.001, Date().timeIntervalSince(runStartedAt))
         }
 
-        let sampleCountToSend = force ? buffer.count : Config.batchSize
+        let sampleCountToSend = force ? buffer.count : effectiveBatchSize
         let samples = Array(buffer.prefix(sampleCountToSend))
         buffer.removeFirst(sampleCountToSend)
         queuedSampleCount = buffer.count
@@ -208,7 +221,7 @@ class MotionManager: NSObject, ObservableObject {
             "type": "watch_motion_batch",
             "sessionId": serverSessionId ?? sessionId,
             "sequence": nextSequence,
-            "sampleRateHz": actualSampleRateHz > 1.0 ? actualSampleRateHz : Config.requestedHz,
+            "sampleRateHz": actualSampleRateHz > 1.0 ? actualSampleRateHz : effectiveHz,
             "watchSentAt": Self.currentTimestampMillis(),
             "source": "watch_phone_bridge",
             "transport": "watchconnectivity",
@@ -496,6 +509,36 @@ class MotionManager: NSObject, ObservableObject {
     private static func currentTimestampMillis() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)
     }
+
+    // MARK: - H3 Motion-Config
+
+    /// Uebernimmt Sample-Rate / Batch-Groesse aus einer iPhone-Nachricht
+    /// (Command / Context / Poll-Reply — alle laufen durch handleCommand).
+    /// Schreibt nur bei Aenderung. Wirkt ab dem naechsten start().
+    private func applyMotionConfig(from message: [String: Any]) {
+        if let hz = Self.doubleValue(message["requested_hz"]),
+           (10.0...200.0).contains(hz), hz != effectiveHz {
+            effectiveHz = hz
+            UserDefaults.standard.set(hz, forKey: "effectiveHz")
+        }
+        if let batch = Self.intValue(message["batch_size"]),
+           (1...200).contains(batch), batch != effectiveBatchSize {
+            effectiveBatchSize = batch
+            UserDefaults.standard.set(batch, forKey: "effectiveBatchSize")
+        }
+    }
+
+    private static func doubleValue(_ any: Any?) -> Double? {
+        if let d = any as? Double { return d }
+        if let i = any as? Int { return Double(i) }
+        return nil
+    }
+
+    private static func intValue(_ any: Any?) -> Int? {
+        if let i = any as? Int { return i }
+        if let d = any as? Double { return Int(d) }
+        return nil
+    }
 }
 
 extension MotionManager: WCSessionDelegate {
@@ -534,6 +577,8 @@ extension MotionManager: WCSessionDelegate {
 
     @discardableResult
     fileprivate func handleCommand(_ message: [String: Any]) -> [String: Any] {
+        // H3: jede iPhone-Nachricht kann requested_hz / batch_size tragen.
+        applyMotionConfig(from: message)
         guard let command = message["command"] as? String else {
             return ["ok": false, "error": "Missing command"]
         }
