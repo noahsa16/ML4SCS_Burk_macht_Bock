@@ -117,7 +117,14 @@ def main() -> None:
     parser.add_argument("--include-all", action="store_true")
     parser.add_argument("--max-gap-ms", type=float, default=2500.0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--exclude-boundary", action="store_true",
+        help="Mehrdeutige Uebergangs-Fenster (writing-Anteil 0.4-0.6) "
+             "ausschliessen -- fuer das Label-Qualitaets-Experiment.",
+    )
     args = parser.parse_args()
+
+    exclude_boundary = (0.4, 0.6) if args.exclude_boundary else None
 
     models = ["cnn", "lstm", "gru"] if args.model == "all" else [args.model]
     windows = [1, 5] if args.win == "both" else [int(args.win)]
@@ -131,6 +138,7 @@ def main() -> None:
                 include_all=args.include_all,
                 max_gap_ms=args.max_gap_ms,
                 seed=args.seed,
+                exclude_boundary=exclude_boundary,
             )
             if df.empty:
                 print(f"[warn] {model_name}/{win}s: keine Folds.")
