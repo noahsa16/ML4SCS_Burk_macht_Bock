@@ -312,9 +312,17 @@ the parametrise list.
 Two Xcode targets:
 
 - **WatchStreamer Watch App** (`MotionManager.swift`): captures
-  `CMDeviceMotion` at 50 Hz, batches of 10 over `WCSession.sendMessage`
-  (or `transferUserInfo` background fallback). Drops oldest samples
-  when buffer exceeds 500.
+  `CMDeviceMotion` over `WCSession.sendMessage` (or `transferUserInfo`
+  background fallback). Sample-Rate und Batch-Größe sind konfigurierbar
+  (Phone-App → Settings → Motion; Default 50 Hz / Batch 10) — die Werte
+  kommen über jeden `command`/Poll-Reply als `requested_hz`/`batch_size`
+  und werten `effectiveHz`/`effectiveBatchSize` aus (H3). Was sonst
+  gedroppt würde (Buffer-Overflow, volle `transferUserInfo`-Queue), geht
+  als JSON-Zeile in `watch_spill.jsonl` auf die Watch-Disk und wird per
+  Drain-Timer über den Live-Pfad nachgeliefert — verlustfrei, übersteht
+  App-Kill (H1). Motion-Callbacks laufen auf einer Background-
+  `OperationQueue`, nicht auf Main; der Callback staged nur, `drainStaging()`
+  speist die Main-Pipeline (H4).
 - **WatchStreamer (iPhone)** (`PhoneBridge.swift`): receives
   WatchConnectivity messages, normalises payload, queues HTTP POSTs
   to `http://{serverIP}:8000/watch`. Server IP in `UserDefaults`
