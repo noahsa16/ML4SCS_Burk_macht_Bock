@@ -32,6 +32,21 @@ class MotionManager: NSObject, ObservableObject {
     private var commandPollSentAt: Date?
     private var lastHandledCommandKey: String?
 
+    // H1 — Disk-Spill. Was sonst gedroppt würde (Buffer-Overflow oder volle
+    // transferUserInfo-Queue), geht als JSON-Zeile auf die Watch-Disk und wird
+    // per Drain-Timer über den Live-Pfad nachgeliefert. Die Datei ist die
+    // Source of Truth: eine Zeile verlässt sie erst nach bestätigtem
+    // replyHandler. Übersteht App-Kill/Crash. Serielle Queue → keine Races
+    // zwischen Append und Rewrite.
+    private let spillQueue = DispatchQueue(label: "com.watchstreamer.motion.spill",
+                                           qos: .utility)
+    private var spillTimer: Timer?
+    private var spillDrainInFlight = false
+    private lazy var spillFileURL: URL = {
+        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return docs.appendingPathComponent("watch_spill.jsonl")
+    }()
+
     // Backing counters — updated per sample on main; published to SwiftUI at batch rate only.
     private var rawSampleCount = 0
     private var rawLastAccMag = 0.0
@@ -42,6 +57,7 @@ class MotionManager: NSObject, ObservableObject {
     @Published private(set) var backgroundQueuedSampleCount = 0
     @Published private(set) var failedBatchCount = 0
     @Published private(set) var droppedSampleCount = 0
+    @Published private(set) var spilledSampleCount = 0
     @Published private(set) var queuedSampleCount = 0
     @Published private(set) var isRunning = false
     @Published private(set) var runStartedAt: Date?
@@ -62,6 +78,8 @@ class MotionManager: NSObject, ObservableObject {
         WCSession.default.activate()
         cancelStaleUserInfoTransfers()
         startCommandPolling()
+        spilledSampleCount = countSpilledSamples()
+        startSpillDrain()
     }
 
     /// Cancel any leftover `transferUserInfo` packets from previous app launches.
@@ -77,6 +95,7 @@ class MotionManager: NSObject, ObservableObject {
 
     deinit {
         commandPollTimer?.invalidate()
+        spillTimer?.invalidate()
     }
 
     func start(sessionId newServerSessionId: String? = nil) {
@@ -177,10 +196,10 @@ class MotionManager: NSObject, ObservableObject {
 
         let envelope = makeEnvelope(samples: samples)
         if !sendViaBridge(envelope: envelope, samples: samples) {
+            // WCSession nicht aktiviert — nicht zurück in den RAM-Buffer
+            // (der liefe bei 500 über), sondern direkt auf Disk spillen.
             uploadMode = "Offline"
-            buffer.insert(contentsOf: samples, at: 0)
-            trimBufferIfNeeded()
-            queuedSampleCount = buffer.count
+            spillEnvelope(envelope)
         }
     }
 
@@ -233,22 +252,23 @@ class MotionManager: NSObject, ObservableObject {
                 guard self.inFlightSequences.remove(seq) != nil else {
                     return
                 }
-                self.queueBridgeTransfer(message, reason: error.localizedDescription)
+                self.queueBridgeTransfer(message, envelope: envelope,
+                                         reason: error.localizedDescription)
             }
         })
         return true
     }
 
-    private func queueBridgeTransfer(_ message: [String: Any], reason: String) {
+    private func queueBridgeTransfer(_ message: [String: Any],
+                                     envelope: [String: Any],
+                                     reason: String) {
         let pending = WCSession.default.outstandingUserInfoTransfers.count
         guard pending < 8 else {
-            // Queue full — drop this batch rather than letting it grow unbounded.
+            // Queue voll — nicht droppen, sondern auf Disk spillen (H1).
             let n = Self.sampleCount(from: message)
-            let firstDrop = droppedSampleCount == 0
-            droppedSampleCount += n
             backgroundQueuedSampleCount = max(0, backgroundQueuedSampleCount - n)
-            uploadMode = "Bridge (queue full)"
-            if firstDrop { WKInterfaceDevice.current().play(.failure) }
+            uploadMode = "Bridge (spilling)"
+            spillEnvelope(envelope)
             return
         }
         WCSession.default.transferUserInfo(message)
@@ -282,6 +302,7 @@ class MotionManager: NSObject, ObservableObject {
             "sample_count": sampleCount,
             "queued_samples": queuedSampleCount,
             "delivered_samples": deliveredSampleCount,
+            "spilled_samples": spilledSampleCount,
             "failed_batches": failedBatchCount,
             "last_command_id": lastCommandId ?? "",
             "upload_mode": uploadMode
@@ -342,12 +363,133 @@ class MotionManager: NSObject, ObservableObject {
     private func trimBufferIfNeeded() {
         guard buffer.count > Config.maxBufferedSamples else { return }
         let overflow = buffer.count - Config.maxBufferedSamples
-        let firstDrop = droppedSampleCount == 0
+        // Letzte Sicherung (sollte mit H1-Spill praktisch nie greifen):
+        // Overflow nicht verwerfen, sondern als eigenes Envelope spillen.
+        let overflowSamples = Array(buffer.prefix(overflow))
         buffer.removeFirst(overflow)
-        droppedSampleCount += overflow
-        if firstDrop {
-            // One haptic so the user notices even when not looking at the stats page.
-            WKInterfaceDevice.current().play(.failure)
+        nextSequence += 1
+        spillEnvelope(makeEnvelope(samples: overflowSamples))
+    }
+
+    // MARK: - H1 Disk-Spill
+
+    /// Hängt ein Envelope als JSON-Zeile an die Spill-Datei. Aufruf, wenn der
+    /// Live-/Queue-Pfad gesättigt ist — verworfen wird dadurch nichts mehr.
+    private func spillEnvelope(_ envelope: [String: Any]) {
+        guard let line = try? JSONSerialization.data(withJSONObject: envelope) else { return }
+        let n = (envelope["samples"] as? [[String: Any]])?.count ?? 0
+        spilledSampleCount += n
+        let url = spillFileURL
+        spillQueue.async {
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+            }
+            guard let handle = try? FileHandle(forWritingTo: url) else { return }
+            defer { try? handle.close() }
+            _ = try? handle.seekToEnd()
+            var blob = line
+            blob.append(0x0A)
+            try? handle.write(contentsOf: blob)
+        }
+    }
+
+    /// Zählt die Samples in der Spill-Datei — beim Launch, für den UI-Counter.
+    private func countSpilledSamples() -> Int {
+        guard let data = try? Data(contentsOf: spillFileURL), !data.isEmpty else { return 0 }
+        var total = 0
+        for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
+            if let env = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
+               let samples = env["samples"] as? [[String: Any]] {
+                total += samples.count
+            }
+        }
+        return total
+    }
+
+    private func startSpillDrain() {
+        spillTimer?.invalidate()
+        let timer = Timer(timeInterval: 3.0, repeats: true) { [weak self] _ in
+            self?.drainSpill()
+        }
+        spillTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// Liest die älteste Spill-Zeile und schickt sie über den Live-Pfad neu.
+    /// Seriell (`spillDrainInFlight`) — Spill passiert nur bei Stau, danach
+    /// reicht eine Zeile pro 3-s-Tick.
+    private func drainSpill() {
+        guard !spillDrainInFlight,
+              WCSession.default.activationState == .activated,
+              WCSession.default.isReachable else { return }
+        spillDrainInFlight = true
+        let url = spillFileURL
+        spillQueue.async { [weak self] in
+            guard let self else { return }
+            let firstEnvelope: [String: Any]? = {
+                guard let data = try? Data(contentsOf: url), !data.isEmpty,
+                      let first = data.split(separator: 0x0A,
+                                             omittingEmptySubsequences: true).first
+                else { return nil }
+                return (try? JSONSerialization.jsonObject(with: Data(first))) as? [String: Any]
+            }()
+            DispatchQueue.main.async {
+                if let envelope = firstEnvelope {
+                    self.sendSpilled(envelope)
+                } else {
+                    // Datei leer/korrupt — wegwerfen, Flag freigeben.
+                    self.spillQueue.async { try? FileManager.default.removeItem(at: url) }
+                    self.spillDrainInFlight = false
+                }
+            }
+        }
+    }
+
+    /// Sendet ein gespilltes Envelope via sendMessage. Erfolg → erste Zeile
+    /// entfernen. Fehler → Zeile bleibt liegen, nächster Tick retryt.
+    private func sendSpilled(_ envelope: [String: Any]) {
+        guard WCSession.default.activationState == .activated,
+              let payloadData = try? JSONSerialization.data(withJSONObject: envelope) else {
+            spillDrainInFlight = false
+            return
+        }
+        let n = (envelope["samples"] as? [[String: Any]])?.count ?? 0
+        WCSession.default.sendMessage(["payload": payloadData], replyHandler: { [weak self] _ in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.deliveredSampleCount += n
+                self.spilledSampleCount = max(0, self.spilledSampleCount - n)
+                self.dropFirstSpillLine()
+                self.spillDrainInFlight = false
+            }
+        }, errorHandler: { [weak self] _ in
+            DispatchQueue.main.async { self?.spillDrainInFlight = false }
+        })
+    }
+
+    /// Entfernt die erste Zeile der Spill-Datei. Re-liest frisch — Appends
+    /// landen nur am Ende, also geht zwischenzeitlich Gespilltes nicht verloren.
+    private func dropFirstSpillLine() {
+        let url = spillFileURL
+        spillQueue.async {
+            guard let data = try? Data(contentsOf: url), !data.isEmpty else { return }
+            var lines = data.split(separator: 0x0A, omittingEmptySubsequences: true)
+                .map { Data($0) }
+            guard !lines.isEmpty else {
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
+            lines.removeFirst()
+            if lines.isEmpty {
+                try? FileManager.default.removeItem(at: url)
+                return
+            }
+            var blob = Data()
+            for line in lines {
+                blob.append(line)
+                blob.append(0x0A)
+            }
+            try? blob.write(to: url, options: [.atomic])
         }
     }
 
