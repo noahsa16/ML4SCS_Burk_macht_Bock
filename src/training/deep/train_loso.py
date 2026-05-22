@@ -174,9 +174,13 @@ def train_deep_loso(
     """
     _set_seed(seed)
     seq_len = WIN_SEQ_LEN[window_sec]
-    # Why: min_windows=0 -- das Deep-Pipeline baut Fenster direkt aus der
-    # merged CSV, nicht aus dem gecachten {session}_windows.csv; der
-    # windows-Count-Gate ist hier gegenstandslos.
+    # Why: min_windows=0 schaltet nur den Count-Gate aus -- das Deep-Pipeline
+    # baut Fenster direkt aus der merged CSV. Aber _select_sessions hat einen
+    # davon unabhaengigen Existenz-Gate: Sessions ohne {session}_windows.csv
+    # werden trotzdem verworfen. Praktisch unkritisch (jede trainierbare
+    # Session lief schon durch die RF-Pipeline), aber: wer `python -m
+    # src.merge SXX` laeuft ohne `python -m src.features SXX`, faellt hier
+    # still raus.
     sessions = _select_sessions(include_all=include_all, min_windows=0)
     if sessions.empty:
         raise RuntimeError("Keine Sessions -- sessions.csv / verdict-Gate pruefen.")
