@@ -6,38 +6,85 @@
     python -m src.training.deep --model cnn --win 1   # nur 1D-CNN, 1-s-Fenster
     python -m src.training.deep --model lstm --win 5
 
-Schreibt die per-fold Metriken nach ``models/deep_loso.csv`` und
-druckt eine Mean-+-Std-Vergleichstabelle (mit der RF-Headline als
-Referenzzeile).
+Schreibt die per-fold Metriken nach ``models/deep_loso.csv`` und druckt
+zwei Vergleichstabellen.
+
+WICHTIG -- Input-Fenster vs. Decision-Window. ``--win`` steuert das
+*Input-Fenster* (wie viel roher Kontext das Modell pro Vorhersage sieht).
+Das ist NICHT dasselbe wie das *Decision-Window*, auf dem man Accuracy
+reportet. Ein 1-s-Input-Modell liefert per-1-s-Vorhersagen, die per Burst-
+Aggregation auf 5/10/30-s-Decision-Windows geglaettet werden -- exakt wie
+beim RF. Ein 5-s-Input-Modell trifft dagegen direkt eine groebere
+Entscheidung. Fair vergleichbar ist nur *gleiches Decision-Window*:
+Tabelle 1 stellt die 1-s-Input-Modelle bei matched Decision-Windows gegen
+RF; die 5-s-Input-Modelle stehen separat in Tabelle 2, weil ihr per-window-
+Wert schon eine ~5-s-Entscheidung ist (Referenz: RF-Burst@5s).
 """
 from __future__ import annotations
 
 import argparse
 
-import numpy as np
 import pandas as pd
 
 from src.training.deep.train_loso import MODEL_DIR, train_deep_loso
 
-# RF-Headline aus CLAUDE.md (LOSO-by-person, N=10, gap=2500) als Referenz.
-RF_HEADLINE = {
-    "model": "rf (baseline)",
-    "window_sec": 1,
-    "accuracy": 0.856,
-    "roc_auc": 0.928,
-    "f1_writing": 0.864,
-    "acc_30s": 0.831,
-    "auc_30s": 0.909,
+# RF-Headline aus CLAUDE.md (LOSO-by-person, N=10, gap=2500). RF nutzt
+# 1-s-Input und reportet Decision-Windows per Burst-Aggregation.
+# (acc, AUC) je Decision-Window -- die faire Vergleichsachse.
+RF_DECISION: dict[str, tuple[float, float]] = {
+    "1s": (0.856, 0.928),
+    "5s": (0.887, 0.960),
+    "10s": (0.870, 0.944),
+    "30s": (0.831, 0.909),
 }
 
 
-def _summary_row(df: pd.DataFrame) -> dict:
-    g = df.iloc[0]
-    out = {"model": g["model"], "window_sec": int(g["window_sec"])}
-    for col in ["accuracy", "roc_auc", "f1_writing", "acc_30s", "auc_30s"]:
-        out[col] = float(np.nanmean(df[col]))
-        out[f"{col}_std"] = float(np.nanstd(df[col]))
-    return out
+def _decision_metrics(df: pd.DataFrame) -> dict[str, tuple[float, float]]:
+    """Mean (acc, AUC) je Decision-Window fuer eine (model, window)-Gruppe.
+
+    ``accuracy``/``roc_auc`` = per-Input-Window; ``acc_Ns``/``auc_Ns`` =
+    Burst-aggregiert. Bei 1-s-Input ist per-window = Decision-Window 1s.
+    """
+    return {
+        "1s": (df["accuracy"].mean(), df["roc_auc"].mean()),
+        "5s": (df["acc_5s"].mean(), df["auc_5s"].mean()),
+        "10s": (df["acc_10s"].mean(), df["auc_10s"].mean()),
+        "30s": (df["acc_30s"].mean(), df["auc_30s"].mean()),
+    }
+
+
+def _print_matched_table(by_group: dict[tuple[str, int], pd.DataFrame]) -> None:
+    """Tabelle 1: 1-s-Input-Modelle vs. RF bei gleichem Decision-Window."""
+    scales = ["1s", "5s", "10s", "30s"]
+    print("\n=== Tabelle 1: 1-s-Input -- matched Decision-Window-Vergleich ===")
+    print("(Spalten = Decision-Window; acc/AUC. Alle Zeilen 1-s-Input.)")
+    print(f"{'Modell':<14}" + "".join(f"{s:>16}" for s in scales))
+    print(f"{'RF (Baseline)':<14}" + "".join(
+        f"{RF_DECISION[s][0]:>7.3f}/{RF_DECISION[s][1]:<8.3f}" for s in scales
+    ))
+    for (model, win), df in sorted(by_group.items()):
+        if win != 1:
+            continue
+        m = _decision_metrics(df)
+        print(f"{model:<14}" + "".join(
+            f"{m[s][0]:>7.3f}/{m[s][1]:<8.3f}" for s in scales
+        ))
+
+
+def _print_long_input_table(by_group: dict[tuple[str, int], pd.DataFrame]) -> None:
+    """Tabelle 2: 5-s-Input-Modelle (per-window-Wert ist schon ~5-s-Entscheidung)."""
+    rows = {(m, w): df for (m, w), df in by_group.items() if w == 5}
+    if not rows:
+        return
+    print("\n=== Tabelle 2: 5-s-Input-Modelle ===")
+    print("(per-window = ~5-s-Entscheidung; Referenz: RF-Burst@5s = "
+          f"{RF_DECISION['5s'][0]:.3f}/{RF_DECISION['5s'][1]:.3f})")
+    print(f"{'Modell':<14}{'per-window':>16}{'acc-sigma':>11}{'@30s':>16}")
+    for (model, _), df in sorted(rows.items()):
+        acc, auc = df["accuracy"].mean(), df["roc_auc"].mean()
+        a30, u30 = df["acc_30s"].mean(), df["auc_30s"].mean()
+        print(f"{model:<14}{acc:>7.3f}/{auc:<8.3f}{df['accuracy'].std():>11.3f}"
+              f"{a30:>7.3f}/{u30:<8.3f}")
 
 
 def main() -> None:
@@ -47,7 +94,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--win", choices=["1", "5", "both"], default="both",
-        help="Eingabe-Fenster in Sekunden.",
+        help="Input-Fenster in Sekunden (NICHT das Decision-Window).",
     )
     parser.add_argument("--include-all", action="store_true")
     parser.add_argument("--max-gap-ms", type=float, default=2500.0)
@@ -58,7 +105,7 @@ def main() -> None:
     windows = [1, 5] if args.win == "both" else [int(args.win)]
 
     all_folds: list[pd.DataFrame] = []
-    summaries: list[dict] = []
+    by_group: dict[tuple[str, int], pd.DataFrame] = {}
     for win in windows:
         for model_name in models:
             df = train_deep_loso(
@@ -71,7 +118,7 @@ def main() -> None:
                 print(f"[warn] {model_name}/{win}s: keine Folds.")
                 continue
             all_folds.append(df)
-            summaries.append(_summary_row(df))
+            by_group[(model_name, win)] = df
 
     if not all_folds:
         raise SystemExit("Keine Ergebnisse -- Daten / Filter pruefen.")
@@ -82,12 +129,8 @@ def main() -> None:
     folds_table.to_csv(out_csv, index=False)
     print(f"\n-> {out_csv}  ({len(folds_table)} fold-Zeilen)")
 
-    summary = pd.DataFrame(summaries + [RF_HEADLINE])
-    print("\n=== Vergleich (Mean ueber Folds) ===")
-    cols = ["model", "window_sec", "accuracy", "roc_auc", "f1_writing",
-            "acc_30s", "auc_30s"]
-    print(summary[cols].to_string(index=False,
-                                  float_format=lambda v: f"{v:.3f}"))
+    _print_matched_table(by_group)
+    _print_long_input_table(by_group)
 
 
 if __name__ == "__main__":
