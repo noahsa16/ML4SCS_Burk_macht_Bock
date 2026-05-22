@@ -81,6 +81,7 @@ otherwise to `pen_log_YYYYMMDD_HHMMSS.csv` in the working directory.
 python -m src.merge S029                          # watch-base merge → data/processed/S029_merged.csv
 python -m src.features S029 --max-gap-ms 300      # sliding-window features → data/processed/S029_windows.csv
 python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
+python -m src.training.deep                       # CNN/LSTM/GRU vs RF (LOSO comparison)
 python -m src.training.train_loso --save-oof      # + OOF-CSV für Regression
 python -m src.evaluation.regression               # Schreib-Prozent: MAE/RMSE/Bias + Plots
 python -m src.evaluation.engagement               # Schreibzeit-Anteil pro Aufgabe + Heatmap
@@ -409,6 +410,16 @@ no longer vibrates continuously when the server is down.
   threshold. Empirically: jumped acc from 0.812 → 0.838 on the
   3-person dataset and tightened fold-σ 4× (0.042 → 0.009) — the
   biggest single ML-side improvement of the project.
+- `src/training/deep/` — **Deep-Sequenz-Modell-Vergleich** (Roadmap
+  Prio 3/4). 1D-CNN / LSTM / GRU auf rohen 50-Hz-IMU-Sequenzen statt
+  der 88 Features, im identischen LOSO-by-person-Protokoll wie
+  `train_loso.py` (importiert dessen `_select_sessions` /
+  `_burst_metrics`). `data.py` baut rohe Fenster (50 oder 250 Samples ×
+  6 Kanäle, per-Kanal-z-skaliert), `models.py` die drei kleinen
+  `nn.Module`-Klassen, `train_loso.py` den Trainings-Loop (Early
+  Stopping auf rotierendem Person-Holdout) + LOSO-Runner. CLI:
+  `python -m src.training.deep [--model cnn|lstm|gru|all] [--win 1|5|both]`
+  → `models/deep_loso.csv` + Vergleichstabelle gegen die RF-Headline.
 - `scripts/ml/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
@@ -843,6 +854,10 @@ could silently poison the training data or the proband-facing flow:
 - `test_dashboard_static.py` — every JS module / view partial /
   stylesheet path returns 200 (404 trap; ES modules fail opaquely
   when served as `text/html`).
+- `test_deep.py` — Deep-Sequenz-Modell-Paket (`src/training/deep/`):
+  `build_raw_windows` Shapes/Labels, Per-Kanal-Z-Score, Forward-Pass
+  aller drei Modelle (CNN/LSTM/GRU) bei beiden Sequenzlängen, plus
+  Mini-Trainingslauf von `train_one_model`/`predict_proba`/`fold_metrics`.
 
 Hardware loops (real BLE pen, watchOS app, iPhone bridge) remain
 **manual** smoke tests — there is no XCTest target in the Xcode
