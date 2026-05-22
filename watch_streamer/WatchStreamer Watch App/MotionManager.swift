@@ -60,6 +60,22 @@ class MotionManager: NSObject, ObservableObject {
         return docs.appendingPathComponent("watch_spill.jsonl")
     }()
 
+    // H4 — Motion-Callbacks laufen auf einer Background-Queue statt auf Main.
+    // Der Callback macht nur: Sample bauen + unter stagingLock anhängen +
+    // (coalesced) einen Main-Drain anstoßen. Die bestehende Pipeline (buffer,
+    // flushBuffer, sendViaBridge, alle @Published) bleibt unangetastet auf
+    // Main. Einzige neue cross-thread Fläche: stagedSamples + stagingLock.
+    private let motionOpQueue: OperationQueue = {
+        let q = OperationQueue()
+        q.maxConcurrentOperationCount = 1
+        q.qualityOfService = .userInitiated
+        q.name = "com.watchstreamer.motion.intake"
+        return q
+    }()
+    private let stagingLock = NSLock()
+    private var stagedSamples: [[String: Any]] = []
+    private var drainScheduled = false
+
     // Backing counters — updated per sample on main; published to SwiftUI at batch rate only.
     private var rawSampleCount = 0
     private var rawLastAccMag = 0.0
@@ -128,34 +144,58 @@ class MotionManager: NSObject, ObservableObject {
         status = "Recording"
         uploadMode = isReachable ? "Bridge" : "Bridge (polling)"
         cm.deviceMotionUpdateInterval = 1.0 / effectiveHz
-        cm.startDeviceMotionUpdates(to: .main) { [weak self] motion, _ in
+        // H4: Callbacks auf motionOpQueue (Background). Der Callback baut nur
+        // den Sample und staged ihn — die Verarbeitung passiert in
+        // drainStaging() auf Main.
+        cm.startDeviceMotionUpdates(to: motionOpQueue) { [weak self] motion, _ in
             guard let self, let motion else { return }
-            let ts = Self.currentTimestampMillis()
-            let accMag = sqrt(
-                pow(motion.userAcceleration.x, 2) +
-                pow(motion.userAcceleration.y, 2) +
-                pow(motion.userAcceleration.z, 2)
-            )
-            let gyroMag = sqrt(
-                pow(motion.rotationRate.x, 2) +
-                pow(motion.rotationRate.y, 2) +
-                pow(motion.rotationRate.z, 2)
-            )
-            self.buffer.append([
-                "ts": ts,
+            let sample: [String: Any] = [
+                "ts": Self.currentTimestampMillis(),
                 "ax": motion.userAcceleration.x,
                 "ay": motion.userAcceleration.y,
                 "az": motion.userAcceleration.z,
                 "rx": motion.rotationRate.x,
                 "ry": motion.rotationRate.y,
                 "rz": motion.rotationRate.z
-            ])
-            self.rawSampleCount += 1
-            self.rawLastAccMag = accMag
-            self.rawLastGyroMag = gyroMag
-            self.trimBufferIfNeeded()
-            self.flushBuffer(force: false)
+            ]
+            self.stagingLock.lock()
+            self.stagedSamples.append(sample)
+            let needDrain = !self.drainScheduled
+            if needDrain { self.drainScheduled = true }
+            self.stagingLock.unlock()
+            // Coalesced: nur ein Main-Hop, bis drainStaging das Flag löscht.
+            if needDrain {
+                DispatchQueue.main.async { self.drainStaging() }
+            }
         }
+    }
+
+    /// Holt die im Background-Callback gestageten Rohsamples und speist sie
+    /// in die bestehende Main-Pipeline. Coalesced — ein Drain verarbeitet
+    /// alles, was seit dem letzten aufgelaufen ist. Läuft auf Main.
+    private func drainStaging() {
+        stagingLock.lock()
+        let batch = stagedSamples
+        stagedSamples.removeAll(keepingCapacity: true)
+        drainScheduled = false
+        stagingLock.unlock()
+        guard !batch.isEmpty else { return }
+
+        buffer.append(contentsOf: batch)
+        rawSampleCount += batch.count
+        if let last = batch.last {
+            rawLastAccMag = Self.magnitude(last["ax"], last["ay"], last["az"])
+            rawLastGyroMag = Self.magnitude(last["rx"], last["ry"], last["rz"])
+        }
+        trimBufferIfNeeded()
+        flushBuffer(force: false)
+    }
+
+    private static func magnitude(_ x: Any?, _ y: Any?, _ z: Any?) -> Double {
+        let dx = x as? Double ?? 0
+        let dy = y as? Double ?? 0
+        let dz = z as? Double ?? 0
+        return sqrt(dx * dx + dy * dy + dz * dz)
     }
 
     func stop() {
@@ -163,6 +203,7 @@ class MotionManager: NSObject, ObservableObject {
         cm.stopDeviceMotionUpdates()
         isRunning = false
         runStartedAt = nil
+        drainStaging()          // H4: noch gestagete Samples übernehmen
         flushBuffer(force: true)
         if buffer.isEmpty {
             status = "Stopped"
@@ -172,6 +213,10 @@ class MotionManager: NSObject, ObservableObject {
 
     private func resetRunCounters() {
         buffer.removeAll()
+        stagingLock.lock()
+        stagedSamples.removeAll()
+        drainScheduled = false
+        stagingLock.unlock()
         nextSequence = 0
         inFlightSequences.removeAll()
         rawSampleCount = 0
