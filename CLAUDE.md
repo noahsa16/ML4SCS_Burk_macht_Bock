@@ -440,6 +440,14 @@ no longer vibrates continuously when the server is down.
   vollen LOSO-Lauf bei mehreren `max_gap_ms`-Werten und reportiert
   per-Fold + Mean/Std. Quelle der Headline-Entscheidung
   `max_gap_ms=2000` (siehe *Label smoothing* unten).
+- `scripts/ml/sync_audit.py` — Sync-Audit: prüft, ob residualer Pen↔Watch-
+  Alignment-Fehler die LOSO-Fehlerdecke erklärt. Drei Teiltests: (A) σ ↔
+  Fold-Accuracy-Korrelation, (B) δ-Drift erste vs. zweite Session-Hälfte
+  + Drift↔Accuracy-Korrelation, (C) Label-Kippung bei ±50 ms δ-Störung.
+  Ergebnis (2026-05-22): r(σ,acc)=−0.22, r(Drift,acc)=−0.18 — beide
+  null/falsch-vorzeichig; Sync erklärt die Decke **nicht**, die Diagnose
+  „echte Signal-Mehrdeutigkeit" bleibt. Output: `reports/sync_audit.md` +
+  `models/sync_audit.csv`.
 - `src/evaluation/evaluate.py` — placeholder that loads
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
