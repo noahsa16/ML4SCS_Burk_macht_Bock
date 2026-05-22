@@ -448,6 +448,13 @@ no longer vibrates continuously when the server is down.
   null/falsch-vorzeichig; Sync erklärt die Decke **nicht**, die Diagnose
   „echte Signal-Mehrdeutigkeit" bleibt. Output: `reports/sync_audit.md` +
   `models/sync_audit.csv`.
+- `scripts/ml/per_subject_threshold.py` — testet leakage-frei, ob ein
+  per-Person kalibrierter Entscheidungs-Schwellwert (statt global 0.5) die
+  schwachen Folds hebt. Eichphase = erstes Session-Drittel; Eval = restliche
+  2/3; Oracle-Spalte als Leakage-Obergrenze. Ergebnis (2026-05-22): hilft
+  nicht (F1w 0.858→0.846, Oracle nur +0.007) — widerlegt die „P09 braucht
+  Per-Subject-Threshold"-Hypothese. Output: `reports/per_subject_threshold.md`
+  + `models/per_subject_threshold.csv`. Siehe *Negative result* unten.
 - `src/evaluation/evaluate.py` — placeholder that loads
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
@@ -730,8 +737,27 @@ korrekte Predictions weg statt Noise zu glätten. → **Zwei distinkte
 Failure-Modi** im Datensatz mit unterschiedlichen Lösungswegen:
 P07-Klasse (high-frequency Noise) braucht task-aware Labeling oder
 profitiert from Burst-Aggregation; P09-Klasse (systematische Soft-
-Writer-Confusion) braucht Per-Subject-Threshold oder weichere
-Pen-Truth-Definition.
+Writer-Confusion) braucht weichere Pen-Truth-Definition.
+
+**Negative result: Per-Subject-Threshold.** Die ursprüngliche Hypothese
+„P09-Klasse braucht einen per-Person kalibrierten Entscheidungs-
+Schwellwert" wurde getestet (`scripts/ml/per_subject_threshold.py`,
+2026-05-22) und **widerlegt**. Leakage-frei: Schwellwert auf dem ersten
+Session-Drittel (Eichphase, F1(writing)-optimal) gewählt, ausgewertet auf
+den restlichen 2/3, 0.5-Baseline auf denselben Fenstern. Ergebnis:
+F1(writing) 0.858 → 0.846 (**schlechter**, 7/10 Folds regrediert) — das
+erste Drittel ist nicht klassen-repräsentativ für den Rest. Entscheidend
+ist das **Oracle** (Schwellwert direkt auf den Eval-Labels getunt, also
+mit Leakage als Obergrenze): es hebt F1(writing) nur um +0.007. Für P09
+selbst ist der Oracle-Schwellwert 0.49 — praktisch 0.5. Damit steht fest:
+P09's Fehler sitzen in der Klassen-*Trennung* (Modell/Signal), nicht in
+der Schwellwert-Wahl — ein Threshold tauscht nur FP gegen FN, die ROC-AUC
+bleibt. Damit ist auch der gap-basierte Pfad ausgereizt (`max_gap_ms` hat
+bei 2500 plateauiert, 3000 regredierte P05): die ehrlich verbleibenden
+P09-Hebel sind mehr Signal (100 Hz) oder eine grundsätzlich andere
+Label-Semantik (Intent statt Pen-Kontakt) — nicht weiteres Threshold- oder
+gap-Tuning. P09-Klasse ist nach aktuellem Stand ein inhärent schwerer
+Teil-Datensatz. Report `reports/per_subject_threshold.md`.
 
 Opening (`max_spike_ms`) ist implementiert aber bleibt off; flipping
 short writing spikes hurt S029 — real quick strokes (i-dots,
