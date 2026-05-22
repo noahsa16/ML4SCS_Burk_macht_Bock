@@ -648,14 +648,25 @@ extension MotionManager: WCSessionDelegate {
             }
         }
 
+        // Why: command_poll-Antworten tragen source == "iphone_command_poll".
+        // Das iPhone baut sie off-main aus einem evtl. veralteten
+        // currentSessionId — unter 100-Hz-Last weicht das sekundenlang von der
+        // Realität ab. Eine laufende Aufnahme darf NIE auf eine Poll-Antwort
+        // hin gestoppt + neugestartet werden (das war der „startet sich von
+        // selbst neu"-Bug); nur ein expliziter Push (sendMessage /
+        // applicationContext) darf die Session einer laufenden Aufnahme
+        // wechseln. Ein Poll darf weiterhin eine *gestoppte* Watch starten
+        // (Recovery, falls ein Push verloren ging) und jederzeit stoppen.
+        let fromPoll = (message["source"] as? String) == "iphone_command_poll"
+
         switch command {
         case "start":
-            if isRunning, let sid, !sid.isEmpty, sid != serverSessionId {
+            if isRunning, let sid, !sid.isEmpty, sid != serverSessionId, !fromPoll {
                 stop()
             }
             if !isRunning {
                 start(sessionId: sid)
-            } else if let sid, !sid.isEmpty {
+            } else if let sid, !sid.isEmpty, !fromPoll {
                 serverSessionId = sid
             }
         case "stop":
