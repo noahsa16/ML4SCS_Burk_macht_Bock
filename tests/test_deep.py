@@ -78,6 +78,18 @@ def test_build_raw_windows_bad_bounds_raise(seq_len, stride):
         build_raw_windows(merged, seq_len=seq_len, stride=stride)
 
 
+def test_build_raw_windows_exclude_boundary_drops_transition():
+    """exclude_boundary verwirft Fenster, die den writing<->idle-Uebergang straddeln."""
+    merged = _synthetic_merged()  # writing -> idle bei Sample 300
+    X_full, _, _ = build_raw_windows(merged, seq_len=50, stride=25, max_gap_ms=0.0)
+    X_ex, y_ex, t_ex = build_raw_windows(
+        merged, seq_len=50, stride=25, max_gap_ms=0.0, exclude_boundary=(0.4, 0.6)
+    )
+    assert len(X_ex) < len(X_full)            # mind. ein Uebergangs-Fenster weg
+    assert X_ex.shape[1:] == X_full.shape[1:]  # Fensterform unveraendert
+    assert len(y_ex) == len(X_ex) == len(t_ex)
+
+
 def test_zscore_channels_normalises_per_channel():
     rng = np.random.default_rng(1)
     X = rng.normal(loc=5.0, scale=3.0, size=(40, 50, 6)).astype(np.float32)

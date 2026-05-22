@@ -25,6 +25,7 @@ def build_raw_windows(
     stride: int = 25,
     min_label_ratio: float = 0.6,
     max_gap_ms: float = 2500.0,
+    exclude_boundary: tuple[float, float] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Baue rohe Sequenz-Fenster aus einer watch-base gemergten CSV.
 
@@ -42,6 +43,12 @@ def build_raw_windows(
     den historischen 300er-Default von :func:`build_windows`) — die
     Deep-Modelle werden ausschliesslich in der Headline-Konfiguration
     trainiert, ein Closing-Wert hier ist die richtige Voreinstellung.
+
+    ``exclude_boundary`` (lo, hi): Fenster, deren writing-Anteil *echt*
+    zwischen ``lo`` und ``hi`` liegt, werden verworfen. Diese Fenster
+    straddeln einen writing<->idle-Uebergang und sind durch die
+    ``min_label_ratio``-Schwelle inhaerent mehrdeutig gelabelt — fuer das
+    Label-Qualitaets-Experiment lassen sie sich so ausschliessen.
     """
     if seq_len < 2 or stride < 1:
         raise ValueError(f"seq_len/stride too small: seq_len={seq_len}, stride={stride}")
@@ -70,8 +77,13 @@ def build_raw_windows(
     ts: list[float] = []
     for start in range(0, len(df) - seq_len + 1, stride):
         end = start + seq_len
+        frac = float(labels[start:end].mean())
+        if exclude_boundary is not None:
+            lo, hi = exclude_boundary
+            if lo < frac < hi:
+                continue
         xs.append(imu[start:end])
-        ys.append(int(labels[start:end].mean() >= min_label_ratio))
+        ys.append(int(frac >= min_label_ratio))
         ts.append(float(times[start:end].mean()))
 
     if not xs:

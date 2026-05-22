@@ -157,7 +157,10 @@ def fold_metrics(
 
 
 def _load_all_sessions(
-    sessions: pd.DataFrame, seq_len: int, max_gap_ms: float
+    sessions: pd.DataFrame,
+    seq_len: int,
+    max_gap_ms: float,
+    exclude_boundary: tuple[float, float] | None = None,
 ) -> dict[str, dict]:
     """Lade alle Sessions als rohe Sequenz-Windows.
 
@@ -166,7 +169,9 @@ def _load_all_sessions(
     out: dict[str, dict] = {}
     for row in sessions.itertuples():
         sid = row.session_id
-        X, y, t = load_session_raw(sid, seq_len, max_gap_ms=max_gap_ms)
+        X, y, t = load_session_raw(
+            sid, seq_len, max_gap_ms=max_gap_ms, exclude_boundary=exclude_boundary
+        )
         if len(X) == 0:
             print(f"  skip {sid} -- keine Fenster")
             continue
@@ -190,10 +195,15 @@ def train_deep_loso(
     include_all: bool = False,
     max_gap_ms: float = 2500.0,
     seed: int = 42,
+    exclude_boundary: tuple[float, float] | None = None,
 ) -> pd.DataFrame:
     """LOSO-by-person fuer ein Deep-Modell. Returns per-fold Metrik-Tabelle.
 
     Pro Fold: Test = 1 Person, Val = 1 rotierende Person, Train = Rest.
+
+    ``exclude_boundary`` wird an :func:`build_raw_windows` durchgereicht —
+    fuer das Label-Qualitaets-Experiment (mehrdeutige Uebergangs-Fenster
+    ausschliessen).
     """
     _set_seed(seed)
     seq_len = WIN_SEQ_LEN[window_sec]
@@ -208,7 +218,7 @@ def train_deep_loso(
     if sessions.empty:
         raise RuntimeError("Keine Sessions -- sessions.csv / verdict-Gate pruefen.")
 
-    data = _load_all_sessions(sessions, seq_len, max_gap_ms)
+    data = _load_all_sessions(sessions, seq_len, max_gap_ms, exclude_boundary)
     # person_id -> Liste von session_ids
     persons: dict[str, list[str]] = {}
     for sid, d in data.items():
