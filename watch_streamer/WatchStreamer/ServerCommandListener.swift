@@ -197,6 +197,13 @@ class ServerCommandListener: NSObject, ObservableObject {
         if let sessionId, !sessionId.isEmpty { payload["session_id"] = sessionId }
         if let personId, !personId.isEmpty { payload["person_id"] = personId }
         if let commandId, !commandId.isEmpty { payload["command_id"] = commandId }
+        // H3: Motion-Config aus den Phone-App-Settings mitgeben. Die Watch
+        // liest sie in handleCommand() — auch via 1-s-Poll-Reply, also ohne
+        // dass ein expliziter Push nötig wäre.
+        let hz = UserDefaults.standard.double(forKey: "requestedHz")
+        if hz >= 10 { payload["requested_hz"] = hz }
+        let batch = UserDefaults.standard.integer(forKey: "batchSize")
+        if batch >= 1 { payload["batch_size"] = batch }
         return payload
     }
 
