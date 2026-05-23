@@ -1824,11 +1824,15 @@ struct SettingsTab: View {
                         HStack {
                             FTSLabel(text: "Batch size")
                             Spacer()
+                            // Range bis 80: deckt den 100-Hz-Sweet-Spot (40)
+                            // + Tunnel-Reserve (50–60) ab. Die Watch clampt
+                            // ohnehin auf 1...200; >80 braechte nur Monitor-
+                            // Lag (N/Hz Pufferzeit) ohne Upload-Nutzen.
                             Stepper("\(batchSize) samples",
-                                    value: $batchSize, in: 5...40, step: 5)
+                                    value: $batchSize, in: 5...80, step: 5)
                                 .font(FT.mono(13)).foregroundColor(t.text)
                         }
-                        Text("Wirkt ab der nächsten Aufnahme — die Watch übernimmt die Werte über den 1-s-Poll. Bei 100 Hz Batch 20 für gleiche Link-Last.")
+                        Text("Wirkt ab der nächsten Aufnahme — die Watch übernimmt die Werte über den 1-s-Poll. Bei 100 Hz: Batch 40 empfohlen (haelt den Upload-Durchsatz; groesser = mehr Live-Monitor-Lag).")
                             .font(FT.mono(9)).foregroundColor(t.text3)
                             .fixedSize(horizontal: false, vertical: true)
                     }
