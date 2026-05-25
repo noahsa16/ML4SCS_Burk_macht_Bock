@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from ..broadcast import _broadcast
 from ..config import DATA_RAW_WATCH
 from ..csv_io import get_watch_writer
+from ..inference import live
 from ..models import WatchEnvelope
 from ..state import state
 from ..utils import _now_ms, _round_or_none, _safe_file_id, _utc_iso_from_ms
@@ -182,6 +183,9 @@ async def receive_watch(request: Request):
             state.chart_window_acc_mags.append(acc_mag)
         if gyro_mag is not None:
             state.chart_window_gyro_mags.append(gyro_mag)
+
+        if s.ts is not None and None not in (s.ax, s.ay, s.az, s.rx, s.ry, s.rz):
+            live.append_sample(s.ts, s.ax, s.ay, s.az, s.rx, s.ry, s.rz)
 
         last_sample = {
             "session_id": session_id,
