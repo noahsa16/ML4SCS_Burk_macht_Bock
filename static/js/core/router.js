@@ -8,6 +8,7 @@ import { loadSessions } from '/static/js/pages/sessions.js';
 // ════════════════════════════════════════════════════════════
 export const pageMeta = {
   recording: { title: 'Live Recording',  sub: 'Pen + Watch data capture',                           strip: 'live capture' },
+  focus:     { title: 'Focus Tracker',   sub: 'Persistent writing-activity history',                strip: 'focus history' },
   sessions:  { title: 'Session History', sub: 'All recorded sessions',                              strip: 'session index' },
   admin:     { title: 'Admin Monitor',   sub: 'Live view of an active study session',               strip: 'admin monitor' },
   settings:  { title: 'Settings',        sub: 'Devices · connectivity · schema · project info',    strip: 'settings' },
@@ -54,9 +55,9 @@ export function _routeFromHash() {
   if (m) {
     return 'session-detail';
   }
-  // Plain named page hash e.g. #recording, #sessions, #settings
+  // Plain named page hash e.g. #recording, #focus, #sessions, #settings
   const plain = location.hash.replace(/^#/, '');
-  const pages = ['recording', 'sessions', 'admin', 'settings'];
+  const pages = ['recording', 'focus', 'sessions', 'admin', 'settings'];
   if (pages.includes(plain)) return plain;
   // Why: legacy hashes from before the Connections/System merge.
   if (plain === 'connections' || plain === 'system') return 'settings';
