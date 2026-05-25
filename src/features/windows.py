@@ -57,7 +57,7 @@ def infer_fs_hz(merged: pd.DataFrame, fallback: float = 50.0) -> float:
 def smooth_labels(
     label: np.ndarray,
     t_ms: np.ndarray,
-    max_gap_ms: float = 300.0,
+    max_gap_ms: float = 2500.0,
     max_spike_ms: float = 0.0,
 ) -> np.ndarray:
     """Morphologisches Glätten der binären Schreib-Label-Sequenz.
@@ -140,7 +140,7 @@ def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.corrcoef(a, b)[0, 1])
 
 
-def _window_features(window: np.ndarray, fs_hz: float = 50.0) -> dict[str, float]:
+def _window_features(window: np.ndarray, fs_hz: float) -> dict[str, float]:
     """Per-axis stats + magnitude + spectral + jerk + correlation features.
 
     Layout for one (N, 6) IMU window (axes: ax, ay, az, rx, ry, rz):
@@ -210,7 +210,7 @@ def build_windows(
     stride_sec: float = 0.5,
     fs_hz: float | None = None,
     min_label_ratio: float = 0.6,
-    max_gap_ms: float = 300.0,
+    max_gap_ms: float = 2500.0,
     max_spike_ms: float = 0.0,
 ) -> pd.DataFrame:
     """Build feature rows from a watch-base merged DataFrame.
@@ -312,7 +312,7 @@ def main() -> None:
     parser.add_argument("--window-sec", type=float, default=1.0)
     parser.add_argument("--stride-sec", type=float, default=0.5)
     parser.add_argument(
-        "--max-gap-ms", type=float, default=300.0,
+        "--max-gap-ms", type=float, default=2500.0,
         help="Idle-Lücken ≤ X ms zwischen Schreib-Runs werden zu Schreiben (Closing). 0 = aus.",
     )
     parser.add_argument(
