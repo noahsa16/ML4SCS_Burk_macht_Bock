@@ -9,11 +9,11 @@ in die App einbindet — externer Import-Pfad bleibt
 
 from fastapi import APIRouter
 
-from . import airpods, dashboard, pen, sessions, study, watch, ws
+from . import airpods, dashboard, inference, pen, sessions, study, watch, ws
 from ._helpers import _new_command_id, _session_preflight_payload
 
 router = APIRouter()
-for _mod in (dashboard, sessions, pen, watch, airpods, study, ws):
+for _mod in (dashboard, sessions, pen, watch, airpods, study, inference, ws):
     router.include_router(_mod.router)
 
 __all__ = [

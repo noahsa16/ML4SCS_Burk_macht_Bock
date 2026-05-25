@@ -115,6 +115,8 @@ def _status_payload(
     *,
     pen_samples: Optional[int] = None,
     last_pen_dot: Optional[dict[str, Any]] = None,
+    live_inference: Optional[dict[str, Any]] = None,
+    live_sparkline: Optional[list[dict[str, Any]]] = None,
 ) -> dict[str, Any]:
     sid = state.active.session_id if state.active else None
     # Why: pen samples / last_dot / preview only when a session is active.
@@ -238,4 +240,6 @@ def _status_payload(
         "validation": _validation_payload(last_pen_dot),
         "pen_recent_dots": _pen_recent_dots(sid) if sid else [],
         "study": _study_payload,
+        "live_inference": live_inference,
+        "live_sparkline": live_sparkline,
     }
