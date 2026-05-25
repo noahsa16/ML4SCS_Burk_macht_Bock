@@ -686,6 +686,75 @@ export function mount(container) {
       if (card) card.style.display = 'none';
     });
   }
+
+  _initInferenceModelSwitch();
+}
+
+// ════════════════════════════════════════════════════════════
+//  INFERENCE MODEL SWITCH
+// ════════════════════════════════════════════════════════════
+const _MODEL_LABELS = {
+  rf_noah: 'personal',
+  rf_all_live: 'generic',
+  rf_all: 'generic (per-session)',
+};
+
+async function _initInferenceModelSwitch() {
+  const host = document.getElementById('inferenceModelSwitch');
+  if (!host) return;
+  let data;
+  try {
+    data = await api('/inference/models');
+  } catch (e) {
+    return;
+  }
+  const models = data?.models || [];
+  if (!models.length) {
+    host.style.display = 'none';
+    return;
+  }
+
+  host.replaceChildren();
+  for (const m of models) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'rec-inference-model-opt';
+    btn.dataset.modelId = m.id;
+    btn.textContent = _MODEL_LABELS[m.id] || m.id;
+    const meta = [
+      m.person_id ? m.person_id : 'cross-subject',
+      m.n_windows ? `${m.n_windows.toLocaleString('de-DE')} windows` : null,
+      m.sample_rate_hz ? `${m.sample_rate_hz} Hz` : null,
+    ].filter(Boolean).join(' · ');
+    btn.title = meta + (m.note ? ` — ${m.note}` : '');
+    btn.setAttribute('role', 'radio');
+    btn.addEventListener('click', () => _selectInferenceModel(m.id));
+    host.appendChild(btn);
+  }
+
+  _markActiveModel(data?.current);
+}
+
+async function _selectInferenceModel(modelId) {
+  const buttons = document.querySelectorAll('.rec-inference-model-opt');
+  buttons.forEach((b) => b.disabled = true);
+  try {
+    const resp = await api('/inference/model', 'POST', { id: modelId });
+    _markActiveModel(resp?.current || modelId);
+    try { localStorage.setItem('inferenceModelId', modelId); } catch {}
+    toast(`Inference model: ${_MODEL_LABELS[modelId] || modelId}`);
+  } catch (e) {
+    toast('Model switch failed');
+  } finally {
+    buttons.forEach((b) => b.disabled = false);
+  }
+}
+
+function _markActiveModel(id) {
+  document.querySelectorAll('.rec-inference-model-opt').forEach((b) => {
+    b.classList.toggle('is-active', b.dataset.modelId === id);
+    b.setAttribute('aria-checked', b.dataset.modelId === id ? 'true' : 'false');
+  });
 }
 
 export function onShow() {
@@ -767,4 +836,154 @@ export function onStatus(s) {
   // surface the full page.
   const streamsSec = document.getElementById('rec-sec-streams');
   if (streamsSec) streamsSec.style.display = s.study?.active ? 'none' : '';
+
+  // Live inference panel (Focus Tracker)
+  updateInferencePanel(s.live_inference, s.live_sparkline);
+}
+
+// ════════════════════════════════════════════════════════════
+//  LIVE INFERENCE — Focus-Tracker panel
+// ════════════════════════════════════════════════════════════
+function _fmtToday(seconds) {
+  if (!seconds || seconds <= 0) return '0:00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  if (m >= 60) {
+    const h = Math.floor(m / 60);
+    const rm = m % 60;
+    return `${h}:${String(rm).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+export function updateInferencePanel(inf, spark) {
+  const sec = document.getElementById('rec-sec-inference');
+  if (!sec) return;
+  // Why: section stays visible even without a prediction so the model
+  // picker is always reachable. Inner cards show an empty state instead.
+  // Study Mode takes over the whole page; don't compete with the proband UI.
+  const inStudy = document.body.classList.contains('study-active');
+  sec.style.display = inStudy ? 'none' : '';
+
+  const stateEl = document.getElementById('inferenceState');
+  const labelEl = document.getElementById('inferenceStateLabel');
+  const fillEl = document.getElementById('inferenceProbaFill');
+  const txtEl = document.getElementById('inferenceProbaText');
+  const metaEl = document.getElementById('inferenceModelMeta');
+
+  if (!inf) {
+    if (stateEl) stateEl.setAttribute('data-state', 'idle');
+    if (labelEl) labelEl.textContent = 'no signal';
+    if (fillEl) fillEl.style.width = '0%';
+    if (txtEl) txtEl.textContent = '—';
+    if (metaEl) metaEl.textContent = 'waiting for watch stream';
+    _drawInferenceSparkline([]);
+    return;
+  }
+
+  const writing = !!inf.writing;
+  if (stateEl) stateEl.setAttribute('data-state', writing ? 'writing' : 'idle');
+  if (labelEl) labelEl.textContent = writing ? 'writing' : 'not writing';
+
+  const pct = Math.round((inf.proba ?? 0) * 100);
+  if (fillEl) fillEl.style.width = `${pct}%`;
+  if (txtEl) txtEl.textContent = String(pct);
+
+  if (metaEl) {
+    const who = inf.person_id ? `${inf.person_id} · ` : 'cross-subject · ';
+    metaEl.textContent = `${who}${inf.model_id || 'model'} @ ${inf.fs_hz || '–'} Hz`;
+  }
+  if (inf.model_id) _markActiveModel(inf.model_id);
+
+  const todayEl = document.getElementById('inferenceTodayVal');
+  if (todayEl) todayEl.textContent = _fmtToday(inf.today_writing_seconds);
+  const todaySub = document.getElementById('inferenceTodaySub');
+  if (todaySub) {
+    const s = Math.round(inf.today_writing_seconds || 0);
+    // Why: be explicit about scope — counter zeroes on server restart since
+    // there's no persistence layer yet. Saying "today" would mislead after
+    // any restart. Real day-level aggregation is the deferred Focus-View.
+    todaySub.textContent = `${s} s tracked since server start`;
+  }
+
+  // Rate-mismatch banner: model was trained at a specific Hz; if the watch
+  // is streaming at a different rate the spectral features diverge silently.
+  // The backend already returns rate_mismatch=true in that case; reflect it
+  // in the UI instead of showing a bogus 0% confidence forever.
+  if (inf.rate_mismatch) {
+    const labelEl = document.getElementById('inferenceStateLabel');
+    if (labelEl) labelEl.textContent = `rate mismatch (${inf.fs_hz} vs ${inf.trained_fs_hz} Hz)`;
+    const fillEl = document.getElementById('inferenceProbaFill');
+    if (fillEl) fillEl.style.width = '0%';
+  }
+
+  _drawInferenceSparkline(spark || []);
+}
+
+function _drawInferenceSparkline(points) {
+  const canvas = document.getElementById('inferenceSparkline');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const cssW = canvas.clientWidth || 400;
+  const cssH = canvas.clientHeight || 120;
+  if (canvas.width !== cssW * dpr || canvas.height !== cssH * dpr) {
+    canvas.width = cssW * dpr;
+    canvas.height = cssH * dpr;
+  }
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  if (!points.length) return;
+  const pad = 4;
+  const n = points.length;
+  const w = cssW - 2 * pad;
+  const h = cssH - 2 * pad;
+
+  // Build x positions evenly along width — recent values on the right.
+  const stepX = n > 1 ? w / (n - 1) : 0;
+  const probaToY = (p) => pad + (1 - Math.max(0, Math.min(1, p))) * h;
+
+  // 0.5 threshold guideline
+  const mid = probaToY(0.5);
+  ctx.strokeStyle = 'rgba(128,128,128,0.35)';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  ctx.moveTo(pad, mid);
+  ctx.lineTo(pad + w, mid);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Area fill under the curve
+  const styles = getComputedStyle(document.documentElement);
+  const accent = styles.getPropertyValue('--accent').trim() || 'oklch(0.685 0.165 145)';
+  ctx.beginPath();
+  ctx.moveTo(pad, probaToY(points[0].p));
+  for (let i = 1; i < n; i++) {
+    ctx.lineTo(pad + i * stepX, probaToY(points[i].p));
+  }
+  ctx.lineTo(pad + (n - 1) * stepX, pad + h);
+  ctx.lineTo(pad, pad + h);
+  ctx.closePath();
+  ctx.fillStyle = `color-mix(in oklch, ${accent} 14%, transparent)`;
+  ctx.fill();
+
+  // Curve
+  ctx.beginPath();
+  ctx.moveTo(pad, probaToY(points[0].p));
+  for (let i = 1; i < n; i++) {
+    ctx.lineTo(pad + i * stepX, probaToY(points[i].p));
+  }
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 1.8;
+  ctx.stroke();
+
+  // Last-point marker
+  const lx = pad + (n - 1) * stepX;
+  const ly = probaToY(points[n - 1].p);
+  ctx.beginPath();
+  ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+  ctx.fillStyle = accent;
+  ctx.fill();
 }
