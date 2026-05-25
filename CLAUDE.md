@@ -27,16 +27,24 @@ Sensors during training-data collection:
 Status: data collection + preprocessing + watch-base merge + quality
 checks + sliding-window features + Random Forest baseline + LOSO
 cross-validation + Study Mode (counterbalanced protocol runner with
-fullscreen proband UI and VL admin monitor) are operational. **Current
-headline (10-person cross-subject LOSO, RF + per-session z-score +
-`max_gap_ms=2500` label closing): accuracy 0.856 ± 0.032, ROC-AUC
-0.928 ± 0.033, F1(writing) 0.864. Burst-aggregated @5s: acc 0.887,
-AUC 0.960; @10s: acc 0.870, AUC 0.944; @30s: acc 0.831, AUC 0.909.**
-Vorgänger-Headlines: 8-Probanden gap=2500 acc 0.861 ± 0.035 /
-AUC 0.932 ± 0.035; 7-Probanden gap=2500 acc 0.868 ± 0.024 /
-AUC 0.943 ± 0.014; 7-Probanden gap=2000 acc 0.864 ± 0.026 /
-AUC 0.940; 5-Probanden gap=2000 acc 0.872 ± 0.020 / AUC 0.940;
-3-Probanden gap=300 acc 0.842 ± 0.007 / AUC 0.909 (ExtraTrees).
+fullscreen proband UI and VL admin monitor) + Live-Inference im
+Dashboard (Topbar-Pill, Recording-Page-Card, eigener `#focus`-Tab
+mit persistenter Schreibzeit-Aggregation) + Modell-Switcher
+(Personal ↔ Generic) are operational. **Current headline (10-person
+cross-subject LOSO, RF + per-session z-score + `max_gap_ms=2500`
+label closing, **korrigierte Feature-Sortierung** post 2026-05-25):
+accuracy 0.863 ± 0.032, ROC-AUC 0.935 ± 0.032, F1(writing) 0.875.
+Burst-aggregated @5s: acc 0.902 ± 0.035, AUC 0.968 ± 0.030;
+@10s: acc 0.885 ± 0.037, AUC 0.957 ± 0.025; @30s: acc 0.844 ± 0.034,
+AUC 0.922 ± 0.029.** Vorgänger-Headlines (vor Sort-Stability-Fix,
+siehe `reports/sort_stability_bug.md`): 10-Probanden 0.856 / 0.928;
+8-Probanden gap=2500 acc 0.861 ± 0.035 / AUC 0.932 ± 0.035;
+7-Probanden gap=2500 acc 0.868 ± 0.024 / AUC 0.943 ± 0.014;
+7-Probanden gap=2000 acc 0.864 ± 0.026 / AUC 0.940; 5-Probanden
+gap=2000 acc 0.872 ± 0.020 / AUC 0.940; 3-Probanden gap=300 acc
+0.842 ± 0.007 / AUC 0.909 (ExtraTrees). Alle Pre-Fix-Zahlen wurden
+auf systematisch verrauschten Features gerechnet (Trainings- und
+Test-Daten symmetrisch betroffen, relative Vergleiche bleiben gültig).
 
 ## Setup
 
@@ -135,11 +143,15 @@ Moleskine Smart Pen (BLE)
                     ↓
        src/features/windows.py       (sample-level label closing,
                                       max_gap_ms=2500 → "writing mode"
-                                      semantics; then 1 s / 0.5 s
-                                      sliding windows → 88 features
-                                      in 6 groups: time-stats, spectral
-                                      (FFT), jerk, ZCR, magnitude,
-                                      cross-axis correlations)
+                                      semantics; sort by per-sample
+                                      `ts` with kind='stable' to match
+                                      live-inference ordering — see
+                                      reports/sort_stability_bug.md;
+                                      then 1 s / 0.5 s sliding windows
+                                      → 88 features in 6 groups:
+                                      time-stats, spectral (FFT), jerk,
+                                      ZCR, magnitude, cross-axis
+                                      correlations)
                     ↓
          data/processed/{session}_windows.csv  (1 row per window)
                     ↓
@@ -150,12 +162,32 @@ Moleskine Smart Pen (BLE)
                                       @1s/5s/10s/30s decision-windows)
        src/training/within_session/  (debug only — temporal 80/20 split
          train_rf.py                  for feature/smoothing iteration)
+       scripts/ml/train_noah_personal.py    (Personal-Modell auf S032+
+                                      S033 ohne Z-Score → rf_noah)
+       scripts/ml/train_rf_all_live.py      (Deployment-Variant des
+                                      Generic-Modells mit eingebackener
+                                      pooled mu/sigma → rf_all_live)
                     ↓
-         models/rf_all.joblib  (deployment, --save-final-model)
-         models/loso_cv.csv    (per-fold metrics, --save-cv-csv)
+         models/rf_all.joblib        (LOSO-Headline-Artefakt)
+         models/rf_noah.joblib       (Personal-Modell, Live-Default,
+                                      100 Hz, ohne Z-Score)
+         models/rf_all_live.joblib   (Generic-Modell mit pooled
+                                      Z-Score, Live-tauglich)
+         models/loso_cv.csv          (per-fold metrics)
                     ↓
-         acc 0.856 ± 0.032  |  AUC 0.928 ± 0.033  |  F1(w) 0.864
-         burst @30s: acc 0.831 / AUC 0.909  (Schreibzeit-tracking)
+         acc 0.863 ± 0.032  |  AUC 0.935 ± 0.032  |  F1(w) 0.875
+         burst @5s: acc 0.902 / AUC 0.968
+         burst @30s: acc 0.844 / AUC 0.922  (Schreibzeit-tracking)
+                    ↓
+       src/server/inference.py       (Live-Inference-Singleton, lazy
+                                      Modell-Load, Rolling-Buffer,
+                                      Rate-Mismatch-Guard)
+                    ↓
+       src/server/focus_log.py       (Append-only inference_log.csv
+                                      @1 Hz aus _status_loop)
+                    ↓
+         /focus/today + /focus/week (Aggregator-Endpoints für
+                                     Recording-Page-Card + #focus-Tab)
 ```
 
 ### Server (`server.py` + `src/server/`)
@@ -181,7 +213,8 @@ timelines.py       per-session timeline reconstruction for validation views
 quality.py         _session_facts() = single source of truth for facts;
                    _session_quality / _session_validation / _session_report
                    (re-exports ISSUE_SPECS for external consumers)
-broadcast.py       _broadcast() + _status_loop() (1-s tick)
+broadcast.py       _broadcast() + _status_loop() (1-s tick); calls
+                   live.predict() + focus_log.log_tick() each cycle
 pen_proc.py        starts/stops pen_logger.py as a subprocess
 models.py          Pydantic schemas (WatchEnvelope, SessionStartBody …)
 study.py           Study Mode internals: protocol loader (Pydantic
@@ -190,10 +223,23 @@ study.py           Study Mode internals: protocol loader (Pydantic
                    pauses, and the runtime state machine (idle / running
                    / paused / done). Pure Python — no FastAPI imports,
                    fully unit-testable.
+inference.py       LiveInference singleton: rolling watch-sample buffer,
+                   lazy joblib load (rf_noah preferred, fallback chain
+                   rf_all_live -> rf_all), per-window predict() with
+                   rate-mismatch guard, sparkline ring, daily-aggregate
+                   counter. Reuses _window_features() from
+                   src.features.windows so live + training share the
+                   exact same feature extractor.
+focus_log.py       Append-only CSV writer at data/inference_log.csv
+                   (gitignored). One row per 1-Hz predict tick;
+                   rate_mismatch ticks skipped. Persists writing
+                   activity across server restarts so /focus aggregates
+                   are truthful.
 routes/            FastAPI endpoint package — one APIRouter per concern
                    (watch.py, airpods.py, pen.py, sessions.py,
-                    study.py, dashboard.py, ws.py, _helpers.py);
-                    __init__.py aggregates them into a single `router`
+                    study.py, dashboard.py, inference.py, focus.py,
+                    ws.py, _helpers.py); __init__.py aggregates them
+                    into a single `router`
 ```
 
 `src/pen_schema.py` is a top-level shared module (no deps) so
@@ -226,9 +272,23 @@ session start/stop start/stop it automatically.
   session, writes the first marker to `data/raw/markers/{id}_markers.csv`
 - `POST /study/next` / `POST /study/pause` / `POST /study/abort` —
   drive the state machine; emits markers on every transition
+- `GET /inference/models` — lists available joblibs in `models/` with
+  metadata (`id`, `person_id`, `sample_rate_hz`, `trained_on`,
+  `n_windows`, `normalisation`). Whitelist of user-facing models:
+  `rf_noah`, `rf_all_live`, `rf_all`.
+- `GET /inference/current` — currently loaded model id + meta
+- `POST /inference/model {id}` — swap the live model; clears the
+  inference buffer for a clean restart. 404 on unknown id.
+- `GET /focus/today` — today's writing stretches (consecutive
+  `writing=1` ticks, gaps ≤ 2.5 s forgiven) + total seconds + tick
+  count, scoped to local-time day bounds.
+- `GET /focus/week` — last 7 days as `{date, weekday, writing_seconds,
+  is_today}` buckets, oldest first, plus week-max for bar scaling.
 - `WebSocket /ws` — dashboard status (1 s tick) + iPhone bridge
   messages + per-tick `study` payload (current task, time-remaining,
-  next-task preview)
+  next-task preview) + per-tick `live_inference` payload (writing,
+  proba, model_id, fs_hz, today_writing_seconds; or `rate_mismatch:
+  true` when buffer fs diverges >20 % from trained fs)
 
 `_status_loop` broadcasts `_status_payload()` once a second, updates
 rolling Hz estimates, and maintains a 60-point rolling chart buffer
@@ -236,9 +296,11 @@ rolling Hz estimates, and maintains a 60-point rolling chart buffer
 
 ### Dashboard frontend (`dashboard.html` + `static/`)
 
-`dashboard.html` is a thin ~88-line shell: head with stylesheet + module
-preload tags, topbar markup, five empty `<div data-view="..."></div>` page
-slots, and `<script type="module" src="/static/dashboard.js">`.
+`dashboard.html` is a thin shell: head with stylesheet + module
+preload tags, topbar markup (Recording · Focus · Sessions · Settings,
+plus hidden Admin), the `liveInferencePill` next to the status cluster,
+six empty `<div data-view="..."></div>` page slots, and
+`<script type="module" src="/static/dashboard.js">`.
 
 `static/dashboard.js` is the bootstrap (~165 lines). On `hashchange` it
 calls `showPage(pageId)`, which lazy-fetches the matching partial from
@@ -252,9 +314,22 @@ to tear down the alignment-plot canvases when leaving (the main perf
 mechanism, since that page is the heaviest).
 
 Page modules live in `static/js/pages/{recording,recording-study,
-sessions,session_detail,settings,admin}.js` and all export the same
-four-function contract: `mount(container)`, `onStatus(payload)`,
+focus,sessions,session_detail,settings,admin}.js` and all export the
+same four-function contract: `mount(container)`, `onStatus(payload)`,
 `onShow()`, `onHide()`.
+
+`focus.js` is the dedicated Focus-Tracker tab — contemplative
+counterpart to the Recording cockpit. Hero `h:mm` clock left, 24-hour
+day-timeline strip right (with writing stretches as gradient blocks +
+"now" marker that advances on every WS tick), seven-bar week frieze
+below (today highlighted, peak day tagged). Reads `/focus/today` and
+`/focus/week` on mount and re-polls every 5 s while visible; live pill
+updates from each WS tick. Styles in `static/css/focus.css` with its
+own background slash glyph (mirror-flipped vs Recording's). The
+Recording-page also exposes an embedded inference card (writing-now
+state + 60-s sparkline + "writing time tracked" counter) with an
+in-place model picker (Personal ↔ Generic ↔ Generic-per-session)
+that calls `POST /inference/model`.
 
 `recording-study.js` is the **fullscreen takeover** for the proband
 side once Study Mode is running. It is a sibling of `recording.js`:
@@ -354,6 +429,8 @@ no longer vibrates continuously when the server is down.
   `prepare_watch_data()`, `load_csv()`). Still exported for external use;
   the canonical ML merge no longer needs the pen-side per-sample features.
 - `src/merge/merge.py` — `merge_watch_pen()`: **watch-base merge**.
+  Sortiert watch + pen via `sort_values("local_ts_ms", kind="stable")`
+  (siehe *Sort-Stability-Bug* in den Gotchas + `reports/sort_stability_bug.md`).
   Calls `match_pen_data`, applies δ to `pen.local_ts_ms` when σ ≤ -2,
   then `merge_asof` with **watch as base** within ±`label_tol_ms`
   (default 40 ms). Result: 1 row per watch sample, with `label_writing`
@@ -364,6 +441,10 @@ no longer vibrates continuously when the server is down.
   writes per-session to `data/processed/{session}_merged.csv` (no
   overwriting).
 - `src/features/windows.py` — `smooth_labels()` + `build_windows()`.
+  Sort wird per-Sample-monotonic via `ts`-Spalte mit `kind='stable'`
+  gemacht (siehe Sort-Stability-Note in den Gotchas — pre-fix wurde
+  unstable by `local_ts_ms` sortiert, was bei Batch-Ties Samples
+  scrambled und Trainings- von Live-Features divergent machte).
   Sample-level **morphological closing** on the binary label sequence
   (idle gaps ≤ `max_gap_ms` between writing runs → flipped to writing;
   default 300 ms) before windowing. Then 1 s sliding windows with
@@ -455,6 +536,28 @@ no longer vibrates continuously when the server is down.
   nicht (F1w 0.858→0.846, Oracle nur +0.007) — widerlegt die „P09 braucht
   Per-Subject-Threshold"-Hypothese. Output: `reports/per_subject_threshold.md`
   + `models/per_subject_threshold.csv`. Siehe *Negative result* unten.
+- `scripts/ml/train_noah_personal.py` — Personal-Modell für die Focus-
+  Tracker-Live-App. Trainiert RF auf Noahs 100-Hz-Sessions (S032 + S033),
+  A/B mit/ohne Z-Score (datengetrieben entschieden — Δ AUC = 0.000, daher
+  ohne). Speichert `models/rf_noah.joblib` mit `person_id`, `sample_rate_hz`,
+  optional `zscore_mu/sigma` als Metadata. Within-Noah-LOSO: acc 0.878,
+  AUC 0.939, @5s AUC 0.973, @30s AUC 0.949 (post Sort-Stability-Fix).
+- `scripts/ml/train_rf_all_live.py` — Deployment-Variante des
+  Generic-Modells. Lädt alle 10 LOSO-Probanden, berechnet **pooled** mu/
+  sigma (statt per-session — Pooled ist live-deployment-fähig, weil das
+  μ/σ ins Joblib eingebacken wird und keine Calibration-Phase pro Session
+  braucht). Speichert `models/rf_all_live.joblib`. LOSO-Headline-Artefakt
+  `rf_all.joblib` bleibt unangetastet (per-session Z-Score, nicht
+  live-tauglich).
+- `scripts/ml/replay_live_inference.py` — Diagnose-Tool: füttert eine
+  bekannte Watch-CSV Sample-für-Sample durch `LiveInference` und
+  vergleicht Predictions mit den gespeicherten Window-Labels. Quelle der
+  Sort-Stability-Bug-Diagnose 2026-05-25 (acc 0.573 vs offline 0.876 bei
+  bug-affected Modell → identifizierte Feature-Distribution-Mismatch).
+- `scripts/ml/diff_live_features.py` — Detail-Diagnose: berechnet Features
+  über `build_windows`-Pfad vs. `_window_features`-Live-Pfad, diffed
+  per-Feature über alle Windows. Lokalisiert *welche* Features
+  divergieren (Sort-Stability-Bug: FFT/Jerk/ZCR/Korrelationen).
 - `src/evaluation/evaluate.py` — placeholder that loads
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
@@ -588,6 +691,19 @@ canonical ML timeline.
 + `t_center_ms`. Labels are smoothed at sample level before windowing
 (see *Label smoothing* below).
 
+**Inference log** (`data/inference_log.csv` — **gitignored**, owned
+by the running server): append-only CSV of every 1-Hz Live-Inference
+tick aus `_status_loop`. Schema:
+```
+ts_ms, proba, writing, model_id, fs_hz
+```
+`ts_ms` = `int(time.time() * 1000)` (server wall clock, same epoch as
+watch.local_ts_ms). `rate_mismatch`-Ticks werden **nicht** geschrieben
+(sonst stehen 0.0-Probas im Log, die ein "writing time tracked"-Counter
+fälschlich als idle-Zeit zählen würde). Wächst ~3 MB/Tag bei
+dauerhaftem Streaming. Read-Side: `src/server/routes/focus.py`
+aggregiert pro Tag/Woche on-demand (kein Cache).
+
 ## Study Mode
 
 End-to-end protocol runner so recordings happen under a consistent,
@@ -640,16 +756,19 @@ Notable issues:
   overlap.
 - `legacy_pen_time` / `legacy_watch_time` — old CSVs missing
   `local_ts_ms` / `server_received_ms`.
-- `low_watch_coverage` — fewer rows than `~50 Hz × duration` (target
-  defined by `_TARGET_WATCH_HZ`).
+- `low_watch_coverage` — fewer rows than `(50 or 100) Hz × duration`.
+  Effektiver Target per Session per Nearest-Match aus `_VALID_WATCH_HZ`
+  in `src/server/issues.py` (siehe `watch_target_hz()` helper).
 - `pen_clock_mismatch` — info-only; pen device clock is typically
   ~922 days behind wall clock.
 
-**Sample-rate target:** the watch streams at 50 Hz
-(`MotionManager.Config.requestedHz`). Quality check accepts 40–60 Hz.
-If reconfigured, `_TARGET_WATCH_HZ` in `src/server/issues.py` is the
-single place to update (likewise `_TARGET_AIRPODS_HZ` for the head
-stream).
+**Sample-rate target:** the watch streams at 50 oder 100 Hz
+(`MotionManager.Config.requestedHz`, per Phone-App konfigurierbar).
+Quality-Check ermittelt den Target per Session via Nearest-Match aus
+`_VALID_WATCH_HZ = (50.0, 100.0)` und akzeptiert ±20 % darum. Beide
+Baender ([40-60] und [80-120] Hz) gelten als valide, der Bereich
+[60-80] Hz faellt durch. Erweitern: einen Wert in `_VALID_WATCH_HZ`
+ergaenzen. AirPods bleiben hard-coded `_TARGET_AIRPODS_HZ=25`.
 
 **Sample-level merge alignment:** pen and watch device clocks do not
 share an epoch (typical Moleskine pen offset: ~922 days plus an
@@ -670,6 +789,27 @@ protocol — no special user action at session start is required.
 
 ## ML pipeline gotchas
 
+**Sort-Stability-Bug (entdeckt + gefixt 2026-05-25).** `pandas.sort_values`
+ist per Default **nicht stabil** (`kind='quicksort'` historisch). Watch-
+Samples in einem Batch teilen sich dieselbe `local_ts_ms` (Server-Receive-
+Time pro POST), bei Disk-Spill-Drain sind das bis zu 30 Samples
+gleichzeitig. Unstable sort permutierte die Reihenfolge innerhalb dieser
+Ties zufällig, was alle order-sensitiven Features (FFT, Jerk, ZCR,
+Korrelationen — ~52 % des 88-Feature-Vektors) zwischen Trainings-Pipeline
+und Live-Inferenz divergent machte. Tests waren grün (beide Seiten gleich
+gescrambled), aber Live-Deployment auf nicht-gescrambled Samples
+zeigte AUC bleibend hoch (0.96 — Ranking funktioniert) und Acc kollabiert
+(0.57 — Decisions falsch, alle Schreib-Probas unter 0.5 geschoben).
+**Fix:** `kind='stable'` in `merge.py` + sortieren nach per-Sample-`ts`
+in `windows.py` statt nach `local_ts_ms`. Impact auf Headline: +0.7 pp
+Acc / +0.7 pp AUC systematisch über alle Skalen. Alle relativen
+Vergleiche (gap-Sweep, N-Verlauf, Sync-Audit, Per-Subject-Threshold)
+bleiben gültig — Bug war symmetrisch in Train- und Test-Daten. **Diagnose-
+Tools** für ähnliche zukünftige Bugs: `scripts/ml/replay_live_inference.py`
+(simuliert Live über bekannte CSV) und `scripts/ml/diff_live_features.py`
+(per-Feature-Vergleich Train- vs. Live-Pipeline). Forensik:
+[`reports/sort_stability_bug.md`](reports/sort_stability_bug.md).
+
 **Label smoothing (morphological closing).** The pen reports DOWN/MOVE
 only while in contact / near the paper. Between letters, across word
 boundaries and during short denkpausen there are 50 ms–2 s gaps where
@@ -678,13 +818,14 @@ the raw pen label flips to 0, and the watch IMU during those gaps
 looks identical to the surrounding strokes. Without smoothing the
 model sees the same wrist motion with contradictory labels and learns
 ambivalence. **Chosen closing (headline pipeline):** `max_gap_ms=2500` —
-idle runs ≤ 2.5 s between writing runs are flipped to writing. (Code-
-Default in `build_windows()` ist historisch noch `300`; Headline-
-Runs werden mit explizitem `--max-gap-ms 2500` gefahren bis der
-Default geflippt wird.) Semantik: damit detektiert das Modell "Person
-ist im Schreibmodus" (inkl. Mikropausen ≤ 2.5 s) und nicht "Pen
-aktuell auf Papier". Für einen Schreibzeit-Tracker ist das die
-User-facing-Wahrheit.
+idle runs ≤ 2.5 s between writing runs are flipped to writing.
+Code-Default in `build_windows()` + `smooth_labels()` ist seit
+2026-05-25-Audit auch `2500` (vorher 300 ms — siehe ML-Gotcha
+"Default-Drift" und [`reports/sort_stability_bug.md`](reports/sort_stability_bug.md)
+für den Kontext-Audit der diesen Drift aufgedeckt hat). Semantik:
+damit detektiert das Modell "Person ist im Schreibmodus" (inkl.
+Mikropausen ≤ 2.5 s) und nicht "Pen aktuell auf Papier". Für einen
+Schreibzeit-Tracker ist das die User-facing-Wahrheit.
 
 LOSO-Ablation auf N=7 (2026-05-18): Headline gap=2000 → 2500 hob
 acc 0.864 → 0.868 (+0.4 pp), AUC 0.940 → 0.943 (+0.3 pp), F1(w)
@@ -854,7 +995,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (138 cases, ~1.5 s) — anything that
+`tests/` holds Tier-1 smoke tests (223 cases, ~6 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
@@ -900,6 +1041,18 @@ could silently poison the training data or the proband-facing flow:
   `build_raw_windows` Shapes/Labels, Per-Kanal-Z-Score, Forward-Pass
   aller drei Modelle (CNN/LSTM/GRU) bei beiden Sequenzlängen, plus
   Mini-Trainingslauf von `train_one_model`/`predict_proba`/`fold_metrics`.
+- `test_inference.py` — `LiveInference` smoke: leerer/stale/zu-kleiner
+  Buffer → predict() == None, payload-shape, sparkline-Wachstum, Z-Score-
+  Honouring (mu/sigma aus Joblib appliziert), Rate-Mismatch-Guard
+  (>20 % fs-Abweichung → `rate_mismatch: true` Payload), Daily-Aggregate-
+  Reset bei Datums-Wechsel, model-load-Fallback bei fehlendem joblib.
+- `test_inference_endpoints.py` — `GET /inference/models` Schema +
+  Whitelist, `POST /inference/model {id}` Switch + Buffer-Clear,
+  unbekannte ID → 404.
+- `test_focus.py` — Focus-Tracker-Persistenz: `log_tick` schreibt Header +
+  Row, ignoriert rate_mismatch/None-Ticks, `/focus/today` gruppiert Ticks
+  in Stretches (max-gap 2.5 s analog zum Label-Closing), `/focus/week`
+  liefert 7 chronologische Buckets mit `is_today`-Flag.
 
 Hardware loops (real BLE pen, watchOS app, iPhone bridge) remain
 **manual** smoke tests — there is no XCTest target in the Xcode
