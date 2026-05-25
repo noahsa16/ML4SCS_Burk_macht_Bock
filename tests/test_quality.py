@@ -444,3 +444,73 @@ def test_verdict_defaults_to_usable_when_ml_ok_but_sigma_weak(data_dirs):
     assert cols["verdict"] in {"usable", "skip"}
     # The trainable branch requires σ <= -3 which can't be reached here.
     assert cols["verdict"] != "trainable"
+
+
+# ── 100-Hz-Watch-Support (post 2026-05-25 audit) ────────────────────────────
+def test_watch_target_hz_nearest_match():
+    """watch_target_hz returns the closest valid rate (50 or 100)."""
+    from src.server.issues import watch_target_hz
+
+    assert watch_target_hz(50.0) == 50.0
+    assert watch_target_hz(49.5) == 50.0
+    assert watch_target_hz(60.0) == 50.0    # equidistant from 50 + 100 (mid=75)
+    assert watch_target_hz(76.0) == 100.0   # closer to 100 than to 50
+    assert watch_target_hz(99.5) == 100.0
+    assert watch_target_hz(120.0) == 100.0
+    # Default when not observable
+    assert watch_target_hz(None) == 50.0
+
+
+def test_watch_in_range_accepts_both_50_and_100():
+    """watch_in_range must accept ±20 % around the nearest valid rate."""
+    from src.server.issues import watch_in_range
+
+    # 50 Hz band: [40, 60]
+    assert watch_in_range(50.0)
+    assert watch_in_range(40.0)
+    assert watch_in_range(60.0)
+    assert not watch_in_range(39.0)
+
+    # 100 Hz band: [80, 120] — the new acceptance window
+    assert watch_in_range(100.0)
+    assert watch_in_range(99.5)
+    assert watch_in_range(85.0)
+    assert watch_in_range(120.0)
+    assert not watch_in_range(125.0)
+
+    # 70 Hz: closer to 50 than 100, but 40 % off 50 → out of range
+    assert not watch_in_range(70.0)
+
+    # None (no signal) doesn't fail
+    assert watch_in_range(None)
+
+
+def test_100hz_session_does_not_fire_rate_out_of_range():
+    """Regression for the audit bug: a 100 Hz session must not be flagged
+    as watch_rate_out_of_range."""
+    from src.server.quality import _build_issues
+
+    facts = {
+        "watch": {"row_count": 9000, "exists": True, "load_error": None,
+                  "ts_values": [1, 2], "gyro_rows": 9000, "accel_rows": 9000,
+                  "estimated_hz": 99.5, "sequence_gaps": 0,
+                  "session_csv_count": 9000, "count_delta": 0, "count_tolerance": 20,
+                  "server_time_rows": 9000, "expected_samples": 9000, "clock": {}},
+        "pen": {"row_count": 9000, "exists": True, "load_error": None,
+                "ts_values": [1, 2], "session_csv_count": 9000, "count_delta": 0,
+                "count_tolerance": 20, "server_time_rows": 9000,
+                "timestamp_years": [2026], "in_range_pct": 1.0, "clock": {}},
+        "airpods": {"exists": False, "row_count": 0},
+        "is_active": False, "start_year": 2026,
+        "session_start_ms": None, "session_end_ms": None,
+        "sync_estimate": {
+            "method": "stroke_variance_minimization",
+            "sigma_minimal_variance": -4.5,
+            "delta_ms": 0.0,
+        },
+        "session_duration_sec": 90.0,
+        "streams_overlap": True,
+    }
+    issues = _build_issues(facts)
+    codes = {i["code"] for i in issues}
+    assert "watch_rate_out_of_range" not in codes
