@@ -129,14 +129,18 @@ def merge_watch_pen(
 
     watch = raw_watch.copy()
     watch["local_ts_ms"] = pd.to_numeric(watch["local_ts_ms"], errors="coerce")
-    watch = watch.dropna(subset=["local_ts_ms"]).sort_values("local_ts_ms")
+    # Why: stable sort preserves within-batch arrival order (samples sharing
+    # local_ts_ms keep their original sequence). Unstable sort scrambled
+    # feature inputs in a way live inference doesn't replicate -> 2026-05-25
+    # diagnosis of the live-vs-offline accuracy gap.
+    watch = watch.dropna(subset=["local_ts_ms"]).sort_values("local_ts_ms", kind="stable")
     watch["local_ts_ms"] = watch["local_ts_ms"].astype(float)
 
     pen = raw_pen.copy()
     pen["local_ts_ms"] = (
         pd.to_numeric(pen["local_ts_ms"], errors="coerce") + delta_sec * 1000.0
     )
-    pen = pen.dropna(subset=["local_ts_ms"]).sort_values("local_ts_ms")
+    pen = pen.dropna(subset=["local_ts_ms"]).sort_values("local_ts_ms", kind="stable")
     pen["local_ts_ms"] = pen["local_ts_ms"].astype(float)
     pen["pen_writing"] = pen["dot_type"].isin(WRITING_DOT_TYPES).astype(int)
     pen_slim = pen[["local_ts_ms", "pen_writing"]]

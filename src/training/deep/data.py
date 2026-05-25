@@ -58,7 +58,13 @@ def build_raw_windows(
     if missing:
         raise ValueError(f"merged CSV is missing columns: {sorted(missing)}")
 
-    df = merged.dropna(subset=[*IMU_COLS, "local_ts_ms"]).sort_values("local_ts_ms")
+    # Why: stable sort by per-sample `ts` (when available) matches
+    # src/features/windows.py and the live-inference buffer — see
+    # reports/sort_stability_bug.md. Pre-fix unstable sort by local_ts_ms
+    # scrambled within-batch order and gave Deep models order-corrupted
+    # raw sequences.
+    sort_col = "ts" if "ts" in merged.columns else "local_ts_ms"
+    df = merged.dropna(subset=[*IMU_COLS, sort_col]).sort_values(sort_col, kind="stable")
     empty = (
         np.empty((0, seq_len, 6), dtype=np.float32),
         np.empty(0, dtype=np.int64),
