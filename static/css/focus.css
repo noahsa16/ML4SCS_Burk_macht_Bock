@@ -1,0 +1,459 @@
+/* ════════════════════════════════════════════════════════════
+   Focus — writing-activity history page.
+   Architectural / contemplative counterpart to the Recording cockpit.
+   Hero number is huge, restful negative space, day-timeline as
+   a horizontal frieze, week bars stately and quiet.
+   ════════════════════════════════════════════════════════════ */
+
+#page-focus { position: relative; }
+
+/* Background slash — left-anchored on this page (Recording's is right).
+   Variation is intentional: same family, different mood. */
+.focus-bg-glyph {
+  position: absolute;
+  left: -120px;
+  top: 80px;
+  font-family: var(--mono);
+  font-size: clamp(280px, 38vw, 520px);
+  font-weight: 200;
+  line-height: 0.7;
+  color: color-mix(in oklch, var(--accent) 6%, transparent);
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+  letter-spacing: -0.04em;
+}
+
+.focus-shell {
+  position: relative;
+  z-index: 1;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 56px 32px 80px;
+  display: flex;
+  flex-direction: column;
+  gap: 48px;
+}
+
+/* ─── Page header ─────────────────────────────────────────── */
+.focus-page-head {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.focus-page-eyebrow {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  color: var(--text2);
+  text-transform: lowercase;
+}
+.focus-page-title {
+  font-family: var(--sans);
+  font-size: clamp(40px, 7vw, 64px);
+  font-weight: 300;
+  letter-spacing: -0.025em;
+  line-height: 0.95;
+  margin: 0;
+  color: var(--text);
+}
+.focus-page-sub {
+  font-family: var(--sans);
+  font-size: var(--text-base);
+  font-style: italic;
+  color: var(--text2);
+  max-width: 56ch;
+  margin: 4px 0 0 0;
+  line-height: 1.45;
+}
+
+/* ─── Section primitives ──────────────────────────────────── */
+.focus-sec {
+  position: relative;
+  opacity: 0;
+  transform: translateY(12px);
+  animation: focusFadeUp var(--dur-slow) var(--ease-default) forwards;
+  animation-delay: var(--sec-delay, 0ms);
+}
+.focus-sec-head {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding-bottom: 16px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+.focus-sec-label {
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+  letter-spacing: 0.06em;
+  color: var(--text);
+  text-transform: lowercase;
+}
+.focus-sec-meta {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text2);
+  margin-left: auto;
+}
+
+/* ─── Live pill (top right of TODAY section) ──────────────── */
+.focus-live-pill {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  color: var(--text2);
+  transition: color var(--dur-fast) var(--ease-default),
+              border-color var(--dur-fast) var(--ease-default);
+}
+.focus-live-pill[data-state="writing"] {
+  color: var(--green);
+  border-color: color-mix(in oklch, var(--green) 55%, var(--border));
+}
+.focus-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text3, var(--border));
+  transition: background var(--dur-fast) var(--ease-default);
+}
+.focus-live-pill[data-state="writing"] .focus-live-dot {
+  background: var(--green);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--green) 22%, transparent);
+  animation: focusLivePulse 1.6s ease-in-out infinite;
+}
+
+/* ════════════════════════════════════════════════════════════
+   TODAY — two-column hero (number left, timeline right)
+   ════════════════════════════════════════════════════════════ */
+.focus-today-grid {
+  display: grid;
+  grid-template-columns: 1fr 1.6fr;
+  gap: 48px;
+  align-items: start;
+}
+
+.focus-today-hero {
+  display: flex;
+  flex-direction: column;
+}
+
+.focus-hero-clock {
+  font-family: var(--mono);
+  font-size: clamp(72px, 11vw, 132px);
+  font-weight: 300;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  /* The Apple Watch / Plex Mono digits look more measured with
+     a hairline stroke than a heavier weight. Keep it light. */
+}
+.focus-hero-unit {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  color: var(--text3, var(--text2));
+  text-transform: lowercase;
+  margin-top: 4px;
+}
+.focus-hero-meta {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.focus-hero-meta-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: var(--text-sm);
+}
+.focus-hero-meta-num {
+  color: var(--text);
+  min-width: 64px;
+  font-variant-numeric: tabular-nums;
+}
+.focus-hero-meta-key {
+  color: var(--text2);
+  text-transform: lowercase;
+  letter-spacing: 0.04em;
+  font-size: var(--text-xs);
+}
+
+/* ─── Day timeline (24-hour horizontal frieze) ────────────── */
+.focus-today-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.focus-day-key {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text2);
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+}
+.focus-day-strip {
+  position: relative;
+  height: 96px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(to bottom,
+      color-mix(in oklch, var(--surface) 50%, transparent),
+      transparent);
+  overflow: hidden;
+}
+.focus-day-gridlines {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+  pointer-events: none;
+}
+.focus-day-gridlines > span {
+  border-left: 1px dashed color-mix(in oklch, var(--border) 80%, transparent);
+}
+.focus-day-gridlines > span:first-child { border-left: 0; }
+
+.focus-day-now {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in oklch, var(--accent) 70%, transparent);
+  transform: translateX(-0.5px);
+  z-index: 3;
+  pointer-events: none;
+}
+.focus-day-now::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px color-mix(in oklch, var(--accent) 60%, transparent);
+}
+
+.focus-day-stretches {
+  position: absolute;
+  inset: 14px 0;
+  z-index: 2;
+}
+.focus-day-stretch {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(
+    180deg,
+    var(--yellow) 0%,
+    var(--accent) 100%);
+  border-radius: var(--radius-xs);
+  opacity: 0;
+  animation: focusStretchIn 380ms var(--ease-default) forwards;
+  animation-delay: var(--stretch-delay, 0ms);
+  cursor: default;
+  transition: filter var(--dur-fast) var(--ease-default);
+}
+.focus-day-stretch:hover {
+  filter: brightness(1.08);
+}
+.focus-day-stretch::before {
+  content: attr(data-tooltip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-default);
+  z-index: 5;
+}
+.focus-day-stretch:hover::before { opacity: 1; }
+
+.focus-day-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text3, var(--text2));
+  letter-spacing: 0.05em;
+  z-index: 1;
+  text-align: center;
+  padding: 0 16px;
+}
+.focus-day-empty-line { color: var(--text2); }
+.focus-day-empty-hint {
+  font-size: 10px;
+  font-style: italic;
+  color: var(--text3, var(--text2));
+  max-width: 38ch;
+}
+.focus-day-empty.is-hidden { display: none; }
+
+.focus-day-axis {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  color: var(--text3, var(--text2));
+  padding: 0 2px;
+}
+.focus-day-axis span:nth-child(1) { text-align: left; }
+.focus-day-axis span:nth-child(5) { text-align: right; }
+.focus-day-axis span:nth-child(2),
+.focus-day-axis span:nth-child(3),
+.focus-day-axis span:nth-child(4) { text-align: center; }
+
+/* ════════════════════════════════════════════════════════════
+   WEEK — seven vertical bars
+   ════════════════════════════════════════════════════════════ */
+.focus-week-strip {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 16px;
+  align-items: end;
+}
+.focus-week-day {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  text-align: center;
+}
+.focus-week-bar-wrap {
+  position: relative;
+  height: 180px;
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+}
+.focus-week-bar {
+  width: 100%;
+  background: color-mix(in oklch, var(--accent) 30%, transparent);
+  border-radius: var(--radius-xs) var(--radius-xs) 0 0;
+  transition:
+    height 600ms cubic-bezier(0.22, 1, 0.36, 1),
+    background var(--dur-fast) var(--ease-default);
+  /* CSS variable controls actual filled height; height: 0 baseline. */
+  height: 0;
+  --bar-target-h: 0%;
+  animation: focusBarRise 700ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--bar-delay, 0ms);
+}
+.focus-week-day.is-today .focus-week-bar {
+  background: linear-gradient(180deg, var(--yellow), var(--accent));
+}
+.focus-week-day.is-today .focus-week-weekday {
+  color: var(--text);
+}
+.focus-week-day.is-empty .focus-week-bar {
+  background: color-mix(in oklch, var(--border) 100%, transparent);
+}
+
+.focus-week-weekday {
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text2);
+}
+.focus-week-mins {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text3, var(--text2));
+  margin-top: 2px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.focus-week-peak-flag {
+  display: none;
+}
+.focus-week-day.is-peak:not(.is-today) .focus-week-peak-flag {
+  display: block;
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  text-transform: uppercase;
+  margin-top: 2px;
+}
+
+/* ─── Footer note ─────────────────────────────────────────── */
+.focus-foot {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  font-family: var(--mono);
+  font-size: var(--text-xs);
+  color: var(--text3, var(--text2));
+  letter-spacing: 0.05em;
+}
+.focus-foot-label { color: var(--text2); }
+.focus-foot-text { font-style: italic; }
+
+/* ════════════════════════════════════════════════════════════
+   Animations
+   ════════════════════════════════════════════════════════════ */
+@keyframes focusFadeUp {
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes focusLivePulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 3px color-mix(in oklch, var(--green) 22%, transparent); }
+  50%      { opacity: 0.65; box-shadow: 0 0 0 6px color-mix(in oklch, var(--green) 12%, transparent); }
+}
+@keyframes focusStretchIn {
+  to { opacity: 1; }
+}
+@keyframes focusBarRise {
+  from { height: 0; }
+  to   { height: var(--bar-target-h); }
+}
+
+/* ─── Responsive ──────────────────────────────────────────── */
+@media (max-width: 880px) {
+  .focus-shell { padding: 32px 20px 60px; gap: 36px; }
+  .focus-today-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .focus-hero-clock { font-size: clamp(64px, 18vw, 96px); }
+  .focus-week-bar-wrap { height: 140px; }
+  .focus-week-strip { gap: 8px; }
+  .focus-bg-glyph { display: none; }
+}

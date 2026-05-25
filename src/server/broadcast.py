@@ -14,6 +14,7 @@ from typing import Any
 from fastapi import WebSocket
 
 from .csv_io import _pen_last_dot, _pen_sample_count
+from .focus_log import log_tick as _focus_log_tick
 from .inference import live
 from .state import state
 from .status import _pen_is_writing, _status_payload
@@ -162,6 +163,12 @@ async def _status_loop():
         except Exception:
             log.exception("live inference tick failed")
             live_inf = None
+
+        if live_inf is not None:
+            try:
+                _focus_log_tick(live_inf)
+            except Exception:
+                log.exception("focus_log write failed")
 
         await _broadcast(_status_payload(
             pen_samples=pen_samples,
