@@ -98,8 +98,10 @@ def test_downsample_anti_aliases_high_frequency_component():
     out = downsample_watch_df(df, target_hz=50)
 
     # After anti-aliasing the 40 Hz component should be heavily attenuated
-    # in the 50 Hz output. Original peak amplitude was 1.0; expect <0.1.
-    assert out["ax"].abs().max() < 0.5, (
+    # in the 50 Hz output. Original peak amplitude was 1.0; Chebyshev I
+    # 8th-order should knock it down well below 0.1 (filter starts rolling
+    # off at 0.8 × new Nyquist = 20 Hz).
+    assert out["ax"].abs().max() < 0.1, (
         f"40 Hz component not anti-aliased; peak ax = {out['ax'].abs().max():.3f}"
     )
 
