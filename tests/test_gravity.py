@@ -70,6 +70,23 @@ def test_tilt_change_picks_up_rotation_within_window():
     assert feats["tilt_change"] < math.pi
 
 
+def test_tilt_change_is_vector_angle_not_per_axis_mean():
+    # Strikter Test der Aggregations-Korrektheit: zwei Samples mit
+    # exakt 90° auseinander (1, 0, 0) → (0, 0, -1). Vektor-Winkel
+    # zwischen ihnen ist π/2. Mit n=2 muss tilt_change ≈ π/2 sein.
+    # Die alte per-Achsen-Aggregation würde nur (π/2 + 0 + π/2) / 3 = π/3
+    # liefern — wäre also ~33 % zu klein.
+    df = pd.DataFrame({
+        "gx": [1.0, 0.0],
+        "gy": [0.0, 0.0],
+        "gz": [0.0, -1.0],
+    })
+
+    feats = _gravity_window_features(df)
+
+    assert feats["tilt_change"] == pytest.approx(math.pi / 2, abs=1e-4)
+
+
 def test_missing_gravity_columns_returns_nan_features():
     df = pd.DataFrame({"ax": [0.1] * 50, "ay": [0.2] * 50, "az": [0.3] * 50})
 
