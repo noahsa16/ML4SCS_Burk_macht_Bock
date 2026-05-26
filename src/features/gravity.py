@@ -59,12 +59,21 @@ def _gravity_window_features(window_df: pd.DataFrame) -> dict[str, float]:
     tilt_y = np.arccos(np.clip(gy / grav_mag_safe, -1.0, 1.0))
     tilt_z = np.arccos(np.clip(gz / grav_mag_safe, -1.0, 1.0))
 
-    if len(tilt_x) > 1:
-        tilt_change = (
-            float(np.mean(np.abs(np.diff(tilt_x))))
-            + float(np.mean(np.abs(np.diff(tilt_y))))
-            + float(np.mean(np.abs(np.diff(tilt_z))))
-        ) / 3.0
+    # Direkter Winkel zwischen aufeinanderfolgenden Gravity-Vektoren.
+    # Why: Per-Achsen-Mittel von |Δtilt_axis| unterschätzt reine Rotationen
+    # systematisch, weil sich Winkeländerungen auf mehrere Achsen verteilen
+    # (eine 90°-Rotation um eine Achse zeigt sich in zwei Achsen-Tilts mit
+    # je ~45°). Die Vektor-Winkel-Formel ist koordinatensystem-unabhängig
+    # und misst die echte Reorientierungs-Geschwindigkeit.
+    if len(gx) > 1:
+        g_curr = np.stack([gx[:-1], gy[:-1], gz[:-1]], axis=1)
+        g_next = np.stack([gx[1:], gy[1:], gz[1:]], axis=1)
+        norms_curr = grav_mag_safe[:-1]
+        norms_next = grav_mag_safe[1:]
+        cos_step = np.einsum("ij,ij->i", g_curr, g_next) / (
+            norms_curr * norms_next
+        )
+        tilt_change = float(np.arccos(np.clip(cos_step, -1.0, 1.0)).mean())
     else:
         tilt_change = 0.0
 
