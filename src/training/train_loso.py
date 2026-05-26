@@ -112,6 +112,8 @@ def _filter_pool(all_windows: pd.DataFrame, pool: str) -> pd.DataFrame:
         return all_windows[all_windows["session_id"].isin(modern_sids)].copy()
 
     if pool == "legacy":
+        if len(legacy_sids) == 0:
+            raise RuntimeError("pool='legacy' requested but no legacy sessions found")
         out = all_windows[all_windows["session_id"].isin(legacy_sids)].copy()
         return out.drop(columns=grav_present)
 
@@ -375,15 +377,19 @@ def train_loso(
         sessions[["session_id", "person_id"]], on="session_id", how="left"
     )
 
+    pre_filter_cols = set(all_windows.columns)
     pre_filter_n = len(all_windows)
     pre_filter_sessions = all_windows["session_id"].nunique()
     all_windows = _filter_pool(all_windows, pool)
-    if len(all_windows) != pre_filter_n:
-        kept_sessions = all_windows["session_id"].nunique()
-        print(
-            f"pool={pool}: kept {kept_sessions}/{pre_filter_sessions} sessions, "
-            f"{len(all_windows)}/{pre_filter_n} windows"
-        )
+    grav_kept = any(c in all_windows.columns for c in GRAVITY_FEATURE_NAMES)
+    kept_sessions = all_windows["session_id"].nunique()
+    # Why: always print pool info so user can verify which features were
+    # included — silent column-only drops are easy to miss otherwise.
+    print(
+        f"pool={pool}: {kept_sessions}/{pre_filter_sessions} sessions, "
+        f"{len(all_windows)}/{pre_filter_n} windows, "
+        f"gravity_features={'kept' if grav_kept else 'dropped'}"
+    )
 
     feature_cols = [
         c
@@ -600,17 +606,46 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
+def _pool_suffixed_path(default_path: Path, pool: str) -> Path:
+    """Suffix the save path with the pool name to keep artefacts separate.
+
+    Why: the headline Legacy artefacts (rf_all.joblib, loso_oof.csv,
+    loso_cv.csv) are consumed by other pipelines (Live-Inference,
+    Regression, Engagement) that assume the 10-Probanden Legacy pool.
+    Saving a modern-only model under the same path silently corrupts
+    those downstream tools. Pool != 'auto' → write to *_modern.* /
+    *_legacy.* sibling instead.
+    """
+    if pool == "auto":
+        return default_path
+    stem = default_path.stem
+    suffix = default_path.suffix
+    return default_path.with_name(f"{stem}_{pool}{suffix}")
+
+
 if __name__ == "__main__":
     args = _parse_args()
+    save_final = (
+        _pool_suffixed_path(Path(args.save_final_model), args.pool)
+        if args.save_final_model else None
+    )
+    save_cv = (
+        _pool_suffixed_path(Path(args.save_cv_csv), args.pool)
+        if args.save_cv_csv else None
+    )
+    save_oof = (
+        _pool_suffixed_path(Path(args.save_oof), args.pool)
+        if args.save_oof else None
+    )
     train_loso(
         by=args.by,
         include_all=args.include_all,
         min_windows=args.min_windows,
         n_estimators=args.n_estimators,
         random_state=args.random_state,
-        save_final_model=Path(args.save_final_model) if args.save_final_model else None,
-        save_cv_csv=Path(args.save_cv_csv) if args.save_cv_csv else None,
-        save_oof=Path(args.save_oof) if args.save_oof else None,
+        save_final_model=save_final,
+        save_cv_csv=save_cv,
+        save_oof=save_oof,
         zscore_per_session=not args.no_zscore,
         pool=args.pool,
     )
