@@ -156,7 +156,13 @@ class MotionManager: NSObject, ObservableObject {
                 "az": motion.userAcceleration.z,
                 "rx": motion.rotationRate.x,
                 "ry": motion.rotationRate.y,
-                "rz": motion.rotationRate.z
+                "rz": motion.rotationRate.z,
+                // Modern-Pool (ab 2026-05-26): gravity vector separat. Damit
+                // ist (ax+gx, ay+gy, az+gz) = total acceleration ableitbar,
+                // ohne ax/ay/az-Semantik (user-acc ohne g) zu ändern.
+                "gx": motion.gravity.x,
+                "gy": motion.gravity.y,
+                "gz": motion.gravity.z
             ]
             self.stagingLock.lock()
             self.stagedSamples.append(sample)
