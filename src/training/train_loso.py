@@ -51,6 +51,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
+from src.features.gravity import GRAVITY_FEATURE_NAMES
 from src.features.windows import load_session_windows
 
 ROOT = Path(__file__).parents[2]
@@ -65,6 +66,59 @@ TRAINABLE_VERDICTS = {"trainable", "usable"}
 # erkennung arbeiten implizit auf längeren Skalen. Wir reporten 5/10/30 s
 # zusätzlich, um den Modell-Rauschen-Anteil sichtbar zu machen.
 BURST_SCALES_SEC: tuple[float, ...] = (5.0, 10.0, 30.0)
+
+
+def _filter_pool(all_windows: pd.DataFrame, pool: str) -> pd.DataFrame:
+    """Filter sessions and gravity columns based on pool selection.
+
+    pool ∈ {"auto", "legacy", "modern"}:
+    - "auto": include all sessions. If any session is legacy (NaN gravity
+      after concat), drop gravity columns globally so RF doesn't see NaN.
+      All-modern: keep gravity.
+    - "legacy": include only sessions that are inherently legacy
+      (no gravity capture). Gravity columns dropped from output.
+    - "modern": include only sessions with valid (non-NaN, all-rows)
+      gravity. Gravity columns kept.
+
+    Why this matters: pd.concat over mixed pools pads missing columns
+    with NaN. RF.fit crashes on NaN. _zscore_per_session would also
+    propagate NaN as division warnings.
+    """
+    if pool not in {"auto", "legacy", "modern"}:
+        raise ValueError(
+            f"pool must be 'auto'|'legacy'|'modern', got {pool!r}"
+        )
+
+    grav_present = [c for c in GRAVITY_FEATURE_NAMES if c in all_windows.columns]
+    if not grav_present:
+        # No gravity columns at all: everything is legacy by definition.
+        if pool == "modern":
+            raise RuntimeError(
+                "pool='modern' requested but no sessions have gravity features"
+            )
+        return all_windows
+
+    # Per-session: modern iff all gravity values for that session are non-NaN.
+    sentinel = grav_present[0]
+    session_is_modern = (
+        all_windows.groupby("session_id")[sentinel].apply(lambda s: s.notna().all())
+    )
+    modern_sids = session_is_modern[session_is_modern].index
+    legacy_sids = session_is_modern[~session_is_modern].index
+
+    if pool == "modern":
+        if len(modern_sids) == 0:
+            raise RuntimeError("pool='modern' requested but no modern sessions found")
+        return all_windows[all_windows["session_id"].isin(modern_sids)].copy()
+
+    if pool == "legacy":
+        out = all_windows[all_windows["session_id"].isin(legacy_sids)].copy()
+        return out.drop(columns=grav_present)
+
+    # auto: keep all sessions; drop gravity columns iff any legacy session present.
+    if len(legacy_sids) > 0:
+        return all_windows.drop(columns=grav_present)
+    return all_windows
 
 
 def _load_windows(session_id: str) -> pd.DataFrame:
@@ -284,6 +338,7 @@ def train_loso(
     save_cv_csv: Path | None = None,
     save_oof: Path | None = None,
     zscore_per_session: bool = True,
+    pool: str = "auto",
 ) -> dict:
     if by not in {"person", "session"}:
         raise ValueError(f"--by must be 'person' or 'session', got {by!r}")
@@ -319,6 +374,16 @@ def train_loso(
     all_windows = all_windows.merge(
         sessions[["session_id", "person_id"]], on="session_id", how="left"
     )
+
+    pre_filter_n = len(all_windows)
+    pre_filter_sessions = all_windows["session_id"].nunique()
+    all_windows = _filter_pool(all_windows, pool)
+    if len(all_windows) != pre_filter_n:
+        kept_sessions = all_windows["session_id"].nunique()
+        print(
+            f"pool={pool}: kept {kept_sessions}/{pre_filter_sessions} sessions, "
+            f"{len(all_windows)}/{pre_filter_n} windows"
+        )
 
     feature_cols = [
         c
@@ -498,6 +563,15 @@ def _parse_args() -> argparse.Namespace:
         action="store_true",
         help="Disable per-session z-score normalization of features (default: on).",
     )
+    p.add_argument(
+        "--pool",
+        choices=["auto", "legacy", "modern"],
+        default="auto",
+        help="Session pool selection: 'auto' (include all, drop gravity if "
+        "mixed), 'legacy' (no-gravity sessions only, 88 features), "
+        "'modern' (gravity-required sessions only, 94 features). "
+        "Default: auto.",
+    )
     p.add_argument("--n-estimators", type=int, default=200)
     p.add_argument("--random-state", type=int, default=42)
     p.add_argument(
@@ -538,4 +612,5 @@ if __name__ == "__main__":
         save_cv_csv=Path(args.save_cv_csv) if args.save_cv_csv else None,
         save_oof=Path(args.save_oof) if args.save_oof else None,
         zscore_per_session=not args.no_zscore,
+        pool=args.pool,
     )
