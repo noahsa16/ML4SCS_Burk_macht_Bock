@@ -29,6 +29,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.features.gravity import _gravity_window_features
+
 ACC_COLS = ["ax", "ay", "az"]
 GYRO_COLS = ["rx", "ry", "rz"]
 IMU_COLS = ACC_COLS + GYRO_COLS
@@ -253,6 +255,17 @@ def build_windows(
         raw_labels, times, max_gap_ms=max_gap_ms, max_spike_ms=max_spike_ms,
     ).astype(float)
 
+    # Modern-Pool: gx/gy/gz vorhanden → 6 zusätzliche gravity-Features
+    # pro Window. has_gravity verlangt alle drei Achsen vorhanden UND
+    # mindestens ein Sample non-NaN (defensiv gegen halb-kaputte
+    # Exports).
+    grav_cols = ("gx", "gy", "gz")
+    has_gravity = (
+        set(grav_cols).issubset(df.columns)
+        and not df[list(grav_cols)].isna().all().all()
+    )
+    grav_arr = df[list(grav_cols)].to_numpy(dtype=float) if has_gravity else None
+
     has_task_id = "task_id" in df.columns
     has_task_cat = "task_category" in df.columns
     task_ids = df["task_id"].to_numpy() if has_task_id else None
@@ -264,6 +277,11 @@ def build_windows(
         feats = _window_features(imu[start:end], fs_hz=fs_hz)
         feats["label"] = int(labels[start:end].mean() >= min_label_ratio)
         feats["t_center_ms"] = float(times[start:end].mean())
+        if has_gravity:
+            grav_df = pd.DataFrame(
+                grav_arr[start:end], columns=list(grav_cols),
+            )
+            feats.update(_gravity_window_features(grav_df))
         # Task metadata propagated from merged CSV when markers attached.
         # Window-level value = mode of sample-level task_id over the window.
         # If the merged DF has no task_id (legacy session), the column is

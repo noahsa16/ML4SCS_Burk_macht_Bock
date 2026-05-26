@@ -72,3 +72,48 @@ def test_build_windows_explicit_fs_overrides_inference():
     feats_auto = build_windows(merged, max_gap_ms=0.0)              # auto = 100Hz
     feats_forced = build_windows(merged, fs_hz=50.0, max_gap_ms=0.0)  # alte Bug-Pfad
     assert len(feats_forced) > len(feats_auto)
+
+
+# ── Modern-Pool: gravity-aware features ─────────────────────────────
+
+
+def _synthetic_merged_modern(duration_s: float, fs_hz: float) -> pd.DataFrame:
+    """Wie _synthetic_merged + konstanter Gravity-Vektor (palm-down)."""
+    df = _synthetic_merged(duration_s, fs_hz)
+    n = len(df)
+    df["gx"] = np.zeros(n)
+    df["gy"] = np.zeros(n)
+    df["gz"] = np.full(n, -1.0)
+    return df
+
+
+def test_legacy_merged_produces_no_gravity_features():
+    merged = _synthetic_merged(10.0, 50.0)
+    feats = build_windows(merged, max_gap_ms=0.0)
+
+    assert "grav_mag_mean" not in feats.columns
+    assert "tilt_z_mean" not in feats.columns
+    assert "tilt_change" not in feats.columns
+
+
+def test_modern_merged_appends_six_gravity_features():
+    merged = _synthetic_merged_modern(10.0, 50.0)
+    feats = build_windows(merged, max_gap_ms=0.0)
+
+    from src.features.gravity import GRAVITY_FEATURE_NAMES
+    for name in GRAVITY_FEATURE_NAMES:
+        assert name in feats.columns, f"missing {name}"
+
+    # Stationary palm-down gravity → grav_mag ≈ 1.0, tilt_z ≈ π,
+    # tilt_change ≈ 0 across all windows.
+    assert (feats["grav_mag_mean"] - 1.0).abs().max() < 1e-6
+    assert (feats["tilt_change"]).abs().max() < 1e-6
+
+
+def test_partial_gravity_columns_treated_as_legacy():
+    # Defensive: nur gx vorhanden (kaputter Export) → keine Gravity-Features.
+    merged = _synthetic_merged(10.0, 50.0)
+    merged["gx"] = 0.0
+    feats = build_windows(merged, max_gap_ms=0.0)
+
+    assert "grav_mag_mean" not in feats.columns
