@@ -35,8 +35,12 @@ def _load_watch_timeline(session_id: str) -> tuple[list[dict[str, Any]], Optiona
                 rx = _as_float(row.get("rx"))
                 ry = _as_float(row.get("ry"))
                 rz = _as_float(row.get("rz"))
+                gx = _as_float(row.get("gx"))
+                gy = _as_float(row.get("gy"))
+                gz = _as_float(row.get("gz"))
                 acc_mag = math.sqrt(ax*ax + ay*ay + az*az) if None not in (ax, ay, az) else None
                 gyro_mag = math.sqrt(rx*rx + ry*ry + rz*rz) if None not in (rx, ry, rz) else None
+                grav_mag = math.sqrt(gx*gx + gy*gy + gz*gz) if None not in (gx, gy, gz) else None
                 rows.append({
                     "source_ts": source_ts,
                     "local_ts": local_ts,
@@ -44,9 +48,11 @@ def _load_watch_timeline(session_id: str) -> tuple[list[dict[str, Any]], Optiona
                     + 0.35 * (acc_mag if acc_mag is not None else 0.0),
                     "acc_mag": acc_mag,
                     "gyro_mag": gyro_mag,
+                    "grav_mag": grav_mag,
                     "sequence": _as_int(row.get("sequence")),
                     "has_accel": acc_mag is not None,
                     "has_gyro": gyro_mag is not None,
+                    "has_gravity": grav_mag is not None,
                     "has_server_ms": _as_int(row.get("server_received_ms")) is not None,
                 })
     except Exception as exc:
