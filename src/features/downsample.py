@@ -34,9 +34,14 @@ _NUMERIC_IMU_COLS = ("ax", "ay", "az", "rx", "ry", "rz", "gx", "gy", "gz")
 
 
 def _infer_source_hz(df: pd.DataFrame) -> float:
-    """Determine source rate from the sample_rate_hz column or from ts diffs."""
+    """Determine source rate from the sample_rate_hz column or from ts diffs.
+
+    Why median: sample_rate_hz can vary within a session (Phone-App-Settings
+    can switch 50↔100 mid-recording per CLAUDE.md). The first row alone
+    would mis-infer; ts-diff fallback uses median for the same reason.
+    """
     if "sample_rate_hz" in df.columns and df["sample_rate_hz"].notna().any():
-        return float(df["sample_rate_hz"].dropna().iloc[0])
+        return float(df["sample_rate_hz"].dropna().median())
     if "ts" in df.columns:
         ts = df["ts"].dropna().astype(float).to_numpy()
         diffs = np.diff(ts)
@@ -75,33 +80,35 @@ def downsample_watch_df(
     # Anti-aliased decimation per numeric IMU column. zero_phase=True
     # uses filtfilt under the hood to avoid time-shifts in the output —
     # important when downstream code aligns to pen wall-clock.
+    # NaN-Behandlung: scipy.signal.decimate raised auf NaN. Wir imputieren
+    # mit dem Spalten-Mean (NICHT restored danach — die paar imputed
+    # Samples werden vom Quality-Engine via Coverage-Check sowieso erfasst,
+    # bei vielen NaN ist's ein Upstream-Problem nicht eines hier).
+    # Metadata-Spalten (local_ts, local_ts_ms, ts, session_id, sequence,
+    # source) werden via strided slice [::factor] geholt — local_ts_ms
+    # behält dadurch die ECHTEN Wall-Clock-Werte des halbierten Sample-
+    # Sets statt synthetisch berechneter Werte. Wichtig für Pen-Alignment.
     imu_present = [c for c in _NUMERIC_IMU_COLS if c in df.columns]
     out: dict[str, np.ndarray] = {}
-    n_out = None
     for c in imu_present:
         arr = df[c].to_numpy(dtype=float)
-        # decimate doesn't tolerate NaN; impute with column mean before
-        # filtering, then restore NaN positions after decimation by
-        # mapping their indices.
         if np.isnan(arr).any():
             mean = float(np.nanmean(arr)) if np.isfinite(np.nanmean(arr)) else 0.0
             arr = np.where(np.isnan(arr), mean, arr)
-        decimated = signal.decimate(arr, factor, ftype="iir", zero_phase=True)
-        out[c] = decimated
-        n_out = len(decimated) if n_out is None else n_out
+        out[c] = signal.decimate(arr, factor, ftype="iir", zero_phase=True)
 
-    if n_out is None:
-        # Edge case: no IMU columns at all (malformed input). Fall back to
-        # plain strided decimation across all columns.
-        n_out = len(df) // factor
+    # Why min(): scipy.signal.decimate kann je nach Filter-Settings ±1 Sample
+    # zwischen Kanälen liefern; wir trunken auf den kleinsten gemeinsamen
+    # Nenner, damit DataFrame-Construction nicht 'arrays must all be same
+    # length' wirft.
+    n_out = min((len(v) for v in out.values()), default=len(df) // factor)
+    for c in imu_present:
+        out[c] = out[c][:n_out]
 
-    # Strided slicing for non-IMU metadata columns. Keep first sample of
-    # each source-window — preserves session_id, sequence, timestamps.
     for c in df.columns:
         if c in imu_present:
             continue
-        sliced = df[c].to_numpy()[::factor][:n_out]
-        out[c] = sliced
+        out[c] = df[c].to_numpy()[::factor][:n_out]
 
     result = pd.DataFrame(out, columns=list(df.columns))
 
