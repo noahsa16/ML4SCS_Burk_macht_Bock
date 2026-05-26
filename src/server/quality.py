@@ -69,6 +69,7 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
 
     accel_rows = sum(1 for r in watch_rows if r["has_accel"])
     gyro_rows = sum(1 for r in watch_rows if r["has_gyro"])
+    gravity_rows = sum(1 for r in watch_rows if r.get("has_gravity"))
     server_time_rows = sum(1 for r in watch_rows if r["has_server_ms"])
     pen_server_time_rows = sum(1 for r in pen_rows if r["has_local_ts_ms"])
 
@@ -207,6 +208,7 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
             "row_count": len(watch_rows),
             "accel_rows": accel_rows,
             "gyro_rows": gyro_rows,
+            "gravity_rows": gravity_rows,
             "server_time_rows": server_time_rows,
             "ts_values": watch_ts_values,
             "median_dt_ms": median_dt_ms,
@@ -485,6 +487,9 @@ def _session_quality(row: dict[str, str]) -> dict[str, Any]:
             "accelerometer_rows": w["accel_rows"],
             "has_gyroscope": w["gyro_rows"] > 0,
             "gyroscope_rows": w["gyro_rows"],
+            "has_gravity": w["gravity_rows"] > 0,
+            "gravity_rows": w["gravity_rows"],
+            "pool": "modern" if w["gravity_rows"] > 0 else "legacy",
             "has_server_received_ms": w["server_time_rows"] > 0,
             "server_received_ms_rows": w["server_time_rows"],
             "sequence_batches": w["sequence_batches"],
