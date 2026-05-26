@@ -42,6 +42,10 @@ WATCH_FIELDNAMES = [
     "local_ts", "local_ts_ms", "session_id", "sequence", "sample_rate_hz",
     "watch_sent_at", "phone_received_at", "server_received_ms", "source",
     "ts", "ax", "ay", "az", "rx", "ry", "rz",
+    # Gravity vector (Modern-Pool ab 2026-05-26). Pre-Modern-Sessions haben
+    # diese Spalten leer. ax/ay/az bleiben user-acceleration ohne g; total
+    # acceleration = (ax+gx, ay+gy, az+gz) ist jederzeit ableitbar.
+    "gx", "gy", "gz",
 ]
 AIRPODS_FIELDNAMES = [
     "local_ts", "local_ts_ms", "session_id", "sequence", "sample_rate_hz",

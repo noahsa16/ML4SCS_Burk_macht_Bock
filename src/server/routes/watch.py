@@ -168,6 +168,9 @@ async def receive_watch(request: Request):
             "rx":  s.rx,
             "ry":  s.ry,
             "rz":  s.rz,
+            "gx":  s.gx,
+            "gy":  s.gy,
+            "gz":  s.gz,
         })
         valid_count += 1
 
@@ -197,6 +200,9 @@ async def receive_watch(request: Request):
             "rx": _round_or_none(s.rx),
             "ry": _round_or_none(s.ry),
             "rz": _round_or_none(s.rz),
+            "gx": _round_or_none(s.gx),
+            "gy": _round_or_none(s.gy),
+            "gz": _round_or_none(s.gz),
             "acc_mag": _round_or_none(acc_mag),
             "gyro_mag": _round_or_none(gyro_mag),
             "server_received_ms": server_received_ms,
