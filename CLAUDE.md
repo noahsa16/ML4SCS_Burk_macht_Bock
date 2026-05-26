@@ -388,7 +388,10 @@ Two Xcode targets:
 
 - **WatchStreamer Watch App** (`MotionManager.swift`): captures
   `CMDeviceMotion` over `WCSession.sendMessage` (or `transferUserInfo`
-  background fallback). Sample-Rate und Batch-Größe sind konfigurierbar
+  background fallback). Streamt seit 2026-05-26 **9 Kanäle pro Sample**:
+  `motion.userAcceleration` (ax/ay/az), `motion.rotationRate`
+  (rx/ry/rz) und `motion.gravity` (gx/gy/gz) — siehe
+  *Pool architecture*. Sample-Rate und Batch-Größe sind konfigurierbar
   (Phone-App → Settings → Motion; Default 50 Hz / Batch 10) — die Werte
   kommen über jeden `command`/Poll-Reply als `requested_hz`/`batch_size`
   und werten `effectiveHz`/`effectiveBatchSize` aus (H3). Was sonst
@@ -606,8 +609,14 @@ without `local_ts_ms` cannot be aligned and are flagged as
 ```
 local_ts, local_ts_ms, session_id, sequence, sample_rate_hz,
 watch_sent_at, phone_received_at, server_received_ms, source,
-ts, ax, ay, az, rx, ry, rz
+ts, ax, ay, az, rx, ry, rz,
+gx, gy, gz     # Modern-Pool only (ab 2026-05-26); leer für Legacy-Sessions
 ```
+
+`ax/ay/az` sind weiterhin `motion.userAcceleration` (ohne g). `gx/gy/gz`
+sind `motion.gravity` separat, Modern-Pool-Sessions ab 2026-05-26.
+Total acceleration = `(ax+gx, ay+gy, az+gz)` jederzeit ableitbar. Siehe
+*Pool architecture* unten.
 
 **Pen CSV** (`data/raw/pen/{session}_pen.csv`):
 ```
@@ -703,6 +712,72 @@ watch.local_ts_ms). `rate_mismatch`-Ticks werden **nicht** geschrieben
 fälschlich als idle-Zeit zählen würde). Wächst ~3 MB/Tag bei
 dauerhaftem Streaming. Read-Side: `src/server/routes/focus.py`
 aggregiert pro Tag/Woche on-demand (kein Cache).
+
+## Pool architecture (Legacy vs Modern)
+
+Seit 2026-05-26 unterscheidet die Pipeline zwei Watch-Daten-Pools:
+
+| Pool | Hz | Watch-Kanäle | Features/Window | Inhalt |
+|---|---:|---:|---:|---|
+| **Legacy** | 50 | 6 (ax/ay/az + rx/ry/rz) | 88 | Die 10 LOSO-Probanden + Vorgeschichte |
+| **Transition** | 100 | 6 | 88 | S032, S033 (Noah-Selbsttests vor dem Gravity-Fix) |
+| **Modern** | 100 | 9 (+ gx/gy/gz) | 94 | Alle Sessions ab 2026-05-26 |
+
+**Warum zwei Pools statt einer:** der Prof hat (zu Recht) zurückgemeldet
+dass `userAcceleration` ohne `gravity` einen Teil der nützlichen
+Information verschenkt — die Wrist-Orientierung relativ zur Schwerkraft
+ist informativ für Schreiben. Modern-Pool capture jetzt
+`motion.gravity` separat (`MotionManager.swift`, ab Commit 07577a9).
+Alte Sessions haben kein Gravity (kann nicht retro-imputiert werden).
+
+**Pool-Detection ist runtime-derived**, kein neuer sessions.csv-Eintrag:
+- `_load_watch_timeline` parsed `gx/gy/gz` wenn Spalten existieren,
+  setzt `has_gravity`/`grav_mag` pro Row
+- `_session_facts` aggregiert `gravity_rows`, `/sessions/{id}/report`
+  exponiert `has_gravity` + `pool` ("legacy" | "modern")
+- `build_windows` detektiert die Spalten in `merged.csv` und hängt
+  6 zusätzliche gravity-Features an (`grav_mag_mean/std`,
+  `tilt_x/y/z_mean`, `tilt_change` — siehe `src/features/gravity.py`)
+- `tilt_change` ist der **Winkel zwischen aufeinanderfolgenden
+  Gravity-Vektoren** (`arccos(dot(g_i, g_i+1) / (|g_i|·|g_i+1|))`),
+  *nicht* der Per-Achsen-Mittelwert — letzteres unterschätzt Rotationen
+  systematisch um Faktor ~0.66
+
+**LOSO Pool-Selection** via `train_loso.py --pool {auto,legacy,modern}`:
+- `auto` (default): include all sessions; wenn gemischt → gravity-
+  Spalten global gedropt (NaN-Padding vom concat würde sonst RF.fit
+  crashen)
+- `legacy`: nur Legacy-Sessions, 88 Features. Bestehende Headline.
+- `modern`: nur Modern-Sessions mit voller Gravity-Coverage, 94 Features
+
+Bei `--pool != auto` werden `--save-final-model`/`--save-cv-csv`/
+`--save-oof` automatisch in `*_modern.*` / `*_legacy.*`-Sibling
+gespeichert — damit das generische `rf_all.joblib` (von Live-Inference
++ Regression + Engagement konsumiert) nicht stillschweigend mit einem
+pool-spezifischen Modell überschrieben wird.
+
+**Cross-Pool-Mixing via Downsample-Utility:**
+```bash
+python -m src.features.downsample S034 --target-hz 50           # drop g
+python -m src.features.downsample S034 --target-hz 50 --keep-gravity
+```
+Anti-aliased decimate (scipy.signal.decimate, 8th-order Chebyshev I,
+`zero_phase=True` für Zeitversatz-Vermeidung beim Pen-Alignment) +
+optional gravity-Spalten-Drop. Output: `{session}_watch_legacy.csv`
+(per default). Damit kann eine Modern-Session als Legacy-View
+behandelt werden — z. B. um sie im 10-Probanden-LOSO-Pool
+mittrainieren zu können oder um vor/nach-Sort-Stability-fair zu
+vergleichen.
+
+**Was wo lebt:**
+- `src/features/gravity.py` (+ `tests/test_gravity.py`): 6 Gravity-
+  Features, vektor-winkel-basiert
+- `src/features/downsample.py` (+ `tests/test_downsample.py`):
+  Cross-Pool-Bridge
+- `src/training/train_loso.py::_filter_pool` (+ `tests/test_train_loso_pool.py`):
+  Pool-Selection
+- `src/server/{config,models,routes/watch,timelines,quality}.py`:
+  Schema + Detection runtime-side
 
 ## Study Mode
 
