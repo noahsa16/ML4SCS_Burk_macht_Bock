@@ -756,18 +756,42 @@ gespeichert — damit das generische `rf_all.joblib` (von Live-Inference
 + Regression + Engagement konsumiert) nicht stillschweigend mit einem
 pool-spezifischen Modell überschrieben wird.
 
-**Cross-Pool-Mixing via Downsample-Utility:**
+**Cross-Pool-Mixing — vollständige Bash-Chain:**
 ```bash
-python -m src.features.downsample S034 --target-hz 50           # drop g
-python -m src.features.downsample S034 --target-hz 50 --keep-gravity
+# 1. Modern-Session (100 Hz, 9 Kanäle) zu Legacy-Format umwandeln
+python -m src.features.downsample S034 --target-hz 50
+#   → data/raw/watch/S034_watch_legacy.csv  (50 Hz, ohne gx/gy/gz)
+
+# 2. Merge auf die Legacy-Variante laufen lassen
+python -m src.merge S034 --watch-suffix legacy
+#   → data/processed/S034_merged_legacy.csv
+
+# 3. Features bauen (kein --suffix nötig, build_windows liest die
+#    merged.csv direkt). Output kommt zum kanonischen Pfad:
+python -m src.features S034
+# Note: erzeugt {session}_windows.csv — falls beide Varianten parallel
+# gebraucht werden, muss man die windows.csv händisch umbenennen ODER
+# die _legacy-merged.csv vor dem features-Lauf an die kanonische Stelle
+# kopieren. Sauberer Pipeline-Hook für mehrere Varianten ist offen.
+
+# 4. LOSO im Legacy-Pool-Modus
+python -m src.training.train_loso --pool legacy
 ```
 Anti-aliased decimate (scipy.signal.decimate, 8th-order Chebyshev I,
 `zero_phase=True` für Zeitversatz-Vermeidung beim Pen-Alignment) +
-optional gravity-Spalten-Drop. Output: `{session}_watch_legacy.csv`
-(per default). Damit kann eine Modern-Session als Legacy-View
-behandelt werden — z. B. um sie im 10-Probanden-LOSO-Pool
-mittrainieren zu können oder um vor/nach-Sort-Stability-fair zu
-vergleichen.
+optional gravity-Spalten-Drop. Default-Output:
+`{session}_watch_legacy.csv`. Damit kann eine Modern-Session als
+Legacy-View behandelt werden — z. B. um sie im 10-Probanden-LOSO-Pool
+mittrainieren zu können.
+
+**Bekannte Live-Inference-Lücke:** `src/server/inference.py::append_sample`
+nimmt aktuell nur 6 Kanäle (ax/ay/az/rx/ry/rz). Ein Modern-trainiertes
+Modell mit 94 Features ist deshalb **nicht** über die Live-Inference-
+Pipeline deploybar — würde auf 88 Legacy-Features einen Predict-Mismatch
+geben. Workaround bis das implementiert ist: für Live-Deployment
+trotzdem auf das Legacy-Modell (88 Features) fallback. Modern-Modell
+ist *nur* als LOSO-Headline-Artefakt nutzbar bis die Live-Pipeline auf
+9 Kanäle erweitert wird (Future-Work-Bullet).
 
 **Was wo lebt:**
 - `src/features/gravity.py` (+ `tests/test_gravity.py`): 6 Gravity-
