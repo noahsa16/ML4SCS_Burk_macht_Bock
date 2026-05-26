@@ -257,12 +257,15 @@ def build_windows(
 
     # Modern-Pool: gx/gy/gz vorhanden → 6 zusätzliche gravity-Features
     # pro Window. has_gravity verlangt alle drei Achsen vorhanden UND
-    # mindestens ein Sample non-NaN (defensiv gegen halb-kaputte
-    # Exports).
+    # *jedes* Sample non-NaN. Why: per-window NaN-Imputation würde sonst
+    # heterogene Feature-Verteilung pro Session erzeugen (manche Fenster
+    # haben gravity, manche NaN) — sauberer ist binäre Pool-Klassifikation
+    # auf Session-Ebene. Sessions mit auch nur einem NaN-gravity-Sample
+    # zählen als Legacy.
     grav_cols = ("gx", "gy", "gz")
     has_gravity = (
         set(grav_cols).issubset(df.columns)
-        and not df[list(grav_cols)].isna().all().all()
+        and not df[list(grav_cols)].isna().any().any()
     )
     grav_arr = df[list(grav_cols)].to_numpy(dtype=float) if has_gravity else None
 
