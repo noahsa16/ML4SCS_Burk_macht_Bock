@@ -75,6 +75,25 @@
         </div>
       </section>
 
+      <!-- Writing prediction (live model output) -->
+      <section class="adm-card adm-writing-card" id="admWritingCard" data-state="empty">
+        <span class="adm-card-eyebrow">/ writing prediction</span>
+        <span class="adm-writing-model" id="admWritingModel">—</span>
+        <div class="adm-writing-row">
+          <div class="adm-writing-state">
+            <span class="adm-writing-dot"></span>
+            <span class="adm-writing-label" id="admWritingLabel">—</span>
+          </div>
+          <svg class="adm-writing-spark" id="admWritingSpark"
+               viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true">
+            <polyline class="adm-writing-spark-line" points="" />
+          </svg>
+        </div>
+        <div class="adm-writing-proba">
+          <span id="admWritingProba">—</span><span class="adm-writing-proba-suffix">% writing</span>
+        </div>
+      </section>
+
       <!-- Live counters -->
       <section class="adm-card">
         <span class="adm-card-eyebrow">/ live counters</span>

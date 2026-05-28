@@ -301,3 +301,87 @@
   flex-direction: column;
   gap: 20px;
 }
+
+/* ═════ writing prediction card ═════════════════════════════ */
+.adm-writing-card {
+  position: relative;
+}
+.adm-writing-model {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 10px;
+  color: oklch(0.55 0.020 60);
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+.adm-writing-row {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 6px;
+}
+.adm-writing-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.adm-writing-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: oklch(0.78 0.012 70);
+  transition: background 180ms ease;
+}
+.adm-writing-label {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: oklch(0.35 0.018 55);
+}
+.adm-writing-spark {
+  flex: 1 1 auto;
+  height: 28px;
+  min-width: 80px;
+}
+.adm-writing-spark-line {
+  fill: none;
+  stroke: oklch(0.65 0.020 70);
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+  transition: stroke 180ms ease;
+}
+.adm-writing-proba {
+  margin-top: 8px;
+  font-family: 'IBM Plex Mono', monospace;
+  font-size: 12px;
+  color: oklch(0.55 0.020 60);
+}
+.adm-writing-proba-suffix { opacity: 0.7; margin-left: 2px; }
+
+.adm-writing-card[data-state="writing"] .adm-writing-dot {
+  background: oklch(0.62 0.155 145);
+  box-shadow: 0 0 0 4px oklch(0.62 0.155 145 / 0.18);
+}
+.adm-writing-card[data-state="writing"] .adm-writing-label {
+  color: oklch(0.45 0.135 145);
+}
+.adm-writing-card[data-state="writing"] .adm-writing-spark-line {
+  stroke: oklch(0.55 0.150 145);
+}
+
+.adm-writing-card[data-state="rate_mismatch"] .adm-writing-dot {
+  background: oklch(0.72 0.135 88);
+  box-shadow: 0 0 0 4px oklch(0.72 0.135 88 / 0.18);
+}
+.adm-writing-card[data-state="rate_mismatch"] .adm-writing-label {
+  color: oklch(0.55 0.130 78);
+  font-size: 16px;
+}
+
+[data-theme="dark"] .adm-writing-label { color: oklch(0.88 0.015 70); }
+[data-theme="dark"] .adm-writing-model,
+[data-theme="dark"] .adm-writing-proba { color: oklch(0.70 0.015 65); }
