@@ -1,0 +1,93 @@
+<!-- ════════════════════════════════════════════════════════════
+     Focus — writing-activity history
+     Contemplative counterpart to the Recording cockpit. The hero
+     number is the day's writing total; the right-hand strip shows
+     WHEN within today writing happened. Below: the past week as
+     architectural bars. Sleep-tracker for writing.
+     ════════════════════════════════════════════════════════════ -->
+
+<div class="focus-bg-glyph" aria-hidden="true">/</div>
+
+<div class="focus-shell">
+
+  <header class="focus-page-head">
+    <div class="focus-page-eyebrow">/ writing activity</div>
+    <h1 class="focus-page-title">Focus</h1>
+    <p class="focus-page-sub">Persistent, live-detected writing activity from your Apple Watch. The pen is no longer needed — this view is what the watch alone has seen.</p>
+  </header>
+
+  <!-- ════ TODAY — hero number + day timeline ══════════════════ -->
+  <section class="focus-sec focus-sec--today" id="focus-sec-today" style="--sec-delay: 0ms">
+    <header class="focus-sec-head">
+      <span class="focus-sec-label">/ today</span>
+      <div class="focus-live-pill" id="focusLivePill" data-state="idle">
+        <span class="focus-live-dot"></span>
+        <span class="focus-live-text">awaiting watch stream</span>
+      </div>
+    </header>
+
+    <div class="focus-today-grid">
+
+      <!-- Hero column: the number -->
+      <div class="focus-today-hero">
+        <div class="focus-hero-clock" id="focusHeroClock">0:00</div>
+        <div class="focus-hero-unit">hh:mm</div>
+        <div class="focus-hero-meta">
+          <div class="focus-hero-meta-row" id="focusHeroMetaStretches">
+            <span class="focus-hero-meta-num">—</span>
+            <span class="focus-hero-meta-key">stretches</span>
+          </div>
+          <div class="focus-hero-meta-row" id="focusHeroMetaFirst">
+            <span class="focus-hero-meta-num">—</span>
+            <span class="focus-hero-meta-key">first written</span>
+          </div>
+          <div class="focus-hero-meta-row" id="focusHeroMetaLast">
+            <span class="focus-hero-meta-num">—</span>
+            <span class="focus-hero-meta-key">last written</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Timeline column: when in the day -->
+      <div class="focus-today-timeline">
+        <div class="focus-day-key">/ when today</div>
+        <div class="focus-day-strip" id="focusDayStrip" role="img" aria-label="Writing stretches across today">
+          <div class="focus-day-gridlines" aria-hidden="true">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+          <div class="focus-day-now" id="focusDayNow" aria-hidden="true"></div>
+          <div class="focus-day-stretches" id="focusDayStretches">
+            <!-- stretch blocks injected by JS -->
+          </div>
+          <div class="focus-day-empty" id="focusDayEmpty">
+            <span class="focus-day-empty-line">/ no writing tracked today</span>
+            <span class="focus-day-empty-hint">start the watch app and write — your stretches appear here as they happen</span>
+          </div>
+        </div>
+        <div class="focus-day-axis" aria-hidden="true">
+          <span>00</span><span>06</span><span>12</span><span>18</span><span>24</span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ════ THE PAST WEEK — architectural bars ══════════════════ -->
+  <section class="focus-sec focus-sec--week" id="focus-sec-week" style="--sec-delay: 80ms">
+    <header class="focus-sec-head">
+      <span class="focus-sec-label">/ the past week</span>
+      <span class="focus-sec-meta" id="focusWeekMeta">—</span>
+    </header>
+
+    <div class="focus-week-strip" id="focusWeekStrip" role="img" aria-label="Writing time per day, last seven days">
+      <!-- 7 day columns injected by JS -->
+    </div>
+  </section>
+
+  <!-- ════ FOOTER NOTE — model attribution ════════════════════════ -->
+  <footer class="focus-foot">
+    <span class="focus-foot-label">/ model</span>
+    <span class="focus-foot-text" id="focusModelText">awaiting first inference tick</span>
+  </footer>
+
+</div>

@@ -87,19 +87,20 @@ Reliability-Diagramm bleibt die Modell-Qualitäts-Diagnostik.
 
 ### Skalen-Effekt — Kern-Story für die Endpräsentation
 
-Binärer Schätzer (`mean(proba_cal ≥ 0,5)`):
+Binärer Schätzer (`mean(proba_cal ≥ 0,5)`). Aktualisiert 2026-05-26
+nach OOF-Re-Generation auf den post Sort-Stability-Features:
 
 | Decision-Window | n | MAE | RMSE | Bias |
 |---|---|---|---|---|
-| 60 s | 161 | 7,6 pp | 10,4 pp | +0,27 |
-| 300 s | 40 | 6,8 pp | 9,2 pp | +1,26 |
-| ganze Session | 10 | **3,5 pp** | 4,4 pp | +0,15 |
+| 60 s | 161 | 7,7 pp | 10,7 pp | +0,57 |
+| 300 s | 40 | 6,9 pp | 9,6 pp | +1,92 |
+| ganze Session | 10 | **3,6 pp** | 4,3 pp | +0,39 |
 
 Der **Bias bleibt auf jeder Skala ~0** — die Schätzung ist unverzerrt.
 Was mit der Fenstergröße schrumpft, ist allein die **Streuung**
-(MAE 7,6 → 3,5 pp). Das beweist: der Sekunden-Fehler des Modells ist
+(MAE 7,7 → 3,6 pp). Das beweist: der Sekunden-Fehler des Modells ist
 überwiegend Rauschen, nicht systematische Fehleinschätzung. Über eine
-ganze Sitzung schätzt das Modell den Schreibanteil auf ~3,5 pp genau.
+ganze Sitzung schätzt das Modell den Schreibanteil auf ~3,6 pp genau.
 
 Gegen die rohe Pen-Wahrheit: Bias durchgehend ~+21 pp (Überschätzung)
 — der erwartete, sauber sichtbare Closing-Effekt.

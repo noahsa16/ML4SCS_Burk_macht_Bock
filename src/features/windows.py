@@ -29,6 +29,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from src.features.gravity import _gravity_window_features
+
 ACC_COLS = ["ax", "ay", "az"]
 GYRO_COLS = ["rx", "ry", "rz"]
 IMU_COLS = ACC_COLS + GYRO_COLS
@@ -39,10 +41,25 @@ DATA_PROC = ROOT / "data" / "processed"
 _MERGED_RE = re.compile(r"^(S\d+)_merged\.csv$")
 
 
+def infer_fs_hz(merged: pd.DataFrame, fallback: float = 50.0) -> float:
+    # Why: 100-Hz-Streaming kam nach dem Original-50-Hz-Default; ohne
+    # Auto-Detection rechnen wir bei 100-Hz-Sessions Fenster/FFT/Jerk falsch
+    # (Befund aus S032-100-Hz-Selbsttest 2026-05-24).
+    # Watch sendet in Batches -> viele Samples teilen local_ts_ms, deshalb
+    # NICHT median(diff): nimm den globalen Mittelwert ueber die Spanne.
+    if "local_ts_ms" not in merged.columns or len(merged) < 2:
+        return fallback
+    t = merged["local_ts_ms"].to_numpy(dtype=float)
+    span_ms = float(t.max() - t.min())
+    if span_ms <= 0:
+        return fallback
+    return float((len(t) - 1) * 1000.0 / span_ms)
+
+
 def smooth_labels(
     label: np.ndarray,
     t_ms: np.ndarray,
-    max_gap_ms: float = 300.0,
+    max_gap_ms: float = 2500.0,
     max_spike_ms: float = 0.0,
 ) -> np.ndarray:
     """Morphologisches Glätten der binären Schreib-Label-Sequenz.
@@ -125,7 +142,7 @@ def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.corrcoef(a, b)[0, 1])
 
 
-def _window_features(window: np.ndarray, fs_hz: float = 50.0) -> dict[str, float]:
+def _window_features(window: np.ndarray, fs_hz: float) -> dict[str, float]:
     """Per-axis stats + magnitude + spectral + jerk + correlation features.
 
     Layout for one (N, 6) IMU window (axes: ax, ay, az, rx, ry, rz):
@@ -193,9 +210,9 @@ def build_windows(
     merged: pd.DataFrame,
     window_sec: float = 1.0,
     stride_sec: float = 0.5,
-    fs_hz: float = 50.0,
+    fs_hz: float | None = None,
     min_label_ratio: float = 0.6,
-    max_gap_ms: float = 300.0,
+    max_gap_ms: float = 2500.0,
     max_spike_ms: float = 0.0,
 ) -> pd.DataFrame:
     """Build feature rows from a watch-base merged DataFrame.
@@ -213,9 +230,18 @@ def build_windows(
     if missing:
         raise ValueError(f"merged CSV is missing columns: {sorted(missing)}")
 
-    df = merged.dropna(subset=[*IMU_COLS, "local_ts_ms"]).sort_values("local_ts_ms")
+    # Why: ts is the watch's per-sample monotonic clock. local_ts_ms is the
+    # server's batch-receive time -> 10+ samples share it, and an unstable
+    # sort scrambles within-batch ordering, which breaks every order-sensitive
+    # feature (FFT, jerk, ZCR, correlations). Sorting by ts gives globally
+    # monotonic per-sample order, matching what live inference sees.
+    sort_col = "ts" if "ts" in merged.columns else "local_ts_ms"
+    df = merged.dropna(subset=[*IMU_COLS, sort_col]).sort_values(sort_col, kind="stable")
     if df.empty:
         return pd.DataFrame()
+
+    if fs_hz is None:
+        fs_hz = infer_fs_hz(df)
 
     win = int(round(window_sec * fs_hz))
     stride = int(round(stride_sec * fs_hz))
@@ -229,6 +255,20 @@ def build_windows(
         raw_labels, times, max_gap_ms=max_gap_ms, max_spike_ms=max_spike_ms,
     ).astype(float)
 
+    # Modern-Pool: gx/gy/gz vorhanden → 6 zusätzliche gravity-Features
+    # pro Window. has_gravity verlangt alle drei Achsen vorhanden UND
+    # *jedes* Sample non-NaN. Why: per-window NaN-Imputation würde sonst
+    # heterogene Feature-Verteilung pro Session erzeugen (manche Fenster
+    # haben gravity, manche NaN) — sauberer ist binäre Pool-Klassifikation
+    # auf Session-Ebene. Sessions mit auch nur einem NaN-gravity-Sample
+    # zählen als Legacy.
+    grav_cols = ("gx", "gy", "gz")
+    has_gravity = (
+        set(grav_cols).issubset(df.columns)
+        and not df[list(grav_cols)].isna().any().any()
+    )
+    grav_arr = df[list(grav_cols)].to_numpy(dtype=float) if has_gravity else None
+
     has_task_id = "task_id" in df.columns
     has_task_cat = "task_category" in df.columns
     task_ids = df["task_id"].to_numpy() if has_task_id else None
@@ -240,6 +280,11 @@ def build_windows(
         feats = _window_features(imu[start:end], fs_hz=fs_hz)
         feats["label"] = int(labels[start:end].mean() >= min_label_ratio)
         feats["t_center_ms"] = float(times[start:end].mean())
+        if has_gravity:
+            grav_df = pd.DataFrame(
+                grav_arr[start:end], columns=list(grav_cols),
+            )
+            feats.update(_gravity_window_features(grav_df))
         # Task metadata propagated from merged CSV when markers attached.
         # Window-level value = mode of sample-level task_id over the window.
         # If the merged DF has no task_id (legacy session), the column is
@@ -288,12 +333,16 @@ def main() -> None:
     parser.add_argument("--window-sec", type=float, default=1.0)
     parser.add_argument("--stride-sec", type=float, default=0.5)
     parser.add_argument(
-        "--max-gap-ms", type=float, default=300.0,
+        "--max-gap-ms", type=float, default=2500.0,
         help="Idle-Lücken ≤ X ms zwischen Schreib-Runs werden zu Schreiben (Closing). 0 = aus.",
     )
     parser.add_argument(
         "--max-spike-ms", type=float, default=0.0,
         help="Schreib-Spitzen ≤ X ms zwischen Idle-Runs werden zu Idle (Opening). 0 = aus.",
+    )
+    parser.add_argument(
+        "--fs-hz", type=float, default=None,
+        help="Sample-Rate (Hz). Default: aus local_ts_ms abgeleitet.",
     )
     parser.add_argument("--out", type=Path, help="Ausgabepfad (default: data/processed/{session}_windows.csv)")
     args = parser.parse_args()
@@ -303,6 +352,7 @@ def main() -> None:
         sid,
         window_sec=args.window_sec,
         stride_sec=args.stride_sec,
+        fs_hz=args.fs_hz,
         max_gap_ms=args.max_gap_ms,
         max_spike_ms=args.max_spike_ms,
     )

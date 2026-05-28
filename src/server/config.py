@@ -42,6 +42,14 @@ WATCH_FIELDNAMES = [
     "local_ts", "local_ts_ms", "session_id", "sequence", "sample_rate_hz",
     "watch_sent_at", "phone_received_at", "server_received_ms", "source",
     "ts", "ax", "ay", "az", "rx", "ry", "rz",
+    # Gravity vector (Modern-Pool ab 2026-05-26). Pre-Modern-CSVs auf Disk
+    # haben diese Spalten gar nicht; pandas/DictReader liefert dann NaN/None
+    # — Lese-Code muss damit umgehen. `_ensure_csv_header` migriert Disk-
+    # CSVs beim nächsten Append per Full-Rewrite (Risikofenster bei Crash
+    # auf grossen Legacy-CSVs ~12 MB, in der Praxis vernachlässigbar weil
+    # Legacy-Sessions stopped sind). ax/ay/az bleiben user-acceleration
+    # ohne g; total acceleration = (ax+gx, ay+gy, az+gz) ist ableitbar.
+    "gx", "gy", "gz",
 ]
 AIRPODS_FIELDNAMES = [
     "local_ts", "local_ts_ms", "session_id", "sequence", "sample_rate_hz",

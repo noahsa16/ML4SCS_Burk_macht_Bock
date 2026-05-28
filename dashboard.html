@@ -19,6 +19,7 @@
 <link rel="stylesheet" href="/static/css/system.css">
 <link rel="stylesheet" href="/static/css/settings.css">
 <link rel="stylesheet" href="/static/css/admin.css">
+<link rel="stylesheet" href="/static/css/focus.css">
 <link rel="stylesheet" href="/static/css/footer.css">
 <link rel="modulepreload" href="/static/dashboard.js">
 <link rel="modulepreload" href="/static/js/core/state.js">
@@ -47,6 +48,7 @@
     </button>
     <nav class="tabs" role="tablist">
       <button type="button" class="tab active" data-page="recording"   role="tab">Recording</button>
+      <button type="button" class="tab"        data-page="focus"       role="tab">Focus</button>
       <button type="button" class="tab"        data-page="sessions"    role="tab">Sessions</button>
       <!-- Admin tab is intentionally not listed here — the page lives at
            #admin and is reached via the brand-logo triple-click easter egg.
@@ -55,6 +57,11 @@
       <span class="tab-indicator" id="tabIndicator" aria-hidden="true"></span>
     </nav>
     <div class="topbar-right">
+      <div class="live-pill" id="liveInferencePill" data-state="idle" style="display:none"
+           title="Live writing-detection from rf_noah">
+        <span class="live-pill-dot"></span>
+        <span class="live-pill-text" id="liveInferencePillText">—</span>
+      </div>
       <div class="status-cluster" id="statusCluster" role="button" tabindex="0"
               aria-haspopup="dialog" aria-expanded="false"
               title="Click for device controls">
@@ -114,6 +121,7 @@
 
     <!-- ══════════ PAGE SLOTS (populated lazily by bootstrap) ══════════ -->
     <div class="page active" id="page-recording"     data-view="recording"></div>
+    <div class="page"        id="page-focus"         data-view="focus"></div>
     <div class="page"        id="page-sessions"      data-view="sessions"></div>
     <div class="page"        id="page-session-detail" data-view="session-detail"></div>
     <div class="page"        id="page-admin"         data-view="admin"></div>

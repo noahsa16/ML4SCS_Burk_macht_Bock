@@ -87,6 +87,24 @@ def _print_long_input_table(by_group: dict[tuple[str, int], pd.DataFrame]) -> No
               f"{a30:>7.3f}/{u30:<8.3f}")
 
 
+def _print_gap_table(by_group: dict[tuple[str, int], pd.DataFrame]) -> None:
+    """Tabelle 3: Train/Val/Test-Gap -- Under-/Overfit-Diagnose.
+
+    train = Fit auf die 8 Trainings-Personen, val = rotierende Holdout-
+    Person, test = Test-Person (per-Input-Window-Accuracy). Lese-Hilfe:
+    train ~ val ~ test  -> underfit (Modell zu klein);
+    train >> val ~ test  -> data-limited (cross-subject-Gap, Tuning hilft kaum);
+    train >> val >> test -> Overfit auf die Trainings-Personen.
+    """
+    print("\n=== Tabelle 3: Train/Val/Test-Gap (Under-/Overfit-Diagnose) ===")
+    print(f"{'Modell':<8}{'Input':>7}{'train':>9}{'val':>9}{'test':>9}"
+          f"{'train-test':>12}{'best_ep':>9}")
+    for (model, win), df in sorted(by_group.items()):
+        tr, va, te = df["train_acc"].mean(), df["val_acc"].mean(), df["accuracy"].mean()
+        print(f"{model:<8}{str(win) + 's':>7}{tr:>9.3f}{va:>9.3f}{te:>9.3f}"
+              f"{tr - te:>12.3f}{df['best_epoch'].mean():>9.1f}")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m src.training.deep")
     parser.add_argument(
@@ -99,7 +117,14 @@ def main() -> None:
     parser.add_argument("--include-all", action="store_true")
     parser.add_argument("--max-gap-ms", type=float, default=2500.0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument(
+        "--exclude-boundary", action="store_true",
+        help="Mehrdeutige Uebergangs-Fenster (writing-Anteil 0.4-0.6) "
+             "ausschliessen -- fuer das Label-Qualitaets-Experiment.",
+    )
     args = parser.parse_args()
+
+    exclude_boundary = (0.4, 0.6) if args.exclude_boundary else None
 
     models = ["cnn", "lstm", "gru"] if args.model == "all" else [args.model]
     windows = [1, 5] if args.win == "both" else [int(args.win)]
@@ -113,6 +138,7 @@ def main() -> None:
                 include_all=args.include_all,
                 max_gap_ms=args.max_gap_ms,
                 seed=args.seed,
+                exclude_boundary=exclude_boundary,
             )
             if df.empty:
                 print(f"[warn] {model_name}/{win}s: keine Folds.")
@@ -131,6 +157,7 @@ def main() -> None:
 
     _print_matched_table(by_group)
     _print_long_input_table(by_group)
+    _print_gap_table(by_group)
 
 
 if __name__ == "__main__":

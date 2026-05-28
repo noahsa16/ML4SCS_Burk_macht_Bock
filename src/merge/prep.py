@@ -94,7 +94,7 @@ def _prepare_pen_from_df(df: pd.DataFrame, anchor_local_ms: float | None) -> pd.
         cols.append("local_ts_ms")
     df = df[cols].copy()
     df = df[(df["x"] != -1) & (df["y"] != -1)].copy()
-    df = df.sort_values("timestamp").reset_index(drop=True)
+    df = df.sort_values("timestamp", kind="stable").reset_index(drop=True)
     df["device_time_ms"] = _device_aligned_time(
         df, "timestamp", ["local_ts_ms"], anchor_local_ms,
     )
@@ -114,7 +114,9 @@ def _prepare_pen_from_df(df: pd.DataFrame, anchor_local_ms: float | None) -> pd.
 
 
 def _prepare_watch_from_df(df: pd.DataFrame, anchor_local_ms: float | None) -> pd.DataFrame:
-    df = df.sort_values("ts").reset_index(drop=True)
+    # Why: stable sort keeps spill-drained samples (same `ts`) in arrival
+    # order — same fix as merge.py and windows.py for the sort-stability bug.
+    df = df.sort_values("ts", kind="stable").reset_index(drop=True)
     df["device_time_ms"] = _device_aligned_time(
         df, "ts", ["local_ts_ms", "server_received_ms"], anchor_local_ms,
     )

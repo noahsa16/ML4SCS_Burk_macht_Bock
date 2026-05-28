@@ -124,6 +124,46 @@ def test_watch_rejects_garbage_json(client):
     assert resp.status_code == 400
 
 
+def test_watch_accepts_legacy_payload_without_gravity(client, data_dirs):
+    """Pre-Modern Watch-Clients (Pre-2026-05-26) senden keine gx/gy/gz.
+    Server muss das transparent akzeptieren."""
+    legacy_sample = {"ts": 4000, "ax": 0.1, "ay": 0.2, "az": 0.9,
+                     "rx": 0.01, "ry": 0.02, "rz": 0.0}
+    payload = {"samples": [legacy_sample], "sessionId": "S100"}
+
+    resp = client.post("/watch", json=payload)
+    assert resp.status_code == 200
+    _flush_watch_writers()
+
+    with open(data_dirs.watch / "S100_watch.csv") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1
+    # Gravity columns exist in schema but are empty for legacy payloads.
+    assert rows[0].get("gx", "") == ""
+    assert rows[0].get("gy", "") == ""
+    assert rows[0].get("gz", "") == ""
+
+
+def test_watch_accepts_modern_payload_with_gravity(client, data_dirs):
+    """Modern Watch-Clients senden zusätzlich gx/gy/gz; Server schreibt
+    sie in die korrekten CSV-Spalten."""
+    modern_sample = {"ts": 5000, "ax": 0.1, "ay": 0.2, "az": 0.0,
+                     "rx": 0.01, "ry": 0.02, "rz": 0.0,
+                     "gx": 0.0, "gy": 0.0, "gz": -1.0}
+    payload = {"samples": [modern_sample], "sessionId": "S101"}
+
+    resp = client.post("/watch", json=payload)
+    assert resp.status_code == 200
+    _flush_watch_writers()
+
+    with open(data_dirs.watch / "S101_watch.csv") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1
+    assert float(rows[0]["gx"]) == 0.0
+    assert float(rows[0]["gy"]) == 0.0
+    assert float(rows[0]["gz"]) == -1.0
+
+
 def test_watch_skips_non_dict_samples(client, data_dirs):
     """One malformed sample shouldn't reject the whole batch."""
     payload = {

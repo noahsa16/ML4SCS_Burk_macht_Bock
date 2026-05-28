@@ -1,0 +1,245 @@
+"""Live writing-detection inference fuer den Focus-Tracker.
+
+Stateless Singleton der ein Modell laedt, einen Rolling-Sample-Buffer
+fuehrt und auf Anfrage eine Schreib-Wahrscheinlichkeit liefert.
+
+Datenfluss:
+    routes/watch.py POST /watch (pro Sample)
+        -> live.append_sample(ts_ms, ax, ay, az, rx, ry, rz)
+    broadcast._status_loop (1 Hz Tick)
+        -> live.predict() -> dict | None -> WS-Payload['live_inference']
+
+Feature-Paritaet zum Training: wir rufen _window_features() aus
+src.features.windows direkt auf. Dasselbe was im Trainings-CSV-Pfad
+laeuft, also keine Drift-Quelle.
+
+Modellwahl: rf_noah.joblib (personalisiert) wenn vorhanden, sonst
+rf_all.joblib (generisch). Erlaubt schmerzfreien Toggle spaeter.
+
+Optionaler Per-User-Z-Score: wenn das Joblib zscore_mu/sigma traegt,
+werden Features vor predict mit diesen festen Statistiken normiert.
+rf_noah hat aktuell None (datengetriebene Entscheidung) - der Code
+bleibt aber generisch fuer kuenftige Modelle.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from collections import deque
+from pathlib import Path
+from typing import Optional
+
+import joblib
+import numpy as np
+
+from src.features.windows import _window_features
+
+log = logging.getLogger(__name__)
+
+ROOT = Path(__file__).resolve().parents[2]
+MODELS = ROOT / "models"
+
+_DEFAULT_MODEL_PATHS = (
+    MODELS / "rf_noah.joblib",
+    MODELS / "rf_all_live.joblib",
+    MODELS / "rf_all.joblib",
+)
+
+# Why: nur Modelle, die als Live-Inferenz gemeint sind, sollen im UI-Picker
+# auftauchen. rf_S007 / rf_S013 sind Within-Session-Debug-Artefakte und
+# wuerden den Picker verschmutzen. Diese Liste ist die Whitelist.
+_USER_FACING_MODEL_NAMES = frozenset({"rf_noah", "rf_all_live", "rf_all"})
+
+WINDOW_SEC = 1.0
+SPARKLINE_MAXLEN = 60  # 1 min of 1-s-ticks
+BUFFER_MAXLEN = 240    # 2 s headroom @ 120 Hz worst case
+# Why: wenn der juengste Sample aelter ist als das, gilt der Buffer als
+# kalt - keine Inferenz auf veralteten Daten (z.B. nach Stream-Stopp).
+STALE_BUFFER_MS = 1500
+
+
+class LiveInference:
+    """Loaded model + rolling IMU buffer + recent proba history."""
+
+    def __init__(self) -> None:
+        self._bundle: Optional[dict] = None
+        self._loaded_from: Optional[Path] = None
+        # Rows: (ts_ms, ax, ay, az, rx, ry, rz)
+        self._buffer: deque[tuple] = deque(maxlen=BUFFER_MAXLEN)
+        self._proba_history: deque[tuple[int, float]] = deque(maxlen=SPARKLINE_MAXLEN)
+        # Cumulative writing time today, reset by date change in predict().
+        self._today_date: Optional[str] = None
+        self._today_writing_seconds: float = 0.0
+
+    def load_default_model(self) -> Optional[Path]:
+        for path in _DEFAULT_MODEL_PATHS:
+            if path.exists():
+                return self.load_model(path)
+        log.warning("live inference: no model found in %s", MODELS)
+        return None
+
+    def load_model(self, path: Path) -> Optional[Path]:
+        if not path.exists():
+            log.warning("live inference: model not found at %s", path)
+            return None
+        self._bundle = joblib.load(path)
+        self._loaded_from = path
+        log.info(
+            "live inference: loaded %s person=%s rate=%s n=%s",
+            path.name,
+            self._bundle.get("person_id"),
+            self._bundle.get("sample_rate_hz"),
+            self._bundle.get("n_windows"),
+        )
+        return path
+
+    @staticmethod
+    def list_available() -> list[dict]:
+        """Discover models in models/ that the live picker should offer."""
+        out: list[dict] = []
+        for path in sorted(MODELS.glob("rf_*.joblib")):
+            if path.stem not in _USER_FACING_MODEL_NAMES:
+                continue
+            try:
+                bundle = joblib.load(path)
+            except Exception:  # noqa: BLE001
+                log.exception("failed to read %s", path)
+                continue
+            out.append({
+                "id": path.stem,
+                "path": str(path),
+                "person_id": bundle.get("person_id"),
+                "sample_rate_hz": bundle.get("sample_rate_hz"),
+                "trained_on": bundle.get("trained_on"),
+                "n_windows": bundle.get("n_windows"),
+                "normalisation": bundle.get("normalisation",
+                    "baked" if bundle.get("zscore_mu") else "none"),
+                "note": bundle.get("note"),
+            })
+        return out
+
+    def append_sample(
+        self, ts_ms: int,
+        ax: float, ay: float, az: float,
+        rx: float, ry: float, rz: float,
+    ) -> None:
+        if None in (ax, ay, az, rx, ry, rz):
+            return
+        self._buffer.append((int(ts_ms), float(ax), float(ay), float(az),
+                             float(rx), float(ry), float(rz)))
+
+    def clear_buffer(self) -> None:
+        self._buffer.clear()
+
+    @property
+    def model_id(self) -> Optional[str]:
+        return self._loaded_from.stem if self._loaded_from else None
+
+    @property
+    def model_meta(self) -> dict:
+        if not self._bundle:
+            return {"model_id": None}
+        return {
+            "model_id": self.model_id,
+            "person_id": self._bundle.get("person_id"),
+            "sample_rate_hz": self._bundle.get("sample_rate_hz"),
+            "trained_on": self._bundle.get("trained_on"),
+            "n_windows": self._bundle.get("n_windows"),
+        }
+
+    def _estimate_fs(self) -> float:
+        if len(self._buffer) < 10:
+            return 0.0
+        ts_first = self._buffer[0][0]
+        ts_last = self._buffer[-1][0]
+        span_ms = ts_last - ts_first
+        if span_ms <= 0:
+            return 0.0
+        return (len(self._buffer) - 1) * 1000.0 / span_ms
+
+    def predict(self) -> Optional[dict]:
+        if self._bundle is None:
+            if self.load_default_model() is None:
+                return None
+
+        if len(self._buffer) < 10:
+            return None
+
+        now_ms = int(time.time() * 1000)
+        latest_ts = self._buffer[-1][0]
+        if now_ms - latest_ts > STALE_BUFFER_MS:
+            return None
+
+        fs = self._estimate_fs()
+        if fs <= 0:
+            return None
+
+        # Why: das Modell wurde bei einer bestimmten Sample-Rate trainiert
+        # (rf_noah = 100 Hz). Bei deutlicher Abweichung verschieben sich
+        # spektrale Feature-Verteilungen, ohne dass der RF einen Fehler
+        # signalisiert -- predict() gaebe scheinbar valide Wahrscheinlichkeiten
+        # auf out-of-distribution Daten zurueck. Lieber transparent skippen.
+        trained_fs = self._bundle.get("sample_rate_hz")
+        if trained_fs and abs(fs - trained_fs) / trained_fs > 0.2:
+            return {
+                "writing": False,
+                "proba": 0.0,
+                "model_id": self.model_id,
+                "person_id": self._bundle.get("person_id"),
+                "fs_hz": round(fs, 1),
+                "trained_fs_hz": trained_fs,
+                "rate_mismatch": True,
+                "today_writing_seconds": round(self._today_writing_seconds, 1),
+            }
+
+        n_window = max(8, int(round(WINDOW_SEC * fs)))
+        if len(self._buffer) < n_window:
+            return None
+
+        recent = list(self._buffer)[-n_window:]
+        imu = np.array([row[1:] for row in recent], dtype=float)
+        feats = _window_features(imu, fs_hz=fs)
+
+        feature_cols = self._bundle["feature_cols"]
+        x = np.array([feats[c] for c in feature_cols], dtype=float)
+
+        mu = self._bundle.get("zscore_mu")
+        sigma = self._bundle.get("zscore_sigma")
+        if mu is not None and sigma is not None:
+            mu_vec = np.array([mu[c] for c in feature_cols], dtype=float)
+            sig_vec = np.array([sigma[c] for c in feature_cols], dtype=float)
+            x = (x - mu_vec) / sig_vec
+
+        clf = self._bundle["model"]
+        proba = float(clf.predict_proba(x.reshape(1, -1))[0, 1])
+        writing = proba >= 0.5
+
+        self._proba_history.append((now_ms, proba))
+        self._tick_daily_aggregate(writing)
+
+        return {
+            "writing": writing,
+            "proba": round(proba, 3),
+            "model_id": self.model_id,
+            "person_id": self._bundle.get("person_id"),
+            "fs_hz": round(fs, 1),
+            "window_samples": n_window,
+            "today_writing_seconds": round(self._today_writing_seconds, 1),
+        }
+
+    def _tick_daily_aggregate(self, writing: bool) -> None:
+        # Why: ein Tick = 1 s Window-Decision. Ueber den Tag aufsummiert ist
+        # das die "Focus today"-Zahl. Datums-Wechsel resettet, ohne Persistenz
+        # ueber Server-Restart (das ist Task 5 mit dem CSV-Log).
+        today = time.strftime("%Y-%m-%d")
+        if self._today_date != today:
+            self._today_date = today
+            self._today_writing_seconds = 0.0
+        if writing:
+            self._today_writing_seconds += WINDOW_SEC
+
+    def sparkline(self) -> list[dict]:
+        return [{"t": t, "p": round(p, 3)} for t, p in self._proba_history]
+
+
+live = LiveInference()

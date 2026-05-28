@@ -57,6 +57,10 @@ data/raw/markers/
 # rows (e.g. uncommitted session_stop appends getting wiped on a checkout).
 data/sessions.csv
 
+# Focus-Tracker live-inference log — append-only at 1 Hz while server runs,
+# grows ~3 MB/day. Local artefact, not part of the repo.
+data/inference_log.csv
+
 # Local pipeline overview — personal cheat sheet, not part of repo docs.
 ML_PIPELINE_OVERVIEW.md
 
@@ -66,3 +70,8 @@ projektideen.md
 # Forecast / Lernkurven-Prognose — Research-Tooling + Artefakte,
 # nicht Teil der operativen Pipeline.
 forecast/
+
+# Xcode per-user IDE state (window layout, cursor positions, breakpoints).
+# Regenerates on every open and creates noisy diffs.
+**/xcuserdata/
+*.xcuserstate

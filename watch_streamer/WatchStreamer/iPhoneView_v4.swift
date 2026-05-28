@@ -166,20 +166,53 @@ final class IMUDataStore: ObservableObject {
     @Published var accSamples:  [Double] = Array(repeating: 0, count: 120)
     @Published var gyroSamples: [Double] = Array(repeating: 0, count: 120)
 
+    // Why: bei 100 Hz feuert pushBatch() doppelt so oft, und jeder Schreib auf
+    // ein @Published-Array triggert sofort einen Canvas-Redraw auf dem Main-
+    // Thread. Das sättigte den Main-Thread → Chart-Lag UND (als Folge) starvte
+    // die Steuerungs-Ebene (WS-handle / currentSessionId). Lösung: pushBatch()
+    // sammelt nur in nicht-publizierten Puffern; ein Timer schreibt sie ~12×/s
+    // in die @Published-Arrays. Der Chart bleibt flüssig, die Redraw-Rate ist
+    // jetzt von der Sample-Rate entkoppelt.
+    private var pendingAcc:  [Double] = Array(repeating: 0, count: 120)
+    private var pendingGyro: [Double] = Array(repeating: 0, count: 120)
+    private var dirty = false
+    private var flushTimer: Timer?
+
+    private init() {
+        let timer = Timer(timeInterval: 1.0 / 12.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.flush() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        flushTimer = timer
+    }
+
     func pushBatch(accValues: [Double], gyroValues: [Double]) {
-        var newAcc  = accSamples  + accValues
-        var newGyro = gyroSamples + gyroValues
+        var newAcc  = pendingAcc  + accValues
+        var newGyro = pendingGyro + gyroValues
         if newAcc.count  > 120 { newAcc  = Array(newAcc.suffix(120))  }
         if newGyro.count > 120 { newGyro = Array(newGyro.suffix(120)) }
-        accSamples  = newAcc
-        gyroSamples = newGyro
+        pendingAcc  = newAcc
+        pendingGyro = newGyro
+        dirty = true
+    }
+
+    /// Schreibt die gepufferten Samples in die @Published-Arrays — nur wenn
+    /// seit dem letzten Flush etwas ankam. Vom 12-Hz-Timer auf Main getrieben.
+    private func flush() {
+        guard dirty else { return }
+        dirty = false
+        accSamples  = pendingAcc
+        gyroSamples = pendingGyro
     }
 
     func startStreaming() {}
 
     func stopStreaming() {
+        pendingAcc  = Array(repeating: 0, count: 120)
+        pendingGyro = Array(repeating: 0, count: 120)
         accSamples  = Array(repeating: 0, count: 120)
         gyroSamples = Array(repeating: 0, count: 120)
+        dirty = false
     }
 }
 
@@ -1662,6 +1695,10 @@ struct SettingsTab: View {
     @AppStorage("serverIP")     private var serverIP   = "192.168.178.147"
     @AppStorage("ft_showStats") private var showStats  = true
     @AppStorage("ft_showLog")   private var showLog    = true
+    // H3 — Motion-Config. Wird von ServerCommandListener.watchPayload aus
+    // UserDefaults gelesen und über den 1-s-Watch-Poll an die Watch getragen.
+    @AppStorage("requestedHz")  private var requestedHz = 50.0
+    @AppStorage("batchSize")    private var batchSize   = 10
     @State private var editingIP = false
     @FocusState private var ipFocused: Bool
 
@@ -1763,12 +1800,43 @@ struct SettingsTab: View {
                                       : (bridge.isBridgeCapable ? t.yellow : t.red))
                         deviceRow("IMU rate",
                                   server.watchActualHz > 1 ? "\(Int(server.watchActualHz.rounded())) Hz (measured)"
-                                      : (server.currentSessionId != nil ? "max Hz" : "— Hz"))
-                        deviceRow("Batch size", server.currentSessionId != nil ? "5 samples" : "—")
+                                      : "\(Int(requestedHz)) Hz (set)")
+                        deviceRow("Batch size", "\(batchSize) samples")
                         deviceRow("Transport",  "WatchConnectivity")
                         deviceRow("Last data",  server.currentSessionId != nil ? "just now" : "—", isLast: true)
                     }
                     .padding(.horizontal, 14).padding(.vertical, 6)
+                }
+
+                sectionHeader("Motion — Watch")
+                FTCard {
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            FTSLabel(text: "Sample rate")
+                            Spacer()
+                            Picker("", selection: $requestedHz) {
+                                Text("50 Hz").tag(50.0)
+                                Text("100 Hz").tag(100.0)
+                            }
+                            .pickerStyle(.segmented)
+                            .frame(width: 150)
+                        }
+                        HStack {
+                            FTSLabel(text: "Batch size")
+                            Spacer()
+                            // Range bis 80: deckt den 100-Hz-Sweet-Spot (40)
+                            // + Tunnel-Reserve (50–60) ab. Die Watch clampt
+                            // ohnehin auf 1...200; >80 braechte nur Monitor-
+                            // Lag (N/Hz Pufferzeit) ohne Upload-Nutzen.
+                            Stepper("\(batchSize) samples",
+                                    value: $batchSize, in: 5...80, step: 5)
+                                .font(FT.mono(13)).foregroundColor(t.text)
+                        }
+                        Text("Wirkt ab der nächsten Aufnahme — die Watch übernimmt die Werte über den 1-s-Poll. Bei 100 Hz: Batch 40 empfohlen (haelt den Upload-Durchsatz; groesser = mehr Live-Monitor-Lag).")
+                            .font(FT.mono(9)).foregroundColor(t.text3)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(14)
                 }
 
                 HStack {
