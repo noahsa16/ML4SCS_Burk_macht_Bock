@@ -5,15 +5,13 @@
 **Semester project · Machine Learning for Smart and Connected Systems**  
 Team: Noah Samel · Ben Kriegsmann · Tajuddin Snasni
 
-(Picture to be added after next seminar)
-
 ---
 
 ## Research Question
 
 > Can writing activity be detected from IMU data (accelerometer + gyroscope) of an Apple Watch?
 
-The Moleskine Smart Pen is used as ground truth during data collection — its stroke events tell us when the wearer is actually writing, which lets us label the watch samples. Once the model is trained the pen is no longer needed; inference runs on the watch alone, which is the whole point of the project.
+The Moleskine Smart Pen is used as ground truth during data collection — its stroke events tell us when the wearer is actually writing, which lets us label the watch samples. Once the model is trained the pen is no longer needed; inference runs on the watch alone, which is the whole point of the project. A live deployment of the model is wired into the dashboard (Focus Tracker + topbar pill).
 
 ---
 
@@ -45,14 +43,16 @@ Moleskine Smart Pen (BLE)                                            │
                                                                      │
                                   data/processed/{session}_windows.csv
                                                                      │
-                                  src/training/within_session/    (RF baseline,
-                                    train_rf.py                    temporal 80/20 —
-                                                                   debug only)
                                   src/training/train_loso.py      (per-session z-score
                                                                    → LOSO cross-val —
                                                                    headline metric)
                                                                      │
-                                  models/rf_{session}.joblib
+                                  models/rf_all.joblib            (LOSO artefact)
+                                  models/rf_all_live.joblib       (deploy: pooled μ/σ)
+                                  models/rf_noah.joblib           (Personal, 100 Hz)
+                                                                     │
+                                  src/server/inference.py         (live @1 Hz → dashboard
+                                                                   topbar pill + Focus tab)
 ```
 
 ---
@@ -89,7 +89,7 @@ The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 sampl
 
 | Device | Role | Data |
 |--------|------|------|
-| Apple Watch (Series 6+) | Model input | Accelerometer + Gyroscope @ 50 Hz |
+| Apple Watch (Series 7) | Model input | Accelerometer + Gyroscope @ 50 or 100 Hz (configurable) |
 | AirPods (Pro / 3rd Gen) | Auxiliary input | Head IMU (accel + gyro + attitude) via `CMHeadphoneMotionManager` |
 | Moleskine Smart Pen NWP-F130 | Ground truth | x/y/pressure/dot_type via BLE |
 
@@ -103,15 +103,12 @@ src/server/                  Modular server (config, state, csv_io, quality,
                              routes/, study.py — Study Mode runner)
 src/alignment/               Pen↔IMU clock-offset recovery (stroke-variance)
 src/merge/                   Watch-base merge (1 row per IMU sample + label)
-src/features/                Sliding windows → 88 features per window
-src/training/                train_loso.py (headline) + within_session/ (debug)
-forecast/                    Learning-curve projection to N=99 probands
-scripts/plots/               Figure generation (plot_*.py)
-scripts/ml/                  Training, multi-model comparison, gap ablation
-scripts/analysis/            Per-proband LOSO error analysis
-scripts/checks/              Data-quality / forensic checks
+src/features/                Sliding windows → 88 features (94 with gravity)
+src/training/                train_loso.py (headline) + within_session/ + deep/
+src/evaluation/              Regression (Schreib-Prozent) + engagement post-proc
+scripts/plots/, scripts/ml/  Figures + training/ablation/diagnostic scripts
 scripts/ops/                 Server + tunnel shell helpers
-tests/                       138 smoke tests (~1.5 s)
+tests/                       252 smoke tests (~7 s)
 static/, dashboard.html      Web dashboard (page-modular ES modules)
 watch_streamer/              iOS + watchOS Xcode targets
 data/raw/, data/processed/   Per-session CSVs (raw committed, processed gitignored)
@@ -160,8 +157,8 @@ Server logs go to the terminal *and* `logs/server.log` (rotating). The same log 
 Once a session is recorded, the per-session preprocessing is two commands:
 
 ```bash
-python -m src.merge S029                      # watch-base merge → data/processed/S029_merged.csv
-python -m src.features S029 --max-gap-ms 300  # sliding windows  → data/processed/S029_windows.csv
+python -m src.merge S029                       # watch-base merge → data/processed/S029_merged.csv
+python -m src.features S029 --max-gap-ms 2500  # sliding windows  → data/processed/S029_windows.csv
 ```
 
 Without a session ID, `merge` and `features` operate on the most recent session.
@@ -175,19 +172,24 @@ python -m src.training.train_loso --by person      # true LOSO-by-person — wha
 python -m src.training.train_loso --by session     # leave-one-session-out fallback
 ```
 
-This is the evaluation that actually matches the project goal: a general writing detector that should work regardless of who is wearing the watch. Each fold holds out one subject completely, so the held-out data is never seen during training. The script prints per-fold accuracy and ROC-AUC plus a mean ± std summary. By default it only includes sessions marked `verdict ∈ {trainable, usable}` in `data/sessions.csv` (use `--include-all` to override).
+Each fold holds out one subject completely, so the held-out data is never seen during training. By default the script only includes sessions marked `verdict ∈ {trainable, usable}` (use `--include-all` to override).
 
-Current 5-subject LOSO result (Noah, P01, P02, P03, Taji) with RandomForest + per-session z-score + label closing `max_gap_ms=2000`: **accuracy 0.872 ± 0.020, ROC-AUC 0.940 ± 0.018, F1(writing) 0.887.** Per-1-s window — see the burst-aggregated numbers below for the user-facing view.
+**Current 10-subject LOSO** with RandomForest + per-session z-score + label closing `max_gap_ms=2500`:
 
-**Per-session z-score normalization** (on by default, `--no-zscore` to disable). Before fitting, each feature column is standardised per `session_id` — subtract that session's mean, divide by its std. The motivation is that the hardest cross-subject problem is *not* "which feature distinguishes writing"; it's that the same gesture produces different absolute feature values on different wrists (size, handedness, watch position, tightness of the strap). Per-session standardisation removes that absolute-scale component while preserving the relative structure within a session. Empirically the single biggest ML-side win of the early project: on the 3-person dataset it jumped accuracy from 0.812 → 0.838 and tightened fold-σ ~4× (0.042 → 0.009). Caveat for deployment: production needs a calibration phase (or rolling stats) to estimate μ, σ from the live stream before the model can be applied — a model trained with z-score cannot be served raw IMU features without that step.
+| Decision window | Accuracy | ROC-AUC |
+|---|---|---|
+| 1 s (per window) | **0.863 ± 0.032** | **0.935 ± 0.032** — F1(writing) 0.875 |
+| 5 s (burst-agg) | 0.902 ± 0.035 | 0.968 ± 0.030 |
+| 10 s (burst-agg) | 0.885 ± 0.037 | 0.957 ± 0.025 |
+| 30 s (burst-agg) | 0.844 ± 0.034 | 0.922 ± 0.029 |
 
-**Label-closing decision (`max_gap_ms`).** Default was historically 300 ms — close any pen-up gap shorter than that into a continuous "writing" label. After N=5 we ran a full LOSO ablation across `300 / 600 / 1000 / 1500 / 2000 / 2500` ms (`scripts/ml/ablate_gap_loso.py`); `2000` came out as the sweet spot: largest single-step gain of the project (acc +4.2 pp / AUC +3.5 pp / F1 +8.9 pp vs. 300), all 5 folds improving monotonically, σ tightening from 0.026 → 0.020. 2500 squeezed +0.3 pp more on the average but caused P02 to regress for the first time — 2000 is the last "no fold regresses" step. Semantically this redefines the label from "pen currently on paper" to "person in writing mode incl. micro-pauses ≤ 2 s", which is closer to what a writing-time tracker actually wants to detect.
+The 1-s window is right for *features* (FFT bands, label transitions) but not for an app — a writing-time tracker cares about "has the person written in the last 30 s?", so we report the same fold at 1/5/10/30 s by smoothing the 1-s probabilities per session and re-thresholding at 0.5.
 
-**Model comparison at the new label.** With `gap=2000`, the model family stops mattering — top-3 (SVM-RBF / HistGradBoost / RF) are within 0.6 pp accuracy of each other (0.872–0.878), all at AUC 0.940 ± 0.018. RF stays the headline default for stability and reproducibility; ExtraTrees is the speed champion (~0.9 s fit per fold, AUC 0.940). Full table in `reports/model_progression.md` under "Modellvergleich auf Run-08-Basis".
+**Per-session z-score** (on by default) standardises each feature per `session_id` before fitting — removes the absolute-scale drift between wrists (size, handedness, strap tightness). Biggest single ML-side win of the project. Caveat: a model trained with z-score needs a calibration phase to be served on raw live features — see `models/rf_all_live.joblib` for the deployment variant with pooled μ/σ baked in.
 
-#### Burst-aggregated metrics (decision window)
+**Label closing (`max_gap_ms=2500`)** redefines the label from "pen currently on paper" to "person in writing mode incl. micro-pauses ≤ 2.5 s". Gap sweep `300 → 2500` was the largest single-step gain of the project (acc +4.2 pp at N=5; tightened 6/7 folds at N=7; plateau-stable at N=10). `3000` regressed P05 — `2500` is the last "no systematic regression" step.
 
-The 1-s window is right for *features* (FFT bands, label transitions) but rarely the right *decision* window for an app — a writing-time tracker cares about "has the person written in the last 30 s?", not per-second accuracy. So `train_loso.py` reports the same fold at 1/5/10/30 s by smoothing the 1-s probabilities per session and re-thresholding at 0.5. With `--save-cv-csv` these land as extra columns in `models/loso_cv.csv`.
+**Deep models.** `python -m src.training.deep` runs 1D-CNN / LSTM / GRU on raw 50-Hz IMU sequences under the same LOSO-by-person protocol. RF on engineered features is still the headline; deep models have not caught up at this dataset size.
 
 ### Within-session baseline (for iterating)
 
@@ -198,7 +200,7 @@ python -m src.training.within_session.train_rf S029
 Temporal 80/20 split on a single session, 4-window gap to avoid leakage. **Not a generalisation claim** — used only for feature-iteration and label-smoothing tuning. Real numbers come from `train_loso.py`.
 
 ```bash
-pytest tests/     # 138 cases, ~1.5 s
+pytest tests/     # 252 cases, ~7 s
 ```
 
 ---
@@ -208,7 +210,7 @@ pytest tests/     # 138 cases, ~1.5 s
 The two files that actually feed the model:
 
 - **`data/processed/{session}_merged.csv`** — watch-base: one row per IMU sample + `label_writing ∈ {0, 1}` from the nearest pen `dot_type` within ±40 ms of the δ-corrected pen clock. Watch samples in pen-gaps → label 0.
-- **`data/processed/{session}_windows.csv`** — one row per 1 s sliding window (0.5 s stride) with 88 features (time-stats + spectral + jerk + ZCR + correlations), plus `label` and `t_center_ms`. Labels are morphologically closed (default 300 ms) at sample level before windowing.
+- **`data/processed/{session}_windows.csv`** — one row per 1 s sliding window (0.5 s stride) with 88 features (time-stats + spectral + jerk + ZCR + correlations), plus `label` and `t_center_ms`. Labels are morphologically closed (default `max_gap_ms=2500`) at sample level before windowing. Sessions captured with gravity (since 2026-05-26) get 6 extra features → 94 total — see [Pool architecture](#pool-architecture-legacy-vs-modern).
 
 Raw CSV schemas (watch, pen, AirPods, sessions index, Study-Mode markers) are documented in [CLAUDE.md](CLAUDE.md).
 
@@ -248,7 +250,7 @@ Each session is scored against a fixed set of checks defined in `quality.py`. Ev
 |-------|--------|
 | Watch has accelerometer (`ax/ay/az`) | Required |
 | Watch has gyroscope (`rx/ry/rz`) | Required |
-| Watch sample rate | 40–60 Hz (target: 50 Hz) |
+| Watch sample rate | 40–60 Hz or 80–120 Hz (target: 50 or 100 Hz) |
 | Pen CSV has `local_ts_ms` | Required for wall-clock anchor |
 | No sequence gaps in watch batches | Recommended |
 | Pen dots fall within watch time range | ≥ 80 % |
@@ -264,7 +266,11 @@ Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside
 
 ## Current Status
 
-The full pipeline is operational: capture → alignment → merge → features → training, plus Study Mode for counterbalanced recording. **Headline metric: 5-subject cross-subject LOSO (Noah, P01, P02, P03, Taji) with RandomForest + per-session z-score + label closing `max_gap_ms=2000` — accuracy 0.872 ± 0.020, ROC-AUC 0.940 ± 0.018, F1(writing) 0.887.** The label-closing switch (300 → 2000 ms) was the largest single-step gain of the project (+4.2 pp acc, all 5 folds improved monotonically). Detailed progression — Run 01 (single-subject baseline) → Run 08 (current) — and the multi-model comparison panel live in [`reports/model_progression.md`](reports/model_progression.md). Next milestone is N ≥ 8 probands; the learning-curve forecast (`forecast/`) becomes statistically meaningful around that point, and is roughly the threshold where 1D-CNN baselines start to be worth implementing.
+The full pipeline is operational end-to-end: capture → alignment → merge → features → training → evaluation → **live inference in the dashboard**. **Headline: 10-subject cross-subject LOSO with RandomForest + per-session z-score + `max_gap_ms=2500` — accuracy 0.863 ± 0.032, ROC-AUC 0.935 ± 0.032, F1(writing) 0.875.** Burst @5s: AUC 0.968; @30s: AUC 0.922. Detailed progression and model-comparison panel in [`reports/model_progression.md`](reports/model_progression.md).
+
+**Live deployment.** Inference runs in the server every 1 s (`src/server/inference.py`). The dashboard shows it as a topbar pill, a Recording-page card with sparkline, and a dedicated **Focus** tab with daily/weekly aggregation persisted across restarts. A model picker switches between Personal (`rf_noah`, 100 Hz, no z-score) and Generic (`rf_all_live`, pooled μ/σ baked in for raw-stream use).
+
+**Pool architecture (Legacy vs Modern).** Sessions before 2026-05-26 stream 6 channels (`ax/ay/az + rx/ry/rz`); newer sessions add `motion.gravity` separately for 9 channels → 6 extra gravity features (94 total). Pool is auto-detected at runtime; `train_loso.py --pool {legacy,modern,auto}` selects which to train on. `src/features/downsample.py` bridges modern sessions into the legacy pool for cross-pool LOSO.
 
 ---
 
