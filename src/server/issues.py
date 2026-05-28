@@ -20,17 +20,45 @@ _SYNC_SIGMA_WEAK_MAX = -1.0  # below: weak signal, warn
                               # above _SYNC_SIGMA_WEAK_MAX: flat curve, fail
 
 # ── Watch-Konfiguration: Quelle der Wahrheit ──────────────────────────────────
-# Watch streamt CMDeviceMotion bei _TARGET_WATCH_HZ; alle Coverage- und
-# Rate-Checks rechnen damit. Wenn der Watch-Code irgendwann auf 100 Hz geht,
-# muss hier nur eine Zeile geändert werden.
-_TARGET_WATCH_HZ      = 50.0
-_WATCH_HZ_MIN         = 40.0   # ±20% Toleranz
-_WATCH_HZ_MAX         = 60.0
+# Watch streamt CMDeviceMotion bei einer der Raten in _VALID_WATCH_HZ
+# (50 Hz Klassik, 100 Hz seit H1/H3-Commits per Phone-App konfigurierbar).
+# Quality-Checks ermitteln den effektiven Target je Session per Nearest-Match
+# zur beobachteten Rate, statt eine harte Konstante anzunehmen.
+_VALID_WATCH_HZ       = (50.0, 100.0)
+_TARGET_WATCH_HZ      = 50.0   # Default fallback, only used when no rate is observable
+_WATCH_HZ_TOL_PCT     = 0.20   # ±20% Toleranz um den Nearest-Valid-Target
 _TARGET_AIRPODS_HZ    = 25.0   # CMHeadphoneMotionManager: fix bei 25 Hz
 _COVERAGE_PCT_MIN     = 0.7    # Anteil der erwarteten Samples
 _PEN_IN_RANGE_PCT_MIN = 0.80   # vorher 0.95 — lockerer
 _COUNT_TOL_FLOOR      = 20     # absolute Mindesttoleranz
 _COUNT_TOL_PCT        = 0.02   # relative Toleranz (2%)
+
+
+def watch_target_hz(observed_hz: float | None) -> float:
+    """Closest valid watch rate (50 or 100) to the observed rate.
+
+    Used by both the rate-range check and the expected-samples coverage
+    computation, so a 100 Hz session is no longer flagged out-of-range and
+    its coverage check uses the right baseline.
+    """
+    if observed_hz is None:
+        return _TARGET_WATCH_HZ
+    return min(_VALID_WATCH_HZ, key=lambda c: abs(observed_hz - c))
+
+
+def watch_in_range(observed_hz: float | None) -> bool:
+    """True iff observed rate is within ±20 % of the closest valid target."""
+    if observed_hz is None:
+        return True  # not observable -> don't fail
+    target = watch_target_hz(observed_hz)
+    return abs(observed_hz - target) / target <= _WATCH_HZ_TOL_PCT
+
+
+# Legacy aliases — historische Range-Konstanten, gleich gehalten zum Default
+# damit Bestandsformate in der UI weiterhin "40-60 Hz" als Range zeigen wenn
+# kein 100-Hz-Mode aktiv ist.
+_WATCH_HZ_MIN         = _TARGET_WATCH_HZ * (1 - _WATCH_HZ_TOL_PCT)
+_WATCH_HZ_MAX         = _TARGET_WATCH_HZ * (1 + _WATCH_HZ_TOL_PCT)
 
 
 # ── Issue-Definitionen ────────────────────────────────────────────────────────
@@ -87,10 +115,16 @@ ISSUE_SPECS: dict[str, IssueSpec] = {
     "watch_rate_out_of_range": IssueSpec(
         check="Geschätzte Watch-Sample-Rate (1000 / median(ts-Diffs))",
         rationale=(
-            f"Watch ist auf {_TARGET_WATCH_HZ:.0f} Hz konfiguriert (MotionManager.requestedHz). "
-            f"Abweichungen >±20% deuten auf Drops oder Fehlkonfiguration."
+            f"Watch kann auf {' oder '.join(f'{r:.0f}' for r in _VALID_WATCH_HZ)} Hz "
+            f"konfiguriert sein (MotionManager.requestedHz, per Phone-App). "
+            f"Quality-Check ermittelt den effektiven Target via Nearest-Valid; "
+            f"Abweichungen >±{int(_WATCH_HZ_TOL_PCT*100)}% deuten auf Drops "
+            f"oder Fehlkonfiguration."
         ),
-        threshold_label=f"{_WATCH_HZ_MIN:.0f}–{_WATCH_HZ_MAX:.0f} Hz",
+        threshold_label=(
+            f"±{int(_WATCH_HZ_TOL_PCT*100)} % um nearest "
+            f"{{{'/'.join(f'{int(r)}' for r in _VALID_WATCH_HZ)}}} Hz"
+        ),
         ml_severity="warn", recording_severity="warn",
     ),
     "sequence_gaps": IssueSpec(
@@ -124,9 +158,10 @@ ISSUE_SPECS: dict[str, IssueSpec] = {
         ml_severity=None, recording_severity="warn",
     ),
     "low_watch_coverage": IssueSpec(
-        check=f"Watch-Zeilen vs. erwartete Samples bei {_TARGET_WATCH_HZ:.0f} Hz × Dauer",
+        check=f"Watch-Zeilen vs. erwartete Samples bei {{{'/'.join(f'{int(r)}' for r in _VALID_WATCH_HZ)}}} Hz × Dauer (per-Session nearest-match)",
         rationale=(
-            f"Bei {_TARGET_WATCH_HZ:.0f} Hz erwarten wir ~{_TARGET_WATCH_HZ:.0f} Samples/s. "
+            "Erwartete Sample-Zahl skaliert mit dem für die Session konfigurierten "
+            "Target-Hz (Nearest-Match aus 50/100 Hz). "
             f"Unter {_COVERAGE_PCT_MIN:.0%} weist auf BLE-Drops oder pausierten Stream hin."
         ),
         threshold_label=f"rows ≥ {_COVERAGE_PCT_MIN:.0%} · expected",

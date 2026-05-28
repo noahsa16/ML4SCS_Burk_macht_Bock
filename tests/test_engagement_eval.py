@@ -78,6 +78,50 @@ def test_task_timeline_missing_file_returns_empty(tmp_path, monkeypatch):
     assert list(tl.columns) == eng.TIMELINE_COLS
 
 
+def test_task_timeline_reconstructs_orphan_end_for_first_task(
+        tmp_path, monkeypatch):
+    # S022-shape: marker writer dropped the task_start for the first task;
+    # reconstruct from study_start + pre_task so the block isn't lost.
+    monkeypatch.setattr(eng, "MARKERS_DIR", tmp_path)
+    _write_markers(tmp_path / "S022_markers.csv", [
+        (1000, "study_start", "", "", "", ""),
+        # task_start for math index=1 is MISSING here
+        (10000, "task_end",   "math", "Mathe", 1, "writing"),
+        (10100, "task_start", "pause", "Pause", 2, "idle"),
+        (15000, "task_end",   "pause", "Pause", 2, "idle"),
+    ])
+
+    tl = eng.task_timeline("S022")
+
+    assert list(tl["task_index"]) == [1, 2]
+    math_row = tl[tl["task_id"] == "math"].iloc[0]
+    # study_start (1000) + RECONSTRUCT_PRE_TASK_MS (5000) = 6000
+    assert math_row["start_ms"] == 1000.0 + eng.RECONSTRUCT_PRE_TASK_MS
+    assert math_row["end_ms"] == 10000.0
+    assert math_row["task_category"] == "writing"
+
+
+def test_task_timeline_reconstructs_orphan_end_for_mid_session(
+        tmp_path, monkeypatch):
+    # Mid-session orphan: previous task_end + pre_task_ms is the anchor.
+    monkeypatch.setattr(eng, "MARKERS_DIR", tmp_path)
+    _write_markers(tmp_path / "S023_markers.csv", [
+        (1000, "study_start", "", "", "", ""),
+        (1100, "task_start", "abschreiben", "Text", 1, "writing"),
+        (5100, "task_end",   "abschreiben", "Text", 1, "writing"),
+        # task_start for pause index=2 is MISSING
+        (95000, "task_end",  "pause", "Pause", 2, "idle"),
+    ])
+
+    tl = eng.task_timeline("S023")
+
+    assert list(tl["task_index"]) == [1, 2]
+    pause_row = tl[tl["task_id"] == "pause"].iloc[0]
+    # previous task_end (5100) + RECONSTRUCT_PRE_TASK_MS (5000) = 10100
+    assert pause_row["start_ms"] == 5100.0 + eng.RECONSTRUCT_PRE_TASK_MS
+    assert pause_row["end_ms"] == 95000.0
+
+
 def _timeline_two_blocks():
     """Zwei Blöcke: writing [1000,2000), idle [2000,3000)."""
     return pd.DataFrame({

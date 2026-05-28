@@ -43,12 +43,17 @@ def train_one_model(
     patience: int = 8,
     batch_size: int = 64,
     lr: float = 1e-3,
-) -> torch.nn.Module:
+) -> tuple[torch.nn.Module, int]:
     """Trainiere ein Modell mit Early Stopping auf Val-ROC-AUC.
 
     Das beste Modell (hoechste Val-AUC) wird am Ende zurueckgeladen.
     ``pos_weight`` gleicht die Klassen-Imbalance aus (Pendant zu
     ``class_weight='balanced'`` beim RF).
+
+    Returns ``(model, best_epoch)`` -- ``best_epoch`` (0-indexiert) ist die
+    Epoche, in der die beste Val-AUC erreicht wurde, fuer die Under-/
+    Overfit-Diagnose. ``-1`` falls keine Epoche je besser als der Startwert
+    war (sollte praktisch nicht vorkommen).
     """
     model = model.to(DEVICE)
     n_pos = float((train_y == 1).sum())
@@ -66,10 +71,11 @@ def train_one_model(
     val_Xt = torch.from_numpy(val_X).to(DEVICE)
 
     best_auc = -1.0
+    best_epoch = -1
     best_state: dict | None = None
     epochs_since_best = 0
 
-    for _ in range(max_epochs):
+    for epoch in range(max_epochs):
         model.train()
         for xb, yb in loader:
             xb, yb = xb.to(DEVICE), yb.to(DEVICE)
@@ -88,6 +94,7 @@ def train_one_model(
 
         if val_auc > best_auc:
             best_auc = val_auc
+            best_epoch = epoch
             best_state = {
                 k: v.detach().cpu().clone() for k, v in model.state_dict().items()
             }
@@ -99,7 +106,23 @@ def train_one_model(
 
     if best_state is not None:
         model.load_state_dict(best_state)
-    return model
+    return model, best_epoch
+
+
+def _acc_auc(proba: np.ndarray, y_true: np.ndarray) -> tuple[float, float]:
+    """Accuracy + ROC-AUC aus Wahrscheinlichkeiten -- fuer die Train/Val-Diagnose.
+
+    Schlankere Variante von :func:`fold_metrics` ohne Burst-Aggregation:
+    Train- und Val-Set brauchen kein Decision-Window, nur den rohen
+    Generalisierungs-Gap.
+    """
+    pred = (proba >= 0.5).astype(int)
+    acc = float((pred == y_true).mean())
+    try:
+        auc = float(roc_auc_score(y_true, proba))
+    except ValueError:
+        auc = float("nan")
+    return acc, auc
 
 
 def predict_proba(model: torch.nn.Module, X: np.ndarray) -> np.ndarray:
@@ -134,7 +157,10 @@ def fold_metrics(
 
 
 def _load_all_sessions(
-    sessions: pd.DataFrame, seq_len: int, max_gap_ms: float
+    sessions: pd.DataFrame,
+    seq_len: int,
+    max_gap_ms: float,
+    exclude_boundary: tuple[float, float] | None = None,
 ) -> dict[str, dict]:
     """Lade alle Sessions als rohe Sequenz-Windows.
 
@@ -143,7 +169,9 @@ def _load_all_sessions(
     out: dict[str, dict] = {}
     for row in sessions.itertuples():
         sid = row.session_id
-        X, y, t = load_session_raw(sid, seq_len, max_gap_ms=max_gap_ms)
+        X, y, t = load_session_raw(
+            sid, seq_len, max_gap_ms=max_gap_ms, exclude_boundary=exclude_boundary
+        )
         if len(X) == 0:
             print(f"  skip {sid} -- keine Fenster")
             continue
@@ -167,10 +195,15 @@ def train_deep_loso(
     include_all: bool = False,
     max_gap_ms: float = 2500.0,
     seed: int = 42,
+    exclude_boundary: tuple[float, float] | None = None,
 ) -> pd.DataFrame:
     """LOSO-by-person fuer ein Deep-Modell. Returns per-fold Metrik-Tabelle.
 
     Pro Fold: Test = 1 Person, Val = 1 rotierende Person, Train = Rest.
+
+    ``exclude_boundary`` wird an :func:`build_raw_windows` durchgereicht —
+    fuer das Label-Qualitaets-Experiment (mehrdeutige Uebergangs-Fenster
+    ausschliessen).
     """
     _set_seed(seed)
     seq_len = WIN_SEQ_LEN[window_sec]
@@ -185,7 +218,7 @@ def train_deep_loso(
     if sessions.empty:
         raise RuntimeError("Keine Sessions -- sessions.csv / verdict-Gate pruefen.")
 
-    data = _load_all_sessions(sessions, seq_len, max_gap_ms)
+    data = _load_all_sessions(sessions, seq_len, max_gap_ms, exclude_boundary)
     # person_id -> Liste von session_ids
     persons: dict[str, list[str]] = {}
     for sid, d in data.items():
@@ -232,7 +265,15 @@ def train_deep_loso(
         )
 
         model = MODELS[model_name]()
-        model = train_one_model(model, train_X, train_y, val_X, val_y)
+        model, best_epoch = train_one_model(model, train_X, train_y, val_X, val_y)
+
+        # Under-/Overfit-Diagnose: Train- und Val-Metriken am besten Modell.
+        # train_acc misst Fit auf die 8 Trainings-Personen, val_acc auf die
+        # rotierende Holdout-Person, accuracy (unten) auf die Test-Person.
+        # Gap train>>val~test => data-limited; train>>val>>test => Overfit.
+        train_acc, train_auc = _acc_auc(predict_proba(model, train_X), train_y)
+        val_acc, val_auc = _acc_auc(predict_proba(model, val_X), val_y)
+
         proba = predict_proba(model, test_X)
         m = fold_metrics(proba, test_y, test_df)
 
@@ -244,16 +285,20 @@ def train_deep_loso(
             "accuracy": m["accuracy"],
             "f1_writing": m["f1_writing"],
             "roc_auc": m["roc_auc"],
+            "train_acc": train_acc,
+            "train_auc": train_auc,
+            "val_acc": val_acc,
+            "val_auc": val_auc,
+            "best_epoch": best_epoch,
         }
         for scale, bm in m["bursts"].items():
             row[f"acc_{scale}"] = bm["accuracy"]
             row[f"auc_{scale}"] = bm["roc_auc"]
         rows.append(row)
         print(
-            f"  Fold {test_p}: acc={m['accuracy']:.3f} "
-            f"f1={m['f1_writing']:.3f} auc={m['roc_auc']:.3f}  "
-            f"(@30s acc={m['bursts']['30s']['accuracy']:.3f} "
-            f"auc={m['bursts']['30s']['roc_auc']:.3f})"
+            f"  Fold {test_p}: train={train_acc:.3f} val={val_acc:.3f} "
+            f"test={m['accuracy']:.3f}  f1={m['f1_writing']:.3f} "
+            f"auc={m['roc_auc']:.3f}  best_epoch={best_epoch}"
         )
 
     return pd.DataFrame(rows)

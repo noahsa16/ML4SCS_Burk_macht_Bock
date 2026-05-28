@@ -37,39 +37,70 @@ WRITING_TASKS = ["abschreiben", "free_writing", "math"]
 TIMELINE_COLS = ["task_index", "task_id", "task_name", "task_category",
                  "start_ms", "end_ms"]
 
+# Why: matches v1.json's `pre_task_seconds: 5`. Used to anchor reconstructed
+# task_start timestamps when the marker writer dropped one (real one-off in
+# S022). If a future protocol uses a different countdown, derive this from
+# the markers' protocol_id instead of hardcoding.
+RECONSTRUCT_PRE_TASK_MS = 5000
+
 
 def task_timeline(session_id: str) -> pd.DataFrame:
     """Task-Blöcke einer Session aus ihrer Marker-CSV.
 
-    Paart jedes ``task_start`` mit dem ``task_end`` gleichen
-    ``task_index``. Rückgabe: eine Zeile pro Block (Spalten
+    Iteriert über jeden ``task_end`` und paart ihn mit dem ``task_start``
+    gleichen ``task_index``. Rückgabe: eine Zeile pro Block (Spalten
     ``TIMELINE_COLS``), nach ``start_ms`` sortiert. Ein ``task_start``
     ohne passendes ``task_end`` (abgebrochene Session) wird verworfen.
-    Umgekehrt wird ein ``task_end`` ohne ``task_start`` still ignoriert
-    — die Fenster dieses Blocks bleiben dann unzugeordnet (kommt real
-    vor, z. B. S022, wenn ein ``task_start``-Marker fehlt).
+
+    Fehlt der ``task_start`` zu einem ``task_end`` (Marker-Writer-Hiccup,
+    real einmal in S022 vorgekommen), wird der Block **rekonstruiert**:
+    ``start_ms`` = Zeitstempel des unmittelbar vorhergehenden Events
+    + ``RECONSTRUCT_PRE_TASK_MS``. So bleibt der Block in der Engagement-
+    Aggregation enthalten statt still wegzufallen.
+
     Fehlt die Marker-CSV, kommt ein leerer DataFrame zurück.
     """
     path = MARKERS_DIR / f"{session_id}_markers.csv"
     if not path.exists():
         return pd.DataFrame(columns=TIMELINE_COLS)
 
-    m = pd.read_csv(path)
-    ends = (m[m["event"] == "task_end"]
-            .drop_duplicates("task_index", keep="first")
-            .set_index("task_index")["timestamp_ms"])
+    m = pd.read_csv(path).sort_values("timestamp_ms").reset_index(drop=True)
+    starts = (m[m["event"] == "task_start"]
+              .drop_duplicates("task_index", keep="first")
+              .set_index("task_index"))
     rows: list[dict] = []
-    for _, s in m[m["event"] == "task_start"].iterrows():
-        idx = s["task_index"]
-        if idx not in ends.index:
-            continue  # Why: task_start ohne task_end = abgebrochener Block.
+    for _, e in (m[m["event"] == "task_end"]
+                 .drop_duplicates("task_index", keep="first").iterrows()):
+        idx = e["task_index"]
+        end_ms = float(e["timestamp_ms"])
+
+        if idx in starts.index:
+            s = starts.loc[idx]
+            start_ms = float(s["timestamp_ms"])
+            task_id = s["task_id"]
+            task_name = s["task_name"]
+            task_category = s["task_category"]
+        else:
+            prior = m[m["timestamp_ms"] < end_ms]
+            if prior.empty:
+                continue  # Why: nothing to anchor against — malformed CSV.
+            start_ms = (float(prior["timestamp_ms"].iloc[-1])
+                        + RECONSTRUCT_PRE_TASK_MS)
+            task_id = e["task_id"]
+            task_name = e["task_name"]
+            task_category = e["task_category"]
+            print(f"  ⚠ {session_id}: task_start for index {int(idx)} "
+                  f"({task_id}) missing — reconstructed start at "
+                  f"{start_ms:.0f} ms (prior event + "
+                  f"{RECONSTRUCT_PRE_TASK_MS} ms pre-task)")
+
         rows.append({
             "task_index": int(idx),
-            "task_id": s["task_id"],
-            "task_name": s["task_name"],
-            "task_category": s["task_category"],
-            "start_ms": float(s["timestamp_ms"]),
-            "end_ms": float(ends.loc[idx]),
+            "task_id": task_id,
+            "task_name": task_name,
+            "task_category": task_category,
+            "start_ms": start_ms,
+            "end_ms": end_ms,
         })
     return pd.DataFrame(rows, columns=TIMELINE_COLS).sort_values(
         "start_ms").reset_index(drop=True)

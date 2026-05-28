@@ -11,6 +11,7 @@ import {
 } from '/static/js/core/router.js';
 
 import * as recording      from '/static/js/pages/recording.js';
+import * as focus           from '/static/js/pages/focus.js';
 import * as sessions       from '/static/js/pages/sessions.js';
 import * as sessionDetail  from '/static/js/pages/session_detail.js';
 import * as admin          from '/static/js/pages/admin.js';
@@ -30,6 +31,7 @@ import { studyCmd } from '/static/js/pages/recording-study.js';
 // ════════════════════════════════════════════════════════════
 const pages = {
   recording,
+  focus,
   sessions,
   'session-detail': sessionDetail,
   admin,

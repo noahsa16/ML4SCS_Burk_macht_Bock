@@ -120,6 +120,46 @@
     </div>
   </section>
 
+  <!-- ════ LIVE INFERENCE — Focus-Tracker pill + sparkline + today ═══ -->
+  <section class="rec-sec rec-sec--inference" id="rec-sec-inference" style="--sec-delay: 60ms">
+    <header class="rec-sec-head">
+      <span class="rec-sec-label">/ live inference</span>
+      <span class="rec-sec-meta" id="inferenceModelMeta">waiting for IMU stream</span>
+      <div class="rec-inference-model-switch" id="inferenceModelSwitch" role="radiogroup"
+           aria-label="Inference model"></div>
+    </header>
+    <div class="rec-inference-grid">
+      <article class="rec-inference-card rec-inference-card--now">
+        <div class="rec-inference-eyebrow">/ writing right now?</div>
+        <div class="rec-inference-state" id="inferenceState" data-state="idle">
+          <span class="rec-inference-state-dot"></span>
+          <span class="rec-inference-state-label" id="inferenceStateLabel">—</span>
+        </div>
+        <div class="rec-inference-proba">
+          <div class="rec-inference-proba-track">
+            <div class="rec-inference-proba-fill" id="inferenceProbaFill" style="width:0%"></div>
+            <div class="rec-inference-proba-tick" aria-hidden="true"></div>
+          </div>
+          <div class="rec-inference-proba-text">
+            <span id="inferenceProbaText">—</span><span class="rec-inference-proba-suffix">% writing</span>
+          </div>
+        </div>
+      </article>
+      <article class="rec-inference-card rec-inference-card--spark">
+        <div class="rec-inference-eyebrow">/ last 60 s · proba</div>
+        <div class="rec-inference-spark-wrap">
+          <canvas id="inferenceSparkline" height="120"></canvas>
+          <div class="rec-inference-spark-baseline" aria-hidden="true"></div>
+        </div>
+      </article>
+      <article class="rec-inference-card rec-inference-card--today">
+        <div class="rec-inference-eyebrow">/ writing time tracked</div>
+        <div class="rec-inference-today-val" id="inferenceTodayVal">0:00</div>
+        <div class="rec-inference-today-sub" id="inferenceTodaySub">cumulative since server start</div>
+      </article>
+    </div>
+  </section>
+
   <!-- ════ LIVE STREAMS — chart + handwriting ═══════════════════ -->
   <section class="rec-sec" id="rec-sec-streams" style="--sec-delay: 80ms">
     <header class="rec-sec-head">

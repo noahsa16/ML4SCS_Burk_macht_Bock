@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from ..broadcast import _broadcast
 from ..config import DATA_RAW_WATCH
 from ..csv_io import get_watch_writer
+from ..inference import live
 from ..models import WatchEnvelope
 from ..state import state
 from ..utils import _now_ms, _round_or_none, _safe_file_id, _utc_iso_from_ms
@@ -167,6 +168,9 @@ async def receive_watch(request: Request):
             "rx":  s.rx,
             "ry":  s.ry,
             "rz":  s.rz,
+            "gx":  s.gx,
+            "gy":  s.gy,
+            "gz":  s.gz,
         })
         valid_count += 1
 
@@ -183,6 +187,9 @@ async def receive_watch(request: Request):
         if gyro_mag is not None:
             state.chart_window_gyro_mags.append(gyro_mag)
 
+        if s.ts is not None and None not in (s.ax, s.ay, s.az, s.rx, s.ry, s.rz):
+            live.append_sample(s.ts, s.ax, s.ay, s.az, s.rx, s.ry, s.rz)
+
         last_sample = {
             "session_id": session_id,
             "sequence": seq,
@@ -193,6 +200,9 @@ async def receive_watch(request: Request):
             "rx": _round_or_none(s.rx),
             "ry": _round_or_none(s.ry),
             "rz": _round_or_none(s.rz),
+            "gx": _round_or_none(s.gx),
+            "gy": _round_or_none(s.gy),
+            "gz": _round_or_none(s.gz),
             "acc_mag": _round_or_none(acc_mag),
             "gyro_mag": _round_or_none(gyro_mag),
             "server_received_ms": server_received_ms,

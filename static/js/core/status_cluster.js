@@ -229,6 +229,25 @@ export function handleStatus(s, prevSessionId) {
   });
   _renderStatusHoverCard(s);
 
+  // Live-inference topbar pill — visible on every page when inference is fresh.
+  _renderLiveInferencePill(s.live_inference);
+
   // Route the tick to whichever page is currently visible — hidden pages skip work.
   _activePageDispatch(s);
+}
+
+function _renderLiveInferencePill(inf) {
+  const pill = document.getElementById('liveInferencePill');
+  if (!pill) return;
+  if (!inf) {
+    pill.style.display = 'none';
+    return;
+  }
+  pill.style.display = '';
+  pill.setAttribute('data-state', inf.writing ? 'writing' : 'idle');
+  const txt = document.getElementById('liveInferencePillText');
+  if (txt) {
+    const pct = Math.round((inf.proba ?? 0) * 100);
+    txt.textContent = inf.writing ? `writing · ${pct}%` : `idle · ${pct}%`;
+  }
 }

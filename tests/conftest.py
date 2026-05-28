@@ -15,6 +15,63 @@ from src.server.config import (  # noqa: E402
 from src.pen_schema import PEN_FIELDNAMES  # noqa: E402
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _synthetic_inference_model(tmp_path_factory):
+    # Why: models/ is gitignored, so CI checkouts start empty and the
+    # live-inference tests have nothing to load. We synthesize a minimal
+    # joblib whose feature_cols come from the real _window_features so the
+    # bundle stays in lock-step with the feature extractor. MODELS +
+    # _DEFAULT_MODEL_PATHS are redirected to a tmp dir for the whole session,
+    # so local devs' real joblibs are bypassed too (hermetic test env).
+    import joblib
+    import numpy as np
+    from sklearn.ensemble import RandomForestClassifier
+
+    from src.server import inference as inf_module
+    from src.server.routes import inference as inf_route
+    from src.features.windows import _window_features
+
+    rng = np.random.default_rng(0)
+    feature_cols = list(
+        _window_features(rng.standard_normal((100, 6)) * 0.3, fs_hz=100.0).keys()
+    )
+    X = rng.standard_normal((20, len(feature_cols)))
+    y = np.array([0, 1] * 10)
+    clf = RandomForestClassifier(n_estimators=2, random_state=42).fit(X, y)
+
+    tmp_models = tmp_path_factory.mktemp("inference_models")
+    target = tmp_models / "rf_noah.joblib"
+    joblib.dump({
+        "model": clf,
+        "feature_cols": feature_cols,
+        "person_id": "synthetic",
+        "sample_rate_hz": 100,
+        "trained_on": "conftest synthetic",
+        "n_windows": 20,
+        "zscore_mu": None,
+        "zscore_sigma": None,
+    }, target)
+
+    orig_models = inf_module.MODELS
+    orig_paths = inf_module._DEFAULT_MODEL_PATHS
+    orig_route_models = inf_route.MODELS  # route imported MODELS by name → separate binding
+    inf_module.MODELS = tmp_models
+    inf_module._DEFAULT_MODEL_PATHS = (target,)
+    inf_route.MODELS = tmp_models
+    # Module-level singleton may have been imported with the old MODELS;
+    # clear it so the next predict() reloads from the patched path.
+    inf_module.live._bundle = None
+    inf_module.live._loaded_from = None
+    inf_module.live._buffer.clear()
+    inf_module.live._proba_history.clear()
+
+    yield
+
+    inf_module.MODELS = orig_models
+    inf_module._DEFAULT_MODEL_PATHS = orig_paths
+    inf_route.MODELS = orig_route_models
+
+
 @pytest.fixture
 def data_dirs(tmp_path, monkeypatch):
     """Point all DATA_RAW_* / SESSIONS_CSV constants at a tmp dir.

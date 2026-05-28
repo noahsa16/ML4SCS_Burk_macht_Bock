@@ -49,6 +49,12 @@ class WatchSample(BaseModel):
     rx: Optional[float] = None
     ry: Optional[float] = None
     rz: Optional[float] = None
+    # Modern-Pool ab 2026-05-26. Optional[float] = None macht das Feld
+    # rückwärts-kompatibel: Payloads von Pre-Modern-Watch-Clients (ohne
+    # gravity capture) lassen die Felder einfach weg, Pydantic füllt None.
+    gx: Optional[float] = None
+    gy: Optional[float] = None
+    gz: Optional[float] = None
 
 
 class WatchEnvelope(BaseModel):
