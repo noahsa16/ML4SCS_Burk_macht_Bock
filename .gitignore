@@ -70,3 +70,8 @@ projektideen.md
 # Forecast / Lernkurven-Prognose — Research-Tooling + Artefakte,
 # nicht Teil der operativen Pipeline.
 forecast/
+
+# Xcode per-user IDE state (window layout, cursor positions, breakpoints).
+# Regenerates on every open and creates noisy diffs.
+**/xcuserdata/
+*.xcuserstate
