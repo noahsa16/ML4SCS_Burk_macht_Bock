@@ -325,4 +325,69 @@ export function onStatus(s) {
   // Live streams
   if (s.chart) _updateChart(s.chart);
   if (s.pen_recent_dots) _updatePen(s.pen_recent_dots);
+
+  // Model writing prediction
+  _renderWritingPrediction(s.live_inference, s.live_sparkline);
+}
+
+// ════════════════════════════════════════════════════════════
+//  WRITING PREDICTION — compact live readout of the model
+// ════════════════════════════════════════════════════════════
+function _renderWritingPrediction(inf, sparkline) {
+  const card = document.getElementById('admWritingCard');
+  if (!card) return;
+  const labelEl = document.getElementById('admWritingLabel');
+  const probaEl = document.getElementById('admWritingProba');
+  const modelEl = document.getElementById('admWritingModel');
+  const sparkEl = document.getElementById('admWritingSpark');
+  const line = sparkEl ? sparkEl.querySelector('.adm-writing-spark-line') : null;
+
+  if (!inf) {
+    card.setAttribute('data-state', 'empty');
+    if (labelEl) labelEl.textContent = '—';
+    if (probaEl) probaEl.textContent = '—';
+    if (modelEl) modelEl.textContent = 'no model';
+    if (line) line.setAttribute('points', '');
+    return;
+  }
+
+  // Rate mismatch wins over writing/idle — VL needs to see when the model
+  // is being short-circuited because fs deviates >20% from training rate.
+  if (inf.rate_mismatch) {
+    card.setAttribute('data-state', 'rate_mismatch');
+    if (labelEl) labelEl.textContent = `rate mismatch · ${inf.fs_hz || '–'} Hz`;
+    if (probaEl) probaEl.textContent = '—';
+  } else {
+    const writing = !!inf.writing;
+    card.setAttribute('data-state', writing ? 'writing' : 'idle');
+    if (labelEl) labelEl.textContent = writing ? 'writing' : 'idle';
+    const pct = Math.round((inf.proba ?? 0) * 100);
+    if (probaEl) probaEl.textContent = String(pct);
+  }
+
+  if (modelEl) {
+    modelEl.textContent = inf.model_id || 'model';
+  }
+
+  if (line && Array.isArray(sparkline) && sparkline.length) {
+    _drawAdmSparkline(line, sparkline);
+  } else if (line) {
+    line.setAttribute('points', '');
+  }
+}
+
+function _drawAdmSparkline(lineEl, points) {
+  // viewBox = 120 × 28 (matches admin.css). Each tick = one second of
+  // model output. Y-axis: proba ∈ [0, 1] mapped to [26, 2] (top is high).
+  const W = 120, H = 28, pad = 2;
+  const n = points.length;
+  if (n < 2) { lineEl.setAttribute('points', ''); return; }
+  const stepX = (W - pad * 2) / Math.max(1, n - 1);
+  const coords = points.map((pt, i) => {
+    const p = Math.max(0, Math.min(1, Number(pt.p ?? 0)));
+    const x = pad + i * stepX;
+    const y = pad + (1 - p) * (H - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  });
+  lineEl.setAttribute('points', coords.join(' '));
 }
