@@ -784,14 +784,27 @@ optional gravity-Spalten-Drop. Default-Output:
 Legacy-View behandelt werden — z. B. um sie im 10-Probanden-LOSO-Pool
 mittrainieren zu können.
 
-**Bekannte Live-Inference-Lücke:** `src/server/inference.py::append_sample`
-nimmt aktuell nur 6 Kanäle (ax/ay/az/rx/ry/rz). Ein Modern-trainiertes
-Modell mit 94 Features ist deshalb **nicht** über die Live-Inference-
-Pipeline deploybar — würde auf 88 Legacy-Features einen Predict-Mismatch
-geben. Workaround bis das implementiert ist: für Live-Deployment
-trotzdem auf das Legacy-Modell (88 Features) fallback. Modern-Modell
-ist *nur* als LOSO-Headline-Artefakt nutzbar bis die Live-Pipeline auf
-9 Kanäle erweitert wird (Future-Work-Bullet).
+**Live-Inference 9-Kanal-Support (seit 2026-05-29).**
+`src/server/inference.py::append_sample` nimmt jetzt optional `gx/gy/gz`
+(Gravity) als 7.–9. Argument; der Rolling-Buffer führt 10-Tupel
+`(ts, ax..rz, gx, gy, gz)` (Gravity in **derselben** Tuple — strukturelle
+Alignment-Garantie gegen die Sort-Stability-Bug-Klasse). `predict()`
+erkennt ein Modern-Modell über `set(GRAVITY_FEATURE_NAMES).issubset(
+feature_cols)` und komponiert dann via `_extract_features()` die vollen
+94 Features (`_window_features` + `_gravity_window_features`, identisch
+zum `build_windows`-Trainingspfad — Paritäts-Test in
+`tests/test_inference.py`). Legacy-Streams ohne Gravity speichern NaN;
+ein Modern-Modell auf so einem Stream short-circuited mit Payload
+`{missing_channels: true}` (kein Predict auf NaN, analog zum
+`rate_mismatch`-Guard), ein Legacy-Modell ignoriert die Extra-Spalten.
+**Verbleibender Schritt zum Deployment:** es existiert noch **kein**
+Modern-Joblib in `models/` — sobald eins trainiert ist (`train_loso.py
+--pool modern --save-final-model` → `rf_all_modern.joblib`), muss sein
+Stem zur Picker-Whitelist `_USER_FACING_MODEL_NAMES` in
+`src/server/inference.py` hinzugefügt werden, damit es im UI-Switcher
+auftaucht. Ob Gravity die Accuracy überhaupt hebt, ist offen (separater
+LOSO-modern-Lauf — `100hz_ablation.md` zeigt nur, dass Sample-Rate
+nicht hilft; Gravity ist ein anderes Signal).
 
 **Was wo lebt:**
 - `src/features/gravity.py` (+ `tests/test_gravity.py`): 6 Gravity-
@@ -1144,7 +1157,10 @@ could silently poison the training data or the proband-facing flow:
   Buffer → predict() == None, payload-shape, sparkline-Wachstum, Z-Score-
   Honouring (mu/sigma aus Joblib appliziert), Rate-Mismatch-Guard
   (>20 % fs-Abweichung → `rate_mismatch: true` Payload), Daily-Aggregate-
-  Reset bei Datums-Wechsel, model-load-Fallback bei fehlendem joblib.
+  Reset bei Datums-Wechsel, model-load-Fallback bei fehlendem joblib,
+  9-Kanal-Modern-Support (`append_sample` mit/ohne Gravity, 94-Feature-
+  Predict, Feature-Parität inkl. Gravity gegen `build_windows`,
+  `missing_channels`-Guard wenn Modern-Modell auf Legacy-Stream läuft).
 - `test_inference_endpoints.py` — `GET /inference/models` Schema +
   Whitelist, `POST /inference/model {id}` Switch + Buffer-Clear,
   unbekannte ID → 404.
