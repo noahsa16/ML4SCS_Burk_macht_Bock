@@ -56,11 +56,14 @@ def _ensure_writer() -> Optional[csv.DictWriter]:
 
 
 def log_tick(inf: dict) -> None:
-    """Append one inference tick to the log. Ignores rate_mismatch ticks.
+    """Append one inference tick to the log. Ignores guard ticks.
 
     `inf` is the dict returned by LiveInference.predict() — see inference.py.
+    rate_mismatch- und missing_channels-Ticks tragen proba=0.0 ohne echtes
+    Predict; sie würden den "writing time tracked"-Counter fälschlich als
+    idle-Zeit zählen, also nicht loggen.
     """
-    if not inf or inf.get("rate_mismatch"):
+    if not inf or inf.get("rate_mismatch") or inf.get("missing_channels"):
         return
     w = _ensure_writer()
     if w is None:

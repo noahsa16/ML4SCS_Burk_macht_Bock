@@ -188,7 +188,8 @@ async def receive_watch(request: Request):
             state.chart_window_gyro_mags.append(gyro_mag)
 
         if s.ts is not None and None not in (s.ax, s.ay, s.az, s.rx, s.ry, s.rz):
-            live.append_sample(s.ts, s.ax, s.ay, s.az, s.rx, s.ry, s.rz)
+            live.append_sample(s.ts, s.ax, s.ay, s.az, s.rx, s.ry, s.rz,
+                               s.gx, s.gy, s.gz)
 
         last_sample = {
             "session_id": session_id,
