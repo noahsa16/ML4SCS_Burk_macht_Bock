@@ -236,7 +236,7 @@ def _sim_imu_modern(n: int, fs: float, t0_ms: int, seed: int = 0):
 
 
 def _make_modern_model(tmp_path):
-    """Dump a synthetic 94-feature (88 dynamic + 6 gravity) joblib."""
+    """Dump a synthetic 92-feature (88 dynamic + 4 gravity) joblib."""
     import joblib
     from sklearn.ensemble import RandomForestClassifier
 

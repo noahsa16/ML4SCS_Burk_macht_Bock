@@ -363,10 +363,16 @@ def main() -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     feats.to_csv(out, index=False)
     counts = feats["label"].value_counts().to_dict()
+    # Why: label/t_center_ms sind immer Metadaten; task_id/task_category nur
+    # bei Study-Sessions mit angehaengten Markern. Nur die tatsaechlich
+    # vorhandenen Metadaten-Spalten abziehen -> echte Feature-Zahl (88 Legacy
+    # / 94 Modern), nicht ein um die Task-Spalten ueberhoehter Count.
+    _META_COLS = {"label", "t_center_ms", "task_id", "task_category"}
+    n_features = len(feats.columns) - len(_META_COLS & set(feats.columns))
     print(
         f"Session {sid}: {len(feats)} Fenster | "
         f"writing={counts.get(1, 0)}, idle={counts.get(0, 0)} | "
-        f"Features: {len(feats.columns) - 2}"
+        f"Features: {n_features}"
     )
     print(f"Gespeichert: {out}")
 

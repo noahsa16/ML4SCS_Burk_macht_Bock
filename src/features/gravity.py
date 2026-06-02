@@ -1,12 +1,19 @@
 """Gravity-aware window features (Modern-Pool ab 2026-05-26).
 
 Ergänzt die 88 dynamic-only Features aus ``src/features/windows.py`` um
-6 orientierungs-basierte Features, wenn ``gx/gy/gz``-Spalten im
+4 orientierungs-basierte Features, wenn ``gx/gy/gz``-Spalten im
 Merged-CSV vorhanden sind. CoreMotion liefert ``motion.gravity`` in G's
 (Einheit: standard gravity) — ein ruhendes Wrist hat also ``|g| ≈ 1.0``,
 nicht 9.81.
 
-Backward-compat: bei fehlenden Spalten oder NaN-Werten kommen alle 6
+Why nur Tilt, keine Magnitude: ``motion.gravity`` ist per CoreMotion-
+Definition ein Einheitsvektor (``|g| ≈ 1.000`` immer). ``grav_mag_mean``
+hat damit keine Varianz und ``grav_mag_std`` ist ≈ 0 — beide trugen im
+S038-Within-Session-RF exakt 0.0 Importance (Rang #93/#94 von 94) und
+wurden 2026-05-29 ersatzlos gestrichen. Das Gravity-Signal sitzt
+vollständig in der Wrist-Orientierung (``tilt_*_mean``).
+
+Backward-compat: bei fehlenden Spalten oder NaN-Werten kommen alle 4
 Features als NaN zurück, damit Legacy-Sessions die Pipeline nicht
 crashen.
 """
@@ -18,8 +25,6 @@ import numpy as np
 import pandas as pd
 
 GRAVITY_FEATURE_NAMES = [
-    "grav_mag_mean",   # ≈ 1.0 G im Ruhezustand; Drift = Sensor-Issue
-    "grav_mag_std",    # 0 im Ruhezustand; > 0 bei schneller Reorientierung
     "tilt_x_mean",     # Winkel zwischen x-Achse und Gravity, [0, π]
     "tilt_y_mean",     # Winkel zwischen y-Achse und Gravity, [0, π]
     "tilt_z_mean",     # Winkel zwischen z-Achse und Gravity, [0, π]
@@ -78,8 +83,6 @@ def _gravity_window_features(window_df: pd.DataFrame) -> dict[str, float]:
         tilt_change = 0.0
 
     return {
-        "grav_mag_mean": float(grav_mag.mean()),
-        "grav_mag_std": float(grav_mag.std()),
         "tilt_x_mean": float(tilt_x.mean()),
         "tilt_y_mean": float(tilt_y.mean()),
         "tilt_z_mean": float(tilt_z.mean()),

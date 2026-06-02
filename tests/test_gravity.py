@@ -26,8 +26,14 @@ def _window(gx, gy, gz, n=50):
     })
 
 
-def test_feature_names_are_six():
-    assert len(GRAVITY_FEATURE_NAMES) == 6
+def test_feature_names_are_four():
+    # grav_mag_mean/std 2026-05-29 entfernt (Einheitsvektor → null Varianz,
+    # 0.0 Importance). Nur die 4 Tilt-Orientierungs-Features bleiben.
+    # (tilt_*_std wurde getestet — kein klarer Gewinn, siehe
+    # reports/feature_ablation.md — und wieder entfernt.)
+    assert len(GRAVITY_FEATURE_NAMES) == 4
+    assert "grav_mag_mean" not in GRAVITY_FEATURE_NAMES
+    assert "grav_mag_std" not in GRAVITY_FEATURE_NAMES
 
 
 def test_stationary_palm_down_z_axis_aligned_with_gravity():
@@ -35,8 +41,6 @@ def test_stationary_palm_down_z_axis_aligned_with_gravity():
     # tilt_z = arccos(-1) = pi. tilt_x = tilt_y = arccos(0) = pi/2.
     feats = _gravity_window_features(_window(0.0, 0.0, -1.0))
 
-    assert feats["grav_mag_mean"] == pytest.approx(1.0, abs=1e-6)
-    assert feats["grav_mag_std"] == pytest.approx(0.0, abs=1e-6)
     assert feats["tilt_z_mean"] == pytest.approx(math.pi, abs=1e-4)
     assert feats["tilt_x_mean"] == pytest.approx(math.pi / 2, abs=1e-4)
     assert feats["tilt_y_mean"] == pytest.approx(math.pi / 2, abs=1e-4)
