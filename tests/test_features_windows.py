@@ -91,12 +91,12 @@ def test_legacy_merged_produces_no_gravity_features():
     merged = _synthetic_merged(10.0, 50.0)
     feats = build_windows(merged, max_gap_ms=0.0)
 
-    assert "grav_mag_mean" not in feats.columns
+    assert "tilt_x_mean" not in feats.columns
     assert "tilt_z_mean" not in feats.columns
     assert "tilt_change" not in feats.columns
 
 
-def test_modern_merged_appends_six_gravity_features():
+def test_modern_merged_appends_four_gravity_features():
     merged = _synthetic_merged_modern(10.0, 50.0)
     feats = build_windows(merged, max_gap_ms=0.0)
 
@@ -104,9 +104,9 @@ def test_modern_merged_appends_six_gravity_features():
     for name in GRAVITY_FEATURE_NAMES:
         assert name in feats.columns, f"missing {name}"
 
-    # Stationary palm-down gravity → grav_mag ≈ 1.0, tilt_z ≈ π,
+    # Stationary palm-down gravity (gz = -1) → tilt_z ≈ π,
     # tilt_change ≈ 0 across all windows.
-    assert (feats["grav_mag_mean"] - 1.0).abs().max() < 1e-6
+    assert (feats["tilt_z_mean"] - np.pi).abs().max() < 1e-4
     assert (feats["tilt_change"]).abs().max() < 1e-6
 
 
@@ -116,4 +116,4 @@ def test_partial_gravity_columns_treated_as_legacy():
     merged["gx"] = 0.0
     feats = build_windows(merged, max_gap_ms=0.0)
 
-    assert "grav_mag_mean" not in feats.columns
+    assert "tilt_z_mean" not in feats.columns
