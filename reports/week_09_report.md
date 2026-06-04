@@ -2,7 +2,7 @@
 
 ## Weekly Goal
 
-Act on Prof. Funk's / Prof. Wehrli intermediate-presentation feedback that
+Act on Prof. Funk's / Prof. Wehrli  feedback that
 `userAcceleration` without gravity throws away useful information —
 the wrist's orientation relative to gravity is informative for
 writing. Concretely: capture `motion.gravity` on the watch, build the
