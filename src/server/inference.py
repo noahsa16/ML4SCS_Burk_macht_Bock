@@ -31,7 +31,9 @@ from typing import Optional
 
 import joblib
 import numpy as np
+import pandas as pd
 
+from src.features.gravity import GRAVITY_FEATURE_NAMES, _gravity_window_features
 from src.features.windows import _window_features
 
 log = logging.getLogger(__name__)
@@ -64,7 +66,11 @@ class LiveInference:
     def __init__(self) -> None:
         self._bundle: Optional[dict] = None
         self._loaded_from: Optional[Path] = None
-        # Rows: (ts_ms, ax, ay, az, rx, ry, rz)
+        # Rows: (ts_ms, ax, ay, az, rx, ry, rz, gx, gy, gz)
+        # gx/gy/gz are CoreMotion gravity (Modern pool); NaN for Legacy
+        # 6-channel streams. Keeping gravity in the SAME tuple guarantees
+        # per-sample alignment under any reorder — the structural fix for
+        # the sort-stability bug class (siehe reports/sort_stability_bug.md).
         self._buffer: deque[tuple] = deque(maxlen=BUFFER_MAXLEN)
         self._proba_history: deque[tuple[int, float]] = deque(maxlen=SPARKLINE_MAXLEN)
         # Cumulative writing time today, reset by date change in predict().
@@ -122,11 +128,23 @@ class LiveInference:
         self, ts_ms: int,
         ax: float, ay: float, az: float,
         rx: float, ry: float, rz: float,
+        gx: Optional[float] = None,
+        gy: Optional[float] = None,
+        gz: Optional[float] = None,
     ) -> None:
         if None in (ax, ay, az, rx, ry, rz):
             return
+
+        # Why: Legacy 6-channel streams omit gravity -> store NaN so the
+        # tuple shape stays fixed (10 cols). A Modern model detects the NaN
+        # and skips prediction (missing_channels) rather than predicting on
+        # garbage; a Legacy model ignores the extra columns entirely.
+        def _g(v: Optional[float]) -> float:
+            return float(v) if v is not None else float("nan")
+
         self._buffer.append((int(ts_ms), float(ax), float(ay), float(az),
-                             float(rx), float(ry), float(rz)))
+                             float(rx), float(ry), float(rz),
+                             _g(gx), _g(gy), _g(gz)))
 
     def clear_buffer(self) -> None:
         self._buffer.clear()
@@ -156,6 +174,23 @@ class LiveInference:
         if span_ms <= 0:
             return 0.0
         return (len(self._buffer) - 1) * 1000.0 / span_ms
+
+    def _extract_features(self, recent: list[tuple], fs_hz: float) -> dict[str, float]:
+        """Compose the live feature vector exactly like build_windows does.
+
+        88 dynamic features from the 6 IMU channels, plus the 6 gravity
+        features when the window carries non-NaN gx/gy/gz. Slicing 1:7 vs
+        7:10 keeps the IMU window at (N, 6) for _window_features regardless
+        of the gravity columns.
+        """
+        imu = np.array([row[1:7] for row in recent], dtype=float)
+        feats = _window_features(imu, fs_hz=fs_hz)
+        grav = np.array([row[7:10] for row in recent], dtype=float)
+        if not np.isnan(grav).any():
+            feats.update(_gravity_window_features(
+                pd.DataFrame(grav, columns=["gx", "gy", "gz"])
+            ))
+        return feats
 
     def predict(self) -> Optional[dict]:
         if self._bundle is None:
@@ -197,10 +232,27 @@ class LiveInference:
             return None
 
         recent = list(self._buffer)[-n_window:]
-        imu = np.array([row[1:] for row in recent], dtype=float)
-        feats = _window_features(imu, fs_hz=fs)
-
         feature_cols = self._bundle["feature_cols"]
+        is_modern = set(GRAVITY_FEATURE_NAMES).issubset(feature_cols)
+
+        # Why: ein Modern-Modell (94 Features) braucht motion.gravity. Wenn
+        # der Stream keine Gravity liefert (Legacy-Watch -> NaN), wuerden die
+        # 6 Gravity-Features NaN sein und predict() gaebe Garbage zurueck.
+        # Transparent skippen, analog zum rate_mismatch-Guard.
+        if is_modern and np.isnan(
+            np.array([row[7:10] for row in recent], dtype=float)
+        ).any():
+            return {
+                "writing": False,
+                "proba": 0.0,
+                "model_id": self.model_id,
+                "person_id": self._bundle.get("person_id"),
+                "fs_hz": round(fs, 1),
+                "missing_channels": True,
+                "today_writing_seconds": round(self._today_writing_seconds, 1),
+            }
+
+        feats = self._extract_features(recent, fs_hz=fs)
         x = np.array([feats[c] for c in feature_cols], dtype=float)
 
         mu = self._bundle.get("zscore_mu")

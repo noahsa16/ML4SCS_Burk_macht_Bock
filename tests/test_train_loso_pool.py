@@ -1,6 +1,6 @@
 """Pool-Filter-Tests für train_loso.
 
-Background: Modern-Pool-Sessions haben grav_mag_mean/tilt_x_mean/etc.
+Background: Modern-Pool-Sessions haben tilt_x_mean/tilt_change/etc.
 Legacy-Pool-Sessions haben nicht. Beim pd.concat über gemischte Pools
 würde pandas NaN in den gravity-Spalten erzeugen → RandomForest.fit
 crasht auf NaN. _filter_pool() ist die Abwehrlinie.

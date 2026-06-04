@@ -121,9 +121,8 @@ def test_feature_parity_with_build_windows():
 
     # Replicate what predict() does internally to extract feats:
     recent = list(live._buffer)[-n:]
-    imu_arr = np.array([r[1:] for r in recent], dtype=float)
     fs_est = live._estimate_fs()
-    feats_inference = _window_features(imu_arr, fs_hz=fs_est)
+    feats_inference = live._extract_features(recent, fs_hz=fs_est)
 
     # Every common feature must match bit-for-bit (same float math).
     for k in feats_training:
@@ -213,3 +212,140 @@ def test_clear_buffer_keeps_model():
     live.clear_buffer()
     assert live.predict() is None
     assert live._bundle is not None  # model still loaded
+
+
+# --- Modern-Pool (9-Kanal / 94-Feature) live inference --------------------
+
+def _sim_imu_modern(n: int, fs: float, t0_ms: int, seed: int = 0):
+    """Like _sim_imu but yields 10-tuples incl. gx/gy/gz gravity channels.
+
+    Gravity is a near-unit vector (|g| ~= 1.0 in G's, per CoreMotion) with
+    a little jitter so tilt/grav features are non-degenerate.
+    """
+    rng = np.random.default_rng(seed)
+    rows = []
+    dt = 1000.0 / fs
+    for i in range(n):
+        ts = int(t0_ms + i * dt)
+        ax, ay, az = (rng.standard_normal(3) * 0.2).tolist()
+        rx, ry, rz = (rng.standard_normal(3) * 0.5).tolist()
+        g = rng.standard_normal(3) * 0.05
+        g[2] += 1.0  # roughly upright wrist
+        rows.append((ts, ax, ay, az, rx, ry, rz, float(g[0]), float(g[1]), float(g[2])))
+    return rows
+
+
+def _make_modern_model(tmp_path):
+    """Dump a synthetic 92-feature (88 dynamic + 4 gravity) joblib."""
+    import joblib
+    from sklearn.ensemble import RandomForestClassifier
+
+    from src.features.gravity import GRAVITY_FEATURE_NAMES
+    from src.features.windows import _window_features
+
+    rng = np.random.default_rng(1)
+    feature_cols = list(
+        _window_features(rng.standard_normal((100, 6)) * 0.3, fs_hz=100.0).keys()
+    ) + list(GRAVITY_FEATURE_NAMES)
+    X = rng.standard_normal((20, len(feature_cols)))
+    y = np.array([0, 1] * 10)
+    clf = RandomForestClassifier(n_estimators=2, random_state=42).fit(X, y)
+    target = tmp_path / "rf_modern.joblib"
+    joblib.dump({
+        "model": clf,
+        "feature_cols": feature_cols,
+        "person_id": "synthetic-modern",
+        "sample_rate_hz": 100,
+        "trained_on": "test synthetic modern",
+        "n_windows": 20,
+        "zscore_mu": None,
+        "zscore_sigma": None,
+    }, target)
+    return target, feature_cols
+
+
+def test_append_sample_accepts_gravity():
+    live = _fresh_inference()
+    live.append_sample(1000, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.01, 0.02, 0.99)
+    row = live._buffer[-1]
+    assert len(row) == 10
+    assert row[7:10] == (0.01, 0.02, 0.99)
+
+
+def test_append_sample_gravity_defaults_nan():
+    """Legacy 6-channel callers omit gravity → stored as NaN, no crash."""
+    live = _fresh_inference()
+    live.append_sample(1000, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6)
+    row = live._buffer[-1]
+    assert len(row) == 10
+    assert all(np.isnan(v) for v in row[7:10])
+
+
+def test_modern_model_predict_with_gravity(tmp_path):
+    target, _ = _make_modern_model(tmp_path)
+    live = _fresh_inference()
+    assert live.load_model(target) is not None
+    t0 = int(time.time() * 1000)
+    for r in _sim_imu_modern(150, fs=100.0, t0_ms=t0):
+        live.append_sample(*r)
+    out = live.predict()
+    assert out is not None
+    assert out.get("rate_mismatch") is not True
+    assert out.get("missing_channels") is not True
+    assert isinstance(out["writing"], bool)
+    assert 0.0 <= out["proba"] <= 1.0
+
+
+def test_modern_model_without_gravity_flags_missing_channels(tmp_path):
+    """A Modern model fed a Legacy (gravity-less) stream must short-circuit
+    with missing_channels=True instead of predicting on NaN gravity features."""
+    target, _ = _make_modern_model(tmp_path)
+    live = _fresh_inference()
+    live.load_model(target)
+    t0 = int(time.time() * 1000)
+    for r in _sim_imu(150, fs=100.0, t0_ms=t0):  # 6-channel rows → gravity NaN
+        live.append_sample(*r)
+    out = live.predict()
+    assert out is not None
+    assert out.get("missing_channels") is True
+    assert out["proba"] == 0.0
+
+
+def test_feature_parity_modern_with_build_windows(tmp_path):
+    """The live 94-feature vector must match the training composition
+    (_window_features + _gravity_window_features) bit-for-bit."""
+    import pandas as pd
+
+    from src.features.gravity import _gravity_window_features
+    from src.features.windows import _window_features
+
+    n = 100
+    fs = 100.0
+    rng = np.random.default_rng(7)
+    imu = rng.standard_normal((n, 6)) * 0.3
+    grav = rng.standard_normal((n, 3)) * 0.05
+    grav[:, 2] += 1.0
+
+    feats_training = _window_features(imu, fs_hz=fs)
+    feats_training.update(_gravity_window_features(
+        pd.DataFrame(grav, columns=["gx", "gy", "gz"])
+    ))
+
+    target, _ = _make_modern_model(tmp_path)
+    live = _fresh_inference()
+    live.load_model(target)
+    t0 = int(time.time() * 1000)
+    dt = 1000.0 / fs
+    for i in range(n):
+        live.append_sample(
+            int(t0 + i * dt),
+            float(imu[i, 0]), float(imu[i, 1]), float(imu[i, 2]),
+            float(imu[i, 3]), float(imu[i, 4]), float(imu[i, 5]),
+            float(grav[i, 0]), float(grav[i, 1]), float(grav[i, 2]),
+        )
+    feats_live = live._extract_features(list(live._buffer)[-n:], fs_hz=fs)
+
+    for k in feats_training:
+        assert k in feats_live, f"missing {k} in live features"
+        assert np.isclose(feats_training[k], feats_live[k], rtol=1e-6, atol=1e-9), \
+            f"{k}: training={feats_training[k]} live={feats_live[k]}"
