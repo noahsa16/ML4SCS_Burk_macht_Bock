@@ -194,7 +194,7 @@ feature count.
 
 ## Key Insights
 
-- **Acting on Funk's gravity feedback was right, but the payoff is
+- **Acting on  gravity feedback was right, but the payoff is
   still unproven.** Gravity is the only model lever not yet refuted
   (sync, sample rate, per-subject threshold, deep ≈ RF, engineered
   features all eliminated), and the first signal is encouraging — AUC
