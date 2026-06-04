@@ -721,7 +721,7 @@ Seit 2026-05-26 unterscheidet die Pipeline zwei Watch-Daten-Pools:
 |---|---:|---:|---:|---|
 | **Legacy** | 50 | 6 (ax/ay/az + rx/ry/rz) | 88 | Die 10 LOSO-Probanden + Vorgeschichte |
 | **Transition** | 100 | 6 | 88 | S032, S033 (Noah-Selbsttests vor dem Gravity-Fix) |
-| **Modern** | 100 | 9 (+ gx/gy/gz) | 94 | Alle Sessions ab 2026-05-26 |
+| **Modern** | 100 | 9 (+ gx/gy/gz) | 92 | Alle Sessions ab 2026-05-26 |
 
 **Warum zwei Pools statt einer:** der Prof hat (zu Recht) zurückgemeldet
 dass `userAcceleration` ohne `gravity` einen Teil der nützlichen
@@ -736,8 +736,11 @@ Alte Sessions haben kein Gravity (kann nicht retro-imputiert werden).
 - `_session_facts` aggregiert `gravity_rows`, `/sessions/{id}/report`
   exponiert `has_gravity` + `pool` ("legacy" | "modern")
 - `build_windows` detektiert die Spalten in `merged.csv` und hängt
-  6 zusätzliche gravity-Features an (`grav_mag_mean/std`,
-  `tilt_x/y/z_mean`, `tilt_change` — siehe `src/features/gravity.py`)
+  4 zusätzliche gravity-Features an (`tilt_x/y/z_mean`, `tilt_change`
+  — siehe `src/features/gravity.py`). `grav_mag_mean/std` wurden
+  2026-05-29 gestrichen: `motion.gravity` ist ein Einheitsvektor
+  (‖g‖ ≈ 1.000), die Magnitude hat null Varianz und trug im
+  S038-Within-Session-RF exakt 0.0 Importance (Rang #93/#94)
 - `tilt_change` ist der **Winkel zwischen aufeinanderfolgenden
   Gravity-Vektoren** (`arccos(dot(g_i, g_i+1) / (|g_i|·|g_i+1|))`),
   *nicht* der Per-Achsen-Mittelwert — letzteres unterschätzt Rotationen
@@ -748,7 +751,7 @@ Alte Sessions haben kein Gravity (kann nicht retro-imputiert werden).
   Spalten global gedropt (NaN-Padding vom concat würde sonst RF.fit
   crashen)
 - `legacy`: nur Legacy-Sessions, 88 Features. Bestehende Headline.
-- `modern`: nur Modern-Sessions mit voller Gravity-Coverage, 94 Features
+- `modern`: nur Modern-Sessions mit voller Gravity-Coverage, 92 Features
 
 Bei `--pool != auto` werden `--save-final-model`/`--save-cv-csv`/
 `--save-oof` automatisch in `*_modern.*` / `*_legacy.*`-Sibling
@@ -784,18 +787,31 @@ optional gravity-Spalten-Drop. Default-Output:
 Legacy-View behandelt werden — z. B. um sie im 10-Probanden-LOSO-Pool
 mittrainieren zu können.
 
-**Bekannte Live-Inference-Lücke:** `src/server/inference.py::append_sample`
-nimmt aktuell nur 6 Kanäle (ax/ay/az/rx/ry/rz). Ein Modern-trainiertes
-Modell mit 94 Features ist deshalb **nicht** über die Live-Inference-
-Pipeline deploybar — würde auf 88 Legacy-Features einen Predict-Mismatch
-geben. Workaround bis das implementiert ist: für Live-Deployment
-trotzdem auf das Legacy-Modell (88 Features) fallback. Modern-Modell
-ist *nur* als LOSO-Headline-Artefakt nutzbar bis die Live-Pipeline auf
-9 Kanäle erweitert wird (Future-Work-Bullet).
+**Live-Inference 9-Kanal-Support (seit 2026-05-29).**
+`src/server/inference.py::append_sample` nimmt jetzt optional `gx/gy/gz`
+(Gravity) als 7.–9. Argument; der Rolling-Buffer führt 10-Tupel
+`(ts, ax..rz, gx, gy, gz)` (Gravity in **derselben** Tuple — strukturelle
+Alignment-Garantie gegen die Sort-Stability-Bug-Klasse). `predict()`
+erkennt ein Modern-Modell über `set(GRAVITY_FEATURE_NAMES).issubset(
+feature_cols)` und komponiert dann via `_extract_features()` die vollen
+92 Features (`_window_features` + `_gravity_window_features`, identisch
+zum `build_windows`-Trainingspfad — Paritäts-Test in
+`tests/test_inference.py`). Legacy-Streams ohne Gravity speichern NaN;
+ein Modern-Modell auf so einem Stream short-circuited mit Payload
+`{missing_channels: true}` (kein Predict auf NaN, analog zum
+`rate_mismatch`-Guard), ein Legacy-Modell ignoriert die Extra-Spalten.
+**Verbleibender Schritt zum Deployment:** es existiert noch **kein**
+Modern-Joblib in `models/` — sobald eins trainiert ist (`train_loso.py
+--pool modern --save-final-model` → `rf_all_modern.joblib`), muss sein
+Stem zur Picker-Whitelist `_USER_FACING_MODEL_NAMES` in
+`src/server/inference.py` hinzugefügt werden, damit es im UI-Switcher
+auftaucht. Ob Gravity die Accuracy überhaupt hebt, ist offen (separater
+LOSO-modern-Lauf — `100hz_ablation.md` zeigt nur, dass Sample-Rate
+nicht hilft; Gravity ist ein anderes Signal).
 
 **Was wo lebt:**
-- `src/features/gravity.py` (+ `tests/test_gravity.py`): 6 Gravity-
-  Features, vektor-winkel-basiert
+- `src/features/gravity.py` (+ `tests/test_gravity.py`): 4 Gravity-
+  Features (`tilt_x/y/z_mean`, `tilt_change`), vektor-winkel-basiert
 - `src/features/downsample.py` (+ `tests/test_downsample.py`):
   Cross-Pool-Bridge
 - `src/training/train_loso.py::_filter_pool` (+ `tests/test_train_loso_pool.py`):
@@ -1144,7 +1160,10 @@ could silently poison the training data or the proband-facing flow:
   Buffer → predict() == None, payload-shape, sparkline-Wachstum, Z-Score-
   Honouring (mu/sigma aus Joblib appliziert), Rate-Mismatch-Guard
   (>20 % fs-Abweichung → `rate_mismatch: true` Payload), Daily-Aggregate-
-  Reset bei Datums-Wechsel, model-load-Fallback bei fehlendem joblib.
+  Reset bei Datums-Wechsel, model-load-Fallback bei fehlendem joblib,
+  9-Kanal-Modern-Support (`append_sample` mit/ohne Gravity, 92-Feature-
+  Predict, Feature-Parität inkl. Gravity gegen `build_windows`,
+  `missing_channels`-Guard wenn Modern-Modell auf Legacy-Stream läuft).
 - `test_inference_endpoints.py` — `GET /inference/models` Schema +
   Whitelist, `POST /inference/model {id}` Switch + Buffer-Clear,
   unbekannte ID → 404.

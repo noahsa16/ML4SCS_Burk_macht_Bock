@@ -60,6 +60,15 @@ def test_log_tick_ignores_none(isolated_log):
     assert not isolated_log.exists() or isolated_log.stat().st_size == 0
 
 
+def test_log_tick_ignores_missing_channels(isolated_log):
+    """Modern model on a Legacy (gravity-less) stream emits proba=0.0
+    missing_channels ticks — they must not be logged as idle writing time."""
+    from src.server.focus_log import log_tick
+    log_tick({"missing_channels": True, "writing": False, "proba": 0.0,
+              "model_id": "rf_all_modern", "fs_hz": 100.0})
+    assert not isolated_log.exists() or isolated_log.stat().st_size == 0
+
+
 def _seed_log(path, ticks):
     """Write a list of (ts_ms, writing) tuples to the log CSV."""
     import src.server.focus_log as focus_log_mod
