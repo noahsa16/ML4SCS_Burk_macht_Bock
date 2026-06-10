@@ -100,6 +100,31 @@ def test_modern_filters_to_modern_only_and_keeps_gravity():
     assert out[GRAVITY_FEATURE_NAMES].notna().all().all()
 
 
+def test_modern_with_drop_gravity_keeps_sessions_drops_columns():
+    # Ablation arm: same modern sessions/folds, gravity features removed.
+    df = _concat_pools(
+        _legacy_session("S001"),
+        _modern_session("S002"),
+        _modern_session("S003"),
+    )
+
+    out = _filter_pool(df, "modern", drop_gravity=True)
+
+    assert set(out["session_id"]) == {"S002", "S003"}
+    for name in GRAVITY_FEATURE_NAMES:
+        assert name not in out.columns
+
+
+def test_drop_gravity_suffixes_save_paths():
+    from pathlib import Path
+
+    from src.training.train_loso import _pool_suffixed_path
+
+    out = _pool_suffixed_path(Path("models/rf_all.joblib"), "modern", drop_gravity=True)
+
+    assert out.name == "rf_all_modern_nogravity.joblib"
+
+
 def test_invalid_pool_raises():
     df = _legacy_session("S001")
 
