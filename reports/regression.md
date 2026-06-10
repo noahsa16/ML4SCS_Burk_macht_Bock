@@ -190,3 +190,21 @@ sagt 44 %.
 python -m src.training.train_loso --save-oof   # → models/loso_oof.csv
 python -m src.evaluation.regression            # → metrics + Plots
 ```
+
+## Update 2026-06-10 — Refresh auf N=14-OOF
+
+Mit der Headline-Promotion auf N=14 (P12–P15 als 50hz-Views, siehe
+CLAUDE.md) wurde `models/loso_oof.csv` neu erzeugt (25 936 OOF-Zeilen,
+14 Folds) und die Regression neu gerechnet:
+
+| Skala | MAE (N=14) | MAE (N=10, alt) | Bias (N=14) |
+|---|---:|---:|---:|
+| 60 s | 8,6 pp | 7,6 pp | +1,2 pp |
+| 300 s | 7,4 pp | — | +2,2 pp |
+| Session | **4,5 pp** | 3,5 pp | +1,0 pp |
+
+Die Verschiebung ist die härtere Kohorte (P12/P15 in der
+P07/P09-Klasse), keine Modell- oder Methodik-Änderung — Estimator
+bleibt der binäre `mean(proba_cal ≥ 0.5)`, Truth bleibt closed labels.
+Diagnostic-Abschnitt (raw-pen-Truth) zeigt unverändert den inhärenten
+Label-Closing-Bias (~+23 pp).

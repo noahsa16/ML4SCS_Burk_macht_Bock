@@ -30,21 +30,22 @@ cross-validation + Study Mode (counterbalanced protocol runner with
 fullscreen proband UI and VL admin monitor) + Live-Inference im
 Dashboard (Topbar-Pill, Recording-Page-Card, eigener `#focus`-Tab
 mit persistenter Schreibzeit-Aggregation) + Modell-Switcher
-(Personal ↔ Generic) are operational. **Current headline (10-person
-cross-subject LOSO, RF + per-session z-score + `max_gap_ms=2500`
-label closing, **korrigierte Feature-Sortierung** post 2026-05-25):
-accuracy 0.863 ± 0.032, ROC-AUC 0.935 ± 0.032, F1(writing) 0.875.
-Burst-aggregated @5s: acc 0.902 ± 0.035, AUC 0.968 ± 0.030;
-@10s: acc 0.885 ± 0.037, AUC 0.957 ± 0.025; @30s: acc 0.844 ± 0.034,
-AUC 0.922 ± 0.029.** **N=14-Lauf (2026-06-10, P12–P15 als
-50hz-Views via Downsample-Bridge): acc 0.855 ± 0.034, AUC
-0.929 ± 0.034, F1(w) 0.862; @5s 0.899/0.962, @30s 0.838/0.917.
-Rückgang vs. N=10 ist Kohorten-Härte (neue 7 Folds mitteln 0.833,
-alte 7 Folds 0.877 und +0.8 pp vs. N=7-Stand), kein Modell-Regress.
-Ob N=14 die neue Headline wird (inkl. rf_all.joblib-Retrain, das
-Live-Inference/Regression/Engagement konsumieren) ist offen;
-Artefakte: `models/loso_cv_legacy.csv` + `loso_oof_legacy.csv`.**
-Vorgänger-Headlines (vor Sort-Stability-Fix,
+(Personal ↔ Generic) are operational. **Current headline (14-person
+cross-subject LOSO seit 2026-06-10 — 10 Legacy-Probanden + P12–P15
+als 50hz-Views via Downsample-Bridge; RF + per-session z-score +
+`max_gap_ms=2500` label closing): accuracy 0.855 ± 0.034, ROC-AUC
+0.929 ± 0.034, F1(writing) 0.862. Burst-aggregated @5s: acc
+0.899 ± 0.036, AUC 0.962 ± 0.030; @10s: acc 0.882 ± 0.033, AUC
+0.952 ± 0.027; @30s: acc 0.838 ± 0.037, AUC 0.917 ± 0.030.**
+Der Rückgang vs. N=10 (0.863/0.935) ist Kohorten-Härte, kein
+Modell-Regress: die 7 neueren Folds (P07–P15) mitteln 0.833, die 7
+älteren 0.877 und gewannen +0.8 pp vs. N=7-Stand. Kanonische
+Artefakte (`rf_all.joblib`, `rf_all_live.joblib`, `loso_cv.csv`,
+`loso_oof.csv`) sind auf N=14 retrainiert (Promotion via
+`--pool legacy --no-pool-suffix`). Vorgänger-Headlines:
+**10-Probanden (post Sort-Stability-Fix): acc 0.863 ± 0.032 /
+AUC 0.935 ± 0.032 / F1(w) 0.875; @5s 0.902/0.968, @30s 0.844/0.922.**
+Davor (vor Sort-Stability-Fix,
 siehe `reports/sort_stability_bug.md`): 10-Probanden 0.856 / 0.928;
 8-Probanden gap=2500 acc 0.861 ± 0.035 / AUC 0.932 ± 0.035;
 7-Probanden gap=2500 acc 0.868 ± 0.024 / AUC 0.943 ± 0.014;
@@ -163,7 +164,7 @@ Moleskine Smart Pen (BLE)
                     ↓
          data/processed/{session}_windows.csv  (1 row per window)
                     ↓
-       src/training/train_loso.py    (HEADLINE: LOSO by person, N=10,
+       src/training/train_loso.py    (HEADLINE: LOSO by person, N=14,
                                       RF 200 trees + per-session z-score,
                                       class_weight=balanced, then per-
                                       session rolling-mean burst-agg
@@ -183,9 +184,9 @@ Moleskine Smart Pen (BLE)
                                       Z-Score, Live-tauglich)
          models/loso_cv.csv          (per-fold metrics)
                     ↓
-         acc 0.863 ± 0.032  |  AUC 0.935 ± 0.032  |  F1(w) 0.875
-         burst @5s: acc 0.902 / AUC 0.968
-         burst @30s: acc 0.844 / AUC 0.922  (Schreibzeit-tracking)
+         acc 0.855 ± 0.034  |  AUC 0.929 ± 0.034  |  F1(w) 0.862
+         burst @5s: acc 0.899 / AUC 0.962
+         burst @30s: acc 0.838 / AUC 0.917  (Schreibzeit-tracking)
                     ↓
        src/server/inference.py       (Live-Inference-Singleton, lazy
                                       Modell-Load, Rolling-Buffer,
@@ -582,7 +583,9 @@ no longer vibrates continuously when the server is down.
   Wahrscheinlichkeiten (`pred_pct_proba`) schrumpft zur Mitte (~53 %)
   und generalisiert nicht auf schiefe Schreibanteile (siehe
   `reports/regression.md`, Abschnitt „Shrinkage"). Headline binär:
-  Session-MAE 3,5 pp, 60 s 7,6 pp. Der `evaluate()`-Output trennt
+  Session-MAE 4,5 pp, 60 s 8,6 pp (N=14 seit 2026-06-10; bei N=10
+  waren es 3,5 / 7,6 pp — Verschiebung durch die härtere Kohorte,
+  nicht durch Modell-Änderung). Der `evaluate()`-Output trennt
   zwei beschriftete Abschnitte: **HEADLINE** (truth = `closed`
   labels, = Modell-Labels mit Mikropausen ≤2,5 s als writing) und
   **DIAGNOSTIC** (truth = rohe Pen-Down-Samples). `regression_metrics.csv`
