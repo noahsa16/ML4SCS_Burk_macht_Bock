@@ -14,6 +14,11 @@ druckt drei Vergleichstabellen. Der ``legacy``-Pool zieht Modern-Sessions
 ueber ihre 50-Hz-Downsample-Views mit (kein Mischen von Sample-Raten);
 der ``modern``-Pool nimmt nur native ``100hz_grav``-Sessions.
 
+Per-Session-Z-Score ist **standardmaessig aus** (fuers CNN empirisch
+neutral, gepaartes A/B N=14: Δacc −0.002, p=0.65; ohne ist das Modell
+direkt deploybar ohne Kalibrierphase). ``--zscore`` schaltet ihn ein und
+schreibt nach ``deep_loso_{pool}_zscore.csv``.
+
 WICHTIG -- Input-Fenster vs. Decision-Window. ``--win`` steuert das
 *Input-Fenster* (wie viel roher Kontext das Modell pro Vorhersage sieht).
 Das ist NICHT dasselbe wie das *Decision-Window*, auf dem man Accuracy
@@ -148,6 +153,12 @@ def main() -> None:
     parser.add_argument("--max-gap-ms", type=float, default=2500.0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument(
+        "--zscore", action="store_true",
+        help="Per-Session-Z-Score einschalten (Default aus -- fuers CNN "
+             "empirisch neutral, ohne ist direkt deploybar ohne "
+             "Kalibrierphase). Schreibt nach deep_loso_{pool}_zscore.csv.",
+    )
+    parser.add_argument(
         "--exclude-boundary", action="store_true",
         help="Mehrdeutige Uebergangs-Fenster (writing-Anteil 0.4-0.6) "
              "ausschliessen -- fuer das Label-Qualitaets-Experiment.",
@@ -155,6 +166,7 @@ def main() -> None:
     args = parser.parse_args()
 
     exclude_boundary = (0.4, 0.6) if args.exclude_boundary else None
+    zscore = args.zscore
     rf = RF_DECISION_BY_POOL[args.pool]
     windows = [1, 5] if args.win == "both" else [int(args.win)]
 
@@ -168,6 +180,7 @@ def main() -> None:
             max_gap_ms=args.max_gap_ms,
             seed=args.seed,
             exclude_boundary=exclude_boundary,
+            zscore=zscore,
         )
         if df.empty:
             print(f"[warn] {args.model}/{win}s: keine Folds.")
@@ -179,7 +192,8 @@ def main() -> None:
         raise SystemExit("Keine Ergebnisse -- Daten / Filter pruefen.")
 
     folds_table = pd.concat(all_folds, ignore_index=True)
-    out_csv = MODEL_DIR / f"deep_loso_{args.pool}.csv"
+    norm_suffix = "_zscore" if zscore else ""
+    out_csv = MODEL_DIR / f"deep_loso_{args.pool}{norm_suffix}.csv"
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     folds_table.to_csv(out_csv, index=False)
     print(f"\n-> {out_csv}  ({len(folds_table)} fold-Zeilen)")
