@@ -23,6 +23,7 @@ from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.server.inference import LiveInference  # noqa: E402
+from src.profiles import find_windows
 
 DATA = ROOT / "data"
 
@@ -35,7 +36,7 @@ def _load_watch(session_id: str) -> pd.DataFrame:
 
 
 def _load_window_labels(session_id: str) -> pd.DataFrame:
-    p = DATA / "processed" / f"{session_id}_windows.csv"
+    p = find_windows(session_id)
     df = pd.read_csv(p)
     return df[["t_center_ms", "label"]].sort_values("t_center_ms").reset_index(drop=True)
 

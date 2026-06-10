@@ -52,6 +52,7 @@ from sklearn.metrics import (
 )
 
 from src.features.gravity import GRAVITY_FEATURE_NAMES
+from src.profiles import find_windows
 from src.features.windows import load_session_windows
 
 ROOT = Path(__file__).parents[2]
@@ -68,7 +69,9 @@ TRAINABLE_VERDICTS = {"trainable", "usable"}
 BURST_SCALES_SEC: tuple[float, ...] = (5.0, 10.0, 30.0)
 
 
-def _filter_pool(all_windows: pd.DataFrame, pool: str) -> pd.DataFrame:
+def _filter_pool(
+    all_windows: pd.DataFrame, pool: str, drop_gravity: bool = False
+) -> pd.DataFrame:
     """Filter sessions and gravity columns based on pool selection.
 
     pool ∈ {"auto", "legacy", "modern"}:
@@ -79,6 +82,10 @@ def _filter_pool(all_windows: pd.DataFrame, pool: str) -> pd.DataFrame:
       (no gravity capture). Gravity columns dropped from output.
     - "modern": include only sessions with valid (non-NaN, all-rows)
       gravity. Gravity columns kept.
+
+    drop_gravity=True removes the gravity columns from the output while
+    keeping the session selection unchanged — the paired ablation arm
+    (same sessions/folds, minus gravity features).
 
     Why this matters: pd.concat over mixed pools pads missing columns
     with NaN. RF.fit crashes on NaN. _zscore_per_session would also
@@ -109,7 +116,8 @@ def _filter_pool(all_windows: pd.DataFrame, pool: str) -> pd.DataFrame:
     if pool == "modern":
         if len(modern_sids) == 0:
             raise RuntimeError("pool='modern' requested but no modern sessions found")
-        return all_windows[all_windows["session_id"].isin(modern_sids)].copy()
+        out = all_windows[all_windows["session_id"].isin(modern_sids)].copy()
+        return out.drop(columns=grav_present) if drop_gravity else out
 
     if pool == "legacy":
         if len(legacy_sids) == 0:
@@ -118,23 +126,44 @@ def _filter_pool(all_windows: pd.DataFrame, pool: str) -> pd.DataFrame:
         return out.drop(columns=grav_present)
 
     # auto: keep all sessions; drop gravity columns iff any legacy session present.
-    if len(legacy_sids) > 0:
+    if len(legacy_sids) > 0 or drop_gravity:
         return all_windows.drop(columns=grav_present)
     return all_windows
 
 
-def _load_windows(session_id: str) -> pd.DataFrame:
-    cached = DATA_PROC / f"{session_id}_windows.csv"
-    if cached.exists():
+# Why: Pool wählt das Profil — legacy lädt 50hz-Windows (native ODER
+# Downsample-Views von Modern-Sessions, der N=14-Mechanismus), modern
+# lädt 100hz_grav, auto die native Form (höchste Fidelity).
+_POOL_PROFILE = {"legacy": "50hz", "modern": "100hz_grav", "auto": None}
+
+
+def _profile_for_pool(pool: str) -> str | None:
+    if pool not in _POOL_PROFILE:
+        raise ValueError(f"pool must be one of {sorted(_POOL_PROFILE)}, got {pool!r}")
+    return _POOL_PROFILE[pool]
+
+
+def _load_windows(session_id: str, profile: str | None = None) -> pd.DataFrame:
+    cached = find_windows(session_id, profile)
+    if cached is not None:
         df = pd.read_csv(cached)
-    else:
+    elif profile is None:
         df = load_session_windows(session_id)
+    else:
+        # Why: explizites Profil ohne Datei darf nicht stillschweigend
+        # die native Variante bauen — das wäre die falsche Form.
+        raise FileNotFoundError(
+            f"windows/{profile}/{session_id}_windows.csv fehlt — View erst "
+            f"bauen (downsample → merge --watch-suffix → features --merged-suffix)."
+        )
     df = df.copy()
     df["session_id"] = session_id
     return df
 
 
-def _select_sessions(include_all: bool, min_windows: int) -> pd.DataFrame:
+def _select_sessions(
+    include_all: bool, min_windows: int, profile: str | None = None
+) -> pd.DataFrame:
     """Read sessions.csv and apply verdict + min-windows quality gates."""
     sessions = pd.read_csv(SESSIONS_CSV)
     if not include_all:
@@ -147,13 +176,13 @@ def _select_sessions(include_all: bool, min_windows: int) -> pd.DataFrame:
     # Why: ohne windows-CSV kein training — skip statt fail.
     sessions = sessions[
         sessions["session_id"].apply(
-            lambda s: (DATA_PROC / f"{s}_windows.csv").exists()
+            lambda s: find_windows(s, profile) is not None
         )
     ]
     if min_windows > 0:
         kept = []
         for sid in sessions["session_id"]:
-            n = sum(1 for _ in open(DATA_PROC / f"{sid}_windows.csv")) - 1
+            n = sum(1 for _ in open(find_windows(sid, profile))) - 1
             if n >= min_windows:
                 kept.append(sid)
             else:
@@ -341,11 +370,15 @@ def train_loso(
     save_oof: Path | None = None,
     zscore_per_session: bool = True,
     pool: str = "auto",
+    drop_gravity: bool = False,
 ) -> dict:
     if by not in {"person", "session"}:
         raise ValueError(f"--by must be 'person' or 'session', got {by!r}")
 
-    sessions = _select_sessions(include_all=include_all, min_windows=min_windows)
+    profile = _profile_for_pool(pool)
+    sessions = _select_sessions(
+        include_all=include_all, min_windows=min_windows, profile=profile
+    )
     if sessions.empty:
         raise RuntimeError(
             "No eligible sessions found. Try --include-all to bypass the verdict gate."
@@ -370,7 +403,7 @@ def train_loso(
     )
 
     all_windows = pd.concat(
-        [_load_windows(s) for s in sessions["session_id"].tolist()],
+        [_load_windows(s, profile) for s in sessions["session_id"].tolist()],
         ignore_index=True,
     )
     all_windows = all_windows.merge(
@@ -380,7 +413,7 @@ def train_loso(
     pre_filter_cols = set(all_windows.columns)
     pre_filter_n = len(all_windows)
     pre_filter_sessions = all_windows["session_id"].nunique()
-    all_windows = _filter_pool(all_windows, pool)
+    all_windows = _filter_pool(all_windows, pool, drop_gravity=drop_gravity)
     grav_kept = any(c in all_windows.columns for c in GRAVITY_FEATURE_NAMES)
     kept_sessions = all_windows["session_id"].nunique()
     # Why: always print pool info so user can verify which features were
@@ -578,6 +611,21 @@ def _parse_args() -> argparse.Namespace:
         "'modern' (gravity-required sessions only, 94 features). "
         "Default: auto.",
     )
+    p.add_argument(
+        "--no-pool-suffix",
+        action="store_true",
+        help="Save-Pfade NICHT mit dem Pool-Namen suffixen — bewusster "
+        "Override, um einen Pool-Lauf zur kanonischen Headline zu machen "
+        "(rf_all.joblib / loso_cv.csv / loso_oof.csv). Der _nogravity-"
+        "Suffix des Ablation-Arms bleibt immer erhalten.",
+    )
+    p.add_argument(
+        "--drop-gravity",
+        action="store_true",
+        help="Ablation arm: drop the gravity feature columns while keeping "
+        "the session selection unchanged (paired 88-vs-92 comparison on "
+        "identical folds). Save paths get a *_nogravity suffix.",
+    )
     p.add_argument("--n-estimators", type=int, default=200)
     p.add_argument("--random-state", type=int, default=42)
     p.add_argument(
@@ -606,35 +654,47 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _pool_suffixed_path(default_path: Path, pool: str) -> Path:
+def _pool_suffixed_path(
+    default_path: Path, pool: str, drop_gravity: bool = False,
+    pool_suffix: bool = True,
+) -> Path:
     """Suffix the save path with the pool name to keep artefacts separate.
 
-    Why: the headline Legacy artefacts (rf_all.joblib, loso_oof.csv,
+    Why: the canonical headline artefacts (rf_all.joblib, loso_oof.csv,
     loso_cv.csv) are consumed by other pipelines (Live-Inference,
-    Regression, Engagement) that assume the 10-Probanden Legacy pool.
-    Saving a modern-only model under the same path silently corrupts
-    those downstream tools. Pool != 'auto' → write to *_modern.* /
-    *_legacy.* sibling instead.
+    Regression, Engagement). Saving a pool-specific model under the same
+    path SILENTLY corrupts those downstream tools — pool != 'auto' →
+    write to *_modern.* / *_legacy.* sibling instead. ``pool_suffix=False``
+    (CLI: --no-pool-suffix) is the deliberate override for promoting a
+    pool run to the canonical headline. The --drop-gravity suffix is
+    NOT overridable: the ablation arm must never become canonical.
     """
-    if pool == "auto":
+    parts = [default_path.stem]
+    if pool != "auto" and pool_suffix:
+        parts.append(pool)
+    if drop_gravity:
+        parts.append("nogravity")
+    if len(parts) == 1:
         return default_path
-    stem = default_path.stem
-    suffix = default_path.suffix
-    return default_path.with_name(f"{stem}_{pool}{suffix}")
+    return default_path.with_name(f"{'_'.join(parts)}{default_path.suffix}")
 
 
 if __name__ == "__main__":
     args = _parse_args()
+    _suffix = not args.no_pool_suffix
     save_final = (
-        _pool_suffixed_path(Path(args.save_final_model), args.pool)
+        _pool_suffixed_path(Path(args.save_final_model), args.pool,
+                            args.drop_gravity, pool_suffix=_suffix)
         if args.save_final_model else None
     )
     save_cv = (
-        _pool_suffixed_path(Path(args.save_cv_csv), args.pool)
+        _pool_suffixed_path(Path(args.save_cv_csv), args.pool,
+                            args.drop_gravity, pool_suffix=_suffix)
         if args.save_cv_csv else None
     )
     save_oof = (
-        _pool_suffixed_path(Path(args.save_oof), args.pool)
+        _pool_suffixed_path(Path(args.save_oof), args.pool,
+                            args.drop_gravity, pool_suffix=_suffix)
         if args.save_oof else None
     )
     train_loso(
@@ -648,4 +708,5 @@ if __name__ == "__main__":
         save_oof=save_oof,
         zscore_per_session=not args.no_zscore,
         pool=args.pool,
+        drop_gravity=args.drop_gravity,
     )

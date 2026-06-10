@@ -17,7 +17,8 @@ CLI
     python -m src.features              # neueste Session
     python -m src.features S029         # spezifische Session
 
-Schreibt nach ``data/processed/{session}_windows.csv``.
+Schreibt nach ``data/processed/windows/{profil}/{session}_windows.csv``
+(Profil inhalts-abgeleitet, siehe :mod:`src.profiles`).
 """
 
 from __future__ import annotations
@@ -344,12 +345,27 @@ def main() -> None:
         "--fs-hz", type=float, default=None,
         help="Sample-Rate (Hz). Default: aus local_ts_ms abgeleitet.",
     )
-    parser.add_argument("--out", type=Path, help="Ausgabepfad (default: data/processed/{session}_windows.csv)")
+    parser.add_argument(
+        "--merged-suffix", default=None,
+        help="Alternative merged-CSV lesen, z. B. 'legacy' → "
+        "{session}_merged_legacy.csv (Output der Downsample-Bridge). "
+        "Der Zielordner unter windows/ folgt immer dem Inhalt.",
+    )
+    parser.add_argument("--out", type=Path, help="Ausgabepfad (default: data/processed/windows/{profil}/{session}_windows.csv)")
     args = parser.parse_args()
 
     sid = args.session or _latest_session()
-    feats = load_session_windows(
-        sid,
+    suffix = f"_{args.merged_suffix}" if args.merged_suffix else ""
+    merged_path = DATA_PROC / f"{sid}_merged{suffix}.csv"
+    if not merged_path.exists():
+        raise SystemExit(
+            f"{merged_path} fehlt — vorher `python -m src.merge {sid}"
+            + (f" --watch-suffix {args.merged_suffix}" if args.merged_suffix else "")
+            + "` laufen lassen."
+        )
+    merged = pd.read_csv(merged_path)
+    feats = build_windows(
+        merged,
         window_sec=args.window_sec,
         stride_sec=args.stride_sec,
         fs_hz=args.fs_hz,
@@ -359,7 +375,14 @@ def main() -> None:
     if feats.empty:
         raise SystemExit(f"Keine Windows für {sid} — prüfe die merged CSV.")
 
-    out = args.out or (DATA_PROC / f"{sid}_windows.csv")
+    # Why: der Ordner lügt nie — Profil wird aus dem tatsächlich
+    # geschriebenen Artefakt abgeleitet (Gravity-Features im Output +
+    # gemessene Rate), nicht aus einem manuell gesetzten Flag.
+    from src import profiles
+    from src.features.gravity import GRAVITY_FEATURE_NAMES
+    has_grav = set(GRAVITY_FEATURE_NAMES).issubset(feats.columns)
+    fs = args.fs_hz or infer_fs_hz(merged)
+    out = args.out or profiles.windows_path(sid, profiles.profile_for(fs, has_grav))
     out.parent.mkdir(parents=True, exist_ok=True)
     feats.to_csv(out, index=False)
     counts = feats["label"].value_counts().to_dict()

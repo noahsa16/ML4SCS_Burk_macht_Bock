@@ -100,6 +100,100 @@ def test_modern_filters_to_modern_only_and_keeps_gravity():
     assert out[GRAVITY_FEATURE_NAMES].notna().all().all()
 
 
+def test_modern_with_drop_gravity_keeps_sessions_drops_columns():
+    # Ablation arm: same modern sessions/folds, gravity features removed.
+    df = _concat_pools(
+        _legacy_session("S001"),
+        _modern_session("S002"),
+        _modern_session("S003"),
+    )
+
+    out = _filter_pool(df, "modern", drop_gravity=True)
+
+    assert set(out["session_id"]) == {"S002", "S003"}
+    for name in GRAVITY_FEATURE_NAMES:
+        assert name not in out.columns
+
+
+def test_drop_gravity_suffixes_save_paths():
+    from pathlib import Path
+
+    from src.training.train_loso import _pool_suffixed_path
+
+    out = _pool_suffixed_path(Path("models/rf_all.joblib"), "modern", drop_gravity=True)
+
+    assert out.name == "rf_all_modern_nogravity.joblib"
+
+
+def test_no_pool_suffix_promotes_to_canonical_path():
+    # Bewusster Override des Guards: der Headline-Lauf (legacy N=14)
+    # darf die kanonischen Artefakte schreiben — explizit, nie silent.
+    from pathlib import Path
+
+    from src.training.train_loso import _pool_suffixed_path
+
+    out = _pool_suffixed_path(Path("models/rf_all.joblib"), "legacy", pool_suffix=False)
+
+    assert out.name == "rf_all.joblib"
+
+
+def test_no_pool_suffix_keeps_nogravity_guard():
+    # Der Ablation-Arm darf NIE kanonisch werden, auch nicht mit
+    # --no-pool-suffix.
+    from pathlib import Path
+
+    from src.training.train_loso import _pool_suffixed_path
+
+    out = _pool_suffixed_path(
+        Path("models/rf_all.joblib"), "legacy", drop_gravity=True, pool_suffix=False
+    )
+
+    assert out.name == "rf_all_nogravity.joblib"
+
+
+def test_profile_for_pool_mapping():
+    from src.training.train_loso import _profile_for_pool
+
+    assert _profile_for_pool("legacy") == "50hz"
+    assert _profile_for_pool("modern") == "100hz_grav"
+    assert _profile_for_pool("auto") is None
+
+
+def test_load_windows_explicit_profile_reads_view(tmp_path, monkeypatch):
+    # pool=legacy lädt die 50hz-View einer Modern-Session — der
+    # N=14-Mechanismus: Views joinen den Legacy-Pool automatisch.
+    from src import profiles
+    from src.training import train_loso as T
+
+    monkeypatch.setattr(profiles, "DATA_PROC", tmp_path)
+    monkeypatch.setattr(profiles, "WINDOWS_DIR", tmp_path / "windows")
+    target = tmp_path / "windows" / "50hz" / "S900_windows.csv"
+    target.parent.mkdir(parents=True)
+    pd.DataFrame({"ax_mean": [1.0], "label": [0], "t_center_ms": [500.0]}).to_csv(
+        target, index=False
+    )
+
+    df = T._load_windows("S900", profile="50hz")
+
+    assert df["session_id"].iloc[0] == "S900"
+    assert "ax_mean" in df.columns
+
+
+def test_load_windows_explicit_profile_missing_raises(tmp_path, monkeypatch):
+    # Explizit angefordertes Profil ohne Datei darf NICHT stillschweigend
+    # die native Variante on-the-fly bauen (wäre falsches Profil).
+    from src import profiles
+    from src.training import train_loso as T
+
+    monkeypatch.setattr(profiles, "DATA_PROC", tmp_path)
+    monkeypatch.setattr(profiles, "WINDOWS_DIR", tmp_path / "windows")
+
+    import pytest
+
+    with pytest.raises(FileNotFoundError, match="50hz"):
+        T._load_windows("S901", profile="50hz")
+
+
 def test_invalid_pool_raises():
     df = _legacy_session("S001")
 
