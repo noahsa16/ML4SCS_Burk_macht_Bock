@@ -118,6 +118,19 @@ def test_detect_profile_rejects_ambiguous_rate():
         profiles.detect_profile(_merged_df(75.0, False))
 
 
+def test_detect_profile_handles_legacy_ms_units_and_reversed_batches():
+    # Reale Legacy-merged-CSVs: ts in MILLISEKUNDEN und innerhalb jedes
+    # 10er-Batches rückwärts sortiert (frühe Watch-App-Batch-Reihenfolge;
+    # median(diff) wäre −20 ms). Detection muss trotzdem 50hz liefern.
+    n_batches, batch, dt_ms = 30, 10, 20.0
+    ts = np.concatenate([
+        (np.arange(batch)[::-1] + i * batch) * dt_ms for i in range(n_batches)
+    ])
+    df = pd.DataFrame({"ts": ts, "ax": np.zeros(len(ts))})
+
+    assert profiles.detect_profile(df) == "50hz"
+
+
 def test_migrate_moves_flat_windows_by_merged_profile(proc):
     # Profil einer flachen windows.csv ist nur über die merged-Schwester
     # bestimmbar (Windows-Features tragen keine Sample-Rate).

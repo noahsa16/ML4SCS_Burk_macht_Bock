@@ -234,12 +234,16 @@ async def delete_session(session_id: str):
     # CSV-less session (manual upload) still gets cleaned up.
     watch_path = DATA_RAW_WATCH / f"{session_id}_watch.csv"
     airpods_path = DATA_RAW_AIRPODS / f"{session_id}_airpods.csv"
+    from src.profiles import PROFILES, windows_path
+
     candidates = [
         DATA_RAW_PEN / f"{session_id}_pen.csv",
         watch_path,
         airpods_path,
         ROOT / "data" / "processed" / f"{session_id}_merged.csv",
+        ROOT / "data" / "processed" / f"{session_id}_merged_legacy.csv",
         ROOT / "data" / "processed" / f"{session_id}_windows.csv",
+        *(windows_path(session_id, p) for p in PROFILES),
         ROOT / "models" / f"rf_{session_id}.joblib",
     ]
     # Why: any cached open writer for these files must be closed *before*
