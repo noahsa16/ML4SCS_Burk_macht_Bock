@@ -125,6 +125,49 @@ def test_drop_gravity_suffixes_save_paths():
     assert out.name == "rf_all_modern_nogravity.joblib"
 
 
+def test_profile_for_pool_mapping():
+    from src.training.train_loso import _profile_for_pool
+
+    assert _profile_for_pool("legacy") == "50hz"
+    assert _profile_for_pool("modern") == "100hz_grav"
+    assert _profile_for_pool("auto") is None
+
+
+def test_load_windows_explicit_profile_reads_view(tmp_path, monkeypatch):
+    # pool=legacy lädt die 50hz-View einer Modern-Session — der
+    # N=14-Mechanismus: Views joinen den Legacy-Pool automatisch.
+    from src import profiles
+    from src.training import train_loso as T
+
+    monkeypatch.setattr(profiles, "DATA_PROC", tmp_path)
+    monkeypatch.setattr(profiles, "WINDOWS_DIR", tmp_path / "windows")
+    target = tmp_path / "windows" / "50hz" / "S900_windows.csv"
+    target.parent.mkdir(parents=True)
+    pd.DataFrame({"ax_mean": [1.0], "label": [0], "t_center_ms": [500.0]}).to_csv(
+        target, index=False
+    )
+
+    df = T._load_windows("S900", profile="50hz")
+
+    assert df["session_id"].iloc[0] == "S900"
+    assert "ax_mean" in df.columns
+
+
+def test_load_windows_explicit_profile_missing_raises(tmp_path, monkeypatch):
+    # Explizit angefordertes Profil ohne Datei darf NICHT stillschweigend
+    # die native Variante on-the-fly bauen (wäre falsches Profil).
+    from src import profiles
+    from src.training import train_loso as T
+
+    monkeypatch.setattr(profiles, "DATA_PROC", tmp_path)
+    monkeypatch.setattr(profiles, "WINDOWS_DIR", tmp_path / "windows")
+
+    import pytest
+
+    with pytest.raises(FileNotFoundError, match="50hz"):
+        T._load_windows("S901", profile="50hz")
+
+
 def test_invalid_pool_raises():
     df = _legacy_session("S001")
 

@@ -16,6 +16,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.features.windows import _window_features, infer_fs_hz  # noqa: E402
+from src.profiles import find_windows
 
 DATA = ROOT / "data"
 
@@ -26,7 +27,7 @@ bundle = joblib.load(ROOT / "models" / "rf_noah.joblib")
 clf = bundle["model"]
 fcols = bundle["feature_cols"]
 
-cached = pd.read_csv(DATA / "processed" / f"{session_id}_windows.csv")
+cached = pd.read_csv(find_windows(session_id))
 print(f"cached windows: {len(cached)}")
 X_cached = cached[fcols].to_numpy()
 proba_cached = clf.predict_proba(X_cached)[:, 1]

@@ -29,8 +29,10 @@ MODEL_DIR = ROOT / "models"
 
 def _load_windows(session_id: str) -> pd.DataFrame:
     """Read precomputed windows CSV if available, else build on the fly."""
-    cached = DATA_PROC / f"{session_id}_windows.csv"
-    if cached.exists():
+    from src.profiles import find_windows
+
+    cached = find_windows(session_id)
+    if cached is not None:
         return pd.read_csv(cached)
     return load_session_windows(session_id)
 

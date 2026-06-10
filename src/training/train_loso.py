@@ -52,6 +52,7 @@ from sklearn.metrics import (
 )
 
 from src.features.gravity import GRAVITY_FEATURE_NAMES
+from src.profiles import find_windows
 from src.features.windows import load_session_windows
 
 ROOT = Path(__file__).parents[2]
@@ -130,18 +131,39 @@ def _filter_pool(
     return all_windows
 
 
-def _load_windows(session_id: str) -> pd.DataFrame:
-    cached = DATA_PROC / f"{session_id}_windows.csv"
-    if cached.exists():
+# Why: Pool wählt das Profil — legacy lädt 50hz-Windows (native ODER
+# Downsample-Views von Modern-Sessions, der N=14-Mechanismus), modern
+# lädt 100hz_grav, auto die native Form (höchste Fidelity).
+_POOL_PROFILE = {"legacy": "50hz", "modern": "100hz_grav", "auto": None}
+
+
+def _profile_for_pool(pool: str) -> str | None:
+    if pool not in _POOL_PROFILE:
+        raise ValueError(f"pool must be one of {sorted(_POOL_PROFILE)}, got {pool!r}")
+    return _POOL_PROFILE[pool]
+
+
+def _load_windows(session_id: str, profile: str | None = None) -> pd.DataFrame:
+    cached = find_windows(session_id, profile)
+    if cached is not None:
         df = pd.read_csv(cached)
-    else:
+    elif profile is None:
         df = load_session_windows(session_id)
+    else:
+        # Why: explizites Profil ohne Datei darf nicht stillschweigend
+        # die native Variante bauen — das wäre die falsche Form.
+        raise FileNotFoundError(
+            f"windows/{profile}/{session_id}_windows.csv fehlt — View erst "
+            f"bauen (downsample → merge --watch-suffix → features --merged-suffix)."
+        )
     df = df.copy()
     df["session_id"] = session_id
     return df
 
 
-def _select_sessions(include_all: bool, min_windows: int) -> pd.DataFrame:
+def _select_sessions(
+    include_all: bool, min_windows: int, profile: str | None = None
+) -> pd.DataFrame:
     """Read sessions.csv and apply verdict + min-windows quality gates."""
     sessions = pd.read_csv(SESSIONS_CSV)
     if not include_all:
@@ -154,13 +176,13 @@ def _select_sessions(include_all: bool, min_windows: int) -> pd.DataFrame:
     # Why: ohne windows-CSV kein training — skip statt fail.
     sessions = sessions[
         sessions["session_id"].apply(
-            lambda s: (DATA_PROC / f"{s}_windows.csv").exists()
+            lambda s: find_windows(s, profile) is not None
         )
     ]
     if min_windows > 0:
         kept = []
         for sid in sessions["session_id"]:
-            n = sum(1 for _ in open(DATA_PROC / f"{sid}_windows.csv")) - 1
+            n = sum(1 for _ in open(find_windows(sid, profile))) - 1
             if n >= min_windows:
                 kept.append(sid)
             else:
@@ -353,7 +375,10 @@ def train_loso(
     if by not in {"person", "session"}:
         raise ValueError(f"--by must be 'person' or 'session', got {by!r}")
 
-    sessions = _select_sessions(include_all=include_all, min_windows=min_windows)
+    profile = _profile_for_pool(pool)
+    sessions = _select_sessions(
+        include_all=include_all, min_windows=min_windows, profile=profile
+    )
     if sessions.empty:
         raise RuntimeError(
             "No eligible sessions found. Try --include-all to bypass the verdict gate."
@@ -378,7 +403,7 @@ def train_loso(
     )
 
     all_windows = pd.concat(
-        [_load_windows(s) for s in sessions["session_id"].tolist()],
+        [_load_windows(s, profile) for s in sessions["session_id"].tolist()],
         ignore_index=True,
     )
     all_windows = all_windows.merge(

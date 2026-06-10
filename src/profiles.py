@@ -96,10 +96,16 @@ def detect_profile(df: pd.DataFrame) -> str:
     """
     if "ts" not in df.columns:
         raise ValueError("detect_profile braucht die per-Sample-'ts'-Spalte")
-    dt = pd.Series(df["ts"]).diff().median()
+    # Why: Legacy-Watch-CSVs haben ts innerhalb jedes Batches rückwärts
+    # sortiert (frühe App-Version; windows.py re-sortiert deshalb stabil
+    # nach ts) — daher |diff| statt diff. Und ts ist je nach Quelle in ms
+    # (real) oder s (synthetisch): Sample-Abstände < 0.5 können nur
+    # Sekunden sein, alles darüber ms.
+    dt = pd.Series(df["ts"]).diff().abs().median()
     if not dt or dt <= 0:
-        raise ValueError("ts-Spalte ist nicht monoton steigend — Rate unbestimmbar")
-    fs = 1.0 / float(dt)
+        raise ValueError("ts-Spalte hat keinen messbaren Sample-Abstand")
+    dt = float(dt)
+    fs = (1000.0 / dt) if dt >= 0.5 else (1.0 / dt)
     has_grav = all(c in df.columns for c in _GRAVITY_SAMPLE_COLS) and (
         df[list(_GRAVITY_SAMPLE_COLS)].notna().any().any()
     )
