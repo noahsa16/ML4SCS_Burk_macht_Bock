@@ -212,7 +212,7 @@ pytest tests/     # 252 cases, ~7 s
 The two files that actually feed the model:
 
 - **`data/processed/{session}_merged.csv`** — watch-base: one row per IMU sample + `label_writing ∈ {0, 1}` from the nearest pen `dot_type` within ±40 ms of the δ-corrected pen clock. Watch samples in pen-gaps → label 0.
-- **`data/processed/{session}_windows.csv`** — one row per 1 s sliding window (0.5 s stride) with 88 features (time-stats + spectral + jerk + ZCR + correlations), plus `label` and `t_center_ms`. Labels are morphologically closed (default `max_gap_ms=2500`) at sample level before windowing. Sessions captured with gravity (since 2026-05-26) get 6 extra features → 94 total — see [Pool architecture](#pool-architecture-legacy-vs-modern).
+- **`data/processed/windows/{profile}/{session}_windows.csv`** (profile ∈ `50hz`/`100hz`/`100hz_grav`, content-derived) — one row per 1 s sliding window (0.5 s stride) with 88 features (time-stats + spectral + jerk + ZCR + correlations), plus `label` and `t_center_ms`. Labels are morphologically closed (default `max_gap_ms=2500`) at sample level before windowing. Sessions captured with gravity (since 2026-05-26) get 4 extra tilt features → 92 total — see [Pool architecture](#pool-architecture-legacy-vs-modern).
 
 Raw CSV schemas (watch, pen, AirPods, sessions index, Study-Mode markers) are documented in [CLAUDE.md](CLAUDE.md).
 
@@ -272,7 +272,7 @@ The full pipeline is operational end-to-end: capture → alignment → merge →
 
 **Live deployment.** Inference runs in the server every 1 s (`src/server/inference.py`). The dashboard shows it as a topbar pill, a Recording-page card with sparkline, and a dedicated **Focus** tab with daily/weekly aggregation persisted across restarts. A model picker switches between Personal (`rf_noah`, 100 Hz, no z-score) and Generic (`rf_all_live`, pooled μ/σ baked in for raw-stream use).
 
-**Pool architecture (Legacy vs Modern).** Sessions before 2026-05-26 stream 6 channels (`ax/ay/az + rx/ry/rz`); newer sessions add `motion.gravity` separately for 9 channels → 6 extra gravity features (94 total). Pool is auto-detected at runtime; `train_loso.py --pool {legacy,modern,auto}` selects which to train on. `src/features/downsample.py` bridges modern sessions into the legacy pool for cross-pool LOSO.
+**Pool architecture (Legacy vs Modern).** Sessions before 2026-05-26 stream 6 channels (`ax/ay/az + rx/ry/rz`); newer sessions add `motion.gravity` separately for 9 channels → 4 extra tilt features (92 total). Pool is auto-detected at runtime; `train_loso.py --pool {legacy,modern,auto}` selects which to train on. `src/features/downsample.py` bridges modern sessions into the legacy pool for cross-pool LOSO.
 
 ---
 
@@ -282,3 +282,7 @@ The full pipeline is operational end-to-end: capture → alignment → merge →
 - [Week 4](reports/week_04_report.md)
 - [Week 5](reports/week_05_report.md)
 - [Week 6](reports/week_06_report.md)
+- [Week 7](reports/week_07_report.md)
+- [Week 8](reports/week_08_report.md)
+- [Week 9](reports/week_09_report.md) — two-pool gravity architecture + first Modern proband
+- [Week 10](reports/week_10_report.md) — gravity verdict, N=14 headline, profile-sorted windows
