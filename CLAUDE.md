@@ -36,7 +36,15 @@ label closing, **korrigierte Feature-Sortierung** post 2026-05-25):
 accuracy 0.863 ± 0.032, ROC-AUC 0.935 ± 0.032, F1(writing) 0.875.
 Burst-aggregated @5s: acc 0.902 ± 0.035, AUC 0.968 ± 0.030;
 @10s: acc 0.885 ± 0.037, AUC 0.957 ± 0.025; @30s: acc 0.844 ± 0.034,
-AUC 0.922 ± 0.029.** Vorgänger-Headlines (vor Sort-Stability-Fix,
+AUC 0.922 ± 0.029.** **N=14-Lauf (2026-06-10, P12–P15 als
+50hz-Views via Downsample-Bridge): acc 0.855 ± 0.034, AUC
+0.929 ± 0.034, F1(w) 0.862; @5s 0.899/0.962, @30s 0.838/0.917.
+Rückgang vs. N=10 ist Kohorten-Härte (neue 7 Folds mitteln 0.833,
+alte 7 Folds 0.877 und +0.8 pp vs. N=7-Stand), kein Modell-Regress.
+Ob N=14 die neue Headline wird (inkl. rf_all.joblib-Retrain, das
+Live-Inference/Regression/Engagement konsumieren) ist offen;
+Artefakte: `models/loso_cv_legacy.csv` + `loso_oof_legacy.csv`.**
+Vorgänger-Headlines (vor Sort-Stability-Fix,
 siehe `reports/sort_stability_bug.md`): 10-Probanden 0.856 / 0.928;
 8-Probanden gap=2500 acc 0.861 ± 0.035 / AUC 0.932 ± 0.035;
 7-Probanden gap=2500 acc 0.868 ± 0.024 / AUC 0.943 ± 0.014;
