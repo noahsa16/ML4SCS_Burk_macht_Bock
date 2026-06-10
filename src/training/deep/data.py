@@ -122,15 +122,29 @@ def zscore_channels(X: np.ndarray) -> np.ndarray:
 def load_session_raw(
     session_id: str,
     seq_len: int,
+    merged_suffix: str | None = None,
     **kwargs,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Lese ``{session}_merged.csv``, baue Fenster und z-score sie in einem Schritt.
+    """Lese die merged CSV, baue Fenster und z-score sie in einem Schritt.
+
+    ``merged_suffix`` waehlt die Quelle: ``None`` -> native
+    ``{sid}_merged.csv``; ``"legacy"`` -> die downsampled 50-Hz-View
+    ``{sid}_merged_legacy.csv`` (via :mod:`src.features.downsample`). So
+    kann eine Modern-Session (100 Hz, 9 Kanaele) im Legacy-Pool als
+    50-Hz-View mittrainiert werden, ohne die Sample-Rate zu mischen.
 
     ``kwargs`` werden an :func:`build_raw_windows` durchgereicht
     (``stride``, ``min_label_ratio``, ``max_gap_ms``).
     """
-    merged_path = DATA_PROC / f"{session_id}_merged.csv"
+    stem = f"{session_id}_merged" + (f"_{merged_suffix}" if merged_suffix else "")
+    merged_path = DATA_PROC / f"{stem}.csv"
     if not merged_path.exists():
+        if merged_suffix:
+            raise FileNotFoundError(
+                f"{merged_path} fehlt — die Legacy-View erst bauen: "
+                f"`python -m src.features.downsample {session_id} --target-hz 50` "
+                f"dann `python -m src.merge {session_id} --watch-suffix {merged_suffix}`."
+            )
         raise FileNotFoundError(
             f"{merged_path} fehlt — vorher `python -m src.merge {session_id}` laufen lassen."
         )

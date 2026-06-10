@@ -6,10 +6,13 @@ import pandas as pd
 import pytest
 import torch
 
-from src.training.deep.data import build_raw_windows, zscore_channels
+from src.training.deep import data as deep_data
+from src.training.deep.data import build_raw_windows, load_session_raw, zscore_channels
 from src.training.deep.models import CNN1D, MODELS
 from src.training.deep.train_loso import (
+    POOL_FS,
     _acc_auc,
+    _pool_plan,
     fold_metrics,
     predict_proba,
     train_one_model,
@@ -192,3 +195,63 @@ def test_fold_metrics_keys_and_ranges():
     assert {"accuracy", "f1_writing", "roc_auc", "bursts"} <= set(m)
     assert {"5s", "10s", "30s"} == set(m["bursts"])
     assert 0.0 <= m["accuracy"] <= 1.0
+
+
+# --- Pool-/Suffix-Auswahl (Single-Model-Deep-LOSO) ---------------------------
+
+
+def test_load_session_raw_merged_suffix(tmp_path, monkeypatch):
+    """merged_suffix laedt {sid}_merged_{suffix}.csv statt der nativen Datei."""
+    monkeypatch.setattr(deep_data, "DATA_PROC", tmp_path)
+    # Nur die Legacy-View existiert; die native merged fehlt absichtlich.
+    _synthetic_merged().to_csv(tmp_path / "S999_merged_legacy.csv", index=False)
+    X, y, t = load_session_raw("S999", seq_len=50, merged_suffix="legacy", stride=25)
+    assert X.shape == (23, 50, 6)
+    assert len(y) == len(t) == 23
+
+
+def test_load_session_raw_native_when_no_suffix(tmp_path, monkeypatch):
+    """Ohne Suffix laedt die native {sid}_merged.csv."""
+    monkeypatch.setattr(deep_data, "DATA_PROC", tmp_path)
+    _synthetic_merged().to_csv(tmp_path / "S999_merged.csv", index=False)
+    X, _, _ = load_session_raw("S999", seq_len=50, stride=25)
+    assert X.shape == (23, 50, 6)
+
+
+def test_load_session_raw_missing_legacy_view_hints_downsample(tmp_path, monkeypatch):
+    """Fehlende Legacy-View -> FileNotFoundError mit Hinweis auf die Downsample-Chain."""
+    monkeypatch.setattr(deep_data, "DATA_PROC", tmp_path)
+    with pytest.raises(FileNotFoundError, match="downsample"):
+        load_session_raw("S999", seq_len=50, merged_suffix="legacy")
+
+
+def _sessions(rows: list[tuple[str, str, str]]) -> pd.DataFrame:
+    return pd.DataFrame(rows, columns=["session_id", "person_id", "watch_profile"])
+
+
+def test_pool_plan_legacy_maps_native_and_views():
+    """legacy: 50hz nativ -> kein Suffix; 100hz_grav -> Legacy-View."""
+    sessions = _sessions([("S007", "Noah", "50hz"), ("S038", "P12", "100hz_grav")])
+    assert _pool_plan(sessions, "legacy") == {"S007": None, "S038": "legacy"}
+
+
+def test_pool_plan_modern_uses_native():
+    """modern: native 100hz_grav-Sessions, kein Suffix."""
+    sessions = _sessions([("S038", "P12", "100hz_grav"), ("S039", "P13", "100hz_grav")])
+    assert _pool_plan(sessions, "modern") == {"S038": None, "S039": None}
+
+
+def test_pool_plan_rejects_auto():
+    """Deep unterstuetzt kein 'auto' -- rohe Sequenzen koennen keine fs mischen."""
+    with pytest.raises(ValueError, match="pool must be"):
+        _pool_plan(_sessions([("S007", "Noah", "50hz")]), "auto")
+
+
+def test_pool_plan_requires_watch_profile():
+    sessions = pd.DataFrame({"session_id": ["S007"], "person_id": ["Noah"]})
+    with pytest.raises(ValueError, match="watch_profile"):
+        _pool_plan(sessions, "legacy")
+
+
+def test_pool_fs_values():
+    assert POOL_FS == {"legacy": 50, "modern": 100}
