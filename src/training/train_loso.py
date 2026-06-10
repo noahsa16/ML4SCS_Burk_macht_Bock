@@ -68,7 +68,9 @@ TRAINABLE_VERDICTS = {"trainable", "usable"}
 BURST_SCALES_SEC: tuple[float, ...] = (5.0, 10.0, 30.0)
 
 
-def _filter_pool(all_windows: pd.DataFrame, pool: str) -> pd.DataFrame:
+def _filter_pool(
+    all_windows: pd.DataFrame, pool: str, drop_gravity: bool = False
+) -> pd.DataFrame:
     """Filter sessions and gravity columns based on pool selection.
 
     pool ∈ {"auto", "legacy", "modern"}:
@@ -79,6 +81,10 @@ def _filter_pool(all_windows: pd.DataFrame, pool: str) -> pd.DataFrame:
       (no gravity capture). Gravity columns dropped from output.
     - "modern": include only sessions with valid (non-NaN, all-rows)
       gravity. Gravity columns kept.
+
+    drop_gravity=True removes the gravity columns from the output while
+    keeping the session selection unchanged — the paired ablation arm
+    (same sessions/folds, minus gravity features).
 
     Why this matters: pd.concat over mixed pools pads missing columns
     with NaN. RF.fit crashes on NaN. _zscore_per_session would also
@@ -109,7 +115,8 @@ def _filter_pool(all_windows: pd.DataFrame, pool: str) -> pd.DataFrame:
     if pool == "modern":
         if len(modern_sids) == 0:
             raise RuntimeError("pool='modern' requested but no modern sessions found")
-        return all_windows[all_windows["session_id"].isin(modern_sids)].copy()
+        out = all_windows[all_windows["session_id"].isin(modern_sids)].copy()
+        return out.drop(columns=grav_present) if drop_gravity else out
 
     if pool == "legacy":
         if len(legacy_sids) == 0:
@@ -118,7 +125,7 @@ def _filter_pool(all_windows: pd.DataFrame, pool: str) -> pd.DataFrame:
         return out.drop(columns=grav_present)
 
     # auto: keep all sessions; drop gravity columns iff any legacy session present.
-    if len(legacy_sids) > 0:
+    if len(legacy_sids) > 0 or drop_gravity:
         return all_windows.drop(columns=grav_present)
     return all_windows
 
@@ -341,6 +348,7 @@ def train_loso(
     save_oof: Path | None = None,
     zscore_per_session: bool = True,
     pool: str = "auto",
+    drop_gravity: bool = False,
 ) -> dict:
     if by not in {"person", "session"}:
         raise ValueError(f"--by must be 'person' or 'session', got {by!r}")
@@ -380,7 +388,7 @@ def train_loso(
     pre_filter_cols = set(all_windows.columns)
     pre_filter_n = len(all_windows)
     pre_filter_sessions = all_windows["session_id"].nunique()
-    all_windows = _filter_pool(all_windows, pool)
+    all_windows = _filter_pool(all_windows, pool, drop_gravity=drop_gravity)
     grav_kept = any(c in all_windows.columns for c in GRAVITY_FEATURE_NAMES)
     kept_sessions = all_windows["session_id"].nunique()
     # Why: always print pool info so user can verify which features were
@@ -578,6 +586,13 @@ def _parse_args() -> argparse.Namespace:
         "'modern' (gravity-required sessions only, 94 features). "
         "Default: auto.",
     )
+    p.add_argument(
+        "--drop-gravity",
+        action="store_true",
+        help="Ablation arm: drop the gravity feature columns while keeping "
+        "the session selection unchanged (paired 88-vs-92 comparison on "
+        "identical folds). Save paths get a *_nogravity suffix.",
+    )
     p.add_argument("--n-estimators", type=int, default=200)
     p.add_argument("--random-state", type=int, default=42)
     p.add_argument(
@@ -606,7 +621,9 @@ def _parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-def _pool_suffixed_path(default_path: Path, pool: str) -> Path:
+def _pool_suffixed_path(
+    default_path: Path, pool: str, drop_gravity: bool = False
+) -> Path:
     """Suffix the save path with the pool name to keep artefacts separate.
 
     Why: the headline Legacy artefacts (rf_all.joblib, loso_oof.csv,
@@ -614,27 +631,31 @@ def _pool_suffixed_path(default_path: Path, pool: str) -> Path:
     Regression, Engagement) that assume the 10-Probanden Legacy pool.
     Saving a modern-only model under the same path silently corrupts
     those downstream tools. Pool != 'auto' → write to *_modern.* /
-    *_legacy.* sibling instead.
+    *_legacy.* sibling instead. Same logic for --drop-gravity: the
+    ablation arm must never overwrite the full-feature artefacts.
     """
-    if pool == "auto":
+    if pool == "auto" and not drop_gravity:
         return default_path
-    stem = default_path.stem
-    suffix = default_path.suffix
-    return default_path.with_name(f"{stem}_{pool}{suffix}")
+    parts = [default_path.stem]
+    if pool != "auto":
+        parts.append(pool)
+    if drop_gravity:
+        parts.append("nogravity")
+    return default_path.with_name(f"{'_'.join(parts)}{default_path.suffix}")
 
 
 if __name__ == "__main__":
     args = _parse_args()
     save_final = (
-        _pool_suffixed_path(Path(args.save_final_model), args.pool)
+        _pool_suffixed_path(Path(args.save_final_model), args.pool, args.drop_gravity)
         if args.save_final_model else None
     )
     save_cv = (
-        _pool_suffixed_path(Path(args.save_cv_csv), args.pool)
+        _pool_suffixed_path(Path(args.save_cv_csv), args.pool, args.drop_gravity)
         if args.save_cv_csv else None
     )
     save_oof = (
-        _pool_suffixed_path(Path(args.save_oof), args.pool)
+        _pool_suffixed_path(Path(args.save_oof), args.pool, args.drop_gravity)
         if args.save_oof else None
     )
     train_loso(
@@ -648,4 +669,5 @@ if __name__ == "__main__":
         save_oof=save_oof,
         zscore_per_session=not args.no_zscore,
         pool=args.pool,
+        drop_gravity=args.drop_gravity,
     )
