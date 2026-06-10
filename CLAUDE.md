@@ -695,10 +695,11 @@ assigned from the nearest pen `dot_type` within ±40 ms of the
 `label_writing`. Server/local timestamps are capture metadata, not the
 canonical ML timeline.
 
-**Windows CSV** (`data/processed/{session}_windows.csv`): 1 row per
-1 s sliding window (0.5 s stride), 42 statistical features + `label`
-+ `t_center_ms`. Labels are smoothed at sample level before windowing
-(see *Label smoothing* below).
+**Windows CSV** (`data/processed/windows/{profil}/{session}_windows.csv`,
+Profil ∈ {`50hz`, `100hz`, `100hz_grav`} — siehe *Profil-sortierte
+Windows* oben): 1 row per 1 s sliding window (0.5 s stride),
+88/92 features + `label` + `t_center_ms`. Labels are smoothed at
+sample level before windowing (see *Label smoothing* below).
 
 **Inference log** (`data/inference_log.csv` — **gitignored**, owned
 by the running server): append-only CSV of every 1-Hz Live-Inference
@@ -769,17 +770,30 @@ python -m src.features.downsample S034 --target-hz 50
 python -m src.merge S034 --watch-suffix legacy
 #   → data/processed/S034_merged_legacy.csv
 
-# 3. Features bauen (kein --suffix nötig, build_windows liest die
-#    merged.csv direkt). Output kommt zum kanonischen Pfad:
-python -m src.features S034
-# Note: erzeugt {session}_windows.csv — falls beide Varianten parallel
-# gebraucht werden, muss man die windows.csv händisch umbenennen ODER
-# die _legacy-merged.csv vor dem features-Lauf an die kanonische Stelle
-# kopieren. Sauberer Pipeline-Hook für mehrere Varianten ist offen.
+# 3. Features auf die View bauen — landet automatisch im 50hz-Ordner,
+#    die native Modern-windows.csv bleibt unangetastet:
+python -m src.features S034 --merged-suffix legacy
+#   → data/processed/windows/50hz/S034_windows.csv
 
-# 4. LOSO im Legacy-Pool-Modus
+# 4. LOSO im Legacy-Pool-Modus — lädt windows/50hz/ und nimmt die View
+#    damit automatisch in den Legacy-Pool auf
 python -m src.training.train_loso --pool legacy
 ```
+
+**Profil-sortierte Windows (seit 2026-06-10).** Window-CSVs leben unter
+`data/processed/windows/{50hz,100hz,100hz_grav}/` statt flach —
+eine Modern-Session koexistiert kollisionsfrei nativ (`100hz_grav/`)
+und als Legacy-View (`50hz/`). Single Source of Truth ist
+`src/profiles.py` (+ `tests/test_profiles.py`): `windows_path()` /
+`find_windows()` (native Auflösung = höchste Fidelity zuerst, Flat-
+Fallback mit Warnung), `detect_profile()` / `profile_for()` (Form aus
+Inhalt — robust gegen Legacy-`ts` in ms und batch-rückwärts sortierte
+Samples), `python -m src.profiles` migriert flache Bestandsdateien.
+Der Pool wählt das Profil in `train_loso` (`legacy`→`50hz`,
+`modern`→`100hz_grav`, `auto`→nativ). sessions.csv trägt die native
+Form in der Spalte `watch_profile` (gleiche Vokabel; geschrieben von
+`_session_quality_cols` bei Stop/Refresh, migrate-on-read für
+Bestand).
 Anti-aliased decimate (scipy.signal.decimate, 8th-order Chebyshev I,
 `zero_phase=True` für Zeitversatz-Vermeidung beim Pen-Alignment) +
 optional gravity-Spalten-Drop. Default-Output:
@@ -814,12 +828,14 @@ Signal. Details `reports/feature_ablation.md`. Capture läuft
 unverändert weiter (nicht retro-imputierbar, revidierbar ab N≥6).
 
 **Was wo lebt:**
+- `src/profiles.py` (+ `tests/test_profiles.py`): watch_profile-
+  Taxonomie, Windows-Pfad-Resolver, Profil-Detection, Flat-Migration
 - `src/features/gravity.py` (+ `tests/test_gravity.py`): 4 Gravity-
   Features (`tilt_x/y/z_mean`, `tilt_change`), vektor-winkel-basiert
 - `src/features/downsample.py` (+ `tests/test_downsample.py`):
   Cross-Pool-Bridge
 - `src/training/train_loso.py::_filter_pool` (+ `tests/test_train_loso_pool.py`):
-  Pool-Selection
+  Pool-Selection (+ `_profile_for_pool`: Pool → Windows-Ordner)
 - `src/server/{config,models,routes/watch,timelines,quality}.py`:
   Schema + Detection runtime-side
 
