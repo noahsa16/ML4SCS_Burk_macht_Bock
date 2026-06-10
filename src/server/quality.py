@@ -789,6 +789,18 @@ def _session_quality_cols(row: dict[str, str]) -> dict[str, str]:
     else:
         verdict = "usable"
 
+    # Why: gleiche Vokabel wie die Ordner unter data/processed/windows/
+    # — Rate außerhalb ±20 % der gültigen Targets → leer statt raten.
+    watch_profile = ""
+    est_hz = q["watch"].get("estimated_hz")
+    if isinstance(est_hz, (int, float)):
+        from src.profiles import profile_for
+
+        try:
+            watch_profile = profile_for(est_hz, q["watch"].get("has_gravity", False))
+        except ValueError:
+            watch_profile = ""
+
     return {
         "duration_seconds": f"{duration:.1f}" if isinstance(duration, (int, float)) else "",
         "ml_status": ml_status,
@@ -796,6 +808,7 @@ def _session_quality_cols(row: dict[str, str]) -> dict[str, str]:
         "alignment_sigma": f"{sigma:.2f}" if isinstance(sigma, (int, float)) else "",
         "verdict": verdict,
         "issue_codes": ";".join(sorted({i["code"] for i in issues})),
+        "watch_profile": watch_profile,
     }
 
 
