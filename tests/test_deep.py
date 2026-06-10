@@ -218,6 +218,25 @@ def test_load_session_raw_native_when_no_suffix(tmp_path, monkeypatch):
     assert X.shape == (23, 50, 6)
 
 
+def test_load_session_raw_zscore_toggle(tmp_path, monkeypatch):
+    """zscore=True normalisiert per Kanal; Default (False) gibt rohe Fenster."""
+    monkeypatch.setattr(deep_data, "DATA_PROC", tmp_path)
+    merged = _synthetic_merged()
+    merged.to_csv(tmp_path / "S999_merged.csv", index=False)
+    expected, _, _ = build_raw_windows(merged, seq_len=50, stride=25)
+
+    # Default ist no-zscore: load_session_raw gibt rohe Fenster zurueck.
+    Xdefault, _, _ = load_session_raw("S999", seq_len=50, stride=25)
+    np.testing.assert_array_equal(Xdefault, expected)
+
+    Xraw, _, _ = load_session_raw("S999", seq_len=50, stride=25, zscore=False)
+    np.testing.assert_array_equal(Xraw, expected)  # Identitaet: kein Z-Score
+
+    Xz, _, _ = load_session_raw("S999", seq_len=50, stride=25, zscore=True)
+    np.testing.assert_array_equal(Xz, zscore_channels(expected))
+    assert not np.array_equal(Xraw, Xz)  # die Arme unterscheiden sich
+
+
 def test_load_session_raw_missing_legacy_view_hints_downsample(tmp_path, monkeypatch):
     """Fehlende Legacy-View -> FileNotFoundError mit Hinweis auf die Downsample-Chain."""
     monkeypatch.setattr(deep_data, "DATA_PROC", tmp_path)

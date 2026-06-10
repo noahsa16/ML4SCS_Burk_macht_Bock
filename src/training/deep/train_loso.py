@@ -193,12 +193,14 @@ def _load_all_sessions(
     plan: dict[str, str | None],
     max_gap_ms: float,
     exclude_boundary: tuple[float, float] | None = None,
+    zscore: bool = False,
 ) -> dict[str, dict]:
     """Lade alle Sessions als rohe Sequenz-Windows.
 
     ``plan`` mappt session_id -> merged-Suffix (siehe :func:`_pool_plan`).
     Eine fehlende Legacy-View fuehrt zu Skip-mit-Hinweis, nicht zum Crash —
-    kein stilles Mischen von Sample-Raten.
+    kein stilles Mischen von Sample-Raten. ``zscore`` reicht den
+    Per-Session-Z-Score-Schalter an :func:`load_session_raw` durch.
 
     Returns ``{session_id: {"X", "y", "t", "person_id"}}``.
     """
@@ -209,6 +211,7 @@ def _load_all_sessions(
             X, y, t = load_session_raw(
                 sid, seq_len,
                 merged_suffix=plan[sid],
+                zscore=zscore,
                 stride=stride,
                 max_gap_ms=max_gap_ms,
                 exclude_boundary=exclude_boundary,
@@ -241,6 +244,7 @@ def train_deep_loso(
     max_gap_ms: float = 2500.0,
     seed: int = 42,
     exclude_boundary: tuple[float, float] | None = None,
+    zscore: bool = False,
 ) -> pd.DataFrame:
     """LOSO-by-person fuer ein Deep-Modell. Returns per-fold Metrik-Tabelle.
 
@@ -249,6 +253,11 @@ def train_deep_loso(
     Sequenzen koennen keine Sample-Raten mischen.
 
     Pro Fold: Test = 1 Person, Val = 1 rotierende Person, Train = Rest.
+
+    ``zscore`` (default **False**): per-Session-Z-Score vor dem Training.
+    Default aus — fuers CNN empirisch neutral (gepaartes A/B, N=14: Δacc
+    −0.002, p=0.65) und ohne ist das Modell direkt deploybar (keine
+    Kalibrierphase). ``True`` schaltet ihn ein.
 
     ``exclude_boundary`` wird an :func:`build_raw_windows` durchgereicht —
     fuer das Label-Qualitaets-Experiment (mehrdeutige Uebergangs-Fenster
@@ -277,7 +286,8 @@ def train_deep_loso(
 
     plan = _pool_plan(sessions, pool)
     data = _load_all_sessions(
-        sessions, seq_len, stride, plan, max_gap_ms, exclude_boundary
+        sessions, seq_len, stride, plan, max_gap_ms, exclude_boundary,
+        zscore=zscore,
     )
     # person_id -> Liste von session_ids
     persons: dict[str, list[str]] = {}
@@ -291,8 +301,8 @@ def train_deep_loso(
 
     print(
         f"\n=== {model_name.upper()} | pool={pool} | {window_sec}s-Fenster "
-        f"({seq_len} Samples @ {fs} Hz) | {len(person_ids)} Folds | "
-        f"device={DEVICE} ==="
+        f"({seq_len} Samples @ {fs} Hz) | zscore={zscore} | "
+        f"{len(person_ids)} Folds | device={DEVICE} ==="
     )
 
     rows: list[dict] = []

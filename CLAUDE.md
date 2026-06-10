@@ -110,7 +110,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 297 tests, ~8 s
+pytest tests/         # 298 tests, ~8 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -515,26 +515,35 @@ no longer vibrates continuously when the server is down.
   Prio 3/4). 1D-CNN / LSTM / GRU auf rohen IMU-Sequenzen statt der 88
   Features, im identischen LOSO-by-person-Protokoll wie `train_loso.py`
   (importiert dessen `_select_sessions` / `_burst_metrics`). `data.py`
-  baut rohe Fenster (6 Kanäle, per-Kanal-z-skaliert; `load_session_raw`
-  nimmt `merged_suffix` für die Legacy-View-Quelle), `models.py` die
-  drei kleinen `nn.Module`-Klassen (seq-len-agnostisch via
-  `AdaptiveAvgPool1d` / letztem Hidden-State, daher laufen 50- und
-  100-Hz-Fenster ohne Architektur-Änderung), `train_loso.py` den
-  Trainings-Loop (Early Stopping auf rotierendem Person-Holdout) +
-  pool-fähigen LOSO-Runner. **Genau ein Modell pro Aufruf**, mit
-  `--pool`-Auswahl analog zum RF: `seq_len`/`stride` werden aus der
-  Pool-Sample-Rate abgeleitet (`POOL_FS`, ein 1-s-Fenster = 50 Samples
-  legacy / 100 modern), `_pool_plan()` mappt jede Session über
-  `watch_profile` auf die merged-Quelle (50hz nativ → `_merged.csv`,
-  Modern → downsampled `_merged_legacy.csv`-View). Kein `auto` — rohe
-  Sequenzen können keine Sample-Raten mischen; fehlende Legacy-View →
-  Skip mit Hinweis statt Crash. CLI:
-  `python -m src.training.deep --model {cnn|lstm|gru} [--pool legacy|modern] [--win 1|5|both]`
+  baut rohe Fenster (6 Kanäle; `load_session_raw` nimmt `merged_suffix`
+  für die Legacy-View-Quelle + `zscore`-Schalter), `models.py` die drei
+  kleinen `nn.Module`-Klassen (seq-len-agnostisch via `AdaptiveAvgPool1d`
+  / letztem Hidden-State, daher laufen 50- und 100-Hz-Fenster ohne
+  Architektur-Änderung), `train_loso.py` den Trainings-Loop (Early
+  Stopping auf rotierendem Person-Holdout) + pool-fähigen LOSO-Runner.
+  **Genau ein Modell pro Aufruf**, mit `--pool`-Auswahl analog zum RF:
+  `seq_len`/`stride` werden aus der Pool-Sample-Rate abgeleitet
+  (`POOL_FS`, ein 1-s-Fenster = 50 Samples legacy / 100 modern),
+  `_pool_plan()` mappt jede Session über `watch_profile` auf die
+  merged-Quelle (50hz nativ → `_merged.csv`, Modern → downsampled
+  `_merged_legacy.csv`-View). Kein `auto` — rohe Sequenzen können keine
+  Sample-Raten mischen; fehlende Legacy-View → Skip mit Hinweis statt
+  Crash. **Per-Session-Z-Score ist hier standardmäßig AUS** (anders als
+  beim RF): gepaartes A/B (CNN, legacy, N=14) ergab Δacc −0.002 / ΔAUC
+  −0.001 bei p≈0.65 — statistisch nicht unterscheidbar, weil die
+  `BatchNorm1d` nach jeder Conv die Aktivierungs-Skala re-normalisiert
+  und das Netz scale-tolerant macht (BatchNorm ≠ Per-Session-Z-Score
+  mechanistisch, aber im Effekt ausreichend). Ohne Z-Score ist das CNN
+  direkt deploybar — keine Per-Stream-Kalibrierphase für μ/σ. `--zscore`
+  schaltet ihn opt-in ein (→ `deep_loso_{pool}_zscore.csv`). Caveat: nur
+  fürs CNN belegt; LSTM/GRU haben keine Input-Normalisierung, dort kann
+  Z-Score sehr wohl zählen. CLI:
+  `python -m src.training.deep --model {cnn|lstm|gru} [--pool legacy|modern] [--win 1|5|both] [--zscore]`
   → `models/deep_loso_{pool}.csv` + Vergleichstabellen gegen die
   RF-Headline (legacy = N=14-Baseline; modern ohne RF-Zeile).
-  Legacy-Headline (CNN @1s, N=14): acc 0.875 ± 0.033, AUC 0.937,
-  @5s 0.898/0.964, @30s 0.842/0.919 — auf Augenhöhe mit dem RF
-  (Train/Test-Gap 0.017 = data-limited, nicht Overfit).
+  Legacy-Headline (CNN @1s, N=14, **no-zscore**): acc 0.873 ± 0.035,
+  AUC 0.936, @5s 0.897/0.963, @30s 0.843/0.918 — auf Augenhöhe mit dem
+  RF (Train/Test-Gap 0.016 = data-limited, nicht Overfit).
 - `scripts/ml/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
@@ -1155,7 +1164,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (297 cases, ~8 s) — anything that
+`tests/` holds Tier-1 smoke tests (298 cases, ~8 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
@@ -1203,7 +1212,8 @@ could silently poison the training data or the proband-facing flow:
   Mini-Trainingslauf von `train_one_model`/`predict_proba`/`fold_metrics`,
   plus Pool-/Suffix-Auswahl (`load_session_raw(merged_suffix=…)` lädt die
   Legacy-View bzw. nennt die Downsample-Chain, `_pool_plan` mappt
-  watch_profile→merged-Suffix, `POOL_FS`).
+  watch_profile→merged-Suffix, `POOL_FS`) und den `zscore`-Toggle
+  (Default raw, `zscore=True` normalisiert per Kanal).
 - `test_inference.py` — `LiveInference` smoke: leerer/stale/zu-kleiner
   Buffer → predict() == None, payload-shape, sparkline-Wachstum, Z-Score-
   Honouring (mu/sigma aus Joblib appliziert), Rate-Mismatch-Guard
