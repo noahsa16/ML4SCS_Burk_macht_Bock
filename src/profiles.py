@@ -75,6 +75,17 @@ def find_windows(session_id: str, profile: str | None = None) -> Path | None:
     return None
 
 
+def profile_for(fs_hz: float, has_gravity: bool) -> str:
+    """Profilname aus gemessener Rate + Gravity-Verfügbarkeit."""
+    nearest = min(_VALID_HZ, key=lambda hz: abs(hz - fs_hz))
+    if abs(fs_hz - nearest) / nearest > 0.2:
+        raise ValueError(
+            f"Sample-Rate {fs_hz:.1f} Hz liegt außerhalb ±20 % der gültigen "
+            f"Raten {_VALID_HZ} — Profil nicht zuordenbar"
+        )
+    return f"{int(nearest)}hz" + ("_grav" if has_gravity else "")
+
+
 def detect_profile(df: pd.DataFrame) -> str:
     """Profil aus dem *Inhalt* eines Sample-Frames (merged/raw) ableiten.
 
@@ -89,16 +100,10 @@ def detect_profile(df: pd.DataFrame) -> str:
     if not dt or dt <= 0:
         raise ValueError("ts-Spalte ist nicht monoton steigend — Rate unbestimmbar")
     fs = 1.0 / float(dt)
-    nearest = min(_VALID_HZ, key=lambda hz: abs(hz - fs))
-    if abs(fs - nearest) / nearest > 0.2:
-        raise ValueError(
-            f"Sample-Rate {fs:.1f} Hz liegt außerhalb ±20 % der gültigen "
-            f"Raten {_VALID_HZ} — Profil nicht zuordenbar"
-        )
     has_grav = all(c in df.columns for c in _GRAVITY_SAMPLE_COLS) and (
         df[list(_GRAVITY_SAMPLE_COLS)].notna().any().any()
     )
-    return f"{int(nearest)}hz" + ("_grav" if has_grav else "")
+    return profile_for(fs, has_grav)
 
 
 def migrate_flat_windows() -> list[Path]:

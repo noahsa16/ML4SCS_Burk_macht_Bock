@@ -102,6 +102,17 @@ def test_detect_profile_gravity_columns_all_nan_is_not_grav():
     assert profiles.detect_profile(df) == "100hz"
 
 
+def test_profile_for_maps_rate_and_gravity():
+    assert profiles.profile_for(49.7, False) == "50hz"
+    assert profiles.profile_for(99.2, False) == "100hz"
+    assert profiles.profile_for(100.4, True) == "100hz_grav"
+
+
+def test_profile_for_rejects_ambiguous_rate():
+    with pytest.raises(ValueError, match="75"):
+        profiles.profile_for(75.0, False)
+
+
 def test_detect_profile_rejects_ambiguous_rate():
     with pytest.raises(ValueError, match="75"):
         profiles.detect_profile(_merged_df(75.0, False))
