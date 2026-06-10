@@ -99,6 +99,7 @@ python -m src.merge S029                          # watch-base merge → data/pr
 python -m src.features S029 --max-gap-ms 300      # sliding-window features → data/processed/S029_windows.csv
 python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
 python -m src.training.deep --model cnn --pool legacy  # ein Deep-Modell, LOSO vs RF
+python -m src.training.deep.harnet --model harnet5     # Transfer-Learning (frozen harnet) vs RF
 python -m src.training.train_loso --save-oof      # + OOF-CSV für Regression
 python -m src.evaluation.regression               # Schreib-Prozent: MAE/RMSE/Bias + Plots
 python -m src.evaluation.engagement               # Schreibzeit-Anteil pro Aufgabe + Heatmap
@@ -110,7 +111,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 298 tests, ~8 s
+pytest tests/         # 313 tests, ~8 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -544,6 +545,32 @@ no longer vibrates continuously when the server is down.
   Legacy-Headline (CNN @1s, N=14, **no-zscore**): acc 0.873 ± 0.035,
   AUC 0.936, @5s 0.897/0.963, @30s 0.843/0.918 — auf Augenhöhe mit dem
   RF (Train/Test-Gap 0.016 = data-limited, nicht Overfit).
+- `src/training/deep/harnet*.py` — **Transfer-Learning-Vergleich mit dem
+  Oxford `ssl-wearables`-Foundation-Model (harnet)**, im identischen
+  LOSO-by-person-Protokoll wie `train_loso.py` (importiert nur
+  `_select_sessions` / `_burst_metrics`). Drei Dateien: `harnet_data.py`
+  (Bridge merged-CSV → harnet-Fenster: stable-sort `ts`, Label-Closing
+  @2500 ms, `scipy.signal.resample_poly` 50→30 = 3/5 bzw. 100→30 = 3/10,
+  Labels nearest-sample, `(N,3,150)`-Fenster für harnet5 / `(N,3,300)`
+  für harnet10 — **alle Magic Numbers zentral**, `HARNET_VARIANTS`),
+  `harnet_frozen.py` (Stufe 1: frozen Conv-Trunk `model.feature_extractor`
+  → 512-dim Embedding (harnet5) / 1024-dim (harnet10), pro Session als
+  `.npz` unter `data/processed/embeddings/{variant}/` gecached
+  (gitignored); darauf LOSO mit zwei Köpfen: LogReg mit C-Sweep
+  {0.01,0.1,1} per innerem GroupKFold + RF 200 Trees), `harnet.py` (CLI).
+  **Input = `userAcceleration` ohne Gravity** — bewusster
+  Distribution-Shift ggü. dem Biobank-Total-Accel-Pretraining (Legacy-Pool
+  hat kein Gravity), **kein Per-Session-Z-Score** (Netz erwartet g). CLI:
+  `python -m src.training.deep.harnet [--model harnet5|harnet10] [--force-embeddings]`
+  → `models/harnet_loso.csv` + `reports/harnet_transfer.md`. **Ergebnis
+  (harnet5 frozen, N=14, LogReg-Kopf):** per-window (=5s) acc 0.896 /
+  AUC 0.958 — **liegt gleichauf mit der RF-Headline @5s** (0.899/0.962),
+  bei @10s/@30s minimal davor (0.886/0.954, 0.853/0.927). Bemerkenswert,
+  weil der Einheiten-Shift gegen das Modell arbeitet; gleiche schwache
+  Folds wie RF (P07/P09/P12). Erste-Setup-Hürde: macOS-Framework-Python
+  braucht ein CA-Bundle für `torch.hub` (`_ensure_ca_bundle()` setzt
+  `SSL_CERT_FILE` via certifi). Modell-Download lazy beim ersten Lauf
+  (~40 s, dann `~/.cache/torch/hub`).
 - `scripts/ml/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
@@ -1164,7 +1191,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (298 cases, ~8 s) — anything that
+`tests/` holds Tier-1 smoke tests (313 cases, ~8 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
@@ -1214,6 +1241,13 @@ could silently poison the training data or the proband-facing flow:
   Legacy-View bzw. nennt die Downsample-Chain, `_pool_plan` mappt
   watch_profile→merged-Suffix, `POOL_FS`) und den `zscore`-Toggle
   (Default raw, `zscore=True` normalisiert per Kanal).
+- `test_harnet_data.py` — harnet-Daten-Bridge (`src/training/deep/
+  harnet_data.py`): Fenster-Shapes (harnet5 150 / harnet10 300),
+  Resample-Längen-Arithmetik (500@50→300, 600@100→180), Label-
+  Mehrheitslogik, **Stable-Sort-Invarianz bei local_ts_ms-Ties**
+  (Regression analog `test_merge`), g-Range-Check (kein versehentlicher
+  Z-Score), Raten-Detektion aus `ts`. Kein Modell-/Training-Test (der
+  frozen-Extractor braucht den torch.hub-Download — manueller Smoke).
 - `test_inference.py` — `LiveInference` smoke: leerer/stale/zu-kleiner
   Buffer → predict() == None, payload-shape, sparkline-Wachstum, Z-Score-
   Honouring (mu/sigma aus Joblib appliziert), Rate-Mismatch-Guard
