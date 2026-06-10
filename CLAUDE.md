@@ -805,9 +805,13 @@ Modern-Joblib in `models/` — sobald eins trainiert ist (`train_loso.py
 --pool modern --save-final-model` → `rf_all_modern.joblib`), muss sein
 Stem zur Picker-Whitelist `_USER_FACING_MODEL_NAMES` in
 `src/server/inference.py` hinzugefügt werden, damit es im UI-Switcher
-auftaucht. Ob Gravity die Accuracy überhaupt hebt, ist offen (separater
-LOSO-modern-Lauf — `100hz_ablation.md` zeigt nur, dass Sample-Rate
-nicht hilft; Gravity ist ein anderes Signal).
+auftaucht. **Gravity-Verdikt (2026-06-10, Modern-LOSO N=4, gepaartes
+92-vs-88-A/B via `--drop-gravity`):** cross-subject hilft Gravity
+nicht (Δacc −0.005, ΔAUC −0.003; P14 regrediert −3.8 pp durch
+Pose-Idiosynkrasie), within-subject bleibt der Befund positiv —
+Gravity ist ein Personalisierungs-Signal, kein Generalisierungs-
+Signal. Details `reports/feature_ablation.md`. Capture läuft
+unverändert weiter (nicht retro-imputierbar, revidierbar ab N≥6).
 
 **Was wo lebt:**
 - `src/features/gravity.py` (+ `tests/test_gravity.py`): 4 Gravity-
