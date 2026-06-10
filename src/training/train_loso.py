@@ -612,6 +612,14 @@ def _parse_args() -> argparse.Namespace:
         "Default: auto.",
     )
     p.add_argument(
+        "--no-pool-suffix",
+        action="store_true",
+        help="Save-Pfade NICHT mit dem Pool-Namen suffixen — bewusster "
+        "Override, um einen Pool-Lauf zur kanonischen Headline zu machen "
+        "(rf_all.joblib / loso_cv.csv / loso_oof.csv). Der _nogravity-"
+        "Suffix des Ablation-Arms bleibt immer erhalten.",
+    )
+    p.add_argument(
         "--drop-gravity",
         action="store_true",
         help="Ablation arm: drop the gravity feature columns while keeping "
@@ -647,40 +655,46 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _pool_suffixed_path(
-    default_path: Path, pool: str, drop_gravity: bool = False
+    default_path: Path, pool: str, drop_gravity: bool = False,
+    pool_suffix: bool = True,
 ) -> Path:
     """Suffix the save path with the pool name to keep artefacts separate.
 
-    Why: the headline Legacy artefacts (rf_all.joblib, loso_oof.csv,
+    Why: the canonical headline artefacts (rf_all.joblib, loso_oof.csv,
     loso_cv.csv) are consumed by other pipelines (Live-Inference,
-    Regression, Engagement) that assume the 10-Probanden Legacy pool.
-    Saving a modern-only model under the same path silently corrupts
-    those downstream tools. Pool != 'auto' → write to *_modern.* /
-    *_legacy.* sibling instead. Same logic for --drop-gravity: the
-    ablation arm must never overwrite the full-feature artefacts.
+    Regression, Engagement). Saving a pool-specific model under the same
+    path SILENTLY corrupts those downstream tools — pool != 'auto' →
+    write to *_modern.* / *_legacy.* sibling instead. ``pool_suffix=False``
+    (CLI: --no-pool-suffix) is the deliberate override for promoting a
+    pool run to the canonical headline. The --drop-gravity suffix is
+    NOT overridable: the ablation arm must never become canonical.
     """
-    if pool == "auto" and not drop_gravity:
-        return default_path
     parts = [default_path.stem]
-    if pool != "auto":
+    if pool != "auto" and pool_suffix:
         parts.append(pool)
     if drop_gravity:
         parts.append("nogravity")
+    if len(parts) == 1:
+        return default_path
     return default_path.with_name(f"{'_'.join(parts)}{default_path.suffix}")
 
 
 if __name__ == "__main__":
     args = _parse_args()
+    _suffix = not args.no_pool_suffix
     save_final = (
-        _pool_suffixed_path(Path(args.save_final_model), args.pool, args.drop_gravity)
+        _pool_suffixed_path(Path(args.save_final_model), args.pool,
+                            args.drop_gravity, pool_suffix=_suffix)
         if args.save_final_model else None
     )
     save_cv = (
-        _pool_suffixed_path(Path(args.save_cv_csv), args.pool, args.drop_gravity)
+        _pool_suffixed_path(Path(args.save_cv_csv), args.pool,
+                            args.drop_gravity, pool_suffix=_suffix)
         if args.save_cv_csv else None
     )
     save_oof = (
-        _pool_suffixed_path(Path(args.save_oof), args.pool, args.drop_gravity)
+        _pool_suffixed_path(Path(args.save_oof), args.pool,
+                            args.drop_gravity, pool_suffix=_suffix)
         if args.save_oof else None
     )
     train_loso(

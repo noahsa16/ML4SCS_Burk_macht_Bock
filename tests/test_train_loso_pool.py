@@ -125,6 +125,32 @@ def test_drop_gravity_suffixes_save_paths():
     assert out.name == "rf_all_modern_nogravity.joblib"
 
 
+def test_no_pool_suffix_promotes_to_canonical_path():
+    # Bewusster Override des Guards: der Headline-Lauf (legacy N=14)
+    # darf die kanonischen Artefakte schreiben — explizit, nie silent.
+    from pathlib import Path
+
+    from src.training.train_loso import _pool_suffixed_path
+
+    out = _pool_suffixed_path(Path("models/rf_all.joblib"), "legacy", pool_suffix=False)
+
+    assert out.name == "rf_all.joblib"
+
+
+def test_no_pool_suffix_keeps_nogravity_guard():
+    # Der Ablation-Arm darf NIE kanonisch werden, auch nicht mit
+    # --no-pool-suffix.
+    from pathlib import Path
+
+    from src.training.train_loso import _pool_suffixed_path
+
+    out = _pool_suffixed_path(
+        Path("models/rf_all.joblib"), "legacy", drop_gravity=True, pool_suffix=False
+    )
+
+    assert out.name == "rf_all_nogravity.joblib"
+
+
 def test_profile_for_pool_mapping():
     from src.training.train_loso import _profile_for_pool
 
