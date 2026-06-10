@@ -22,9 +22,10 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 from src.training.train_loso import _zscore_per_session, _burst_metrics  # noqa: E402
+from src.profiles import find_windows
 
 MODEL_PATH = ROOT / "models" / "rf_all.joblib"
-WIN_PATH = ROOT / "data" / "processed" / "S032_windows.csv"
+WIN_PATH = find_windows("S032")
 FIG_DIR = ROOT / "reports" / "figures"
 FIG_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -117,3 +117,56 @@ def test_partial_gravity_columns_treated_as_legacy():
     feats = build_windows(merged, max_gap_ms=0.0)
 
     assert "tilt_z_mean" not in feats.columns
+
+
+# ── Profil-sortierter CLI-Output (windows/{profile}/) ───────────────
+
+
+import sys
+
+import pytest
+
+from src import profiles
+from src.features import windows as W
+
+
+@pytest.fixture
+def proc(tmp_path, monkeypatch):
+    monkeypatch.setattr(W, "DATA_PROC", tmp_path)
+    monkeypatch.setattr(profiles, "DATA_PROC", tmp_path)
+    monkeypatch.setattr(profiles, "WINDOWS_DIR", tmp_path / "windows")
+    return tmp_path
+
+
+def _run_main(monkeypatch, *argv):
+    monkeypatch.setattr(sys, "argv", ["python -m src.features", *argv])
+    W.main()
+
+
+def test_main_writes_legacy_merged_into_50hz_folder(proc, monkeypatch):
+    _synthetic_merged(30.0, 50.0).to_csv(proc / "S900_merged.csv", index=False)
+
+    _run_main(monkeypatch, "S900", "--max-gap-ms", "0")
+
+    assert (proc / "windows" / "50hz" / "S900_windows.csv").exists()
+    assert not (proc / "S900_windows.csv").exists()
+
+
+def test_main_writes_modern_merged_into_100hz_grav_folder(proc, monkeypatch):
+    _synthetic_merged_modern(30.0, 100.0).to_csv(proc / "S901_merged.csv", index=False)
+
+    _run_main(monkeypatch, "S901", "--max-gap-ms", "0")
+
+    assert (proc / "windows" / "100hz_grav" / "S901_windows.csv").exists()
+
+
+def test_main_merged_suffix_reads_view_without_touching_native(proc, monkeypatch):
+    # Modern-Session: native merged + Legacy-View-merged (Downsample-Bridge).
+    # --merged-suffix legacy muss die View bauen und nativ unangetastet lassen.
+    _synthetic_merged_modern(30.0, 100.0).to_csv(proc / "S902_merged.csv", index=False)
+    _synthetic_merged(30.0, 50.0).to_csv(proc / "S902_merged_legacy.csv", index=False)
+
+    _run_main(monkeypatch, "S902", "--merged-suffix", "legacy", "--max-gap-ms", "0")
+
+    assert (proc / "windows" / "50hz" / "S902_windows.csv").exists()
+    assert not (proc / "windows" / "100hz_grav" / "S902_windows.csv").exists()

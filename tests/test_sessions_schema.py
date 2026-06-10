@@ -11,7 +11,7 @@ def test_legacy_csv_gets_new_columns(tmp_path):
     """Old CSV without study_mode/protocol_id/subject_index migrates cleanly."""
     legacy_fields = [
         f for f in SESSIONS_FIELDNAMES
-        if f not in ("study_mode", "protocol_id", "subject_index")
+        if f not in ("study_mode", "protocol_id", "subject_index", "watch_profile")
     ]
     csv_path = tmp_path / "sessions.csv"
     with open(csv_path, "w", newline="") as f:
@@ -31,3 +31,4 @@ def test_legacy_csv_gets_new_columns(tmp_path):
         assert row["study_mode"] == ""
         assert row["protocol_id"] == ""
         assert row["subject_index"] == ""
+        assert row["watch_profile"] == ""

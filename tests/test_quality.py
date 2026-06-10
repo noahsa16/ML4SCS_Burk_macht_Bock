@@ -426,6 +426,48 @@ def test_verdict_skip_when_ml_status_bad(data_dirs):
     assert cols["verdict"] == "skip"
 
 
+def test_quality_cols_watch_profile_50hz(data_dirs):
+    from src.server.quality import _session_quality_cols
+
+    start_ms = 1_700_000_000_000
+    watch_rows = [_watch_row(start_ms + i * 20) for i in range(1500)]
+    write_watch_csv(data_dirs.watch / "S110_watch.csv", watch_rows)
+    row = _session_row("S110", start_ms, start_ms + 30_000,
+                       watch_samples=len(watch_rows))
+
+    cols = _session_quality_cols(row)
+
+    assert cols["watch_profile"] == "50hz"
+
+
+def test_quality_cols_watch_profile_100hz_grav(data_dirs):
+    from src.server.quality import _session_quality_cols
+
+    start_ms = 1_700_000_000_000
+    watch_rows = [
+        {**_watch_row(start_ms + i * 10), "gx": 0.0, "gy": 0.0, "gz": -1.0}
+        for i in range(3000)
+    ]
+    write_watch_csv(data_dirs.watch / "S111_watch.csv", watch_rows)
+    row = _session_row("S111", start_ms, start_ms + 30_000,
+                       watch_samples=len(watch_rows))
+
+    cols = _session_quality_cols(row)
+
+    assert cols["watch_profile"] == "100hz_grav"
+
+
+def test_quality_cols_watch_profile_empty_without_watch_csv(data_dirs):
+    from src.server.quality import _session_quality_cols
+
+    start_ms = 1_700_000_000_000
+    row = _session_row("S112", start_ms, start_ms + 30_000)
+
+    cols = _session_quality_cols(row)
+
+    assert cols["watch_profile"] == ""
+
+
 def test_verdict_defaults_to_usable_when_ml_ok_but_sigma_weak(data_dirs):
     """ML-status ok + duration ≥ 5 min but no strong σ ≤ -3 → 'usable',
     not 'trainable'. Guards the σ-as-training-gate logic in CLAUDE.md."""

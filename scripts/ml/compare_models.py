@@ -35,6 +35,8 @@ from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 
+from src.profiles import find_windows
+
 ROOT = Path(__file__).resolve().parents[2]
 DATA_PROC = ROOT / "data" / "processed"
 SESSIONS_CSV = ROOT / "data" / "sessions.csv"
@@ -50,7 +52,7 @@ def _load_sessions(include_all: bool) -> pd.DataFrame:
             s = s[s["verdict"].isin(TRAINABLE)]
         if "study_mode" in s.columns:
             s = s[s["study_mode"].fillna("") != "test"]
-    s = s[s["session_id"].apply(lambda x: (DATA_PROC / f"{x}_windows.csv").exists())]
+    s = s[s["session_id"].apply(lambda x: find_windows(x) is not None)]
     return s.reset_index(drop=True)
 
 
@@ -70,7 +72,7 @@ def _zscore_per_session(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFra
 def _load_all_windows(sessions: pd.DataFrame) -> pd.DataFrame:
     frames = []
     for sid in sessions["session_id"]:
-        df = pd.read_csv(DATA_PROC / f"{sid}_windows.csv")
+        df = pd.read_csv(find_windows(sid))
         df["session_id"] = sid
         frames.append(df)
     out = pd.concat(frames, ignore_index=True)

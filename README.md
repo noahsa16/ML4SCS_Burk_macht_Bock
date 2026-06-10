@@ -174,14 +174,16 @@ python -m src.training.train_loso --by session     # leave-one-session-out fallb
 
 Each fold holds out one subject completely, so the held-out data is never seen during training. By default the script only includes sessions marked `verdict ∈ {trainable, usable}` (use `--include-all` to override).
 
-**Current 10-subject LOSO** with RandomForest + per-session z-score + label closing `max_gap_ms=2500`:
+**Current 14-subject LOSO** with RandomForest + per-session z-score + label closing `max_gap_ms=2500` (10 legacy subjects + 4 modern subjects folded in as anti-aliased 50 Hz views):
 
 | Decision window | Accuracy | ROC-AUC |
 |---|---|---|
-| 1 s (per window) | **0.863 ± 0.032** | **0.935 ± 0.032** — F1(writing) 0.875 |
-| 5 s (burst-agg) | 0.902 ± 0.035 | 0.968 ± 0.030 |
-| 10 s (burst-agg) | 0.885 ± 0.037 | 0.957 ± 0.025 |
-| 30 s (burst-agg) | 0.844 ± 0.034 | 0.922 ± 0.029 |
+| 1 s (per window) | **0.855 ± 0.034** | **0.929 ± 0.034** — F1(writing) 0.862 |
+| 5 s (burst-agg) | 0.899 ± 0.036 | 0.962 ± 0.030 |
+| 10 s (burst-agg) | 0.882 ± 0.033 | 0.952 ± 0.027 |
+| 30 s (burst-agg) | 0.838 ± 0.037 | 0.917 ± 0.030 |
+
+The slight drop vs. the previous 10-subject headline (0.863 / 0.935) is cohort hardness, not model regression: the 7 long-standing folds *gained* +0.8 pp on average from the larger training pool; the 7 newer subjects are simply a harder mix.
 
 The 1-s window is right for *features* (FFT bands, label transitions) but not for an app — a writing-time tracker cares about "has the person written in the last 30 s?", so we report the same fold at 1/5/10/30 s by smoothing the 1-s probabilities per session and re-thresholding at 0.5.
 
@@ -210,7 +212,7 @@ pytest tests/     # 252 cases, ~7 s
 The two files that actually feed the model:
 
 - **`data/processed/{session}_merged.csv`** — watch-base: one row per IMU sample + `label_writing ∈ {0, 1}` from the nearest pen `dot_type` within ±40 ms of the δ-corrected pen clock. Watch samples in pen-gaps → label 0.
-- **`data/processed/{session}_windows.csv`** — one row per 1 s sliding window (0.5 s stride) with 88 features (time-stats + spectral + jerk + ZCR + correlations), plus `label` and `t_center_ms`. Labels are morphologically closed (default `max_gap_ms=2500`) at sample level before windowing. Sessions captured with gravity (since 2026-05-26) get 6 extra features → 94 total — see [Pool architecture](#pool-architecture-legacy-vs-modern).
+- **`data/processed/windows/{profile}/{session}_windows.csv`** (profile ∈ `50hz`/`100hz`/`100hz_grav`, content-derived) — one row per 1 s sliding window (0.5 s stride) with 88 features (time-stats + spectral + jerk + ZCR + correlations), plus `label` and `t_center_ms`. Labels are morphologically closed (default `max_gap_ms=2500`) at sample level before windowing. Sessions captured with gravity (since 2026-05-26) get 4 extra tilt features → 92 total — see [Pool architecture](#pool-architecture-legacy-vs-modern).
 
 Raw CSV schemas (watch, pen, AirPods, sessions index, Study-Mode markers) are documented in [CLAUDE.md](CLAUDE.md).
 
@@ -266,11 +268,11 @@ Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside
 
 ## Current Status
 
-The full pipeline is operational end-to-end: capture → alignment → merge → features → training → evaluation → **live inference in the dashboard**. **Headline: 10-subject cross-subject LOSO with RandomForest + per-session z-score + `max_gap_ms=2500` — accuracy 0.863 ± 0.032, ROC-AUC 0.935 ± 0.032, F1(writing) 0.875.** Burst @5s: AUC 0.968; @30s: AUC 0.922. Detailed progression and model-comparison panel in [`reports/model_progression.md`](reports/model_progression.md).
+The full pipeline is operational end-to-end: capture → alignment → merge → features → training → evaluation → **live inference in the dashboard**. **Headline: 14-subject cross-subject LOSO with RandomForest + per-session z-score + `max_gap_ms=2500` — accuracy 0.855 ± 0.034, ROC-AUC 0.929 ± 0.034, F1(writing) 0.862.** Burst @5s: AUC 0.962; @30s: AUC 0.917. Detailed progression and model-comparison panel in [`reports/model_progression.md`](reports/model_progression.md).
 
 **Live deployment.** Inference runs in the server every 1 s (`src/server/inference.py`). The dashboard shows it as a topbar pill, a Recording-page card with sparkline, and a dedicated **Focus** tab with daily/weekly aggregation persisted across restarts. A model picker switches between Personal (`rf_noah`, 100 Hz, no z-score) and Generic (`rf_all_live`, pooled μ/σ baked in for raw-stream use).
 
-**Pool architecture (Legacy vs Modern).** Sessions before 2026-05-26 stream 6 channels (`ax/ay/az + rx/ry/rz`); newer sessions add `motion.gravity` separately for 9 channels → 6 extra gravity features (94 total). Pool is auto-detected at runtime; `train_loso.py --pool {legacy,modern,auto}` selects which to train on. `src/features/downsample.py` bridges modern sessions into the legacy pool for cross-pool LOSO.
+**Pool architecture (Legacy vs Modern).** Sessions before 2026-05-26 stream 6 channels (`ax/ay/az + rx/ry/rz`); newer sessions add `motion.gravity` separately for 9 channels → 4 extra tilt features (92 total). Pool is auto-detected at runtime; `train_loso.py --pool {legacy,modern,auto}` selects which to train on. `src/features/downsample.py` bridges modern sessions into the legacy pool for cross-pool LOSO.
 
 ---
 
@@ -280,3 +282,7 @@ The full pipeline is operational end-to-end: capture → alignment → merge →
 - [Week 4](reports/week_04_report.md)
 - [Week 5](reports/week_05_report.md)
 - [Week 6](reports/week_06_report.md)
+- [Week 7](reports/week_07_report.md)
+- [Week 8](reports/week_08_report.md)
+- [Week 9](reports/week_09_report.md) — two-pool gravity architecture + first Modern proband
+- [Week 10](reports/week_10_report.md) — gravity verdict, N=14 headline, profile-sorted windows

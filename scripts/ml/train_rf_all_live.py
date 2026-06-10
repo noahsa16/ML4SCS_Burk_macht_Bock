@@ -35,14 +35,18 @@ MODELS = ROOT / "models"
 
 
 def main() -> None:
-    sessions = _select_sessions(include_all=False, min_windows=0)
+    # Why: rf_all_live ist die Deployment-Variante der Headline — und die
+    # ist der Legacy-Pool (50hz-Windows, inkl. Downsample-Views der
+    # Modern-Sessions). Native Auflösung würde 92-Feature-Modern-Windows
+    # mit 88-Feature-Legacy mischen (NaN-Gravity → RF.fit-Crash).
+    sessions = _select_sessions(include_all=False, min_windows=0, profile="50hz")
     if sessions.empty:
         raise SystemExit("no eligible sessions")
 
     print(f"Loading windows from {len(sessions)} sessions...")
     dfs = []
     for sid in sessions["session_id"]:
-        df = _load_windows(sid)
+        df = _load_windows(sid, "50hz")
         dfs.append(df)
     all_df = pd.concat(dfs, ignore_index=True)
     all_df = all_df.merge(
