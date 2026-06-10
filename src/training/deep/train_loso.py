@@ -22,8 +22,13 @@ from src.training.train_loso import _burst_metrics, _select_sessions
 ROOT = Path(__file__).parents[3]
 MODEL_DIR = ROOT / "models"
 
-# window-sec -> Sample-Anzahl bei 50 Hz.
-WIN_SEQ_LEN: dict[int, int] = {1: 50, 5: 250}
+# Sample-Rate je Pool (Hz). seq_len/stride werden hieraus abgeleitet statt
+# 50 Hz hart anzunehmen — ein 1-s-Fenster ist 50 Samples im Legacy-Pool und
+# 100 im Modern-Pool. Kein "auto": rohe Sequenzen koennen keine fs mischen.
+POOL_FS: dict[str, int] = {"legacy": 50, "modern": 100}
+# Pool -> natives watch_profile (sessions.csv) der Pool-eigenen Sessions.
+# Legacy-Pool zieht zusaetzlich Modern-Sessions als 50-Hz-View mit.
+_POOL_NATIVE_PROFILE: dict[str, str] = {"legacy": "50hz", "modern": "100hz_grav"}
 
 DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 
@@ -31,6 +36,31 @@ DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 def _set_seed(seed: int = 42) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
+
+
+def _pool_plan(sessions: pd.DataFrame, pool: str) -> dict[str, str | None]:
+    """Map jede Session auf den merged-CSV-Suffix fuer diesen Pool.
+
+    ``legacy`` will ueberall 50 Hz: nativ-50-Hz-Sessions (``watch_profile``
+    == '50hz') laden ihre native ``{sid}_merged.csv`` (Suffix ``None``),
+    100-Hz-Sessions die downsampled ``{sid}_merged_legacy.csv``-View
+    (Suffix ``"legacy"``). ``modern`` nimmt nur native 100hz_grav-Sessions
+    (Suffix ``None``); die Session-Auswahl hat das schon erzwungen.
+    """
+    if pool not in POOL_FS:
+        raise ValueError(f"pool must be one of {sorted(POOL_FS)}, got {pool!r}")
+    if "watch_profile" not in sessions.columns:
+        raise ValueError(
+            "sessions.csv fehlt die 'watch_profile'-Spalte — Quality-Refresh "
+            "laufen lassen (Stop/Refresh schreibt sie)."
+        )
+    native = _POOL_NATIVE_PROFILE[pool]
+    plan: dict[str, str | None] = {}
+    for row in sessions.itertuples():
+        prof = getattr(row, "watch_profile", None)
+        # Native Form == Pool-Profil -> native merged; sonst Legacy-View.
+        plan[row.session_id] = None if prof == native else "legacy"
+    return plan
 
 
 def train_one_model(
@@ -159,19 +189,33 @@ def fold_metrics(
 def _load_all_sessions(
     sessions: pd.DataFrame,
     seq_len: int,
+    stride: int,
+    plan: dict[str, str | None],
     max_gap_ms: float,
     exclude_boundary: tuple[float, float] | None = None,
 ) -> dict[str, dict]:
     """Lade alle Sessions als rohe Sequenz-Windows.
+
+    ``plan`` mappt session_id -> merged-Suffix (siehe :func:`_pool_plan`).
+    Eine fehlende Legacy-View fuehrt zu Skip-mit-Hinweis, nicht zum Crash —
+    kein stilles Mischen von Sample-Raten.
 
     Returns ``{session_id: {"X", "y", "t", "person_id"}}``.
     """
     out: dict[str, dict] = {}
     for row in sessions.itertuples():
         sid = row.session_id
-        X, y, t = load_session_raw(
-            sid, seq_len, max_gap_ms=max_gap_ms, exclude_boundary=exclude_boundary
-        )
+        try:
+            X, y, t = load_session_raw(
+                sid, seq_len,
+                merged_suffix=plan[sid],
+                stride=stride,
+                max_gap_ms=max_gap_ms,
+                exclude_boundary=exclude_boundary,
+            )
+        except FileNotFoundError as exc:
+            print(f"  skip {sid} -- {exc}")
+            continue
         if len(X) == 0:
             print(f"  skip {sid} -- keine Fenster")
             continue
@@ -192,6 +236,7 @@ def _stack_persons(
 def train_deep_loso(
     model_name: str,
     window_sec: int,
+    pool: str = "legacy",
     include_all: bool = False,
     max_gap_ms: float = 2500.0,
     seed: int = 42,
@@ -199,26 +244,41 @@ def train_deep_loso(
 ) -> pd.DataFrame:
     """LOSO-by-person fuer ein Deep-Modell. Returns per-fold Metrik-Tabelle.
 
+    ``pool`` ∈ {"legacy", "modern"} waehlt Sample-Rate, Session-Menge und
+    merged-Quelle (siehe :func:`_pool_plan`). Bewusst kein ``auto`` — rohe
+    Sequenzen koennen keine Sample-Raten mischen.
+
     Pro Fold: Test = 1 Person, Val = 1 rotierende Person, Train = Rest.
 
     ``exclude_boundary`` wird an :func:`build_raw_windows` durchgereicht —
     fuer das Label-Qualitaets-Experiment (mehrdeutige Uebergangs-Fenster
     ausschliessen).
     """
+    if pool not in POOL_FS:
+        raise ValueError(f"pool must be one of {sorted(POOL_FS)}, got {pool!r}")
     _set_seed(seed)
-    seq_len = WIN_SEQ_LEN[window_sec]
-    # Why: min_windows=0 schaltet nur den Count-Gate aus -- das Deep-Pipeline
-    # baut Fenster direkt aus der merged CSV. Aber _select_sessions hat einen
-    # davon unabhaengigen Existenz-Gate: Sessions ohne {session}_windows.csv
-    # werden trotzdem verworfen. Praktisch unkritisch (jede trainierbare
-    # Session lief schon durch die RF-Pipeline), aber: wer `python -m
-    # src.merge SXX` laeuft ohne `python -m src.features SXX`, faellt hier
-    # still raus.
-    sessions = _select_sessions(include_all=include_all, min_windows=0)
+    fs = POOL_FS[pool]
+    seq_len = window_sec * fs
+    stride = fs // 2  # 0,5 s, wie der RF-Window-Stride
+    profile = _POOL_NATIVE_PROFILE[pool]
+    # Why: profile reicht den windows-Existenz-Gate in _select_sessions an den
+    # Pool-Ordner durch — S038-S041 qualifizieren ueber ihre 50hz-Views,
+    # study_mode='test' und verdict-skip fliegen wie beim RF-LOSO raus.
+    # min_windows=0 schaltet nur den Count-Gate aus; die Deep-Pipeline baut
+    # Fenster direkt aus der merged CSV, nicht aus der windows-CSV.
+    sessions = _select_sessions(
+        include_all=include_all, min_windows=0, profile=profile
+    )
     if sessions.empty:
-        raise RuntimeError("Keine Sessions -- sessions.csv / verdict-Gate pruefen.")
+        raise RuntimeError(
+            f"Keine Sessions fuer pool={pool!r} -- sessions.csv / verdict-Gate / "
+            f"windows/{profile}/ pruefen."
+        )
 
-    data = _load_all_sessions(sessions, seq_len, max_gap_ms, exclude_boundary)
+    plan = _pool_plan(sessions, pool)
+    data = _load_all_sessions(
+        sessions, seq_len, stride, plan, max_gap_ms, exclude_boundary
+    )
     # person_id -> Liste von session_ids
     persons: dict[str, list[str]] = {}
     for sid, d in data.items():
@@ -230,8 +290,9 @@ def train_deep_loso(
         )
 
     print(
-        f"\n=== {model_name.upper()} | {window_sec}s-Fenster ({seq_len} Samples) "
-        f"| {len(person_ids)} Folds | device={DEVICE} ==="
+        f"\n=== {model_name.upper()} | pool={pool} | {window_sec}s-Fenster "
+        f"({seq_len} Samples @ {fs} Hz) | {len(person_ids)} Folds | "
+        f"device={DEVICE} ==="
     )
 
     rows: list[dict] = []

@@ -98,7 +98,7 @@ otherwise to `pen_log_YYYYMMDD_HHMMSS.csv` in the working directory.
 python -m src.merge S029                          # watch-base merge → data/processed/S029_merged.csv
 python -m src.features S029 --max-gap-ms 300      # sliding-window features → data/processed/S029_windows.csv
 python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
-python -m src.training.deep                       # CNN/LSTM/GRU vs RF (LOSO comparison)
+python -m src.training.deep --model cnn --pool legacy  # ein Deep-Modell, LOSO vs RF
 python -m src.training.train_loso --save-oof      # + OOF-CSV für Regression
 python -m src.evaluation.regression               # Schreib-Prozent: MAE/RMSE/Bias + Plots
 python -m src.evaluation.engagement               # Schreibzeit-Anteil pro Aufgabe + Heatmap
@@ -110,7 +110,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 138 tests, ~1.5 s
+pytest tests/         # 297 tests, ~8 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -511,16 +511,30 @@ no longer vibrates continuously when the server is down.
   threshold. Empirically: jumped acc from 0.812 → 0.838 on the
   3-person dataset and tightened fold-σ 4× (0.042 → 0.009) — the
   biggest single ML-side improvement of the project.
-- `src/training/deep/` — **Deep-Sequenz-Modell-Vergleich** (Roadmap
-  Prio 3/4). 1D-CNN / LSTM / GRU auf rohen 50-Hz-IMU-Sequenzen statt
-  der 88 Features, im identischen LOSO-by-person-Protokoll wie
-  `train_loso.py` (importiert dessen `_select_sessions` /
-  `_burst_metrics`). `data.py` baut rohe Fenster (50 oder 250 Samples ×
-  6 Kanäle, per-Kanal-z-skaliert), `models.py` die drei kleinen
-  `nn.Module`-Klassen, `train_loso.py` den Trainings-Loop (Early
-  Stopping auf rotierendem Person-Holdout) + LOSO-Runner. CLI:
-  `python -m src.training.deep [--model cnn|lstm|gru|all] [--win 1|5|both]`
-  → `models/deep_loso.csv` + Vergleichstabelle gegen die RF-Headline.
+- `src/training/deep/` — **Deep-Sequenz-Modell-LOSO** (Roadmap
+  Prio 3/4). 1D-CNN / LSTM / GRU auf rohen IMU-Sequenzen statt der 88
+  Features, im identischen LOSO-by-person-Protokoll wie `train_loso.py`
+  (importiert dessen `_select_sessions` / `_burst_metrics`). `data.py`
+  baut rohe Fenster (6 Kanäle, per-Kanal-z-skaliert; `load_session_raw`
+  nimmt `merged_suffix` für die Legacy-View-Quelle), `models.py` die
+  drei kleinen `nn.Module`-Klassen (seq-len-agnostisch via
+  `AdaptiveAvgPool1d` / letztem Hidden-State, daher laufen 50- und
+  100-Hz-Fenster ohne Architektur-Änderung), `train_loso.py` den
+  Trainings-Loop (Early Stopping auf rotierendem Person-Holdout) +
+  pool-fähigen LOSO-Runner. **Genau ein Modell pro Aufruf**, mit
+  `--pool`-Auswahl analog zum RF: `seq_len`/`stride` werden aus der
+  Pool-Sample-Rate abgeleitet (`POOL_FS`, ein 1-s-Fenster = 50 Samples
+  legacy / 100 modern), `_pool_plan()` mappt jede Session über
+  `watch_profile` auf die merged-Quelle (50hz nativ → `_merged.csv`,
+  Modern → downsampled `_merged_legacy.csv`-View). Kein `auto` — rohe
+  Sequenzen können keine Sample-Raten mischen; fehlende Legacy-View →
+  Skip mit Hinweis statt Crash. CLI:
+  `python -m src.training.deep --model {cnn|lstm|gru} [--pool legacy|modern] [--win 1|5|both]`
+  → `models/deep_loso_{pool}.csv` + Vergleichstabellen gegen die
+  RF-Headline (legacy = N=14-Baseline; modern ohne RF-Zeile).
+  Legacy-Headline (CNN @1s, N=14): acc 0.875 ± 0.033, AUC 0.937,
+  @5s 0.898/0.964, @30s 0.842/0.919 — auf Augenhöhe mit dem RF
+  (Train/Test-Gap 0.017 = data-limited, nicht Overfit).
 - `scripts/ml/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
@@ -1141,7 +1155,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (223 cases, ~6 s) — anything that
+`tests/` holds Tier-1 smoke tests (297 cases, ~8 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
@@ -1185,8 +1199,11 @@ could silently poison the training data or the proband-facing flow:
   when served as `text/html`).
 - `test_deep.py` — Deep-Sequenz-Modell-Paket (`src/training/deep/`):
   `build_raw_windows` Shapes/Labels, Per-Kanal-Z-Score, Forward-Pass
-  aller drei Modelle (CNN/LSTM/GRU) bei beiden Sequenzlängen, plus
-  Mini-Trainingslauf von `train_one_model`/`predict_proba`/`fold_metrics`.
+  aller drei Modelle (CNN/LSTM/GRU) bei beiden Sequenzlängen,
+  Mini-Trainingslauf von `train_one_model`/`predict_proba`/`fold_metrics`,
+  plus Pool-/Suffix-Auswahl (`load_session_raw(merged_suffix=…)` lädt die
+  Legacy-View bzw. nennt die Downsample-Chain, `_pool_plan` mappt
+  watch_profile→merged-Suffix, `POOL_FS`).
 - `test_inference.py` — `LiveInference` smoke: leerer/stale/zu-kleiner
   Buffer → predict() == None, payload-shape, sparkline-Wachstum, Z-Score-
   Honouring (mu/sigma aus Joblib appliziert), Rate-Mismatch-Guard
