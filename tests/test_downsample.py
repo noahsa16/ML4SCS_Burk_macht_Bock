@@ -30,6 +30,28 @@ def _modern_100hz(duration_s: float = 5.0) -> pd.DataFrame:
     return df
 
 
+def test_downsample_snaps_measured_rate_to_nominal():
+    # Reale Sessions melden die EFFEKTIVE Rate (S038–S041: 99.5 Hz statt
+    # 100). Der Dezimations-Faktor muss aus der nominalen Rate kommen,
+    # sonst scheitert jede echte Session an ratio 1.99 ≠ Integer.
+    df = _modern_100hz(5.0)
+    df["sample_rate_hz"] = 99.5
+
+    out = downsample_watch_df(df, target_hz=50)
+
+    assert 240 <= len(out) <= 260, f"got {len(out)}"
+    assert float(out["sample_rate_hz"].iloc[0]) == 50.0
+
+
+def test_downsample_rejects_out_of_band_rate():
+    # 75 Hz ist keiner nominalen Rate zuordenbar → weiterhin lauter Fehler.
+    df = _modern_100hz(5.0)
+    df["sample_rate_hz"] = 75.0
+
+    with pytest.raises(ValueError):
+        downsample_watch_df(df, target_hz=50)
+
+
 def test_downsample_halves_sample_count():
     df = _modern_100hz(5.0)
     assert len(df) == 500

@@ -66,6 +66,16 @@ def downsample_watch_df(
     source_hz = _infer_source_hz(df)
     if target_hz <= 0:
         raise ValueError(f"target_hz must be > 0, got {target_hz}")
+    # Why: Geräte melden die EFFEKTIVE Rate (reale Sessions: 99.5 statt
+    # 100 Hz). Der Dezimations-Faktor muss aus der nominalen Rate kommen,
+    # sonst scheitert jede echte Session an ratio 1.99 ≠ Integer.
+    # Out-of-band-Raten (> ±20 % neben jedem Nominal) bleiben ungesnapped
+    # und laufen in den Integer-Guard unten.
+    from src.profiles import VALID_HZ
+
+    nominal = min(VALID_HZ, key=lambda hz: abs(hz - source_hz))
+    if abs(source_hz - nominal) / nominal <= 0.2:
+        source_hz = nominal
     if abs(source_hz - target_hz) < 0.5:
         return df.copy()
 

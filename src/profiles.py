@@ -35,7 +35,8 @@ PROFILES = ("50hz", "100hz", "100hz_grav")
 # downsampled, also findet absteigende Suche zuerst das Original.
 _NATIVE_SEARCH_ORDER = ("100hz_grav", "100hz", "50hz")
 
-_VALID_HZ = (50.0, 100.0)
+VALID_HZ = (50.0, 100.0)
+_VALID_HZ = VALID_HZ  # Back-compat-Alias
 # Sample-Spalten (merged/raw), nicht Feature-Spalten (windows).
 _GRAVITY_SAMPLE_COLS = ("gx", "gy", "gz")
 
