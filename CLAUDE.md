@@ -99,7 +99,8 @@ python -m src.merge S029                          # watch-base merge → data/pr
 python -m src.features S029 --max-gap-ms 300      # sliding-window features → data/processed/S029_windows.csv
 python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
 python -m src.training.deep --model cnn --pool legacy  # ein Deep-Modell, LOSO vs RF
-python -m src.training.deep.harnet --model harnet5     # Transfer-Learning (frozen harnet) vs RF
+python -m src.training.deep.harnet --model harnet5          # Transfer-Learning Stufe 1 (frozen) vs RF
+python -m src.training.deep.harnet_finetune --model harnet5 # Stufe 2 (end-to-end fine-tune)
 python -m src.training.train_loso --save-oof      # + OOF-CSV für Regression
 python -m src.evaluation.regression               # Schreib-Prozent: MAE/RMSE/Bias + Plots
 python -m src.evaluation.engagement               # Schreibzeit-Anteil pro Aufgabe + Heatmap
@@ -111,7 +112,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 313 tests, ~8 s
+pytest tests/         # 315 tests, ~10 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -557,20 +558,55 @@ no longer vibrates continuously when the server is down.
   → 512-dim Embedding (harnet5) / 1024-dim (harnet10), pro Session als
   `.npz` unter `data/processed/embeddings/{variant}/` gecached
   (gitignored); darauf LOSO mit zwei Köpfen: LogReg mit C-Sweep
-  {0.01,0.1,1} per innerem GroupKFold + RF 200 Trees), `harnet.py` (CLI).
-  **Input = `userAcceleration` ohne Gravity** — bewusster
+  {0.01,0.1,1} per innerem GroupKFold + RF 200 Trees), `harnet_finetune.py`
+  (Stufe 2: volles Modell end-to-end fine-tunen — LR 1e-4, Early Stopping
+  auf Val-Person, Modell pro Fold frisch pretrained), `harnet.py` (CLI
+  frozen). **Input = `userAcceleration` ohne Gravity** — bewusster
   Distribution-Shift ggü. dem Biobank-Total-Accel-Pretraining (Legacy-Pool
-  hat kein Gravity), **kein Per-Session-Z-Score** (Netz erwartet g). CLI:
-  `python -m src.training.deep.harnet [--model harnet5|harnet10] [--force-embeddings]`
-  → `models/harnet_loso.csv` + `reports/harnet_transfer.md`. **Ergebnis
-  (harnet5 frozen, N=14, LogReg-Kopf):** per-window (=5s) acc 0.896 /
-  AUC 0.958 — **liegt gleichauf mit der RF-Headline @5s** (0.899/0.962),
-  bei @10s/@30s minimal davor (0.886/0.954, 0.853/0.927). Bemerkenswert,
-  weil der Einheiten-Shift gegen das Modell arbeitet; gleiche schwache
-  Folds wie RF (P07/P09/P12). Erste-Setup-Hürde: macOS-Framework-Python
-  braucht ein CA-Bundle für `torch.hub` (`_ensure_ca_bundle()` setzt
-  `SSL_CERT_FILE` via certifi). Modell-Download lazy beim ersten Lauf
-  (~40 s, dann `~/.cache/torch/hub`).
+  hat kein Gravity), **kein Per-Session-Z-Score** (Netz erwartet g). CLIs:
+  `python -m src.training.deep.harnet [--model harnet5|harnet10]` (frozen,
+  Stufe 1) und `python -m src.training.deep.harnet_finetune [--model …]`
+  (Stufe 2). Output variantenbewusst: harnet5-frozen ist kanonisch
+  (`models/harnet_loso.csv` + `reports/harnet_transfer.md`), andere Varianten
+  bzw. Fine-Tuning schreiben klar benannte Siblings
+  (`harnet_loso_harnet10.csv`, `harnet_finetune_{variant}.csv/.md`).
+  Vergleich immer auf nativer Decision-Skala (harnet5 = 5 s, harnet10 = 10 s).
+  **Ergebnisse (N=14):**
+  - *harnet5 frozen, LogReg:* per-window (5s) acc 0.896 / AUC 0.958 —
+    **gleichauf mit RF@5s** (0.899/0.962).
+  - *harnet10 frozen, LogReg:* per-window (10s) acc 0.909 / AUC 0.966 —
+    **schlägt RF@10s** (0.882/0.952); @30s 0.881/0.950 vs RF 0.838/0.917
+    (+4,3 pp acc). Längerer Kontext hilft dem Foundation-Model spürbar.
+  - *harnet5 fine-tuned (Stufe 2):* per-window 0.896 / AUC 0.965 — **kein
+    klarer Gewinn vs. frozen** (ΔAcc +0.001, ΔAUC +0.007, in der
+    Fold-Streuung). mean best_epoch 0.8 + Train/Test-Gap +0.042 ⇒ die
+    vortrainierten Features sind nahe optimal, Fine-Tuning überanpasst bei
+    N=14 fast sofort.
+  Über alle harnet-Varianten gleiche schwache Folds wie RF (P07/P09/P12),
+  per-Fold-AUC r≈0.92 mit RF — modellunabhängige Bestätigung der
+  Signal-Ambiguitäts-Decke (siehe `reports/harnet_transfer.md` +
+  `feature_engineering_ceiling`-Memory).
+  **Fusion-Falsifikation (`scripts/ml/harnet_rf_fusion.py` +
+  `harnet_frozen.harnet_oof()`, harnet5, N=14):** koppelt harnets
+  frozen-Repräsentation an den 88-Feature-RF — als Proba-Ensemble
+  (Mittel zweier OOF-Vorhersagen, sauber) und als Stack (harnet-OOF als
+  89. Feature). Auf der **nativen 5-s-Decision-Skala hebt Fusion die
+  Headline nicht**: Ensemble ΔAcc −0.011 / ΔAUC +0.001, Stack ΔAcc
+  +0.005 / ΔAUC +0.006 vs. RF-baseline-88 im selben Lauf — alles in der
+  Fold-Streuung. Per-**window** glänzt die Fusion zwar (RF-AUC 0.923 →
+  Stack 0.946 / Ensemble 0.949, +0.023–0.026), aber dieser Gewinn ist
+  reines De-Noising der 1-s-RF-Zappelei und damit **redundant zur
+  Burst-Aggregation**, die auf 5 s ohnehin glättet → der Vorsprung
+  verpufft beim Aggregieren. Entscheidender Window-Level-Test: die
+  **Residuen-Korrelation r=+0.574** (Fehler RF vs. Fehler harnet) — beide
+  Modelle irren an denselben Fenstern, kein Fusions-Spielraum. Bestätigt
+  Szenario (a) window-genau: die Decke ist Signal-Ambiguität, kein freier
+  Headline-Sprung durch ein größeres/zweites Modell. Output:
+  `reports/harnet_rf_fusion.md` + `models/harnet_fusion_harnet5.csv`
+  (+ OOF-Cache `models/harnet_oof_harnet5.csv`). Erste-Setup-Hürde:
+  macOS-Framework-Python braucht ein CA-Bundle für `torch.hub`
+  (`_ensure_ca_bundle()` setzt `SSL_CERT_FILE` via certifi). Modell-Download
+  lazy beim ersten Lauf (~40 s, dann `~/.cache/torch/hub`).
 - `scripts/ml/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
@@ -1191,7 +1227,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (313 cases, ~8 s) — anything that
+`tests/` holds Tier-1 smoke tests (315 cases, ~10 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
@@ -1248,6 +1284,10 @@ could silently poison the training data or the proband-facing flow:
   (Regression analog `test_merge`), g-Range-Check (kein versehentlicher
   Z-Score), Raten-Detektion aus `ts`. Kein Modell-/Training-Test (der
   frozen-Extractor braucht den torch.hub-Download — manueller Smoke).
+- `test_harnet_finetune.py` — Fine-Tuning-Loop (`harnet_finetune.py`):
+  `_class_weights` balanciert, `finetune_model`/`predict_proba` als
+  modell-agnostischer Smoke mit einem Dummy-`(b,3,L)→(b,2)`-Netz (kein
+  harnet-Download nötig).
 - `test_inference.py` — `LiveInference` smoke: leerer/stale/zu-kleiner
   Buffer → predict() == None, payload-shape, sparkline-Wachstum, Z-Score-
   Honouring (mu/sigma aus Joblib appliziert), Rate-Mismatch-Guard

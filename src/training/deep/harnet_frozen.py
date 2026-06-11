@@ -266,3 +266,56 @@ def harnet_loso(variant: str = "harnet5", force_embeddings: bool = False) -> pd.
               f"rf acc={rows[-1]['accuracy']:.3f} auc={rows[-1]['roc_auc']:.3f}")
 
     return pd.DataFrame(rows)
+
+
+def harnet_oof(variant: str = "harnet5", force_embeddings: bool = False) -> pd.DataFrame:
+    """Per-Window-OOF-Vorhersagen (LogReg-Kopf) ueber den LOSO-by-person.
+
+    Fuer jeden Test-Probanden liefert ein *ohne ihn* trainierter LogReg-Kopf
+    die Fenster-Wahrscheinlichkeiten — also leakage-frei out-of-fold. Returns
+    eine Tabelle mit ``session_id, person_id, t_center_ms, y, proba`` (eine
+    Zeile pro Fenster), das gemeinsame Vor-Artefakt fuer Ensemble + Stack
+    gegen den RF. Nutzt denselben C-Sweep wie der LogReg-Kopf in
+    :func:`harnet_loso`; Embeddings aus dem Cache.
+    """
+    if variant not in HARNET_VARIANTS:
+        raise ValueError(
+            f"variant must be one of {sorted(HARNET_VARIANTS)}, got {variant!r}"
+        )
+    np.random.seed(SEED)
+    model = load_harnet_extractor(variant)
+    sessions = select_harnet_sessions(pool="legacy")
+    data: dict[str, dict] = {}
+    for row in sessions.itertuples():
+        emb, y, t = session_embeddings(model, row.session_id, variant, force=force_embeddings)
+        if len(emb) == 0:
+            continue
+        data[row.session_id] = {"emb": emb, "y": y, "t": t, "person_id": row.person_id}
+
+    persons: dict[str, list[str]] = {}
+    for sid, d in data.items():
+        persons.setdefault(d["person_id"], []).append(sid)
+    person_ids = sorted(persons)
+    if len(person_ids) < 3:
+        raise RuntimeError(f"LOSO braucht >= 3 Personen, hat {len(person_ids)}.")
+
+    out: list[pd.DataFrame] = []
+    for test_p in person_ids:
+        train_ps = [p for p in person_ids if p != test_p]
+        Xtr = np.concatenate([data[s]["emb"] for p in train_ps for s in persons[p]])
+        ytr = np.concatenate([data[s]["y"] for p in train_ps for s in persons[p]])
+        groups = np.concatenate([
+            np.full(len(data[s]["y"]), p) for p in train_ps for s in persons[p]
+        ])
+        lr, _ = _logreg_with_csweep(Xtr, ytr, groups)
+        for s in persons[test_p]:
+            proba = lr.predict_proba(data[s]["emb"])[:, 1]
+            out.append(pd.DataFrame({
+                "session_id": s,
+                "person_id": test_p,
+                "t_center_ms": data[s]["t"],
+                "y": data[s]["y"],
+                "proba": proba,
+            }))
+        print(f"  OOF {test_p}: {sum(len(data[s]['y']) for s in persons[test_p])} Fenster")
+    return pd.concat(out, ignore_index=True)
