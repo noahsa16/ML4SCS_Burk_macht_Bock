@@ -21,7 +21,7 @@ class SessionStartBody(BaseModel):
 
 
 class StudyStartBody(BaseModel):
-    protocol_id: str = "v1"
+    protocol_id: str = "v2"
     person_id: str = "unknown"
     description: str = ""
     force_preflight: bool = False

@@ -1,0 +1,143 @@
+{
+  "id": "v2",
+  "name": "ML4SCS Study Protocol v2 — Hard Negatives & Edge Cases",
+  "pre_task_seconds": 5,
+  "randomize": true,
+  "interleave": "latin_square",
+  "duration_jitter_pct": 0.15,
+  "tasks": [
+    {
+      "id": "abschreiben",
+      "label": "Text abschreiben",
+      "category": "writing",
+      "duration_seconds": 180,
+      "instances": 1,
+      "instruction": "Schreibe den folgenden Text auf Papier ab.",
+      "content_type": "text",
+      "content": "Glaub nicht, ich sei verrückt, Eliot — viele Menschen haben merkwürdigere Abneigungen als diese. Weshalb lachst du nicht über Olivers Großvater, der in kein Auto steigen will? Wenn ich diese verfluchte Untergrundbahn nicht mag, so ist das allein mein Problem; mit dem Taxi sind wir ohnehin schneller hier angekommen. Hätten wir die U-Bahn genommen, wären wir den Hügel von der Park Street aus zu Fuß hinaufgegangen.\n\nIch weiß, dass ich seit unserem letzten Treffen nervöser geworden bin, aber du musst mir deshalb nicht gleich eine Diagnose stellen. Gründe gibt es genug, weiß Gott, und ich kann mich vermutlich glücklich schätzen, überhaupt noch bei Verstand zu sein. Warum drängst du eigentlich so? Du warst früher nicht so neugierig.\n\nNun gut, wenn du es unbedingt hören willst, warum sollte ich es dir nicht erzählen. Vielleicht ist es sogar besser so, sonst schreibst du mir wieder wie eine besorgte Mutter Briefe darüber, weshalb ich den Kunstverein meide und mich von Pickman fernhalte. Jetzt, da er verschwunden ist, gehe ich ab und an wieder in den Verein, aber meine Nerven sind nicht mehr das, was sie einmal waren.\n\nNein, ich weiß nicht, was aus Pickman geworden ist, und ich möchte auch keine Vermutungen darüber anstellen. Du hast wohl angenommen, ich hätte ihn fallengelassen, weil ich vertrauliche Informationen über ihn erhalten hätte — und das ist auch der Grund, weshalb ich nicht daran denken möchte, wo er nun steckt."
+    },
+    {
+      "id": "math",
+      "label": "Mathe-Aufgaben",
+      "category": "writing",
+      "duration_seconds": 210,
+      "instances": 1,
+      "instruction": "Rechne jede Aufgabe Schritt für Schritt. Schreibe jeden Zwischenschritt einzeln untereinander auf — auch wenn du es im Kopf könntest.",
+      "content_type": "list",
+      "content": [
+        "Ein rechteckiges Zimmer ist 5 m lang und 4 m breit. Berechne (a) die Fläche, (b) den Umfang, (c) wie viel ein Teppich kostet, der den Boden bedeckt, wenn ein Quadratmeter 20 € kostet. Schreibe jede Teilrechnung einzeln auf.",
+        "Im Café: 1 Kaffee 3 €, 1 Tee 2 €, 1 Stück Kuchen 4 €. Ihr seid zu viert und bestellt: 2 Kaffee, 1 Tee, 1 Saft (3 €) und 3 Stück Kuchen. Schreibe jede Position einzeln (Anzahl × Preis), dann die Summe. Wie viel zahlt jeder bei gleicher Aufteilung?",
+        "Eine Strecke von 240 km wird mit verschiedenen Geschwindigkeiten gefahren. Wie lange dauert es bei 60, 80, 120 und 40 km/h? Rechne jede Zeit einzeln (Strecke ÷ Geschwindigkeit) und schreibe sie in ganzen Stunden auf.",
+        "Berechne der Reihe nach und schreibe jede Rechnung einzeln auf: 10 % von 200, 25 % von 200, 50 % von 200, 75 % von 200, 5 % von 200, 1 % von 200.",
+        "Dreisatz: 3 Brötchen kosten 1,50 €. Was kosten 1, 2, 5, 6, 9 und 12 Brötchen? Rechne erst den Preis pro Brötchen aus, dann jeden Wert einzeln."
+      ]
+    },
+    {
+      "id": "free_writing",
+      "label": "Freies Schreiben",
+      "category": "writing",
+      "duration_seconds": 150,
+      "instances": 1,
+      "instruction": "Schreibe einen frei gewählten Text — z. B. ein kurzer Erlebnisbericht.",
+      "content_type": "text",
+      "content": "Schreibe einfach drauf los — kein Thema vorgegeben."
+    },
+    {
+      "id": "soft_writing",
+      "label": "Leise & langsam schreiben",
+      "category": "writing",
+      "duration_seconds": 150,
+      "instances": 1,
+      "instruction": "Schreibe den Text in Schönschrift ab: langsam, gleichmäßig und mit so wenig Druck wie möglich. Der Stift soll nur ganz leicht über das Papier gleiten.",
+      "content_type": "text",
+      "content": "Der Abend legt sich still über die Stadt. In den Fenstern gehen nacheinander die Lichter an, und auf den Straßen wird es ruhiger. Irgendwo schlägt eine Kirchturmuhr, ein Hund bellt in der Ferne, und der Wind trägt den Geruch von Regen heran. Es ist einer dieser Momente, in denen die Zeit langsamer zu vergehen scheint und man jeden einzelnen Atemzug bewusst wahrnimmt."
+    },
+    {
+      "id": "think_pause_writing",
+      "label": "Schreiben mit Denkpausen",
+      "category": "writing",
+      "duration_seconds": 210,
+      "instances": 1,
+      "instruction": "Beantworte die Fragen schriftlich in ganzen Sätzen. WICHTIG: Denke vor jeder Antwort bewusst 10–15 Sekunden nach, während du den Stift in der Hand hältst (auf dem Papier ruhend oder leicht über dem Blatt). Erst dann schreiben.",
+      "content_type": "list",
+      "content": [
+        "Was war das beste Essen, das du je gegessen hast — und warum?",
+        "Wenn du ein Jahr lang an einem beliebigen Ort leben könntest, wo wäre das?",
+        "Welche Fähigkeit würdest du gerne über Nacht lernen?",
+        "Was würdest du deinem 14-jährigen Ich raten?",
+        "Welches Buch, welcher Film oder welche Serie hat dich zuletzt wirklich beschäftigt?",
+        "Was ist eine unpopuläre Meinung, die du vertrittst?"
+      ]
+    },
+    {
+      "id": "drawing",
+      "label": "Zeichnen & Skizzieren",
+      "category": "writing",
+      "duration_seconds": 120,
+      "instances": 1,
+      "instruction": "Zeichne mit dem Stift auf das Papier: zuerst ein Haus mit Garten, dann geometrische Formen (Kreise, Dreiecke, Spiralen), dann schraffiere eine Fläche aus. Kein Text — nur zeichnen.",
+      "content_type": "text",
+      "content": "Frei zeichnen: Haus, Formen, Spiralen, Schraffuren. Qualität ist egal."
+    },
+    {
+      "id": "phone_typing",
+      "label": "Handy tippen",
+      "category": "idle",
+      "duration_seconds": 120,
+      "instances": 1,
+      "instruction": "Lege den Stift weg. Tippe auf deinem Handy durchgehend Nachrichten — z. B. eine lange Nachricht an einen Freund entwerfen oder Notizen in die Notiz-App schreiben. Tippe mit der Hand, an der du die Watch trägst, oder halte das Handy damit.",
+      "content_type": "text",
+      "content": "Durchgehend tippen, nicht nur lesen. Notiz-App reicht, muss nichts abgeschickt werden."
+    },
+    {
+      "id": "phone_scrolling",
+      "label": "Handy scrollen",
+      "category": "idle",
+      "duration_seconds": 90,
+      "instances": 1,
+      "instruction": "Lege den Stift weg. Scrolle auf deinem Handy durch einen Feed (Instagram, Reddit, News — egal). Halte oder bediene das Handy mit der Watch-Hand.",
+      "content_type": "text",
+      "content": "Normales Scrollen, gelegentliches Antippen. Kein Tippen von Text."
+    },
+    {
+      "id": "keyboard_typing",
+      "label": "Tastatur tippen",
+      "category": "idle",
+      "duration_seconds": 120,
+      "instances": 1,
+      "instruction": "Lege den Stift weg. Tippe auf einer Laptop-/Computer-Tastatur einen beliebigen Text (z. B. den Anfang des Abschreibe-Textes oder freies Schreiben). Durchgehend tippen.",
+      "content_type": "text",
+      "content": "Falls kein Laptop verfügbar: stattdessen auf dem Handy mit beiden Daumen tippen."
+    },
+    {
+      "id": "pen_fidgeting",
+      "label": "Stift in der Hand (ohne Schreiben)",
+      "category": "idle",
+      "duration_seconds": 90,
+      "instances": 1,
+      "instruction": "Halte den Stift in der Schreibhand, aber schreibe NICHT: drehe ihn zwischen den Fingern, klicke, tippe mit dem stumpfen Ende leicht auf den Tisch, gestikuliere damit beim Reden. Die Spitze darf das Papier nicht berühren.",
+      "content_type": "text",
+      "content": "Stift-Fidgeting: drehen, gestikulieren — aber kein Kontakt der Spitze mit dem Papier."
+    },
+    {
+      "id": "gesturing",
+      "label": "Reden & Gestikulieren",
+      "category": "idle",
+      "duration_seconds": 90,
+      "instances": 1,
+      "instruction": "Lege den Stift weg. Erzähle der Versuchsleitung etwas (z. B. deinen gestrigen Tag) und gestikuliere dabei natürlich mit den Händen. Zwischendurch gerne trinken oder am Tisch hantieren.",
+      "content_type": "text",
+      "content": "Natürliche Alltagsbewegungen am Tisch: gestikulieren, trinken, Dinge verschieben."
+    },
+    {
+      "id": "pause",
+      "label": "Pause",
+      "category": "idle",
+      "duration_seconds": 60,
+      "instances": 1,
+      "instruction": "Lege den Stift weg. Mach was du willst — strecken, trinken, kurz reden. Hauptsache: du schreibst nicht.",
+      "content_type": "text",
+      "content": "Pause. Stift kann auf dem Tisch liegen bleiben."
+    }
+  ]
+}

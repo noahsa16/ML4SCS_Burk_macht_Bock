@@ -75,3 +75,14 @@ def test_list_protocols_returns_id_and_name(tmp_path):
                  _ok_protocol(id="a", name="Alpha"))
     items = list_protocols(tmp_path)
     assert {"id": "a", "name": "Alpha"} in items
+
+
+def test_shipped_v2_protocol_loads():
+    # Why: v2 is the current default protocol. list_protocols swallows schema
+    # errors (continue), so a broken v2.json would silently vanish from the
+    # dropdown instead of failing loudly — guard the shipped file directly.
+    path = Path(__file__).resolve().parents[1] / "study_protocols" / "v2.json"
+    proto = load_protocol(path)
+    assert proto.id == "v2"
+    cats = {t.category for t in proto.tasks}
+    assert {"writing", "idle"} <= cats
