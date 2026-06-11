@@ -128,7 +128,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 328 tests, ~10 s
+pytest tests/         # 330 tests, ~10 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -661,6 +661,12 @@ no longer vibrates continuously when the server is down.
   ohne). Speichert `models/rf_noah.joblib` mit `person_id`, `sample_rate_hz`,
   optional `zscore_mu/sigma` als Metadata. Within-Noah-LOSO: acc 0.878,
   AUC 0.939, @5s AUC 0.973, @30s AUC 0.949 (post Sort-Stability-Fix).
+- `scripts/ml/honest_live_loso.py` — misst die ehrliche, deploybare
+  Live-Zahl: fährt denselben LOSO zweimal (per-Session-Z-Score vs.
+  leak-frei pooled via `_zscore_train_pooled`) und testet die Differenz
+  gepaart (Wilcoxon). Ergebnis 2026-06-11: pooled 0.863 ≥ per-session
+  0.855 — der nicht-kausale per-Session-Z-Score inflationiert *nicht*
+  (siehe *Per-session z-score* unten).
 - `scripts/ml/train_rf_all_live.py` — Deployment-Variante des
   Generic-Modells. Lädt alle 10 LOSO-Probanden, berechnet **pooled** mu/
   sigma (statt per-session — Pooled ist live-deployment-fähig, weil das
@@ -1268,6 +1274,22 @@ Lives in `_zscore_per_session()` in `train_loso.py` (and a copy in
 production needs a calibration phase (or rolling stats) to estimate
 μ, σ from the live stream before the model can be applied.
 
+**Ehrliche Live-Zahl — per-Session-Z-Score leakt nicht (gemessen
+2026-06-11, `scripts/ml/honest_live_loso.py`).** Per-Session-Z-Score
+ist *nicht-kausal* (der Held-out wird mit seiner eigenen, auch
+zukünftigen Session-Statistik normiert) — also kein Train/Test-Leak,
+aber live so nicht berechenbar. Die leak-freie, deploybare Variante
+(`_zscore_train_pooled()`: μ/σ auf den Trainings-Folds gefittet, auf den
+Held-out angewandt — wie `rf_all_live` es einbäckt) gepaart gegen die
+per-Session-Headline auf denselben 14 Folds: **pooled acc 0.863 / AUC
+0.930 / @5s 0.855 / @30s 0.789 — leicht ÜBER** per-session (0.855/0.929;
+Δacc −0.008, Wilcoxon p=0.035 *zugunsten pooled*; ΔAUC −0.002 n.s.). Die
+Vermutung „per-Session-Z-Score inflationiert die Headline / das pooled-
+Live-Modell wird massiv schlechter" ist damit **empirisch widerlegt**:
+der Leak hilft nicht, er unterperformt minimal (Held-out-Single-Session-
+μ/σ ist verrauschter als die gepoolte Trainingsverteilung). Die ehrliche
+deploybare Zahl ist also 0.863, nicht niedriger.
+
 **Negative result: catch22 + DWT-Energy features.** Tried adding the
 22-feature catch22 bank (`pycatch22`) and DWT-Energy coefficients
 (`pywt`, db4 wavelet) per axis on top of the 88 engineered features.
@@ -1278,7 +1300,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (328 cases, ~10 s) — anything that
+`tests/` holds Tier-1 smoke tests (330 cases, ~10 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
@@ -1360,6 +1382,9 @@ could silently poison the training data or the proband-facing flow:
 - `test_significance.py` — `paired_fold_test` (Wilcoxon): identische Folds
   → n.s. (p=1.0), konsistenter 10-pp-Gewinn → signifikant, sub-pp-Rauschen
   → n.s., Form-Mismatch → ValueError.
+- `test_zscore_pooled.py` — `_zscore_train_pooled` ist leak-frei: der
+  Held-out wird mit TRAIN-μ/σ normiert (nicht mit eigener Statistik), und
+  die Eingabe-DataFrames bleiben unmutiert.
 
 Hardware loops (real BLE pen, watchOS app, iPhone bridge) remain
 **manual** smoke tests — there is no XCTest target in the Xcode
