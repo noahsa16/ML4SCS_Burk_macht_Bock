@@ -158,8 +158,19 @@ def _error_correlation_lines(
     ]
 
 
+def _output_paths(variant: str) -> tuple[Path, Path]:
+    """CSV- + Report-Pfad. harnet5-frozen bleibt die kanonische Headline
+    (`harnet_loso.csv` / `harnet_transfer.md`); andere Varianten bekommen
+    klar benannte Siblings, damit nichts ueberschrieben wird."""
+    if variant == "harnet5":
+        return MODEL_DIR / "harnet_loso.csv", REPORTS_DIR / "harnet_transfer.md"
+    return (MODEL_DIR / f"harnet_loso_{variant}.csv",
+            REPORTS_DIR / f"harnet_transfer_{variant}.md")
+
+
 def _write_report(
-    variant: str, summary: dict, df: pd.DataFrame, n_folds: int, out_csv: Path
+    variant: str, summary: dict, df: pd.DataFrame, n_folds: int,
+    out_csv: Path, report_path: Path,
 ) -> Path:
     native = NATIVE_SCALE[variant]
     rf = RF_HEADLINE[native]
@@ -254,9 +265,8 @@ def _write_report(
         "",
     ]
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    path = REPORTS_DIR / "harnet_transfer.md"
-    path.write_text("\n".join(lines))
-    return path
+    report_path.write_text("\n".join(lines))
+    return report_path
 
 
 def main() -> None:
@@ -273,14 +283,14 @@ def main() -> None:
         raise SystemExit("Keine Folds -- Daten / Filter pruefen.")
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    out_csv = MODEL_DIR / "harnet_loso.csv"
+    out_csv, report_path = _output_paths(args.model)
     df.to_csv(out_csv, index=False)
     print(f"\n-> {out_csv}  ({len(df)} fold-Zeilen)")
 
     summary = _summarise(df)
     n_folds = df["held_out"].nunique()
     _print_tables(args.model, summary)
-    report = _write_report(args.model, summary, df, n_folds, out_csv)
+    report = _write_report(args.model, summary, df, n_folds, out_csv, report_path)
     print(f"-> {report}")
 
 
