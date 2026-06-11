@@ -265,6 +265,26 @@ def _zscore_per_session(df: pd.DataFrame, feature_cols: list[str]) -> pd.DataFra
     return out
 
 
+def _zscore_train_pooled(
+    train_df: pd.DataFrame, test_df: pd.DataFrame, feature_cols: list[str]
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Leak-freie, deploy-repräsentative Standardisierung.
+
+    μ/σ werden **pooled über die Trainings-Folds** geschätzt und auf Train UND
+    Test angewendet. Anders als ``_zscore_per_session`` nutzt der Held-out
+    **nicht** seine eigene (auch zukünftige) Session-Statistik — entspricht
+    einem live deploybaren Modell mit eingebackenem pooled μ/σ (vgl.
+    ``rf_all_live``). Returns ``(train_norm, test_norm)``; Eingaben unverändert.
+    """
+    mu = train_df[feature_cols].mean()
+    sigma = train_df[feature_cols].std().replace(0.0, 1.0).fillna(1.0)
+    tr = train_df.copy()
+    te = test_df.copy()
+    tr[feature_cols] = (tr[feature_cols] - mu) / sigma
+    te[feature_cols] = (te[feature_cols] - mu) / sigma
+    return tr, te
+
+
 def _fit_eval_fold(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
