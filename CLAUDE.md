@@ -34,9 +34,20 @@ mit persistenter Schreibzeit-Aggregation) + Modell-Switcher
 cross-subject LOSO seit 2026-06-10 — 10 Legacy-Probanden + P12–P15
 als 50hz-Views via Downsample-Bridge; RF + per-session z-score +
 `max_gap_ms=2500` label closing): accuracy 0.855 ± 0.034, ROC-AUC
-0.929 ± 0.034, F1(writing) 0.862. Burst-aggregated @5s: acc
-0.899 ± 0.036, AUC 0.962 ± 0.030; @10s: acc 0.882 ± 0.033, AUC
-0.952 ± 0.027; @30s: acc 0.838 ± 0.037, AUC 0.917 ± 0.030.**
+0.929 ± 0.034, F1(writing) 0.862. Burst-aggregiert jetzt **kausal**
+(trailing / `center=False` — live-tracker-ehrlich, seit 2026-06-11):
+@5s acc 0.852 ± 0.037, AUC 0.918 ± 0.033; @10s acc 0.823 ± 0.038,
+AUC 0.899 ± 0.034; @30s acc 0.777 ± 0.043, AUC 0.858 ± 0.041.**
+Wichtig: die **früheren zentrierten** Burst-Zahlen (@5s 0.899/0.962,
+@10s 0.882/0.952, @30s 0.838/0.917) waren ~5–6 pp höher, weil
+`rolling(center=True)` Zukunfts-Fenster mit-mittelte — nicht-kausal
+und für eine als live verkaufte Metrik unzulässig. Unter kausaler
+Glättung hebt Burst-Aggregation die Metrik **nicht** über das
+1-s-Window-Level (0.855); der scheinbare Gewinn war das Artefakt.
+**Alle anderen Burst-Zahlen in dieser Datei (CNN-Deep, harnet
+frozen/finetune, harnet↔RF-Fusion) wurden noch unter `center=True`
+gerechnet und sind regenerations-pflichtig** (Code-Fix ist global,
+Zahlen noch nicht nachgezogen).
 Der Rückgang vs. N=10 (0.863/0.935) ist Kohorten-Härte, kein
 Modell-Regress: die 7 neueren Folds (P07–P15) mitteln 0.833, die 7
 älteren 0.877 und gewannen +0.8 pp vs. N=7-Stand. Kanonische
@@ -188,8 +199,8 @@ Moleskine Smart Pen (BLE)
          models/loso_cv.csv          (per-fold metrics)
                     ↓
          acc 0.855 ± 0.034  |  AUC 0.929 ± 0.034  |  F1(w) 0.862
-         burst @5s: acc 0.899 / AUC 0.962
-         burst @30s: acc 0.838 / AUC 0.917  (Schreibzeit-tracking)
+         burst @5s: acc 0.852 / AUC 0.918  (kausal/trailing)
+         burst @30s: acc 0.777 / AUC 0.858  (Schreibzeit-tracking)
                     ↓
        src/server/inference.py       (Live-Inference-Singleton, lazy
                                       Modell-Load, Rolling-Buffer,
@@ -500,9 +511,12 @@ no longer vibrates continuously when the server is down.
   per-fold accuracy/ROC-AUC plus mean ± std summary, **plus
   burst-aggregated metrics at multiple decision-window scales**
   (1 s / 5 s / 10 s / 30 s — controlled by `BURST_SCALES_SEC`).
-  Probabilities are smoothed via per-session rolling mean (stride
-  derived from median Δ`t_center_ms`, robust to non-default window
-  configs), then re-thresholded at ≥ 0.5. Critical: smoothing groups
+  Probabilities are smoothed via per-session **causal** (trailing,
+  `center=False`) rolling mean — `_causal_rolling_mean()`, no
+  look-ahead so the number matches what a live tracker achieves at
+  time `t` (stride derived from median Δ`t_center_ms`, robust to
+  non-default window configs), then re-thresholded at ≥ 0.5. Critical:
+  smoothing groups
   by `session_id` so predictions from temporally-distant sessions in
   the same fold are never mixed. The burst scales surface the share
   of model error that is high-frequency noise versus systematic, and

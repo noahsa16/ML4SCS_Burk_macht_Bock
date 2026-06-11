@@ -191,6 +191,19 @@ def _select_sessions(
     return sessions.reset_index(drop=True)
 
 
+def _causal_rolling_mean(values: np.ndarray, n: int) -> np.ndarray:
+    """Trailing (causal) rolling mean over a window of ``n`` samples.
+
+    Window covers ``[i-n+1, i]`` (``min_periods=1`` at the start). No
+    look-ahead: the smoothed value at position ``i`` depends only on the
+    present and past, matching what a live Schreibzeit-tracker can compute
+    at time ``i``. Replaces the earlier ``center=True`` smoothing, which
+    averaged future windows into the current decision (non-causal — fine
+    offline, but optimistic for a metric sold as live).
+    """
+    return pd.Series(values).rolling(n, min_periods=1).mean().to_numpy()
+
+
 def _burst_metrics(
     proba: np.ndarray,
     y_true: np.ndarray,
@@ -221,7 +234,7 @@ def _burst_metrics(
             else:
                 stride_ms = 500.0
             n = max(1, int(round(scale * 1000.0 / stride_ms)))
-            s = g["_proba"].rolling(n, center=True, min_periods=1).mean().to_numpy()
+            s = _causal_rolling_mean(g["_proba"].to_numpy(), n)
             smoothed_chunks.append(s)
         smoothed = np.concatenate(smoothed_chunks)
         y_sorted = df["_y"].to_numpy()
