@@ -50,7 +50,12 @@ gerechnet und sind regenerations-pflichtig** (Code-Fix ist global,
 Zahlen noch nicht nachgezogen).
 Der Rückgang vs. N=10 (0.863/0.935) ist Kohorten-Härte, kein
 Modell-Regress: die 7 neueren Folds (P07–P15) mitteln 0.833, die 7
-älteren 0.877 und gewannen +0.8 pp vs. N=7-Stand. Kanonische
+älteren 0.877 (das frühere „+0.8 pp vs. N=7" ist ein **Cross-Kohorten-
+Vergleich** mit anderen Personen — *nicht* gepaart testbar, und bei
+Fold-σ ≈ 3.4 pp ohnehin n.s.; nicht als Gewinn lesen). Für gepaarte
+Within-Kohorten-A/Bs gibt es jetzt `src/evaluation/significance.py`
+(Wilcoxon signed-rank); kleine pp-Differenzen ohne p < 0.05 sind als
+Rauschen zu reporten. Kanonische
 Artefakte (`rf_all.joblib`, `rf_all_live.joblib`, `loso_cv.csv`,
 `loso_oof.csv`) sind auf N=14 retrainiert (Promotion via
 `--pool legacy --no-pool-suffix`). Vorgänger-Headlines:
@@ -123,7 +128,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 322 tests, ~10 s
+pytest tests/         # 328 tests, ~10 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -676,6 +681,15 @@ no longer vibrates continuously when the server is down.
   `{session}_merged.csv` and prints label distribution. Real metrics
   live in `train_loso.py` (cross-subject) and
   `within_session/train_rf.py` (within-session sanity check).
+- `src/evaluation/significance.py` — gepaarte Signifikanztests auf
+  Per-Fold-Metriken (`paired_fold_test()` = Wilcoxon signed-rank auf den
+  paarweisen Fold-Differenzen; beide Configs auf denselben Personen
+  ausgewertet). CLI `python -m src.evaluation.significance A.csv B.csv
+  [--metric accuracy]` vergleicht zwei `loso_cv.csv` auf gemeinsamen
+  `held_out`-Folds. **Pflicht-Gate** vor jeder „+X pp"-Behauptung: bei
+  Fold-σ ≈ 3.4 pp sind sub-pp-Gewinne ohne p < 0.05 Rauschen. Greift nur
+  für Within-Kohorten-A/Bs (gap, Z-Score, Gravity, center/causal) —
+  Cross-Kohorten-Vergleiche (N=7 vs N=14) sind nicht paarbar.
 - `src/evaluation/regression.py` — Schreib-Prozent-Regression (Stufe 2).
   Reines Post-Processing über `models/loso_oof.csv`: aggregiert die
   OOF-Vorhersagen auf 60 s / 300 s / ganze-Session-Blöcke und reportet
@@ -1264,7 +1278,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (322 cases, ~10 s) — anything that
+`tests/` holds Tier-1 smoke tests (328 cases, ~10 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
@@ -1340,6 +1354,12 @@ could silently poison the training data or the proband-facing flow:
   Row, ignoriert rate_mismatch/None-Ticks, `/focus/today` gruppiert Ticks
   in Stretches (max-gap 2.5 s analog zum Label-Closing), `/focus/week`
   liefert 7 chronologische Buckets mit `is_today`-Flag.
+- `test_burst_metrics.py` — `_causal_rolling_mean` ist trailing/kausal:
+  ein Zukunfts-Fenster ändert keine vergangene Entscheidung (Regression
+  gegen das frühere `center=True`-Look-ahead).
+- `test_significance.py` — `paired_fold_test` (Wilcoxon): identische Folds
+  → n.s. (p=1.0), konsistenter 10-pp-Gewinn → signifikant, sub-pp-Rauschen
+  → n.s., Form-Mismatch → ValueError.
 
 Hardware loops (real BLE pen, watchOS app, iPhone bridge) remain
 **manual** smoke tests — there is no XCTest target in the Xcode
