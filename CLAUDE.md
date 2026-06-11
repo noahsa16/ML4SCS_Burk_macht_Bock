@@ -636,10 +636,17 @@ no longer vibrates continuously when the server is down.
   baut die Features on-the-fly bei beliebigem `--gap` neu, ohne die
   Cache-Dateien anzufassen. Nützlich, um Modell-Rangfolge bei
   alternativen Label-Closing-Werten zu prüfen ohne Re-Generation.
-- `scripts/ml/ablate_gap_loso.py` — Label-Closing-Ablation: fährt den
-  vollen LOSO-Lauf bei mehreren `max_gap_ms`-Werten und reportiert
-  per-Fold + Mean/Std. Quelle der Headline-Entscheidung
-  `max_gap_ms=2000` (siehe *Label smoothing* unten).
+- `scripts/ml/ablate_gap_loso.py` — Label-Closing-**Sensitivitätsanalyse**:
+  fährt den vollen LOSO-Lauf bei mehreren `max_gap_ms`-Werten und reportiert
+  per-Fold + Mean/Std. **Methodik-Hinweis (Reviewer 2026-06-11):** `max_gap_ms`
+  ist *nicht* per nested CV auf dem Test-Fold optimiert — das wäre Test-Set-
+  Tuning. Der Wert ist **a-priori durch die Label-Semantik fixiert**
+  (Schreibmodus inkl. Mikropausen ≤ 2.5 s = die User-facing-Wahrheit eines
+  Schreibzeit-Trackers, siehe *Label smoothing* unten), und dieser Sweep ist
+  eine **Robustheits-/Sensitivitätsprüfung** der Wahl, kein Selektions-
+  kriterium. Die gemessenen Effekte (gap 2000→2500: +0.4 pp acc) liegen
+  ohnehin innerhalb der Fold-σ (~3.4 pp) und sind ohne gepaarten Test
+  (`src/evaluation/significance.py`) nicht als Gewinn zu lesen.
 - `scripts/ml/sync_audit.py` — Sync-Audit: prüft, ob residualer Pen↔Watch-
   Alignment-Fehler die LOSO-Fehlerdecke erklärt. Drei Teiltests: (A) σ ↔
   Fold-Accuracy-Korrelation, (B) δ-Drift erste vs. zweite Session-Hälfte
@@ -1108,6 +1115,14 @@ looks identical to the surrounding strokes. Without smoothing the
 model sees the same wrist motion with contradictory labels and learns
 ambivalence. **Chosen closing (headline pipeline):** `max_gap_ms=2500` —
 idle runs ≤ 2.5 s between writing runs are flipped to writing.
+**Methodisch (Reviewer 2026-06-11):** dieser Wert ist eine *a-priori
+Label-Definition* (welche Mikropausen noch „Schreibmodus" sind), **nicht**
+ein auf dem Test-Fold getunter Hyperparameter. Der `ablate_gap_loso`-Sweep
+unten ist die Sensitivitätsprüfung dieser Wahl (zeigt: robust, Effekte
+innerhalb Fold-σ), kein nested-CV-Selektor. Für eine streng leakage-freie
+Modell-Hyperparameter-Suche (z. B. RF-Tiefe) gälte das *nicht* — dann wäre
+nested CV Pflicht; `max_gap_ms` ist aber ein Label-Politik-Knopf, kein
+Modellgewicht.
 Code-Default in `build_windows()` + `smooth_labels()` ist seit
 2026-05-25-Audit auch `2500` (vorher 300 ms — siehe ML-Gotcha
 "Default-Drift" und [`reports/sort_stability_bug.md`](reports/sort_stability_bug.md)
