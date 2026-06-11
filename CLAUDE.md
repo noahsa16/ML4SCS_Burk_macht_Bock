@@ -112,7 +112,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 317 tests, ~10 s
+pytest tests/         # 322 tests, ~10 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -230,8 +230,9 @@ broadcast.py       _broadcast() + _status_loop() (1-s tick); calls
 pen_proc.py        starts/stops pen_logger.py as a subprocess
 models.py          Pydantic schemas (WatchEnvelope, SessionStartBody …)
 study.py           Study Mode internals: protocol loader (Pydantic
-                   schema), LATIN_SQUARE_3 (6 permutations of 3 writing
-                   tasks), scheduler that interleaves writing tasks with
+                   schema), balanced_latin_square(n) (Williams-design
+                   counterbalance, scales to any writing-task count),
+                   scheduler that interleaves writing tasks with
                    pauses, and the runtime state machine (idle / running
                    / paused / done). Pure Python — no FastAPI imports,
                    fully unit-testable.
@@ -753,10 +754,11 @@ study_mode, protocol_id, subject_index
   `_subject_index_for_person_id(person_id)`, which **counts only prior
   sessions with `study_mode='study'`** for that person — `test` and
   `free` are skipped so pilot runs do not consume a counterbalance
-  slot. The 6-row `LATIN_SQUARE_3` table in `src/server/study.py`
-  defines all 6 permutations of the 3 writing tasks (full
-  counterbalance — each task appears in each position twice across
-  6 subjects).
+  slot. `balanced_latin_square(n)` in `src/server/study.py` generates a
+  Williams-design square sized to the protocol's writing-task count
+  (even n → n rows, odd n → 2n); the row is picked by
+  `(subject_index - 1) % len(square)`. v1 (3 tasks) and v2 (6 tasks)
+  both cycle every 6 subjects.
 
 Session IDs auto-increment (`S001`, `S002`, …). `_next_session_id()`
 scans **sessions.csv** and `data/raw/{pen,watch,airpods}/` so an ID
@@ -962,20 +964,21 @@ wrist IMU: `phone_typing`, `phone_scrolling`, `keyboard_typing`,
 `pen_fidgeting` (the documented phone-typing/fidget confound), and
 `gesturing`. 6 writing + 6 idle tasks, `duration_jitter_pct=0.15`
 (±15 % sum-preserving). Net schedule W-I-W-I… (~26.5 min) — notably
-longer than v1's ~15 min. **Counterbalancing caveat:** the
-`latin_square` interleave only applies the `LATIN_SQUARE_3` rows when
-there are exactly 3 writing tasks; with v2's 6 it falls back (by
-design, see `build_schedule`) to a **seeded-random** shuffle —
-reproducible per session, but not a full counterbalance (a 6×6 design
-would need many more subjects).
+longer than v1's ~15 min. Both the 6 writing tasks **and** the 6 idle
+hard-negatives are counterbalanced per subject (see Scheduler), so the
+W-I pairings vary — which is where the carryover balance actually bites,
+since writing tasks are never adjacent in the interleaved run.
 
 **Scheduler.** Three `interleave` modes are supported. `latin_square`
-(both v1 and v2): for exactly 3 writing tasks, pick the Latin-Square row
-by `subject_index % 6`; otherwise seeded-random shuffle. Then
-**interleave writing with idle/pause blocks**. v1's writing tasks are
-`abschreiben` (text copy), `math`, `free_writing` — each 240 s —
-separated by pause blocks (W-P-W-P-W, ~15 min). v2 weaves its 6 writing
-+ 6 idle tasks into W-I-W-I… (~26.5 min).
+generates a **balanced Williams Latin square sized to the task count**
+(`balanced_latin_square(n)`) and applies it — by `subject_index` — to
+**both** the writing tasks and the idle blocks, then interleaves them.
+This scales to any protocol: v1's 3 writing tasks and v2's 6 both get a
+proper counterbalance (no special-casing, no random fallback when a
+`subject_index` is present). v1's writing tasks are `abschreiben`
+(text copy), `math`, `free_writing` — each 240 s — separated by pause
+blocks (W-P-W-P-W, ~15 min). v2 weaves its 6 writing + 6 idle tasks
+into W-I-W-I… (~26.5 min).
 
 **State machine.** `new_runtime(protocol, subject_index)` constructs
 the ordered task list; `state.study` tracks `phase`,
@@ -1247,7 +1250,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (317 cases, ~10 s) — anything that
+`tests/` holds Tier-1 smoke tests (322 cases, ~10 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
