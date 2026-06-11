@@ -128,7 +128,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 330 tests, ~10 s
+pytest tests/         # 333 tests, ~10 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -647,6 +647,12 @@ no longer vibrates continuously when the server is down.
   kriterium. Die gemessenen Effekte (gap 2000→2500: +0.4 pp acc) liegen
   ohnehin innerhalb der Fold-σ (~3.4 pp) und sind ohne gepaarten Test
   (`src/evaluation/significance.py`) nicht als Gewinn zu lesen.
+- `scripts/ml/label_kinematics_check.py` — falsifiziert den Varianz-
+  Alignment-Bias-Verdacht: pooled writing-vs-idle Jerk/Varianz (Kern
+  `src/evaluation/label_diagnostics.py::class_kinematics_summary`). Befund:
+  8/8 Jerk-Features bei writing höher (Median-Ratio 1.35) → Schreiben ist
+  die dynamischere Klasse, Labels nicht auf Ruhephasen invertiert (siehe
+  *Sample-level merge alignment* oben). Kein Ersatz für Video-Ground-Truth.
 - `scripts/ml/sync_audit.py` — Sync-Audit: prüft, ob residualer Pen↔Watch-
   Alignment-Fehler die LOSO-Fehlerdecke erklärt. Drei Teiltests: (A) σ ↔
   Fold-Accuracy-Korrelation, (B) δ-Drift erste vs. zweite Session-Hälfte
@@ -1083,6 +1089,23 @@ distribution — more negative = stronger). `merge_watch_pen()` applies
 shift when `sigma > -2`. This replaced the planned tap-sync recording
 protocol — no special user action at session start is required.
 
+**Reviewer-Verdacht #3 (2026-06-11) — „Varianz-Minimierung mappt Schreiben
+auf Ruhephasen, Labels invertiert" — empirisch widerlegt.** Wichtige
+Unterscheidung: die Minimierung nutzt die *grobe Handgelenk-Translations*-
+Varianz, um den **Offset δ** zu finden (das Handgelenk transliert beim
+Schreiben weniger als beim Greifen/Umblättern/Gestikulieren *zwischen* den
+Strokes). „Geringer als grobe Bewegung" ≠ „Ruhe": die so gelabelten
+Schreib-Fenster tragen die *höchste* Fein-Motor-Dynamik.
+`scripts/ml/label_kinematics_check.py` (pooled über alle Legacy-Windows)
+zeigt: **8/8 Jerk-Features sind bei writing höher als bei idle, Median-Ratio
+1.35** (z. B. `ay_jerk_mean_abs` 2.49 vs 1.57). Schreiben ist die
+*dynamischere* Klasse — die Labels sind nicht auf ruhige Phasen invertiert.
+Stützt auch die Pause-FPR ≈ 0.01 (Marker-Analyse): wäre „still = Schreiben"
+gelernt, würden die ruhigen Pausen massiv false-positiv. **Caveat:** das ist
+die reproduzierbare Falsifikation der *Konsequenz* des Verdachts, **kein**
+Ersatz für eine manuelle Video-Ground-Truth (Reviewer-Fix #5, Gold-Standard
+— bleibt ein offener manueller Schritt).
+
 ## ML pipeline gotchas
 
 **Sort-Stability-Bug (entdeckt + gefixt 2026-05-25).** `pandas.sort_values`
@@ -1315,7 +1338,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (330 cases, ~10 s) — anything that
+`tests/` holds Tier-1 smoke tests (333 cases, ~10 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
@@ -1400,6 +1423,9 @@ could silently poison the training data or the proband-facing flow:
 - `test_zscore_pooled.py` — `_zscore_train_pooled` ist leak-frei: der
   Held-out wird mit TRAIN-μ/σ normiert (nicht mit eigener Statistik), und
   die Eingabe-DataFrames bleiben unmutiert.
+- `test_label_diagnostics.py` — `class_kinematics_summary`: per-Klassen-
+  Mittel + Ratio, fehlende Spalten übersprungen, beide Klassen erforderlich
+  (ValueError sonst).
 
 Hardware loops (real BLE pen, watchOS app, iPhone bridge) remain
 **manual** smoke tests — there is no XCTest target in the Xcode
