@@ -112,12 +112,13 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 315 tests, ~10 s
+pytest tests/         # 317 tests, ~10 s
 ```
 
 **Study Mode (counterbalanced data collection):**
-From the dashboard's Recording page, toggle to Study Mode → pick
-`v1` from the protocol dropdown → START STUDY. The proband side
+From the dashboard's Recording page, toggle to Study Mode → the
+protocol dropdown defaults to `v2` (the current protocol; `v1` still
+selectable) → START STUDY. The proband side
 enters a fullscreen takeover (Watch-style UI: pre-task countdown,
 audio cues, instructions, last-5s urgent pulse); the VL controls
 Pause / Next / Abort. Once running, the `#admin` page (hidden from
@@ -277,7 +278,7 @@ session start/stop start/stop it automatically.
   resulting session is excluded from Latin-Square counting and from
   default LOSO inclusion
 - `GET /study/protocols` — lists available protocols in
-  `study_protocols/` (currently `v1.json`)
+  `study_protocols/` (`v1.json`, `v2.json`; v2 is the default)
 - `POST /study/start` — boots a Study-Mode session: loads protocol,
   computes Latin-Square ordering from `subject_index`, starts the
   session, writes the first marker to `data/raw/markers/{id}_markers.csv`
@@ -943,19 +944,38 @@ counterbalanced script rather than free-form. Lives in
 `src/server/study.py` (pure logic) + `src/server/routes/study.py`
 (HTTP) + `static/js/pages/recording-study.js` (UI).
 
-**Protocol definition.** `study_protocols/v1.json` defines tasks
+**Protocol definition.** A protocol JSON defines tasks
 (id, label, category ∈ {`writing`, `idle`}, duration, instances,
 instruction, content_type ∈ {`text`, `list`, `image`}, content),
-plus `pre_task_seconds`, `randomize`, and `interleave` mode.
-`load_protocol(path)` validates against the Pydantic schema.
+plus `pre_task_seconds`, `randomize`, `duration_jitter_pct`, and
+`interleave` mode. `load_protocol(path)` validates against the Pydantic
+schema. **`v2.json` is the current default** (server default in
+`StudyStartBody.protocol_id` + pre-selected in the dashboard dropdown);
+`v1.json` stays available for reproduction of the legacy cohort.
 
-**Scheduler.** Three `interleave` modes are supported; v1 uses
-`latin_square`: pick the Latin-Square row by `subject_index % 6` to
-order the 3 writing tasks, then **interleave with pauses** between
-them. v1's writing tasks are `abschreiben` (text copy),
-`math` (math problems), `free_writing` — each 240 s — separated by
-pause blocks. Net schedule: W-P-W-P-W (~15 min including pre-task
-countdowns and audio cues).
+**v2 — "Hard Negatives & Edge Cases" (current SOTA).** Targets the two
+documented failure modes head-on with dedicated writing variants —
+`soft_writing` (→ the P09 soft-writer class) and `think_pause_writing`
+(→ P07's long Denkpausen) — plus `drawing`, and a battery of **hard
+negatives** in the `idle` class designed to look writing-like on the
+wrist IMU: `phone_typing`, `phone_scrolling`, `keyboard_typing`,
+`pen_fidgeting` (the documented phone-typing/fidget confound), and
+`gesturing`. 6 writing + 6 idle tasks, `duration_jitter_pct=0.15`
+(±15 % sum-preserving). Net schedule W-I-W-I… (~26.5 min) — notably
+longer than v1's ~15 min. **Counterbalancing caveat:** the
+`latin_square` interleave only applies the `LATIN_SQUARE_3` rows when
+there are exactly 3 writing tasks; with v2's 6 it falls back (by
+design, see `build_schedule`) to a **seeded-random** shuffle —
+reproducible per session, but not a full counterbalance (a 6×6 design
+would need many more subjects).
+
+**Scheduler.** Three `interleave` modes are supported. `latin_square`
+(both v1 and v2): for exactly 3 writing tasks, pick the Latin-Square row
+by `subject_index % 6`; otherwise seeded-random shuffle. Then
+**interleave writing with idle/pause blocks**. v1's writing tasks are
+`abschreiben` (text copy), `math`, `free_writing` — each 240 s —
+separated by pause blocks (W-P-W-P-W, ~15 min). v2 weaves its 6 writing
++ 6 idle tasks into W-I-W-I… (~26.5 min).
 
 **State machine.** `new_runtime(protocol, subject_index)` constructs
 the ordered task list; `state.study` tracks `phase`,
@@ -1227,7 +1247,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (315 cases, ~10 s) — anything that
+`tests/` holds Tier-1 smoke tests (317 cases, ~10 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
