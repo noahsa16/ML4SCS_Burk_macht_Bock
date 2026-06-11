@@ -135,4 +135,6 @@ exactly after the migration.
 
 ### Taji
 
-- _to be filled in_
+-  Reached out and looked for additional participants for the experiment in order to expand the dataset.
+-  Focused on improving the study setup by supporting the recruitment of more subjects for future recording sessions.
+-  Contributed to the next stage of the project by helping increase the potential data basis for upcoming experiments.
