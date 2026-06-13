@@ -327,6 +327,15 @@ class ServerCommandListener: NSObject, ObservableObject {
         let sessionId = payload["session_id"] as? String
         let commandId = payload["command_id"] as? String
 
+        // Why: ein neuer Befehl macht alle gequeueten älteren obsolet. Ohne
+        // Cancel stellt die transferUserInfo-FIFO Minuten-alte stop/start-
+        // Paare mitten in eine laufende Session zu (S044, 2026-06-12).
+        // Spiegelbild von cancelStaleUserInfoTransfers() auf der Watch-Seite;
+        // phone-seitig laufen über transferUserInfo ausschließlich Commands.
+        for transfer in WCSession.default.outstandingUserInfoTransfers {
+            transfer.cancel()
+        }
+
         // Push when possible, but the MVP does not depend on this path:
         // the Watch also pulls the latest command via command_poll.
         do {

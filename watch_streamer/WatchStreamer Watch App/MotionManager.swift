@@ -676,6 +676,23 @@ extension MotionManager: WCSessionDelegate {
                 serverSessionId = sid
             }
         case "stop":
+            // Why: gepushte Commands können via transferUserInfo-Queue Minuten
+            // alt sein (S044, 2026-06-12: stale stop+start → Workout-Restart →
+            // WC-Jam → ~3 min Datenverlust). Ein Push-Stop darf eine laufende
+            // Aufnahme nur beenden, wenn er deren session_id trägt. Der
+            // Poll-Pfad (synchrone Reply, kann nicht stale sein) bleibt der
+            // Recovery-Weg und darf weiterhin jederzeit stoppen.
+            if isRunning, !fromPoll, sid != serverSessionId {
+                return [
+                    "ok": false,
+                    "command": command,
+                    "command_id": commandId ?? "",
+                    "stale": true,
+                    "isRunning": isRunning,
+                    "session_id": serverSessionId ?? "",
+                    "error": "stale stop ignored (session mismatch)"
+                ]
+            }
             stop()
             serverSessionId = nil
         default:
