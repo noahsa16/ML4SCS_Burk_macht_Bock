@@ -99,7 +99,10 @@ def test_watch_accepts_envelope_format(client, data_dirs):
     assert resp.status_code == 200
     _flush_watch_writers()
 
-    csv_path = data_dirs.watch / "S001_watch.csv"
+    # No active session → the phone-reported sessionId is NOT trusted for
+    # routing (it may be a stale id from a long-stopped session); data is
+    # quarantined to "unsessioned" instead of appended to S001.
+    csv_path = data_dirs.watch / "unsessioned_watch.csv"
     assert csv_path.exists()
     with open(csv_path) as f:
         rows = list(csv.DictReader(f))
@@ -135,7 +138,7 @@ def test_watch_accepts_legacy_payload_without_gravity(client, data_dirs):
     assert resp.status_code == 200
     _flush_watch_writers()
 
-    with open(data_dirs.watch / "S100_watch.csv") as f:
+    with open(data_dirs.watch / "unsessioned_watch.csv") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 1
     # Gravity columns exist in schema but are empty for legacy payloads.
@@ -156,7 +159,7 @@ def test_watch_accepts_modern_payload_with_gravity(client, data_dirs):
     assert resp.status_code == 200
     _flush_watch_writers()
 
-    with open(data_dirs.watch / "S101_watch.csv") as f:
+    with open(data_dirs.watch / "unsessioned_watch.csv") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 1
     assert float(rows[0]["gx"]) == 0.0
@@ -173,7 +176,7 @@ def test_watch_skips_non_dict_samples(client, data_dirs):
     resp = client.post("/watch", json=payload)
     assert resp.status_code == 200
     _flush_watch_writers()
-    with open(data_dirs.watch / "S002_watch.csv") as f:
+    with open(data_dirs.watch / "unsessioned_watch.csv") as f:
         rows = list(csv.DictReader(f))
     assert len(rows) == 2
 
