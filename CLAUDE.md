@@ -440,6 +440,27 @@ Two Xcode targets:
   App-Kill (H1). Motion-Callbacks laufen auf einer Background-
   `OperationQueue`, nicht auf Main; der Callback staged nur, `drainStaging()`
   speist die Main-Pipeline (H4).
+  **Spill-Flush (seit 2026-06-13).** Der Spill-Drain-Timer läuft ab
+  `init()` unabhängig von `isRunning` — d. h. eine gestoppte App liefert
+  beim nächsten Reconnect verwaiste Samples einer längst beendeten Session
+  nach (S044-Folgeproblem: Force-Quit löscht den persistenten Spill nicht).
+  Drei Hebel: (1) `forceDrainSpill()` / Command `drain_spill` — sendet den
+  ganzen Spill im **Burst** (Erfolgs-Handler kettet, statt 1 Zeile/3 s),
+  nicht-destruktiv; (2) `clearSpill()` / Command `clear_spill` — verwirft
+  den Spill, **Guard `!isRunning`** (Live-Stau einer laufenden Aufnahme ist
+  echte Daten und darf von einem evtl. stale via `transferUserInfo`
+  zugestellten Lösch-Befehl nie weggeworfen werden); (3) `discardForeignSpill()`
+  **bei Session-Start** — trägt die älteste Spill-Zeile eine fremde
+  `sessionId`, wird der Spill vor dem Aufnehmen verworfen (Strukturfix gegen
+  das „nächster-Morgen"-Problem). iPhone-Seite: `ServerCommandListener.{drain,
+  clear}WatchSpill()` + zwei Buttons in der Repair-Sektion von
+  `iPhoneView_v4.swift` („Spill senden" / „Spill verwerfen" mit
+  Bestätigungsdialog). Beide Commands werden als `watch_ack` quittiert und
+  landen via Ack-Persistenz im `server.log`. **Herrenlose Samples
+  serverseitig:** `POST /watch` schreibt ohne aktive Session nach
+  `unsessioned_watch.csv` statt an die vom iPhone gemeldete (zuletzt
+  gestreamte) Session-ID anzuhängen (`routes/watch.py`) — Quarantäne gegen
+  genau diese Reconnect-Verschmutzung.
 - **WatchStreamer (iPhone)** (`PhoneBridge.swift`): receives
   WatchConnectivity messages, normalises payload, queues HTTP POSTs
   to `http://{serverIP}:8000/watch`. Server IP in `UserDefaults`
@@ -471,9 +492,12 @@ no longer vibrates continuously when the server is down.
   `prepare_watch_data()`, `load_csv()`). Still exported for external use;
   the canonical ML merge no longer needs the pen-side per-sample features.
 - `src/merge/merge.py` — `merge_watch_pen()`: **watch-base merge**.
-  Sortiert watch + pen via `sort_values("local_ts_ms", kind="stable")`
-  (siehe *Sort-Stability-Bug* in den Gotchas + `reports/sort_stability_bug.md`).
-  Calls `match_pen_data`, applies δ to `pen.local_ts_ms` when σ ≤ -2,
+  Join-Achse ist die per-Sample-Capture-Uhr `ts` (interne Hilfsspalte
+  `_wall_ms`, vor Return gedroppt; Fallback `local_ts_ms` nur ohne
+  ts-Spalte) — **nicht** `local_ts_ms` (siehe *Capture-Clock-Fix* in den
+  Gotchas). Sortiert watch + pen `kind="stable"` (siehe *Sort-Stability-Bug*
+  + `reports/sort_stability_bug.md`). Calls `match_pen_data`, applies δ to
+  the pen wall-clock when σ ≤ -2 (δ wurde schon immer gegen `ts` optimiert),
   then `merge_asof` with **watch as base** within ±`label_tol_ms`
   (default 40 ms). Result: 1 row per watch sample, with `label_writing`
   = 1 iff nearest pen `dot_type` ∈ {PEN_DOWN, PEN_MOVE} within tolerance,
@@ -879,9 +903,12 @@ task blocks (`task_id='pause'`, `task_category='idle'`) delimited by
 their own `task_start`/`task_end`. A task block is thus a `task_start`
 paired with the matching `task_end` (same `task_index`).
 `timestamp_ms` is Unix-ms wall clock — the **same epoch** as the watch
-CSV's `local_ts_ms` / `server_received_ms` (the server stamps both),
-so marker times are directly comparable to window `t_center_ms` with
-no offset correction. The marker stream is the ground-truth timeline
+CSV's `local_ts_ms` / `server_received_ms` (the server stamps both).
+Seit dem *Capture-Clock-Fix* liegt `t_center_ms` auf der Watch-`ts`-Uhr
+(NTP-nah, < 100 ms Skew ggü. der Server-Uhr) statt auf `local_ts_ms` —
+für Minuten-lange Task-Blöcke vernachlässigbar, daher bleibt die
+Marker→Window-Zuordnung ohne Offset-Korrektur gültig. The marker stream
+is the ground-truth timeline
 for downstream per-task analyses and lets the training/evaluation
 pipeline filter windows by task category.
 
