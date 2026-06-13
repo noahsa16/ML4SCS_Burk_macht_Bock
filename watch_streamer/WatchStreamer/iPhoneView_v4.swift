@@ -675,6 +675,7 @@ struct FTConnectivityConsole: View {
     @ObservedObject private var server = ServerCommandListener.shared
     @ObservedObject private var airpods = AirPodsMotionManager.shared
     @AppStorage("ft_showConnectivityDetails") private var showDetails = true
+    @State private var confirmClearSpill = false
     var compact = false
 
     private var serverOk: Bool { server.isConnected }
@@ -821,10 +822,25 @@ struct FTConnectivityConsole: View {
                         repairButton("Clear errors", icon: "xmark.circle") {
                             FTHaptics.light(); bridge.clearDiagnostics()
                         }
+                        repairButton("Spill senden", icon: "tray.and.arrow.up.fill") {
+                            FTHaptics.light(); server.drainWatchSpill()
+                        }
+                        repairButton("Spill verwerfen", icon: "trash") {
+                            FTHaptics.warning(); confirmClearSpill = true
+                        }
                     }
                 }
                 .padding(14)
             }
+        }
+        .alert("Spill verwerfen?", isPresented: $confirmClearSpill) {
+            Button("Verwerfen", role: .destructive) {
+                FTHaptics.light(); server.clearWatchSpill()
+            }
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("Löscht den gepufferten Mess-Stau auf der Watch unwiderruflich. "
+                 + "Während einer laufenden Aufnahme ignoriert die Watch den Befehl.")
         }
     }
 

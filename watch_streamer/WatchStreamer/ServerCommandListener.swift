@@ -272,6 +272,18 @@ class ServerCommandListener: NSObject, ObservableObject {
         }
     }
 
+    /// „Spill jetzt senden": die Watch drained ihren persistenten Buffer im
+    /// Burst statt 1 Zeile/3 s. Nicht-destruktiv.
+    func drainWatchSpill() {
+        forwardToWatch(["command": "drain_spill", "server_ip": serverIP])
+    }
+
+    /// „Spill verwerfen": die Watch löscht ihren persistenten Buffer. Die Watch
+    /// verweigert das während einer laufenden Aufnahme (Schutz des Live-Staus).
+    func clearWatchSpill() {
+        forwardToWatch(["command": "clear_spill", "server_ip": serverIP])
+    }
+
     private func updatePublishedWatchStatus(from message: [String: Any], pollAgeMs: Int?) {
         DispatchQueue.main.async {
             self.watchPolling = (pollAgeMs ?? 0) < 3000
