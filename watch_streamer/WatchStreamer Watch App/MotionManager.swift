@@ -55,6 +55,9 @@ class MotionManager: NSObject, ObservableObject {
                                            qos: .utility)
     private var spillTimer: Timer?
     private var spillDrainInFlight = false
+    // Wenn gesetzt, kettet der Drain-Erfolgs-Handler sofort den nächsten Drain
+    // an, statt auf den 3-s-Timer zu warten (Burst-Send via drain_spill).
+    private var forceDraining = false
     private lazy var spillFileURL: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return docs.appendingPathComponent("watch_spill.jsonl")
@@ -137,6 +140,11 @@ class MotionManager: NSObject, ObservableObject {
         if let newServerSessionId, !newServerSessionId.isEmpty {
             serverSessionId = newServerSessionId
         }
+        // Why: strukturfix gegen das „nächster-Morgen"-Problem (S044): liegt
+        // beim Start noch Spill einer FREMDEN (alten) Session auf der Disk,
+        // gehört er nicht in die neue Session — verwerfen, bevor wir aufnehmen.
+        // Spill der GLEICHEN Session (legit Mid-Session-Stau) bleibt erhalten.
+        discardForeignSpill(newSessionId: serverSessionId)
         resetRunCounters()
         startWorkoutSessionIfNeeded()
         isRunning = true
@@ -501,8 +509,11 @@ class MotionManager: NSObject, ObservableObject {
                 if let envelope = firstEnvelope {
                     self.sendSpilled(envelope)
                 } else {
-                    // Datei leer/korrupt — wegwerfen, Flag freigeben.
+                    // Datei leer/korrupt — wegwerfen, Flag freigeben. Beendet
+                    // auch einen laufenden Burst (nichts mehr zu senden).
                     self.spillQueue.async { try? FileManager.default.removeItem(at: url) }
+                    self.spilledSampleCount = 0
+                    self.forceDraining = false
                     self.spillDrainInFlight = false
                 }
             }
@@ -525,9 +536,15 @@ class MotionManager: NSObject, ObservableObject {
                 self.spilledSampleCount = max(0, self.spilledSampleCount - n)
                 self.dropFirstSpillLine()
                 self.spillDrainInFlight = false
+                // Burst: nicht auf den 3-s-Timer warten, sofort weiter.
+                if self.forceDraining { self.drainSpill() }
             }
         }, errorHandler: { [weak self] _ in
-            DispatchQueue.main.async { self?.spillDrainInFlight = false }
+            // Fehler → Burst pausieren; der Timer-Tick retryt die Zeile.
+            DispatchQueue.main.async {
+                self?.forceDraining = false
+                self?.spillDrainInFlight = false
+            }
         })
     }
 
@@ -554,6 +571,57 @@ class MotionManager: NSObject, ObservableObject {
                 blob.append(0x0A)
             }
             try? blob.write(to: url, options: [.atomic])
+        }
+    }
+
+    // MARK: - Spill-Flush (manuell + auto)
+
+    /// Rohes Löschen der Spill-Datei + Counter-Reset. Kein Guard — interner
+    /// Baustein für clearSpill() (manuell, mit Guard) und discardForeignSpill()
+    /// (Auto bei Session-Start).
+    private func purgeSpillFile() {
+        let url = spillFileURL
+        spillQueue.async { try? FileManager.default.removeItem(at: url) }
+        spilledSampleCount = 0
+        forceDraining = false
+    }
+
+    /// Manueller „Spill verwerfen"-Befehl. Verweigert während einer laufenden
+    /// Aufnahme — der Live-Stau ist echte Daten, die ein (evtl. stale
+    /// zugestellter) Lösch-Befehl nie wegwerfen darf. Gibt zurück, ob gelöscht.
+    @discardableResult
+    func clearSpill() -> Bool {
+        guard !isRunning else { return false }
+        purgeSpillFile()
+        return true
+    }
+
+    /// Manueller „Spill jetzt senden"-Befehl: Burst statt 1 Zeile/3 s. Setzt
+    /// nur das Flag + kickt einen Drain an — der Erfolgs-Handler kettet den
+    /// Rest, die Leer-Datei-Erkennung in drainSpill() beendet den Burst.
+    func forceDrainSpill() {
+        guard !forceDraining else { return }
+        forceDraining = true
+        drainSpill()
+    }
+
+    /// Auto-Discard bei Session-Start: liegt Spill einer FREMDEN Session auf
+    /// der Disk, gehört er nicht in die neue Session → verwerfen. Vergleicht
+    /// die `sessionId` der ältesten Spill-Zeile mit der neuen Session.
+    private func discardForeignSpill(newSessionId: String?) {
+        guard let newSessionId, !newSessionId.isEmpty else { return }
+        let url = spillFileURL
+        let firstSid: String? = spillQueue.sync {
+            guard let data = try? Data(contentsOf: url), !data.isEmpty,
+                  let first = data.split(separator: 0x0A,
+                                         omittingEmptySubsequences: true).first,
+                  let env = try? JSONSerialization.jsonObject(with: Data(first))
+                            as? [String: Any]
+            else { return nil }
+            return env["sessionId"] as? String
+        }
+        if let firstSid, firstSid != newSessionId {
+            purgeSpillFile()
         }
     }
 
@@ -695,6 +763,30 @@ extension MotionManager: WCSessionDelegate {
             }
             stop()
             serverSessionId = nil
+        case "drain_spill":
+            // Nicht-destruktiv: gesamten Spill jetzt im Burst senden.
+            forceDrainSpill()
+            return [
+                "ok": true,
+                "command": command,
+                "command_id": commandId ?? "",
+                "isRunning": isRunning,
+                "spilled_samples": spilledSampleCount,
+            ]
+        case "clear_spill":
+            // Destruktiv: Spill verwerfen. clearSpill() weigert sich, wenn
+            // gerade aufgenommen wird — schützt Live-Puffer gegen einen evtl.
+            // stale (verspätet) zugestellten Lösch-Befehl.
+            let cleared = clearSpill()
+            return [
+                "ok": cleared,
+                "command": command,
+                "command_id": commandId ?? "",
+                "cleared": cleared,
+                "isRunning": isRunning,
+                "spilled_samples": spilledSampleCount,
+                "error": cleared ? "" : "clear_spill ignored while recording",
+            ]
         default:
             return ["ok": false, "error": "Unknown command", "command": command]
         }
