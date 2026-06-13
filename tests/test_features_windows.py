@@ -170,3 +170,30 @@ def test_main_merged_suffix_reads_view_without_touching_native(proc, monkeypatch
 
     assert (proc / "windows" / "50hz" / "S902_windows.csv").exists()
     assert not (proc / "windows" / "100hz_grav" / "S902_windows.csv").exists()
+
+
+def test_t_center_and_closing_follow_capture_clock():
+    """t_center_ms und das Label-Closing müssen auf der per-Sample-Capture-
+    Uhr (ts) rechnen, nicht auf der Batch-Ankunftszeit local_ts_ms — sonst
+    werden Spill-Strecken (Ankunft Minuten später) zeitlich falsch verortet."""
+    import numpy as np
+    import pandas as pd
+    from src.features.windows import build_windows, IMU_COLS
+
+    n = 200  # 4 s @ 50 Hz
+    ts = 1_700_000_000_000.0 + np.arange(n) * 20.0
+    local = ts.copy()
+    local[100:150] += 60_000.0  # eine 1-s-Strecke kommt 60 s verspätet an
+    rng = np.random.default_rng(0)
+    data = {c: rng.normal(size=n) for c in IMU_COLS}
+    data["ts"] = ts
+    data["local_ts_ms"] = local
+    data["label_writing"] = 0
+    merged = pd.DataFrame(data)
+
+    out = build_windows(merged, window_sec=1.0, stride_sec=0.5, max_gap_ms=0)
+    assert not out.empty
+    t_center = out["t_center_ms"].to_numpy(dtype=float)
+    assert t_center.min() >= ts.min()
+    assert t_center.max() <= ts.max(), \
+        "t_center_ms darf nicht in die Ankunftszeit der Spill-Strecke springen"

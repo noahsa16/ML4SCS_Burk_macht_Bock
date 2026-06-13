@@ -30,35 +30,45 @@ cross-validation + Study Mode (counterbalanced protocol runner with
 fullscreen proband UI and VL admin monitor) + Live-Inference im
 Dashboard (Topbar-Pill, Recording-Page-Card, eigener `#focus`-Tab
 mit persistenter Schreibzeit-Aggregation) + Modell-Switcher
-(Personal ↔ Generic) are operational. **Current headline (14-person
-cross-subject LOSO seit 2026-06-10 — 10 Legacy-Probanden + P12–P15
-als 50hz-Views via Downsample-Bridge; RF + per-session z-score +
-`max_gap_ms=2500` label closing): accuracy 0.855 ± 0.034, ROC-AUC
-0.929 ± 0.034, F1(writing) 0.862. Burst-aggregiert jetzt **kausal**
-(trailing / `center=False` — live-tracker-ehrlich, seit 2026-06-11):
-@5s acc 0.852 ± 0.037, AUC 0.918 ± 0.033; @10s acc 0.823 ± 0.038,
-AUC 0.899 ± 0.034; @30s acc 0.777 ± 0.043, AUC 0.858 ± 0.041.**
-Wichtig: die **früheren zentrierten** Burst-Zahlen (@5s 0.899/0.962,
-@10s 0.882/0.952, @30s 0.838/0.917) waren ~5–6 pp höher, weil
-`rolling(center=True)` Zukunfts-Fenster mit-mittelte — nicht-kausal
+(Personal ↔ Generic) are operational. **Current headline (15-person
+cross-subject LOSO seit 2026-06-13 — 10 Legacy-Probanden + P12–P15 +
+P17 als 50hz-Views via Downsample-Bridge; RF + per-session z-score +
+`max_gap_ms=2500` label closing; **Capture-Clock-Fix** angewandt):
+accuracy 0.872 ± 0.037, ROC-AUC 0.947 ± 0.026, F1(writing) 0.873.
+Burst-aggregiert **kausal** (trailing / `center=False` —
+live-tracker-ehrlich, seit 2026-06-11): @5s acc 0.860 ± 0.044,
+AUC 0.933 ± 0.032; @10s acc 0.825 ± 0.049, AUC 0.906 ± 0.040;
+@30s acc 0.771 ± 0.051, AUC 0.856 ± 0.049.**
+**Capture-Clock-Fix (2026-06-13):** Merge-/Window-Zeitachse läuft jetzt
+auf der per-Sample-Watch-Uhr `ts` statt der Batch-Ankunftszeit
+`local_ts_ms`. Letztere ist batch-quantisiert (alle Samples eines POSTs
+teilen einen Wert) und bei Spill-Drain-Strecken Minuten verspätet
+(S019/P07: 33 % der Samples >2,5 s versetzt, max 42 s; S043: 5,3 %,
+max 13,6 s), wodurch Labels zeitversetzten Pen-Aktivitäten zugeordnet
+wurden. Gepaarter Vorher/Nachher-Vergleich (Wilcoxon, N=15):
+**15/15 Folds besser, mean +2,4 pp acc, p = 0,0001** auf acc/AUC/F1.
+Größter Gewinner **P07 +8,5 pp acc / +9,3 pp AUC** — die notorische
+„Signal-Ambiguitäts-Decke" dieses Folds war zu großen Teilen
+zeitversetztes Labeling, kein irreduzibles Signal-Problem.
+Wichtig: die **früheren zentrierten** Burst-Zahlen waren ~5–6 pp höher,
+weil `rolling(center=True)` Zukunfts-Fenster mit-mittelte — nicht-kausal
 und für eine als live verkaufte Metrik unzulässig. Unter kausaler
 Glättung hebt Burst-Aggregation die Metrik **nicht** über das
-1-s-Window-Level (0.855); der scheinbare Gewinn war das Artefakt.
+1-s-Window-Level; der scheinbare Gewinn war das Artefakt.
 **Alle anderen Burst-Zahlen in dieser Datei (CNN-Deep, harnet
 frozen/finetune, harnet↔RF-Fusion) wurden noch unter `center=True`
-gerechnet und sind regenerations-pflichtig** (Code-Fix ist global,
-Zahlen noch nicht nachgezogen).
-Der Rückgang vs. N=10 (0.863/0.935) ist Kohorten-Härte, kein
-Modell-Regress: die 7 neueren Folds (P07–P15) mitteln 0.833, die 7
-älteren 0.877 (das frühere „+0.8 pp vs. N=7" ist ein **Cross-Kohorten-
-Vergleich** mit anderen Personen — *nicht* gepaart testbar, und bei
-Fold-σ ≈ 3.4 pp ohnehin n.s.; nicht als Gewinn lesen). Für gepaarte
-Within-Kohorten-A/Bs gibt es jetzt `src/evaluation/significance.py`
+UND vor dem Capture-Clock-Fix gerechnet und sind regenerations-
+pflichtig** (beide Code-Fixes sind global, Zahlen noch nicht nachgezogen).
+Für gepaarte
+Within-Kohorten-A/Bs gibt es `src/evaluation/significance.py`
 (Wilcoxon signed-rank); kleine pp-Differenzen ohne p < 0.05 sind als
 Rauschen zu reporten. Kanonische
-Artefakte (`rf_all.joblib`, `rf_all_live.joblib`, `loso_cv.csv`,
-`loso_oof.csv`) sind auf N=14 retrainiert (Promotion via
-`--pool legacy --no-pool-suffix`). Vorgänger-Headlines:
+Artefakte (`rf_all.joblib`, `loso_cv.csv`, `loso_oof.csv`) sind auf
+N=15 + Capture-Clock-Fix retrainiert (Promotion via
+`--pool legacy --no-pool-suffix`); `rf_all_live.joblib` ist noch auf
+N=14 pre-fix und retraining-pflichtig. Vorgänger-Headlines:
+**14-Probanden (pre Capture-Clock-Fix): acc 0.855 ± 0.034 /
+AUC 0.929 ± 0.034 / F1(w) 0.862.**
 **10-Probanden (post Sort-Stability-Fix): acc 0.863 ± 0.032 /
 AUC 0.935 ± 0.032 / F1(w) 0.875; @5s 0.902/0.968, @30s 0.844/0.922.**
 Davor (vor Sort-Stability-Fix,
@@ -183,7 +193,7 @@ Moleskine Smart Pen (BLE)
                     ↓
          data/processed/{session}_windows.csv  (1 row per window)
                     ↓
-       src/training/train_loso.py    (HEADLINE: LOSO by person, N=14,
+       src/training/train_loso.py    (HEADLINE: LOSO by person, N=15,
                                       RF 200 trees + per-session z-score,
                                       class_weight=balanced, then per-
                                       session rolling-mean burst-agg
@@ -203,9 +213,9 @@ Moleskine Smart Pen (BLE)
                                       Z-Score, Live-tauglich)
          models/loso_cv.csv          (per-fold metrics)
                     ↓
-         acc 0.855 ± 0.034  |  AUC 0.929 ± 0.034  |  F1(w) 0.862
-         burst @5s: acc 0.852 / AUC 0.918  (kausal/trailing)
-         burst @30s: acc 0.777 / AUC 0.858  (Schreibzeit-tracking)
+         acc 0.872 ± 0.037  |  AUC 0.947 ± 0.026  |  F1(w) 0.873
+         burst @5s: acc 0.860 / AUC 0.933  (kausal/trailing)
+         burst @30s: acc 0.771 / AUC 0.856  (Schreibzeit-tracking)
                     ↓
        src/server/inference.py       (Live-Inference-Singleton, lazy
                                       Modell-Load, Rolling-Buffer,
@@ -636,6 +646,47 @@ no longer vibrates continuously when the server is down.
   baut die Features on-the-fly bei beliebigem `--gap` neu, ohne die
   Cache-Dateien anzufassen. Nützlich, um Modell-Rangfolge bei
   alternativen Label-Closing-Werten zu prüfen ohne Re-Generation.
+- `scripts/ml/sweep_window_size.py` — **Feature-Window-Größen-Sweep**
+  (das *Feature*-Fenster, nicht das Burst-Decision-Window): rechnet die 88
+  Features über *längere* Roh-IMU-Fenster (3–5 s statt 1 s, längerer Stride)
+  statt 1-s-Predictions nachträglich zu mitteln. Reproduziert den
+  N=14-Legacy-Pool exakt (pro Session `*_merged_legacy.csv` bevorzugt, sonst
+  native), schreibt in den **separaten** Ordner `data/processed/windows_sweep/`
+  (kanonischer `windows/50hz/`-Cache unangetastet), nutzt ausschließlich den
+  **kausalen** `train_loso._burst_metrics`. Wichtig: **nicht**
+  `compare_models._eval_fold`/`_burst_auc` wiederverwenden — die glätten noch
+  `center=True` (nicht-kausal, ~5–6 pp inflationiert). CLI:
+  `--pool {legacy,modern}`, `--models` (kuratiertes Panel RF/ExtraTrees/
+  HistGradBoost/LogReg), `--config W,S` (mehrfach). Output:
+  `models/window_sweep*_cv.csv` (kompatibel mit `src.evaluation.significance`).
+  **Befund (2026-06-11, N=14 Legacy):** ein 5-s-**natives** Feature-Fenster
+  schlägt 1-s-Features + Burst@5s bei *fixer 5-s-Decision-Latenz* um
+  **+2.8 pp acc / +2.3 pp AUC** (gepaarter Wilcoxon p≈0.011, **12/14 Folds
+  besser**) — bestätigt den harnet10-Befund (echter Längs-Kontext in der
+  Repräsentation > Prediction-Mittelung) jetzt auch für den RF. Mechanik:
+  FFT-Auflösung 0.2 statt 1 Hz + Statistik über 250 statt 50 Samples. **Beste
+  Parameter:** `5s/2.5s` oder `3s/1.5s` (je 50 % Overlap, statistisch
+  ununterscheidbar Δ p=0.71); dichte `5s/1.0s` lohnt nicht (per-window minimal
+  höher, @5s schlechter, 2,5× redundante Fenster). **Modell-robust:**
+  RF/ExtraTrees/HistGradBoost/SVM-RBF signifikant (+2.0–2.8 pp, p<0.05) über
+  vier Modellfamilien (Bagging/Extra-Random/Boosting/Kernel), LogReg gleiche
+  Richtung/Größe aber n.s. (schwächstes Modell, höchste Fold-σ) → Feature-
+  Qualitäts-Effekt, kein RF-Artefakt. SVM-RBF ist bestes 1-s-Modell (0.862)
+  und teilt den 5-s-Spitzenplatz (0.875); Auswahl via `--model SVM-RBF`
+  (langsam, SVC probability=True auf ~24k 1-s-Fenstern — nicht im Default-Panel).
+  **Gravity-robust nur richtungs-
+  konsistent:** Modern-Pool N=4 (92 Features inkl. Gravity) zeigt Tree-Modelle
+  +3.8–5.0 pp mit deutlich schrumpfender Fold-σ, aber N=4 ist für den Wilcoxon
+  strukturell unterpowert (min erreichbares p=0.125) — corroborating, nicht
+  confirming. Der Gewinn sitzt bei **5–10 s** Latenz (10 s noch p<0.001) und
+  konvergiert bei 30 s gegen die Baseline (acc-Δ n.s., AUC-Δ noch signifikant).
+  Per-Fold: **P09 (Soft-Writer) +0.057 größter Gewinner** (5-s-Fenster mittelt
+  Mikropausen *im* Feature weg), **P07 (Denkpausen) einzige echte Regression
+  −0.038** (längeres Fenster + 60%-Regel schmiert lange Idle-Stretches
+  Richtung writing) — exakte Bestätigung der P07/P09-Failure-Mode-Dichotomie.
+  **Noch NICHT adoptiert:** Live-Inference (`_window_features`) + deployte
+  Joblibs rechnen weiter auf 1 s; ein Headline-Wechsel müsste durch
+  `inference.py` + Retraining gezogen werden und kostet 1-s-Zeitauflösung.
 - `scripts/ml/ablate_gap_loso.py` — Label-Closing-**Sensitivitätsanalyse**:
   fährt den vollen LOSO-Lauf bei mehreren `max_gap_ms`-Werten und reportiert
   per-Fold + Mean/Std. **Methodik-Hinweis (Reviewer 2026-06-11):** `max_gap_ms`
@@ -1107,6 +1158,31 @@ Ersatz für eine manuelle Video-Ground-Truth (Reviewer-Fix #5, Gold-Standard
 — bleibt ein offener manueller Schritt).
 
 ## ML pipeline gotchas
+
+**Capture-Clock-Fix (entdeckt + gefixt 2026-06-13).** Merge (`merge.py`)
+und Window-Bau (`windows.py`) joinen Pen-Labels / berechnen `t_center_ms`
+und Label-Closing-Gaps jetzt auf der per-Sample-Watch-Uhr **`ts`**, nicht
+mehr auf der Batch-Ankunftszeit `local_ts_ms`. Zwei Defekte von
+`local_ts_ms`: (1) **batch-quantisiert** — alle Samples eines `POST /watch`
+teilen einen Wert (Server-Receive-Time), Labels waren in ~200–400-ms-Blöcke
+gerastert; (2) **Spill-Drain-Verspätung** — bei WLAN-Hängern liefert der
+Watch-Spill Samples Minuten verspätet nach (`watch_sent_at` korrekt,
+`local_ts_ms` Minuten zu spät), wodurch Pen-Labels zeitversetzten
+Watch-Samples zugeordnet wurden. Messung: S019/P07 33 % der Samples >2,5 s
+versetzt (max 42 s), S043/P17 5,3 % (max 13,6 s); Legacy-Sessions ohne
+Stalls praktisch 0 %. **Wichtig:** δ wurde schon immer gegen `ts` optimiert
+(`reconstruct_watch_wall_clock` in `pen_match.py`) — der Join lief aber auf
+`local_ts_ms`, also auf einer *anderen* Achse als die Alignment-Schätzung.
+Der Fix vereinheitlicht beide auf `ts` (Fallback `local_ts_ms` nur ohne
+ts-Spalte; intern `_wall_ms`-Hilfsspalte, wird vor Return gedroppt). Gepaarter
+Vorher/Nachher-Lauf (Wilcoxon, N=15 Legacy): **15/15 Folds besser, mean
++2,4 pp acc, p = 0,0001** (acc/AUC/F1); P07 +8,5 pp acc / +9,3 pp AUC.
+Alle vor 2026-06-13 berechneten Zahlen (inkl. Deep/harnet/Fusion/Window-Sweep)
+liefen auf `local_ts_ms` und sind regenerations-pflichtig; relative
+Within-Kohorten-Vergleiche bleiben grob gültig (Defekt war symmetrisch in
+Train/Test), aber die schwachen Folds (P07!) waren überproportional betroffen.
+Tests: `test_late_arriving_samples_labelled_by_capture_time` (merge),
+`test_t_center_and_closing_follow_capture_clock` (windows).
 
 **Sort-Stability-Bug (entdeckt + gefixt 2026-05-25).** `pandas.sort_values`
 ist per Default **nicht stabil** (`kind='quicksort'` historisch). Watch-

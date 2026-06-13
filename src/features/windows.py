@@ -48,9 +48,14 @@ def infer_fs_hz(merged: pd.DataFrame, fallback: float = 50.0) -> float:
     # (Befund aus S032-100-Hz-Selbsttest 2026-05-24).
     # Watch sendet in Batches -> viele Samples teilen local_ts_ms, deshalb
     # NICHT median(diff): nimm den globalen Mittelwert ueber die Spanne.
-    if "local_ts_ms" not in merged.columns or len(merged) < 2:
+    # Why: ts (per-Sample-Capture-Uhr) bevorzugen — local_ts_ms ist bei
+    # Spill-Drain-Strecken Minuten verspätet und verzerrt die Spanne.
+    t_col = "ts" if "ts" in merged.columns else "local_ts_ms"
+    if t_col not in merged.columns or len(merged) < 2:
         return fallback
-    t = merged["local_ts_ms"].to_numpy(dtype=float)
+    t = pd.to_numeric(merged[t_col], errors="coerce").dropna().to_numpy(dtype=float)
+    if len(t) < 2:
+        return fallback
     span_ms = float(t.max() - t.min())
     if span_ms <= 0:
         return fallback
@@ -251,7 +256,10 @@ def build_windows(
 
     imu = df[IMU_COLS].to_numpy(dtype=float)
     raw_labels = df["label_writing"].to_numpy(dtype=int)
-    times = df["local_ts_ms"].to_numpy(dtype=float)
+    # Why: Label-Closing (Gap-Messung) und t_center_ms auf der Capture-Uhr
+    # rechnen — local_ts_ms (Batch-Ankunft) verortet Spill-Strecken Minuten
+    # falsch und misst Gaps in Ankunfts- statt Ereigniszeit.
+    times = pd.to_numeric(df[sort_col], errors="coerce").to_numpy(dtype=float)
     labels = smooth_labels(
         raw_labels, times, max_gap_ms=max_gap_ms, max_spike_ms=max_spike_ms,
     ).astype(float)
