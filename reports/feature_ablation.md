@@ -122,8 +122,8 @@ Cross-Subject-Feature-Set.** Differenziertes Fazit fürs Projekt:
 2. **Within-subject (Personal-Modell-Linie, rf_noah):** der
    Within-Session-Befund bleibt gültig — Gravity ist ein
    *Personalisierungs*-Signal. Für ein persönliches Focus-Tracker-
-   Modell auf 9-Kanal-Daten ist der Block weiterhin Kandidat.
-3. **Capture unverändert weiterführen:** der Kanal kostet nichts,
+   Modell auf Modern-Pool-Daten (mit Gravity) ist der Block weiterhin Kandidat.
+3. **Capture unverändert weiterführen:** die Gravity-Komponente kostet nichts,
    ist nicht retro-imputierbar, und Punkt 1 ist mit mehr Probanden
    revidierbar.
 

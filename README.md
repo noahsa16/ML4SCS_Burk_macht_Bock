@@ -272,7 +272,7 @@ The full pipeline is operational end-to-end: capture → alignment → merge →
 
 **Live deployment.** Inference runs in the server every 1 s (`src/server/inference.py`). The dashboard shows it as a topbar pill, a Recording-page card with sparkline, and a dedicated **Focus** tab with daily/weekly aggregation persisted across restarts. A model picker switches between Personal (`rf_noah`, 100 Hz, no z-score) and Generic (`rf_all_live`, pooled μ/σ baked in for raw-stream use).
 
-**Pool architecture (Legacy vs Modern).** Sessions before 2026-05-26 stream 6 channels (`ax/ay/az + rx/ry/rz`); newer sessions add `motion.gravity` separately for 9 channels → 4 extra tilt features (92 total). Pool is auto-detected at runtime; `train_loso.py --pool {legacy,modern,auto}` selects which to train on. `src/features/downsample.py` bridges modern sessions into the legacy pool for cross-pool LOSO.
+**Pool architecture (Legacy vs Modern).** Sessions before 2026-05-26 stream the 6 sensor channels (`ax/ay/az + rx/ry/rz`); newer sessions additionally record the gravity vector (`motion.gravity`) — the accelerometer's gravity component (`userAccel + gravity = total acceleration`), not a separate sensor channel — for 9 values per sample and 4 extra tilt features (92 total). Pool is auto-detected at runtime; `train_loso.py --pool {legacy,modern,auto}` selects which to train on. `src/features/downsample.py` bridges modern sessions into the legacy pool for cross-pool LOSO.
 
 ---
 
