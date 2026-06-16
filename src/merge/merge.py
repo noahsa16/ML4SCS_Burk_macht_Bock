@@ -146,6 +146,16 @@ def merge_watch_pen(
     # accuracy gap.
     watch = watch.dropna(subset=["_wall_ms"]).sort_values("_wall_ms", kind="stable")
     watch["_wall_ms"] = watch["_wall_ms"].astype(float)
+    # Why: Spill-Re-Delivery kann ein bereits geliefertes Sample erneut
+    # einspeisen — gleicher Capture-ts und identische Achsen, nur andere
+    # Ankunfts-Metadaten. Deduplizieren auf (ts + Achsen) verhindert, dass
+    # Doppel-Samples Fenster und Schreibzeit überbewerten; keep="first" behält
+    # die ursprüngliche Lieferung. ts allein ist kein Duplikat-Schlüssel: zwei
+    # verschiedene Samples teilen bei ms-Auflösung gelegentlich denselben ts.
+    _dup_cols = [c for c in ("ts", "ax", "ay", "az", "rx", "ry", "rz", "gx", "gy", "gz")
+                 if c in watch.columns]
+    if _dup_cols:
+        watch = watch.drop_duplicates(subset=_dup_cols, keep="first")
 
     pen = raw_pen.copy()
     pen["_wall_ms"] = (

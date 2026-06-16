@@ -74,38 +74,78 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
     pen_server_time_rows = sum(1 for r in pen_rows if r["has_local_ts_ms"])
 
     # Sequence-Lücken (Batches die zwischen min/max sequence fehlen)
-    last_seq = None
-    distinct_seqs: list[int] = []
+    # Why: per-batch-Sequenznummern können *out of order* eintreffen — der
+    # allererste Batch läuft beim Session-Start oft über den langsamen
+    # transferUserInfo-Background-Pfad und wird von späteren sendMessage-Batches
+    # überholt (S046: Datei-Reihenfolge 2,3,4,5,1,6,…). Lücken daher gegen die
+    # *Menge* der gesehenen Nummern zählen, nicht gegen die Ankunftsreihenfolge,
+    # sonst meldet ein 5->1->6-Sprung 4 Phantom-Lücken.
     seq_to_local_ms: dict[int, int] = {}
     seq_to_batch_size: dict[int, int] = {}
+    run_start_seqs: list[int] = []
+    last_seq = None
     for r in watch_rows:
         seq = r.get("sequence")
         if seq is None:
             continue
         if seq != last_seq:
-            distinct_seqs.append(seq)
+            run_start_seqs.append(seq)
             last_seq = seq
         seq_to_batch_size[seq] = seq_to_batch_size.get(seq, 0) + 1
         if seq not in seq_to_local_ms and r.get("local_ts") is not None:
             seq_to_local_ms[seq] = int(r["local_ts"])
-    sequence_gaps = sum(
-        cur - prev - 1 for prev, cur in zip(distinct_seqs, distinct_seqs[1:]) if cur > prev + 1
+    seen_seqs = sorted(seq_to_batch_size)
+    missing_seqs = (
+        [s for s in range(seen_seqs[0], seen_seqs[-1] + 1) if s not in seq_to_batch_size]
+        if seen_seqs else []
     )
-    # Why: Gaps als Regionen aggregieren — fortlaufende Lücken (z. B. nach #909
-    # fehlt 910..941, das sind 32 batches in einer einzigen Region) wollen wir
-    # nicht als 32 Issues melden, sondern als eine Lücke mit Größe + Zeitanker.
+    sequence_gaps = len(missing_seqs)
+    # Why: fortlaufende fehlende Nummern (z. B. 910..941 = 32 Batches) als eine
+    # Region mit Größe + Zeitanker melden, nicht als 32 Einzel-Issues.
     gap_regions: list[dict[str, Any]] = []
-    for prev, cur in zip(distinct_seqs, distinct_seqs[1:]):
-        if cur > prev + 1:
+    for s in missing_seqs:
+        if gap_regions and s == gap_regions[-1]["next_seq"]:
+            gap_regions[-1]["next_seq"] = s + 1
+            gap_regions[-1]["missing"] += 1
+        else:
             gap_regions.append({
-                "after_seq": prev,
-                "next_seq": cur,
-                "missing": cur - prev - 1,
+                "after_seq": s - 1,
+                "next_seq": s + 1,
+                "missing": 1,
                 # Wall-clock-Anker am Batch *direkt vor* der Lücke — hilft beim
                 # Korrelieren mit Netz/UI-Events.
-                "around_local_ts_ms": seq_to_local_ms.get(prev),
+                "around_local_ts_ms": seq_to_local_ms.get(s - 1),
             })
     sequence_max_batch_size = max(seq_to_batch_size.values()) if seq_to_batch_size else 0
+
+    # Counter-Reset: der Sequenz-Counter springt mitten in der Session auf eine
+    # bereits genutzte Nummer zurück (Reconnect oder App-Neustart). Abgrenzung
+    # zu Out-of-Order-Ankunft: dort ist die verspätete Nummer neu, hier ist sie
+    # wiederverwendet — nur wiederverwendete Rücksprünge zählen als Reset.
+    sequence_counter_reset = 0
+    seen_run_seqs: set[int] = set()
+    prev_run_seq: int | None = None
+    for s in run_start_seqs:
+        if prev_run_seq is not None and s < prev_run_seq and s in seen_run_seqs:
+            sequence_counter_reset += 1
+        seen_run_seqs.add(s)
+        prev_run_seq = s
+
+    # Doppelt gelieferte Samples: identischer Capture-ts UND identische Sensor-
+    # Magnituden = dasselbe Sample mehrfach zugestellt (Spill-Re-Delivery).
+    # Gleicher ts allein ist eine harmlose ms-Auflösungs-Kollision zweier
+    # verschiedener Samples und zählt nicht.
+    duplicate_samples = 0
+    seen_payloads: set[tuple] = set()
+    for r in watch_rows:
+        ts = r.get("source_ts")
+        if ts is None:
+            continue
+        key = (ts, r.get("acc_mag"), r.get("gyro_mag"), r.get("grav_mag"))
+        if key in seen_payloads:
+            duplicate_samples += 1
+        else:
+            seen_payloads.add(key)
 
     # Hz-Schätzung
     watch_ts_values = [r["source_ts"] for r in watch_rows if r["source_ts"] is not None]
@@ -214,11 +254,13 @@ def _session_facts(row: dict[str, str]) -> dict[str, Any]:
             "median_dt_ms": median_dt_ms,
             "estimated_hz": watch_est_hz,
             "sequence_gaps": sequence_gaps,
-            "sequence_batches": len(distinct_seqs),
+            "sequence_batches": len(seen_seqs),
             "sequence_gap_regions": gap_regions,
+            "sequence_counter_reset": sequence_counter_reset,
+            "duplicate_samples": duplicate_samples,
             "sequence_max_batch_size": sequence_max_batch_size,
-            "sequence_seq_min": distinct_seqs[0] if distinct_seqs else None,
-            "sequence_seq_max": distinct_seqs[-1] if distinct_seqs else None,
+            "sequence_seq_min": seen_seqs[0] if seen_seqs else None,
+            "sequence_seq_max": seen_seqs[-1] if seen_seqs else None,
             "clock": watch_clock,
             "expected_samples": expected_watch_samples,
             "session_csv_count": session_watch_samples,
@@ -319,6 +361,18 @@ def _build_issues(facts: dict[str, Any]) -> list[dict[str, Any]]:
                 f"in {len(regions)} Lücke(n)"
                 + (f" — {preview}{more}" if preview else "")
             ),
+        ))
+
+    if w["duplicate_samples"]:
+        out.append(_make_issue(
+            "duplicate_samples",
+            observed=f"{w['duplicate_samples']} doppelt gelieferte Sample(s)",
+        ))
+
+    if w["sequence_counter_reset"]:
+        out.append(_make_issue(
+            "sequence_counter_reset",
+            observed=f"{w['sequence_counter_reset']} Counter-Reset(s)",
         ))
 
     if not is_active and w["row_count"] != w["session_csv_count"]:
@@ -1081,7 +1135,7 @@ def _session_report_markdown(report: dict[str, Any]) -> str:
     else:
         L.append(f"> Reason: {sync.get('reason') or '—'}")
     L.append("")
-    L.append("_Algorithm: stroke-variance minimization (TH Zürich) — the watch wrist sits relatively still while the pen is on paper, so the correct δ minimizes mean acceleration variance under the shifted stroke mask._")
+    L.append("_Algorithm: stroke-variance minimization (ETH Zürich) — the watch wrist sits relatively still while the pen is on paper, so the correct δ minimizes mean acceleration variance under the shifted stroke mask._")
     L.append("")
 
     # ── Issues ──────────────────────────────────────────────────────────

@@ -238,3 +238,77 @@ def test_late_arriving_samples_labelled_by_capture_time(data_dirs):
         "verspätet angekommene Schreib-Samples müssen nach Capture-Zeit gelabelt werden"
     early = merged[merged["ts"] <= base + 40]
     assert (early["label_writing"] == 0).all()
+
+
+def test_merge_dedupes_replayed_samples(data_dirs):
+    """Spill re-delivery: ein bereits gestreamtes Sample kommt verbatim erneut
+    an (gleicher ts + Achsen, spätere Ankunfts-Metadaten). Die Dedup behält die
+    erste Lieferung und verwirft das Re-Delivery, damit Doppel-Samples Fenster
+    und Schreibzeit nicht überbewerten."""
+    from src.merge import merge_watch_pen
+
+    base = 1_700_000_000_000
+    pen_rows = [
+        {"local_ts_ms": base + 100, "timestamp": 1000, "x": 10.0, "y": 20.0,
+         "pressure": 200, "dot_type": "PEN_DOWN"},
+    ]
+    watch_rows = [
+        {"local_ts_ms": base + 20 * i, "session_id": "S001", "sequence": i,
+         "ts": base + 20 * i, "ax": 0.1 + 0.01 * i, "ay": 0.2, "az": 0.9,
+         "rx": 0.0, "ry": 0.0, "rz": 0.0}
+        for i in range(10)
+    ]
+    for i in (3, 4):
+        replay = dict(watch_rows[i])
+        replay["local_ts_ms"] = base + 99_999
+        watch_rows.append(replay)
+
+    pen_path = data_dirs.pen / "S001_pen.csv"
+    watch_path = data_dirs.watch / "S001_watch.csv"
+    write_pen_csv(pen_path, pen_rows)
+    write_watch_csv(watch_path, watch_rows)
+
+    merged = merge_watch_pen(pen_path, watch_path, label_tol_ms=40, align_clocks=False)
+
+    assert len(merged) == 10, "re-delivered samples must be deduplicated"
+    assert merged["ts"].astype(float).is_unique
+    kept = merged[merged["ts"].astype(float) == base + 60]
+    assert int(kept["local_ts_ms"].iloc[0]) == base + 60, \
+        "keep='first' must retain the original delivery, not the late replay"
+
+
+def test_merge_keeps_distinct_samples_sharing_ts(data_dirs):
+    """Gleiche Capture-ms, aber verschiedene Bewegung = harmlose ms-Kollision
+    zweier echter Samples. Beide müssen erhalten bleiben — nur verbatim
+    identische Payloads werden gedroppt."""
+    from src.merge import merge_watch_pen
+
+    base = 1_700_000_000_000
+    pen_rows = [
+        {"local_ts_ms": base + 100, "timestamp": 1000, "x": 10.0, "y": 20.0,
+         "pressure": 200, "dot_type": "PEN_DOWN"},
+    ]
+    watch_rows = [
+        {"local_ts_ms": base + 20 * i, "session_id": "S001", "sequence": i,
+         "ts": base + 20 * i, "ax": 0.1 + 0.01 * i, "ay": 0.2, "az": 0.9,
+         "rx": 0.0, "ry": 0.0, "rz": 0.0}
+        for i in range(10)
+    ]
+    shared_ts = base + 5_000
+    watch_rows.append(
+        {"local_ts_ms": shared_ts, "session_id": "S001", "sequence": 99,
+         "ts": shared_ts, "ax": 0.5, "ay": 0.2, "az": 0.9,
+         "rx": 0.0, "ry": 0.0, "rz": 0.0})
+    watch_rows.append(
+        {"local_ts_ms": shared_ts, "session_id": "S001", "sequence": 99,
+         "ts": shared_ts, "ax": 0.9, "ay": 0.2, "az": 0.9,
+         "rx": 0.0, "ry": 0.0, "rz": 0.0})
+
+    pen_path = data_dirs.pen / "S001_pen.csv"
+    watch_path = data_dirs.watch / "S001_watch.csv"
+    write_pen_csv(pen_path, pen_rows)
+    write_watch_csv(watch_path, watch_rows)
+
+    merged = merge_watch_pen(pen_path, watch_path, label_tol_ms=40, align_clocks=False)
+
+    assert len(merged) == 12, "ms-collision of distinct samples must not be dropped"
