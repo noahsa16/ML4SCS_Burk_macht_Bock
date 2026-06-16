@@ -82,6 +82,36 @@ def test_run_detail_returns_feature_groups_and_roc(client, monkeypatch, tmp_path
     assert isinstance(body["roc"], list) and len(body["roc"]) >= 2
 
 
+def test_run_tasks_aggregates_per_task_from_markers(client, monkeypatch, tmp_path):
+    import pandas as pd
+    from src.server import training_runs as tr
+    from src.evaluation import engagement as eng
+    runs_root = tmp_path / "runs"
+    markers = tmp_path / "markers"
+    markers.mkdir()
+    monkeypatch.setattr(tr, "RUNS_ROOT", runs_root)
+    monkeypatch.setattr(eng, "MARKERS_DIR", markers)
+    pd.DataFrame([
+        {"timestamp_ms": 1000, "event": "task_start", "task_id": "abschreiben",
+         "task_name": "abschreiben", "task_index": 0, "task_category": "writing"},
+        {"timestamp_ms": 5000, "event": "task_end", "task_id": "abschreiben",
+         "task_name": "abschreiben", "task_index": 0, "task_category": "writing"},
+    ]).to_csv(markers / "S1_markers.csv", index=False)
+    d = tr.run_dir("r1", root=runs_root)
+    pd.DataFrame({
+        "session_id": ["S1"] * 4, "person_id": ["P1"] * 4,
+        "t_center_ms": [1500, 2500, 3500, 4500],
+        "label": [1, 1, 1, 0], "proba_raw": [0.9, 0.2, 0.8, 0.1],
+        "proba_cal": [0.9, 0.2, 0.8, 0.1],
+    }).to_csv(d / "oof.csv", index=False)
+    r = client.get("/training/runs/r1/tasks")
+    assert r.status_code == 200
+    tasks = r.json()["tasks"]
+    ab = next(t for t in tasks if t["task"] == "abschreiben")
+    assert ab["n"] == 4 and ab["category"] == "writing"
+    assert ab["fn"] == 1  # ein writing-Fenster (proba 0.2) als idle vorhergesagt
+
+
 def test_run_detail_unknown_404(client, monkeypatch, tmp_path):
     from src.server import training_runs as tr
     monkeypatch.setattr(tr, "RUNS_ROOT", tmp_path)

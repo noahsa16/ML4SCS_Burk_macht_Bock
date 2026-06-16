@@ -112,6 +112,51 @@ def run_detail(run_id: str):
     return {"cv": cv, "feature_groups": feature_groups, "roc": roc}
 
 
+@router.get("/runs/{run_id}/tasks")
+def run_tasks(run_id: str, person: str | None = None):
+    """FP/FN/acc je Task-Kategorie, marker-getrieben (Item ⑥ + Per-Person-Drawer).
+
+    Kreuzt die OOF-Predictions des Laufs über ``t_center_ms`` mit den
+    Study-Mode-Markern jeder Session (wiederverwendet engagement.task_timeline
+    / assign_tasks). ``person`` filtert auf eine Person (Per-Person-Drill-in).
+    """
+    import pandas as pd
+    from src.evaluation.engagement import task_timeline, assign_tasks
+
+    oofp = training_runs.RUNS_ROOT / run_id / "oof.csv"
+    if not oofp.exists():
+        raise HTTPException(404, f"no oof for run {run_id}")
+    oof = pd.read_csv(oofp)
+    if person is not None:
+        oof = oof[oof["person_id"].astype(str) == str(person)]
+
+    assigned = []
+    for sid, g in oof.groupby("session_id", sort=False):
+        tl = task_timeline(sid)
+        if tl.empty:
+            continue
+        assigned.append(assign_tasks(g, tl).dropna(subset=["task_index"]))
+    if not assigned:
+        return {"tasks": []}
+
+    allrows = pd.concat(assigned, ignore_index=True)
+    allrows["pred"] = (allrows["proba_raw"] >= 0.5).astype(int)
+    out = []
+    for task, g in allrows.groupby("task_name", sort=False):
+        n = len(g)
+        fp = int(((g["pred"] == 1) & (g["label"] == 0)).sum())
+        fn = int(((g["pred"] == 0) & (g["label"] == 1)).sum())
+        out.append({
+            "task": task, "category": str(g["task_category"].iat[0]),
+            "n": n, "fp": fp, "fn": fn,
+            "acc": round(float((g["pred"] == g["label"]).mean()), 3),
+            "fp_rate": round(fp / max(n, 1), 3),
+            "fn_rate": round(fn / max(n, 1), 3),
+        })
+    out.sort(key=lambda r: -(r["fp"] + r["fn"]))
+    return {"tasks": out}
+
+
 @router.post("/runs/{run_id}/promote")
 def promote(run_id: str):
     try:

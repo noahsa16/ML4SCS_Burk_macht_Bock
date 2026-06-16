@@ -230,6 +230,7 @@ function _renderDone(t) {
     ? Number(t.summary.mean_acc).toFixed(3) : '—';
   _renderBurst(t.summary?.burst);
   _renderLeaderboard();
+  _renderTasks();
   if (_runId && _detailLoadedFor !== _runId) {
     _detailLoadedFor = _runId;
     _loadDetail(_runId);
@@ -296,7 +297,24 @@ function _renderRoc(roc) {
     + `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>`;
 }
 
-function _openDrawer(fold) {
+async function _renderTasks() {
+  const el = _q('#trn-tasks');
+  if (!el || !_runId) return;
+  const r = await api(`/training/runs/${_runId}/tasks`);
+  const tasks = r && r.tasks;
+  if (!Array.isArray(tasks) || !tasks.length) {
+    el.innerHTML = '<div class="trn-muted">keine Marker-Daten</div>'; return;
+  }
+  const maxErr = Math.max(...tasks.map(t => t.fp + t.fn), 1);
+  el.innerHTML = tasks.slice(0, 6).map(t => {
+    const col = t.category === 'writing' ? 'var(--accent)' : 'var(--yellow)';
+    return `<div class="trn-bar">${t.task}`
+      + `<i style="width:${Math.round((t.fp + t.fn) / maxErr * 100)}%;background:${col}"></i>`
+      + `${t.fp}FP/${t.fn}FN</div>`;
+  }).join('');
+}
+
+async function _openDrawer(fold) {
   const d = _q('#trn-drawer');
   d.hidden = false;
   d.innerHTML = `<button class="trn-ghost" id="trn-drawer-x">schließen</button>
@@ -306,6 +324,18 @@ function _openDrawer(fold) {
       <div><b>${Number(fold.auc).toFixed(3)}</b><small>ROC-AUC</small></div>
       <div><b>${Number(fold.f1 || 0).toFixed(3)}</b><small>F1</small></div>
     </div>
-    <p class="trn-muted">Per-Task-Aufschlüsselung aus Markern: folgt (post-MVP).</p>`;
+    <div class="trn-label">Genauigkeit pro Task (aus Markern)</div>
+    <div id="trn-drawer-tasks" class="trn-muted">lädt…</div>`;
   d.querySelector('#trn-drawer-x').addEventListener('click', () => { d.hidden = true; });
+  if (!_runId) return;
+  const r = await api(`/training/runs/${_runId}/tasks?person=${encodeURIComponent(fold.person)}`);
+  const box = d.querySelector('#trn-drawer-tasks');
+  if (!box) return;  // Drawer zwischenzeitlich geschlossen
+  const tasks = (r && r.tasks) || [];
+  if (!tasks.length) { box.textContent = 'keine Marker-Daten für diese Session.'; return; }
+  box.classList.remove('trn-muted');
+  box.innerHTML = tasks.map(t =>
+    `<div class="trn-bar">${t.task}`
+    + `<i style="width:${Math.round(t.acc * 100)}%;background:${t.acc >= 0.85 ? 'var(--green)' : 'var(--yellow)'}"></i>`
+    + `${Number(t.acc).toFixed(3)}</div>`).join('');
 }
