@@ -56,6 +56,8 @@ def current():
 async def start(body: StartBody):
     if not registry.validate(body.model, body.pool):
         raise HTTPException(400, f"invalid model/pool: {body.model}/{body.pool}")
+    if not registry.get(body.model).enabled:
+        raise HTTPException(400, f"model '{body.model}' runner not yet wired (post-MVP)")
     if training_mod.run.is_busy():
         raise HTTPException(409, "a training run is already in progress")
     return await training_mod.run.start(body.model, body.pool, body.by, body.zscore)

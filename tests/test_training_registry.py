@@ -31,3 +31,16 @@ def test_list_models_returns_serialisable_dicts():
 def test_validate_pool_rejects_invalid_combo():
     assert registry.validate("rf", "legacy") is True
     assert registry.validate("rf", "nonsense") is False
+
+
+def test_menu_grouped_families_only_rf_enabled():
+    by_id = {r["id"]: r for r in registry.list_models()}
+    assert by_id["rf"]["enabled"] is True
+    # Weitere Familien sind gelistet (volles Menü), aber Runner noch nicht
+    # verdrahtet → enabled False (post-MVP).
+    assert by_id["cnn"]["family"] == "deep" and by_id["cnn"]["enabled"] is False
+    assert any(r["family"] == "foundation" for r in by_id.values())
+    assert any(r["family"] == "classical" and r["id"] != "rf"
+               for r in by_id.values())
+    # nur Tree-Modelle haben Feature-Importance
+    assert by_id["logreg"]["supports_feature_importance"] is False
