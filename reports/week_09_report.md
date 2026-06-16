@@ -2,7 +2,7 @@
 
 ## Weekly Goal
 
-Act on Prof. Funk's intermediate-presentation feedback that
+Act on Prof. Funk's / Prof. Wehrli  feedback that
 `userAcceleration` without gravity throws away useful information —
 the wrist's orientation relative to gravity is informative for
 writing. Concretely: capture `motion.gravity` on the watch, build the
@@ -194,7 +194,7 @@ feature count.
 
 ## Key Insights
 
-- **Acting on Funk's gravity feedback was right, but the payoff is
+- **Acting on  gravity feedback was right, but the payoff is
   still unproven.** Gravity is the only model lever not yet refuted
   (sync, sample rate, per-subject threshold, deep ≈ RF, engineered
   features all eliminated), and the first signal is encouraging — AUC
