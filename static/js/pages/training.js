@@ -77,6 +77,7 @@ async function _start() {
     model: _q('#trn-model').value,
     pool: _q('#trn-pool').value,
     by: _q('#trn-by').value,
+    zscore: _q('#trn-zscore') ? _q('#trn-zscore').checked : true,
   };
   const res = await api('/training/start', 'POST', body);
   if (res && res.run_id) {

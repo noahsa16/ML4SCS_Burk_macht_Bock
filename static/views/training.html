@@ -4,19 +4,27 @@
   <section class="trn-state" data-state="idle">
     <div class="trn-card trn-config">
       <div class="trn-row">
-        <label>Modell <span class="trn-q" id="trn-model-q" title="">?</span>
+        <label>Modell <span class="trn-q" id="trn-model-q">?</span>
           <select id="trn-model"></select></label>
-        <label>Pool
+        <label>Pool <span class="trn-q" title="legacy = 50 Hz · 88 Features (N=15). modern = 100 Hz inkl. Gravity. auto = alle Sessions, Gravity gedroppt wenn gemischt.">?</span>
           <select id="trn-pool">
             <option value="legacy">legacy (N=15)</option>
             <option value="auto">auto</option>
             <option value="modern">modern</option>
           </select></label>
-        <label>LOSO-Achse
+        <label>LOSO-Achse <span class="trn-q" title="person = Leave-One-Subject-Out (Generalisierung über Personen, die Headline-Metrik). session = Leave-One-Session-Out.">?</span>
           <select id="trn-by">
             <option value="person">by person</option>
             <option value="session">by session</option>
           </select></label>
+      </div>
+      <div class="trn-row">
+        <label>Per-Session Z-Score <span class="trn-q" title="Standardisiert Features pro Session (Wrist-Größe, Handhaltung). An = Headline-Konfiguration; aus = direkt deploybar ohne Kalibrierphase.">?</span>
+          <span class="trn-switch"><input type="checkbox" id="trn-zscore" checked><span class="trn-switch-track"></span></span></label>
+        <label>max_gap_ms <span class="trn-q" title="Label-Closing: Idle-Lücken ≤ diesem Wert zwischen Schreibphasen zählen als Schreibmodus. Fix bei 2500 ms — ändern bräuchte einen Feature-Rebuild.">?</span>
+          <span class="trn-readonly">2500 ms · fix</span></label>
+        <label>Burst-Skalen <span class="trn-q" title="Decision-Windows, auf denen acc/AUC zusätzlich berichtet werden (kausale Glättung). Fix.">?</span>
+          <span class="trn-chips"><span>1s</span><span>5s</span><span>10s</span><span>30s</span></span></label>
         <button type="button" id="trn-start" class="trn-cta">Training starten</button>
       </div>
     </div>

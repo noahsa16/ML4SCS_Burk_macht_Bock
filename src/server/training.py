@@ -19,6 +19,16 @@ import psutil
 from . import training_runs
 
 
+def _build_cmd(model: str, pool: str, by: str, zscore: bool, run_dir) -> list[str]:
+    """Subprozess-Kommando für einen RF-LOSO-Lauf (isoliert testbar)."""
+    cmd = [sys.executable, "-u", "-m", "src.training.train_loso",
+           "--emit-json", "--model", model, "--pool", pool, "--by", by,
+           "--run-dir", str(run_dir)]
+    if not zscore:
+        cmd.append("--no-zscore")
+    return cmd
+
+
 class TrainingRun:
     def __init__(self) -> None:
         self.reset()
@@ -87,16 +97,16 @@ class TrainingRun:
         }
 
     # ---- subprocess lifecycle ----
-    async def start(self, model: str, pool: str, by: str = "person") -> dict:
+    async def start(self, model: str, pool: str, by: str = "person",
+                    zscore: bool = True) -> dict:
         if self.is_busy():
             return {"error": "busy"}
         run_id = training_runs.new_run_id(model, pool)
         rdir = training_runs.run_dir(run_id)
-        training_runs.write_config(rdir, {"model": model, "pool": pool, "by": by})
+        training_runs.write_config(
+            rdir, {"model": model, "pool": pool, "by": by, "zscore": zscore})
         self._on_started(model, pool, run_id)
-        cmd = [sys.executable, "-u", "-m", "src.training.train_loso",
-               "--emit-json", "--model", model, "--pool", pool, "--by", by,
-               "--run-dir", str(rdir)]
+        cmd = _build_cmd(model, pool, by, zscore, rdir)
         self._proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=str(training_runs.ROOT),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
