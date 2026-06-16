@@ -159,6 +159,11 @@ def _status_payload(
     else:
         _study_payload = {"active": False}
 
+    # Training-Cockpit-Snapshot (Phase/Folds/Confusion/HW). Lokaler Import,
+    # damit kein Modul-Load-Zyklus entsteht; snapshot() ist auf idle billig.
+    from .training import run as _training_run
+    _training_payload = _training_run.snapshot()
+
     return {
         "type": "status",
         "session_active": state.active is not None,
@@ -240,6 +245,7 @@ def _status_payload(
         "validation": _validation_payload(last_pen_dot),
         "pen_recent_dots": _pen_recent_dots(sid) if sid else [],
         "study": _study_payload,
+        "training": _training_payload,
         "live_inference": live_inference,
         "live_sparkline": live_sparkline,
     }

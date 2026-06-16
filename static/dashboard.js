@@ -16,6 +16,7 @@ import * as sessions       from '/static/js/pages/sessions.js';
 import * as sessionDetail  from '/static/js/pages/session_detail.js';
 import * as admin          from '/static/js/pages/admin.js';
 import * as settings       from '/static/js/pages/settings.js';
+import * as training       from '/static/js/pages/training.js';
 
 import { loadSessions, deleteSession, markSessionAsTest, setSessionsModeFilter } from '/static/js/pages/sessions.js';
 import { openSessionDetail, toggleSessionFlag, markSelectedSessionAsTest } from '/static/js/pages/session_detail.js';
@@ -36,6 +37,7 @@ const pages = {
   'session-detail': sessionDetail,
   admin,
   settings,
+  training,
 };
 
 const partialCache = new Map();

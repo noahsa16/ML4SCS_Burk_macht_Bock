@@ -76,6 +76,9 @@ class LiveInference:
         # Cumulative writing time today, reset by date change in predict().
         self._today_date: Optional[str] = None
         self._today_writing_seconds: float = 0.0
+        # Sandbox-Load (Web-Cockpit): ein Run-Joblib temporär, ohne Whitelist
+        # und ohne Headline-Überschreibung. Reines Label-Flag.
+        self._sandbox: bool = False
 
     def load_default_model(self) -> Optional[Path]:
         for path in _DEFAULT_MODEL_PATHS:
@@ -90,6 +93,7 @@ class LiveInference:
             return None
         self._bundle = joblib.load(path)
         self._loaded_from = path
+        self._sandbox = False
         log.info(
             "live inference: loaded %s person=%s rate=%s n=%s",
             path.name,
@@ -98,6 +102,20 @@ class LiveInference:
             self._bundle.get("n_windows"),
         )
         return path
+
+    def load_sandbox(self, path: Path) -> bool:
+        """Lädt ein beliebiges Run-Joblib temporär (ohne Whitelist).
+
+        Für den Demo-Live-Test eines frisch trainierten Modells, ohne die
+        kanonische Headline zu überschreiben. ``model_id`` meldet 'sandbox';
+        der Rolling-Buffer wird geleert (sauberer Neustart wie beim regulären
+        Modell-Swap).
+        """
+        if self.load_model(path) is None:
+            return False
+        self._sandbox = True
+        self.clear_buffer()
+        return True
 
     @staticmethod
     def list_available() -> list[dict]:
@@ -151,6 +169,8 @@ class LiveInference:
 
     @property
     def model_id(self) -> Optional[str]:
+        if self._sandbox:
+            return "sandbox"
         return self._loaded_from.stem if self._loaded_from else None
 
     @property

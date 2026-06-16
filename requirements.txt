@@ -14,5 +14,6 @@ bleak
 fastapi
 uvicorn
 websockets
+psutil
 pytest
 
