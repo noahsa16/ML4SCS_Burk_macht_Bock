@@ -274,11 +274,27 @@ focus_log.py       Append-only CSV writer at data/inference_log.csv
                    rate_mismatch ticks skipped. Persists writing
                    activity across server restarts so /focus aggregates
                    are truthful.
+training.py        Web-Training-Cockpit: TrainingRun-State-Machine (idle/
+                   running/done/error, genau EIN Lauf gleichzeitig), startet
+                   train_loso als Subprozess mit --emit-json (Muster pen_proc),
+                   parst JSON-Events → State, psutil-HW-Sampling, Graceful Stop
+                   (SIGINT → Teilergebnis). Reine Event-Handler unit-testbar.
+                   train_loso bekam dafür on_event/run_dir + --emit-json/
+                   --run-dir; CLI ohne diese Flags bit-identisch.
+training_runs.py   Nicht-destruktiver Run-Store: models/runs/{run_id}/
+                   (cv.csv/oof.csv/model.joblib/config.json). promote() ist der
+                   EINZIGE Schreibpfad auf die kanonischen Artefakte
+                   (rf_all.joblib/loso_cv.csv/loso_oof.csv). Modell-Menü +
+                   Pool-Validität: src/training/registry.py; Event-Schema:
+                   src/training/events.py.
 routes/            FastAPI endpoint package — one APIRouter per concern
                    (watch.py, airpods.py, pen.py, sessions.py,
                     study.py, dashboard.py, inference.py, focus.py,
-                    ws.py, _helpers.py); __init__.py aggregates them
-                    into a single `router`
+                    training.py, ws.py, _helpers.py); __init__.py aggregates
+                    them into a single `router`. training.py: /training/
+                    {models,start,stop,current,runs,runs/{id},runs/{id}/
+                    promote,runs/{id}/sandbox} — Frontend: static/js/pages/
+                    training.js (Training-Tab, Live-Cockpit via WS-Snapshot).
 ```
 
 `src/pen_schema.py` is a top-level shared module (no deps) so
@@ -832,13 +848,16 @@ without `local_ts_ms` cannot be aligned and are flagged as
 local_ts, local_ts_ms, session_id, sequence, sample_rate_hz,
 watch_sent_at, phone_received_at, server_received_ms, source,
 ts, ax, ay, az, rx, ry, rz,
-gx, gy, gz     # Modern-Pool only (ab 2026-05-26); leer für Legacy-Sessions
+gx, gy, gz,    # Modern-Pool only (ab 2026-05-26); leer für Legacy-Sessions
+qx, qy, qz, qw # Attitude-Quaternion (forward-only); leer für Pre-Quat-Sessions
 ```
 
 `ax/ay/az` sind weiterhin `motion.userAcceleration` (ohne g). `gx/gy/gz`
 sind `motion.gravity` separat, Modern-Pool-Sessions ab 2026-05-26.
-Total acceleration = `(ax+gx, ay+gy, az+gz)` jederzeit ableitbar. Siehe
-*Pool architecture* unten.
+Total acceleration = `(ax+gx, ay+gy, az+gz)` jederzeit ableitbar. `qx/qy/qz/qw`
+sind `motion.attitude.quaternion` (hardware-fusionierte Handgelenk-Orientierung),
+**forward-only Capture** — passive Metadaten, vom ML/Feature-Set (windows.py)
+nicht genutzt; reserviert fürs spätere 3D-Replay. Siehe *Pool architecture* unten.
 
 **Pen CSV** (`data/raw/pen/{session}_pen.csv`):
 ```

@@ -50,6 +50,11 @@ WATCH_FIELDNAMES = [
     # Legacy-Sessions stopped sind). ax/ay/az bleiben user-acceleration
     # ohne g; total acceleration = (ax+gx, ay+gy, az+gz) ist ableitbar.
     "gx", "gy", "gz",
+    # Attitude-Quaternion (forward-only ab Quaternion-Capture). Hardware-
+    # fusionierte Handgelenk-Orientierung aus motion.attitude.quaternion.
+    # Reine Metadaten — ML/Features (windows.py) unberührt; alte CSVs ohne
+    # diese Spalten liefern beim Lesen None (wie bei gx/gy/gz).
+    "qx", "qy", "qz", "qw",
 ]
 AIRPODS_FIELDNAMES = [
     "local_ts", "local_ts_ms", "session_id", "sequence", "sample_rate_hz",

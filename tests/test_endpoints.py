@@ -167,6 +167,42 @@ def test_watch_accepts_modern_payload_with_gravity(client, data_dirs):
     assert float(rows[0]["gz"]) == -1.0
 
 
+def test_watch_accepts_quaternion_attitude(client, data_dirs):
+    """Watch-Clients ab dem Attitude-Update senden zusätzlich qx/qy/qz/qw
+    (motion.attitude.quaternion); Server schreibt sie passiv in die CSV.
+    Forward-only: ältere Payloads ohne Quaternion bleiben leer (Spalte da)."""
+    sample = {"ts": 6000, "ax": 0.1, "ay": 0.2, "az": 0.0,
+              "rx": 0.01, "ry": 0.02, "rz": 0.0,
+              "gx": 0.0, "gy": 0.0, "gz": -1.0,
+              "qx": 0.1, "qy": 0.2, "qz": 0.3, "qw": 0.927}
+    payload = {"samples": [sample], "sessionId": "S102"}
+
+    resp = client.post("/watch", json=payload)
+    assert resp.status_code == 200
+    _flush_watch_writers()
+
+    with open(data_dirs.watch / "unsessioned_watch.csv") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 1
+    assert float(rows[0]["qx"]) == 0.1
+    assert float(rows[0]["qy"]) == 0.2
+    assert float(rows[0]["qz"]) == 0.3
+    assert float(rows[0]["qw"]) == 0.927
+
+
+def test_watch_quaternion_absent_stays_empty(client, data_dirs):
+    """Legacy-Payload ohne Quaternion: Spalten existieren im Schema, bleiben leer."""
+    sample = {"ts": 6100, "ax": 0.1, "ay": 0.2, "az": 0.9,
+              "rx": 0.0, "ry": 0.0, "rz": 0.0}
+    resp = client.post("/watch", json={"samples": [sample], "sessionId": "S103"})
+    assert resp.status_code == 200
+    _flush_watch_writers()
+    with open(data_dirs.watch / "unsessioned_watch.csv") as f:
+        rows = list(csv.DictReader(f))
+    assert rows[-1].get("qx", "") == ""
+    assert rows[-1].get("qw", "") == ""
+
+
 def test_watch_skips_non_dict_samples(client, data_dirs):
     """One malformed sample shouldn't reject the whole batch."""
     payload = {

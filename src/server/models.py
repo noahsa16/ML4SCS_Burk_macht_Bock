@@ -55,6 +55,13 @@ class WatchSample(BaseModel):
     gx: Optional[float] = None
     gy: Optional[float] = None
     gz: Optional[float] = None
+    # Attitude-Quaternion (forward-only). Optional → ältere Clients ohne
+    # motion.attitude.quaternion lassen die Felder weg, Pydantic füllt None.
+    # Passive Metadaten; das ML-Modell nutzt sie (noch) nicht.
+    qx: Optional[float] = None
+    qy: Optional[float] = None
+    qz: Optional[float] = None
+    qw: Optional[float] = None
 
 
 class WatchEnvelope(BaseModel):

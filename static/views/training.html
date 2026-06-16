@@ -1,0 +1,87 @@
+<div class="trn" id="trn-root">
+
+  <!-- ══════════ IDLE ══════════ -->
+  <section class="trn-state" data-state="idle">
+    <div class="trn-card trn-config">
+      <div class="trn-row">
+        <label>Modell <span class="trn-q" id="trn-model-q">?</span>
+          <select id="trn-model"></select></label>
+        <label>Pool <span class="trn-q" title="legacy = 50 Hz · 88 Features (N=15). modern = 100 Hz inkl. Gravity. auto = alle Sessions, Gravity gedroppt wenn gemischt.">?</span>
+          <select id="trn-pool">
+            <option value="legacy">legacy (N=15)</option>
+            <option value="auto">auto</option>
+            <option value="modern">modern</option>
+          </select></label>
+        <label>LOSO-Achse <span class="trn-q" title="person = Leave-One-Subject-Out (Generalisierung über Personen, die Headline-Metrik). session = Leave-One-Session-Out.">?</span>
+          <select id="trn-by">
+            <option value="person">by person</option>
+            <option value="session">by session</option>
+          </select></label>
+      </div>
+      <div class="trn-row">
+        <label>Per-Session Z-Score <span class="trn-q" title="Standardisiert Features pro Session (Wrist-Größe, Handhaltung). An = Headline-Konfiguration; aus = direkt deploybar ohne Kalibrierphase.">?</span>
+          <span class="trn-switch"><input type="checkbox" id="trn-zscore" checked><span class="trn-switch-track"></span></span></label>
+        <label>max_gap_ms <span class="trn-q" title="Label-Closing: Idle-Lücken ≤ diesem Wert zwischen Schreibphasen zählen als Schreibmodus. Fix bei 2500 ms — ändern bräuchte einen Feature-Rebuild.">?</span>
+          <span class="trn-readonly">2500 ms · fix</span></label>
+        <label>Burst-Skalen <span class="trn-q" title="Decision-Windows, auf denen acc/AUC zusätzlich berichtet werden (kausale Glättung). Fix.">?</span>
+          <span class="trn-chips"><span>1s</span><span>5s</span><span>10s</span><span>30s</span></span></label>
+        <button type="button" id="trn-start" class="trn-cta">Training starten</button>
+      </div>
+    </div>
+    <div class="trn-card">
+      <div class="trn-label">Run-Historie — nicht-destruktiv</div>
+      <table id="trn-runs" style="width:100%;border-collapse:collapse;font-size:var(--text-sm)"></table>
+    </div>
+  </section>
+
+  <!-- ══════════ RUNNING + DONE (geteiltes Cockpit) ══════════ -->
+  <section class="trn-state" data-state="running done" hidden>
+    <div class="trn-titlerow">
+      <h2 id="trn-title">RandomForest</h2>
+      <span class="trn-pill" id="trn-status"><span class="trn-dot"></span><span id="trn-status-text">—</span></span>
+      <span class="trn-spacer"></span>
+      <button type="button" id="trn-stop" class="trn-ghost">Stop</button>
+      <button type="button" id="trn-again" class="trn-ghost" hidden>Nochmal</button>
+      <button type="button" id="trn-sandbox" class="trn-ghost" hidden>Live in der Sandbox testen</button>
+      <button type="button" id="trn-promote" class="trn-cta" hidden>Als Headline speichern</button>
+    </div>
+
+    <div class="trn-card">
+      <div class="trn-verdict" id="trn-verdict" hidden>
+        <div><b id="trn-verdict-title">—</b><div class="trn-muted" id="trn-verdict-sub">—</div></div>
+        <span class="big" id="trn-verdict-acc">—</span>
+      </div>
+      <div class="trn-hero">
+        <div class="trn-kpi"><b id="trn-acc">—</b><small>accuracy</small></div>
+        <div class="trn-kpi"><b id="trn-auc">—</b><small>ROC-AUC</small></div>
+        <div class="trn-kpi"><b id="trn-f1">—</b><small>F1 writing</small></div>
+        <div class="trn-foldcount"><b id="trn-folds">0 / 0</b><small>Folds</small>
+          <span class="trn-hw" id="trn-hw"></span></div>
+      </div>
+      <div class="trn-label">Per-Person — held-out</div>
+      <div class="trn-pg" id="trn-grid"></div>
+      <div class="trn-cols">
+        <div class="trn-card"><div class="trn-muted">LOSO-Konvergenz — AUC über Folds</div>
+          <svg id="trn-conv" viewBox="0 0 480 170" preserveAspectRatio="none"></svg></div>
+        <div>
+          <div class="trn-box live" id="trn-foldbox"><div class="trn-muted">aktueller Fold</div>
+            <div id="trn-foldnow">—</div></div>
+          <div class="trn-card" style="margin-bottom:0"><div class="trn-muted">Live-Confusion</div>
+            <div class="trn-confusion" id="trn-confusion"></div></div>
+        </div>
+      </div>
+      <div class="trn-tick" id="trn-log"><span class="s">/</span> bereit</div>
+    </div>
+
+    <div class="trn-analysis" id="trn-analysis" hidden>
+      <div class="trn-card trn-drill" data-drill="roc"><h4>ROC-Kurve ›</h4><svg id="trn-roc" viewBox="0 0 160 130"></svg></div>
+      <div class="trn-card trn-drill" data-drill="feat"><h4>Feature-Gruppen ›</h4><div id="trn-feat"></div></div>
+      <div class="trn-card trn-drill" data-drill="burst"><h4>Burst-Skalen (acc) ›</h4><svg id="trn-burst" viewBox="0 0 160 130"></svg></div>
+      <div class="trn-card trn-drill" data-drill="leaderboard"><h4>Modell-Leaderboard ›</h4><div id="trn-leaderboard"></div></div>
+      <div class="trn-card"><h4>Fehler nach Task</h4><div id="trn-tasks"></div></div>
+    </div>
+  </section>
+
+  <!-- drill-in -->
+  <aside class="trn-drawer" id="trn-drawer" hidden></aside>
+</div>

@@ -42,6 +42,7 @@ def test_bootstrap_module_served_as_js():
         "/static/css/study-mode.css",
         "/static/css/system.css",
         "/static/css/topbar.css",
+        "/static/css/training.css",
         "/static/js/core/anim.js",
         "/static/js/core/api.js",
         "/static/js/core/dom.js",
@@ -60,12 +61,14 @@ def test_bootstrap_module_served_as_js():
         "/static/js/pages/session_detail.js",
         "/static/js/pages/sessions.js",
         "/static/js/pages/settings.js",
+        "/static/js/pages/training.js",
         "/static/views/admin.html",
         "/static/views/focus.html",
         "/static/views/recording.html",
         "/static/views/session-detail.html",
         "/static/views/sessions.html",
         "/static/views/settings.html",
+        "/static/views/training.html",
     ],
 )
 def test_static_assets_served(path):
