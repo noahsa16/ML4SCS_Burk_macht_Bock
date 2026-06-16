@@ -3,7 +3,7 @@ Pen ↔ IMU Sync-Diagnostik.
 
 Drei Funktionen, ein Thema:
   _sync_diagnostic               Human-readable Status (für Reports/UI)
-  _estimate_sync_via_pen_match   Stroke-Varianz-Algorithmus (TH Zürich) —
+  _estimate_sync_via_pen_match   Stroke-Varianz-Algorithmus (ETH Zürich) —
                                  die heute genutzte Methode
   _estimate_sync_drift           Legacy Tap-Matching-Heuristik (PEN_DOWN ↔
                                  Watch-Motion-Peaks) — bleibt als Fallback
@@ -110,7 +110,7 @@ def _watch_peaks(rows: list[dict[str, Any]], max_peaks: int = 80) -> list[dict[s
 
 
 def _estimate_sync_via_pen_match(session_id: str) -> dict[str, Any]:
-    """Variance-minimization pen↔IMU sync (Swiss TH-Zürich algorithm).
+    """Variance-minimization pen↔IMU sync (Swiss ETH-Zürich algorithm).
 
     Loads the raw watch and pen CSVs for ``session_id`` and runs
     :func:`src.alignment.match_pen_data`. Returns a dict

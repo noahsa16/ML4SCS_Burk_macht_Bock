@@ -1,6 +1,6 @@
 # 100-Hz-Ablation — bringt die höhere Sample-Rate Modell-Verbesserung?
 
-> 🔁 **2026-05-25 — Re-Run nach Sort-Stability-Fix abgeschlossen.**
+> **2026-05-25 — Re-Run nach Sort-Stability-Fix abgeschlossen.**
 > Die Pre-Fix-Tabelle (unten) wurde mit der buggy Pipeline gerechnet
 > (Quicksort scramblede Sample-Order innerhalb gleicher `local_ts_ms`-
 > Ties, siehe [`reports/sort_stability_bug.md`](./sort_stability_bug.md)).
