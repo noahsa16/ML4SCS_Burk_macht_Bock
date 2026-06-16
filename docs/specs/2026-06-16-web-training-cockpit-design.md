@@ -422,3 +422,47 @@ schreiben die Spalten nicht; bestehende CSVs mit den Spalten bleiben lesbar
 
 **Aufwand:** ~1 Watch-Edit + ~3 Server-Edits + Schema-Doku + 3 Tests +
 Geräte-Verifikation ≈ ein halber Tag.
+
+## Implementierungsstand (2026-06-16, auf `origin/development`)
+
+Commit-Range `14c92c5..f424eed`, **385 Tests grün**, live getestet (RF läuft).
+
+**Gebaut + lauffähig:**
+- Backend: `events.py`, `registry.py`, `training_runs.py` (nicht-destruktiv +
+  Promotion), `train_loso` instrumentiert (`on_event`/`run_dir` + `--emit-json`/
+  `--run-dir`/`--no-zscore`, Graceful Stop), `TrainingRun` (State-Machine +
+  Subprozess + psutil), `load_sandbox`, `/training/*` Routes (models/start/stop/
+  current/runs/runs/{id}/runs/{id}/tasks/promote/sandbox), Training-Snapshot im
+  WS-Tick.
+- Frontend: Training-Tab, `training.js` Live-Cockpit (Hero, Per-Person-Grid +
+  Drill-in, Konvergenz, Live-Confusion, HW-Sparkline, Log, Verdict, Burst, ROC,
+  Feature-Gruppen, Leaderboard, Fehler-nach-Task), `training.css` (Light+Dark).
+- Demo-Tier (Graceful Stop, Live-Confusion, HW-Sparkline, Sandbox) + Config-
+  Controls (Z-Score-Toggle wired) + Tooltips. Quaternion-Capture (`83a49be`).
+- **Nur `rf` ist als Runner verdrahtet.**
+
+**Gegatet (im Menü sichtbar, `enabled=False`, server-seitig 400):** CNN/LSTM/GRU,
+harnet5/harnet10/harnet5_ft, ExtraTrees/HistGB/LogReg/SVM-RBF/MLP. Zum Aktivieren:
+
+- **Deep (CNN/LSTM/GRU) — konkret:** `train_deep_loso` in
+  `src/training/deep/train_loso.py` um `on_event=None`/`run_dir=None` erweitern:
+  `run_start` vor der Fold-Schleife (~Z.308), `fold_start`/`fold_end` je Fold
+  (~Z.309-373; `fold_end.confusion` aus `pred=(proba>=.5)` vs `test_y`, acc/auc/f1/
+  burst werden in `fold_metrics` schon berechnet), `run_end` nach der Schleife.
+  `run_dir`: das `rows`-DataFrame als `cv.csv`; `oof.csv` aus gesammelten
+  `proba`+`test_y`+`test_df['t_center_ms']`+person. **Kein `model.joblib`**
+  (Torch ≠ sklearn → Sandbox + Feature-Importance bleiben N/A; Frontend
+  handhabt fehlende Felder graceful). `deep/__main__.py`: `--emit-json`/
+  `--run-dir` ergänzen, an `train_deep_loso` durchreichen (`--win 1`).
+  `_build_cmd` in `src/server/training.py` **registry-getrieben** dispatchen
+  (`spec.runner == "src.training.deep"` → `--model {id} --pool {pool}
+  --emit-json --run-dir {rdir}`). `registry`: `enabled=True` für cnn/lstm/gru.
+- **harnet (frozen/finetune):** `harnet_frozen.harnet_loso` / `harnet.py` analog;
+  `harnet5_ft` → `harnet_finetune`. Embedding-`.npz`-Cache + torch.hub beachten.
+- **Klassische Nicht-RF:** `train_loso` ist RF-only — entweder um `--model`-
+  Dispatch auf sklearn-Estimatoren erweitern (wie `compare_models`) oder
+  `compare_models` als Runner. Dann `enabled=True`.
+
+**Nicht gebaut (God-Tier-Stretch, oben spezifiziert):** SHAP-Waterfall,
+Session-Replay-Geist (nutzt `scripts/ml/replay_live_inference.py`), Auto-Narrativ.
+Per-Person-Drawer zeigt aktuell die Marker-Task-Aufschlüsselung (kein SHAP).
