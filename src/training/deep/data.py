@@ -122,18 +122,41 @@ def zscore_channels(X: np.ndarray) -> np.ndarray:
 def load_session_raw(
     session_id: str,
     seq_len: int,
+    merged_suffix: str | None = None,
+    zscore: bool = False,
     **kwargs,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Lese ``{session}_merged.csv``, baue Fenster und z-score sie in einem Schritt.
+    """Lese die merged CSV, baue Fenster und (optional) z-score sie.
+
+    ``merged_suffix`` waehlt die Quelle: ``None`` -> native
+    ``{sid}_merged.csv``; ``"legacy"`` -> die downsampled 50-Hz-View
+    ``{sid}_merged_legacy.csv`` (via :mod:`src.features.downsample`). So
+    kann eine Modern-Session (100 Hz, 9 Kanaele) im Legacy-Pool als
+    50-Hz-View mittrainiert werden, ohne die Sample-Rate zu mischen.
+
+    ``zscore`` (default **False**): per-Session-per-Kanal-Z-Score, das
+    Sequenz-Pendant zum RF-Per-Session-Z-Score. Default aus, weil er fuers
+    CNN empirisch neutral ist (gepaartes A/B, N=14: Δacc −0.002, p=0.65) und
+    Weglassen ein Deployment-Gewinn ist — kein Per-Stream-Kalibrieren von
+    μ/σ noetig. Mechanik: BatchNorm normalisiert Conv-*Outputs* ueber den
+    Batch (nicht die rohe Eingangs-Skala je Subjekt), macht das Netz aber
+    scale-tolerant genug. ``True`` schaltet ihn wieder ein.
 
     ``kwargs`` werden an :func:`build_raw_windows` durchgereicht
     (``stride``, ``min_label_ratio``, ``max_gap_ms``).
     """
-    merged_path = DATA_PROC / f"{session_id}_merged.csv"
+    stem = f"{session_id}_merged" + (f"_{merged_suffix}" if merged_suffix else "")
+    merged_path = DATA_PROC / f"{stem}.csv"
     if not merged_path.exists():
+        if merged_suffix:
+            raise FileNotFoundError(
+                f"{merged_path} fehlt — die Legacy-View erst bauen: "
+                f"`python -m src.features.downsample {session_id} --target-hz 50` "
+                f"dann `python -m src.merge {session_id} --watch-suffix {merged_suffix}`."
+            )
         raise FileNotFoundError(
             f"{merged_path} fehlt — vorher `python -m src.merge {session_id}` laufen lassen."
         )
     merged = pd.read_csv(merged_path)
     X, y, t = build_raw_windows(merged, seq_len, **kwargs)
-    return zscore_channels(X), y, t
+    return (zscore_channels(X) if zscore else X), y, t

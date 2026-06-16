@@ -95,3 +95,12 @@ erzeugt schreibähnliche Wrist-IMU-Muster).
 
 Artefakte: `models/engagement_metrics.csv`,
 `reports/figures/engagement_heatmap.png`.
+
+## Update 2026-06-10 — Refresh auf N=14-OOF
+
+Mit der Headline-Promotion auf N=14 wurde `models/engagement_metrics.csv`
++ `reports/figures/engagement_heatmap.png` neu erzeugt — die Heatmap
+umfasst jetzt 14 Probanden inkl. P12–P15 (Study-Mode-Marker vorhanden,
+Fenster-Zuordnung über `t_center_ms` der 50hz-View-Windows). Pausen
+bleiben als Kontrolle sauber (pred_pct überwiegend < 15 %, P14 Pause 2
+sogar 0,0 %).

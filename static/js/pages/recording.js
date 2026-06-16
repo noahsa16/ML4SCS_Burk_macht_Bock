@@ -18,6 +18,7 @@ import { renderStudyView, primeStudyAudio } from '/static/js/pages/recording-stu
 // ════════════════════════════════════════════════════════════
 let _recMode = 'free';
 let _protocolsLoaded = false;
+const DEFAULT_PROTOCOL_ID = 'v2';
 
 export function setRecMode(mode) {
   _recMode = (mode === 'study') ? 'study' : 'free';
@@ -55,6 +56,9 @@ async function _ensureProtocolsLoaded() {
     opt.textContent = String(p.name);
     sel.appendChild(opt);
   }
+  // Why: list_protocols sorts alphabetically, so v1 is appended first and would
+  // be pre-selected; v2 is the current default protocol — select it explicitly.
+  if (list.some(p => String(p.id) === DEFAULT_PROTOCOL_ID)) sel.value = DEFAULT_PROTOCOL_ID;
   _protocolsLoaded = true;
 }
 
@@ -476,7 +480,7 @@ export async function toggleSession() {
     // the AudioContext. Once primed, tick/chime cues can fire from
     // WS ticks for the rest of the session.
     primeStudyAudio();
-    const protocolId = document.getElementById('protocolSelect')?.value || 'v1';
+    const protocolId = document.getElementById('protocolSelect')?.value || DEFAULT_PROTOCOL_ID;
     const testMode = document.getElementById('testModeCheck')?.checked === true;
     const res = await api('/study/start', 'POST', {
       protocol_id: protocolId,

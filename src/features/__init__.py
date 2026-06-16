@@ -9,10 +9,12 @@ CLI
 ---
 ::
 
-    python -m src.features              # neueste Session
-    python -m src.features S029         # spezifische Session
+    python -m src.features                          # neueste Session
+    python -m src.features S029                     # spezifische Session
+    python -m src.features S038 --merged-suffix legacy   # Legacy-View
 
-Schreibt nach ``data/processed/{session}_windows.csv``.
+Schreibt nach ``data/processed/windows/{profil}/{session}_windows.csv``
+(Profil inhalts-abgeleitet, siehe :mod:`src.profiles`).
 """
 
 from .windows import build_windows, load_session_windows

@@ -99,9 +99,14 @@ async def receive_watch(request: Request):
         state.append_event("watch", "error", "Watch payload validation failed")
         return JSONResponse({"error": "Invalid watch payload", "detail": exc.errors()}, status_code=422)
 
+    # Why: ohne aktive Session NIEMALS an die vom iPhone gemeldete (= zuletzt
+    # gestreamte) Session anhängen — die Bridge behält die alte ID im Speicher
+    # und schiebt beim Reconnect (z.B. am nächsten Morgen) verwaiste Samples
+    # nach, die sonst still an eine längst gestoppte Session-CSV angehängt
+    # würden. Stattdessen in einen Quarantäne-Bucket schreiben.
     session_id = (
         state.active.session_id if state.active
-        else (envelope.sessionId or "unsessioned")
+        else "unsessioned"
     )
     session_id = _safe_file_id(session_id)
     csv_path = DATA_RAW_WATCH / f"{session_id}_watch.csv"

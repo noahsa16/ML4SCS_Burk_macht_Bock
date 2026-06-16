@@ -6,7 +6,93 @@ from src.server.study import (
     StudyTask,
     ScheduledSlot,
     build_schedule,
+    balanced_latin_square,
 )
+
+
+def _is_latin_square(rows: list[list[int]], n: int) -> bool:
+    """Every row and every column is a permutation of 0..n-1."""
+    full = set(range(n))
+    if any(set(r) != full for r in rows):
+        return False
+    for col in range(n):
+        if {r[col] for r in rows} != full:
+            return False
+    return True
+
+
+def _adjacent_pairs(rows: list[list[int]]) -> list[tuple[int, int]]:
+    return [(r[i], r[i + 1]) for r in rows for i in range(len(r) - 1)]
+
+
+def test_balanced_latin_square_even_n_has_n_rows_and_is_valid():
+    rows = balanced_latin_square(6)
+    assert len(rows) == 6
+    assert _is_latin_square(rows, 6)
+
+
+def test_balanced_latin_square_even_n_is_carryover_balanced():
+    # Williams design: each ordered adjacent pair (a->b, a!=b) appears
+    # exactly once across all rows. n*(n-1) pairs over n rows of (n-1) each.
+    rows = balanced_latin_square(6)
+    pairs = _adjacent_pairs(rows)
+    assert len(pairs) == 6 * 5
+    assert len(set(pairs)) == 6 * 5  # all distinct -> each ordered pair once
+
+
+def test_balanced_latin_square_odd_n_doubles_rows_and_balances_positions():
+    rows = balanced_latin_square(3)
+    assert len(rows) == 6  # odd n -> 2n rows (square + reversed)
+    # each treatment appears in each position exactly twice across the 6 rows
+    for col in range(3):
+        counts = sorted([r[col] for r in rows])
+        assert counts == [0, 0, 1, 1, 2, 2]
+
+
+def _nwriting(n_writing: int, n_idle: int, interleave="latin_square"):
+    tasks = [
+        StudyTask(id=f"w{i}", label=f"W{i}", category="writing",
+                  duration_seconds=10, instruction="i")
+        for i in range(n_writing)
+    ] + [
+        StudyTask(id=f"n{i}", label=f"N{i}", category="idle",
+                  duration_seconds=5, instruction="i")
+        for i in range(n_idle)
+    ]
+    return StudyProtocol(id="t", name="t", pre_task_seconds=3,
+                         randomize=True, interleave=interleave, tasks=tasks)
+
+
+def test_latin_square_scales_to_six_writing_tasks():
+    # v2 shape: 6 writing tasks now get a real balanced square (not the
+    # seeded-random fallback). Across 6 subjects each writing task appears
+    # in each writing-position exactly once.
+    p = _nwriting(6, 6)
+    positions = [[] for _ in range(6)]
+    for si in range(1, 7):
+        ids = [s.task.id for s in build_schedule(p, seed=0, subject_index=si)
+               if s.category == "writing"]
+        assert len(ids) == 6
+        for j, tid in enumerate(ids):
+            positions[j].append(tid)
+    expected = sorted(f"w{i}" for i in range(6))
+    for pos in positions:
+        assert sorted(pos) == expected
+
+
+def test_latin_square_balances_idle_tasks_too():
+    # The hard negatives (idle class) are also counterbalanced, so each
+    # idle task appears in each idle-position exactly once across subjects.
+    p = _nwriting(6, 6)
+    positions = [[] for _ in range(6)]
+    for si in range(1, 7):
+        ids = [s.task.id for s in build_schedule(p, seed=0, subject_index=si)
+               if s.category == "idle"]
+        for j, tid in enumerate(ids):
+            positions[j].append(tid)
+    expected = sorted(f"n{i}" for i in range(6))
+    for pos in positions:
+        assert sorted(pos) == expected
 
 
 def _proto(tasks, interleave="writing_with_pauses", randomize=True):

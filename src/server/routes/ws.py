@@ -12,6 +12,21 @@ log = logging.getLogger("server.routes")
 
 router = APIRouter()
 
+# Why: Forensik-Felder des phone_status. Nur deren Änderung wird geloggt —
+# der Status kommt ~1/s, Voll-Logging wäre Spam; Zähler (watch_samples …)
+# ändern sich jede Sekunde und bleiben bewusst draußen. Hintergrund: beim
+# S044-Vorfall (2026-06-12) war der stale stop/start-Push nicht nachweisbar,
+# weil Acks und Phone-Sicht nur in-memory lagen.
+_PHONE_STATUS_LOG_FIELDS = (
+    "watch_reachable",
+    "watch_running",
+    "watch_session_id",
+    "watch_upload_mode",
+    "current_session_id",
+    "current_command_id",
+    "watch_last_command_id",
+)
+
 
 def _handle_ws_client_message(ws_id: int, text: str) -> None:
     """
@@ -55,8 +70,24 @@ def _handle_ws_client_message(ws_id: int, text: str) -> None:
             "session_id": msg.get("session_id"),
             "command_id": command_id,
         })
+        log.log(
+            logging.INFO if ok else logging.WARNING,
+            "watch_ack ok=%s command=%s session_id=%s command_id=%s detail=%s",
+            ok, msg.get("command"), msg.get("session_id"),
+            command_id, state.watch_command["detail"],
+        )
     elif msg_type == "phone_status":
-        state.ws_client_meta.setdefault(ws_id, {})["phone_status"] = msg
+        meta = state.ws_client_meta.setdefault(ws_id, {})
+        prev = meta.get("phone_status") or {}
+        changed = {
+            k: msg.get(k)
+            for k in _PHONE_STATUS_LOG_FIELDS
+            if msg.get(k) != prev.get(k)
+        }
+        if changed:
+            log.info("phone_status changed ws_id=%s %s",
+                     ws_id, json.dumps(changed, sort_keys=True))
+        meta["phone_status"] = msg
 
 
 @router.websocket("/ws")

@@ -32,6 +32,7 @@ from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.training.train_loso import _burst_metrics  # noqa: E402
+from src.profiles import find_windows
 
 PROC = ROOT / "data" / "processed"
 MODELS = ROOT / "models"
@@ -39,7 +40,7 @@ NOAH_SESSIONS_100HZ = ("S032", "S033")
 
 
 def load(session_id: str) -> pd.DataFrame:
-    df = pd.read_csv(PROC / f"{session_id}_windows.csv")
+    df = pd.read_csv(find_windows(session_id))
     df["session_id"] = session_id
     return df
 

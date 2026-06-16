@@ -272,6 +272,18 @@ class ServerCommandListener: NSObject, ObservableObject {
         }
     }
 
+    /// „Spill jetzt senden": die Watch drained ihren persistenten Buffer im
+    /// Burst statt 1 Zeile/3 s. Nicht-destruktiv.
+    func drainWatchSpill() {
+        forwardToWatch(["command": "drain_spill", "server_ip": serverIP])
+    }
+
+    /// „Spill verwerfen": die Watch löscht ihren persistenten Buffer. Die Watch
+    /// verweigert das während einer laufenden Aufnahme (Schutz des Live-Staus).
+    func clearWatchSpill() {
+        forwardToWatch(["command": "clear_spill", "server_ip": serverIP])
+    }
+
     private func updatePublishedWatchStatus(from message: [String: Any], pollAgeMs: Int?) {
         DispatchQueue.main.async {
             self.watchPolling = (pollAgeMs ?? 0) < 3000
@@ -326,6 +338,15 @@ class ServerCommandListener: NSObject, ObservableObject {
         let command = payload["command"] as? String ?? "unknown"
         let sessionId = payload["session_id"] as? String
         let commandId = payload["command_id"] as? String
+
+        // Why: ein neuer Befehl macht alle gequeueten älteren obsolet. Ohne
+        // Cancel stellt die transferUserInfo-FIFO Minuten-alte stop/start-
+        // Paare mitten in eine laufende Session zu (S044, 2026-06-12).
+        // Spiegelbild von cancelStaleUserInfoTransfers() auf der Watch-Seite;
+        // phone-seitig laufen über transferUserInfo ausschließlich Commands.
+        for transfer in WCSession.default.outstandingUserInfoTransfers {
+            transfer.cancel()
+        }
 
         // Push when possible, but the MVP does not depend on this path:
         // the Watch also pulls the latest command via command_poll.

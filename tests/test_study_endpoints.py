@@ -62,11 +62,18 @@ def client(data_dirs, monkeypatch, tmp_path):
         yield c
 
 
-def test_list_protocols_includes_v1(client):
+def test_list_protocols_includes_v1_and_v2(client):
     r = client.get("/study/protocols")
     assert r.status_code == 200
     ids = {p["id"] for p in r.json()}
-    assert "v1" in ids
+    assert {"v1", "v2"} <= ids
+
+
+def test_default_protocol_is_v2():
+    # Why: guards the v1->v2 default flip — a request omitting protocol_id
+    # must boot v2 (the current SOTA protocol), not the legacy v1.
+    from src.server.models import StudyStartBody
+    assert StudyStartBody().protocol_id == "v2"
 
 
 def test_start_study_returns_session_and_schedule(client):

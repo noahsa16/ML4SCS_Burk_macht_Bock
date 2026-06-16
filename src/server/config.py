@@ -74,6 +74,9 @@ SESSIONS_FIELDNAMES = [
     "study_mode",      # "" | "free" | "study" | "test"
     "protocol_id",     # protocol ID if a study was running, else ""
     "subject_index",   # frozen 1-based Latin Square index, or "" for free/test
+    # Native Datenform der Watch-Aufnahme — gleiche Vokabel wie die
+    # Ordner unter data/processed/windows/ (siehe src/profiles.py).
+    "watch_profile",   # "" | "50hz" | "100hz" | "100hz_grav"
 ]
 
 if not SESSIONS_CSV.exists():
