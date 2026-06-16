@@ -108,7 +108,7 @@ src/training/                train_loso.py (headline) + within_session/ + deep/
 src/evaluation/              Regression (Schreib-Prozent) + engagement post-proc
 scripts/plots/, scripts/ml/  Figures + training/ablation/diagnostic scripts
 scripts/ops/                 Server + tunnel shell helpers
-tests/                       252 smoke tests (~7 s)
+tests/                       346 smoke tests (~10 s)
 static/, dashboard.html      Web dashboard (page-modular ES modules)
 watch_streamer/              iOS + watchOS Xcode targets
 data/raw/, data/processed/   Per-session CSVs (raw committed, processed gitignored)
@@ -202,7 +202,7 @@ python -m src.training.within_session.train_rf S029
 Temporal 80/20 split on a single session, 4-window gap to avoid leakage. **Not a generalisation claim** — used only for feature-iteration and label-smoothing tuning. Real numbers come from `train_loso.py`.
 
 ```bash
-pytest tests/     # 252 cases, ~7 s
+pytest tests/     # 346 cases, ~10 s
 ```
 
 ---
