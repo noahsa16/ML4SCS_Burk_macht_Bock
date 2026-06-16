@@ -11,7 +11,7 @@ Team: Noah Samel · Ben Kriegsmann · Tajuddin Snasni
 
 > Can writing activity be detected from IMU data (accelerometer + gyroscope) of an Apple Watch?
 
-The Moleskine Smart Pen is used as ground truth during data collection — its stroke events tell us when the wearer is actually writing, which lets us label the watch samples. Once the model is trained the pen is no longer needed; inference runs on the watch alone, which is the whole point of the project. A live deployment of the model is wired into the dashboard (Focus Tracker + topbar pill).
+The Moleskine Smart Pen is used as ground truth during data collection — its stroke events tell us when the wearer is actually writing, which lets us label the watch samples. Once the model is trained the pen is no longer needed; inference runs on the watch alone, which is the project's objective. A live deployment of the model is wired into the dashboard (Focus Tracker + topbar pill).
 
 ---
 
@@ -220,9 +220,9 @@ Raw CSV schemas (watch, pen, AirPods, sessions index, Study-Mode markers) are do
 
 ## Pen ↔ IMU Time Alignment
 
-The pen and the watch don't share a clock. The Moleskine pen's hardware clock is typically off by about 922 days plus some time-of-day offset, so a naïve wall-clock join would smear the labels by hundreds of milliseconds or worse — which would make the whole project pointless.
+The pen and the watch don't share a clock. The Moleskine pen's hardware clock is typically off by about 922 days plus some time-of-day offset, so a naïve wall-clock join would smear the labels by hundreds of milliseconds or worse, which would invalidate every label the model trains on.
 
-We recover the per-session offset **δ** automatically with a stroke-window variance-minimisation approach, ported from the TH Zürich method described in [`data/02_Pen_IMU_Timestamp_Alignment.pdf`](data/02_Pen_IMU_Timestamp_Alignment.pdf). The implementation is in [`src/alignment/pen_match.py`](src/alignment/pen_match.py).
+We recover the per-session offset **δ** automatically with a stroke-window variance-minimisation approach, ported from the ETH Zürich method described in [`data/02_Pen_IMU_Timestamp_Alignment.pdf`](data/02_Pen_IMU_Timestamp_Alignment.pdf). The implementation is in [`src/alignment/pen_match.py`](src/alignment/pen_match.py).
 
 The idea: while the pen is touching paper, the wrist holding the watch stays comparatively still — strokes are short and the motion is constrained. So the correct δ shifts the stroke mask onto the calmest parts of the IMU signal, and we can find it by minimising the mean accelerometer variance under the shifted mask.
 
@@ -240,13 +240,13 @@ The search runs in two passes: a coarse one (±20 s in 0.5 s steps) handles BLE 
 
 `merge_watch_pen()` calls `match_pen_data()`, shifts `pen.local_ts_ms` by δ, then runs a watch-based `merge_asof` within ±40 ms. Every watch sample is preserved and gets `label_writing = 1` if the nearest pen `dot_type` is `PEN_DOWN` or `PEN_MOVE` within tolerance, else `0`. If the signal is too weak (`sigma > -2`) we skip the δ shift and the quality engine flags the session as `low_sync_confidence` (warn) or `sync_failed` (bad). For actual training we apply a stricter filter of `σ ≤ -3` — we noticed that values around -2 sometimes lock onto spurious local minima.
 
-This replaced an earlier idea to require a tap-sync protocol at the start of each recording (3× tap with the watch hand). We're glad we didn't go that route — alignment is now fully post-hoc and probands don't have to do anything special.
+This replaced an earlier plan to require a tap-sync protocol at the start of each recording (3× tap with the watch hand). Alignment is now fully post-hoc, so probands don't have to do anything special at recording time.
 
 ---
 
 ## Quality Checks
 
-Each session is scored against a fixed set of checks defined in `quality.py`. Every issue carries `code`, `check`, `threshold`, `observed`, and a short `rationale` — so when a warning fires it's clear *why* and what assumption the threshold reflects. That came in handy: the first version of these checks had three thresholds set wrong, and we only noticed when we could actually read why each one was warning.
+Each session is scored against a fixed set of checks defined in `quality.py`. Every issue carries `code`, `check`, `threshold`, `observed`, and a short `rationale` — so when a warning fires it's clear *why* and what assumption the threshold reflects. The first version of these checks had three thresholds set wrong; that only became apparent once each warning stated its rationale.
 
 | Check | Target |
 |-------|--------|

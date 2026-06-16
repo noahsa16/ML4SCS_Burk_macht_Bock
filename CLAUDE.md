@@ -47,7 +47,7 @@ teilen einen Wert) und bei Spill-Drain-Strecken Minuten verspätet
 max 13,6 s), wodurch Labels zeitversetzten Pen-Aktivitäten zugeordnet
 wurden. Gepaarter Vorher/Nachher-Vergleich (Wilcoxon, N=15):
 **15/15 Folds besser, mean +2,4 pp acc, p = 0,0001** auf acc/AUC/F1.
-Größter Gewinner **P07 +8,5 pp acc / +9,3 pp AUC** — die notorische
+Größter Gewinner **P07 +8,5 pp acc / +9,3 pp AUC** — die
 „Signal-Ambiguitäts-Decke" dieses Folds war zu großen Teilen
 zeitversetztes Labeling, kein irreduzibles Signal-Problem.
 Wichtig: die **früheren zentrierten** Burst-Zahlen waren ~5–6 pp höher,
@@ -486,7 +486,7 @@ no longer vibrates continuously when the server is down.
 - `src/alignment/pen_match.py` — `pen_match()`, `match_pen_data()`,
   `strokes_from_dot_types()`, `reconstruct_watch_wall_clock()`. Recovers
   the per-session pen↔watch clock offset δ via stroke-window variance
-  minimization (TH Zürich algorithm, see *Sample-level merge alignment*
+  minimization (ETH Zürich algorithm, see *Sample-level merge alignment*
   below). Replaces the planned tap-sync recording protocol.
 - `src/merge/prep.py` — per-stream cleaning helpers (`prepare_pen_data()`,
   `prepare_watch_data()`, `load_csv()`). Still exported for external use;
@@ -949,9 +949,9 @@ Seit 2026-05-26 unterscheidet die Pipeline zwei Watch-Daten-Pools:
 | **Transition** | 100 | 6 | 88 | S032, S033 (Noah-Selbsttests vor dem Gravity-Fix) |
 | **Modern** | 100 | 9 (+ gx/gy/gz) | 92 | Alle Sessions ab 2026-05-26 |
 
-**Warum zwei Pools statt einer:** der Prof hat (zu Recht) zurückgemeldet
-dass `userAcceleration` ohne `gravity` einen Teil der nützlichen
-Information verschenkt — die Wrist-Orientierung relativ zur Schwerkraft
+**Warum zwei Pools statt einer:** Review-Feedback aus der
+Zwischenpräsentation ergab, dass `userAcceleration` ohne `gravity` einen
+Teil der nützlichen Information verschenkt — die Wrist-Orientierung relativ zur Schwerkraft
 ist informativ für Schreiben. Modern-Pool capture jetzt
 `motion.gravity` separat (`MotionManager.swift`, ab Commit 07577a9).
 Alte Sessions haben kein Gravity (kann nicht retro-imputiert werden).
@@ -1155,7 +1155,7 @@ share an epoch (typical Moleskine pen offset: ~922 days plus an
 arbitrary time-of-day shift). Session-level overlap uses wall-clock
 `local_ts_ms`. For sample-level merging the per-session offset δ is
 recovered automatically by the **stroke-variance alignment** in
-`src/alignment/pen_match.py` — a port of the TH Zürich algorithm
+`src/alignment/pen_match.py` — a port of the ETH Zürich algorithm
 (see `data/02_Pen_IMU_Timestamp_Alignment.pdf`). Physical assumption:
 while the pen is on paper, the wrist holding the watch is comparatively
 still, so the correct δ minimizes the mean watch-acceleration variance

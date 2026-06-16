@@ -1,6 +1,6 @@
 """Pen ↔ IMU timestamp alignment via stroke-window variance minimization.
 
-Algorithm courtesy of the TH Zürich collaborators (see
+Algorithm courtesy of the ETH Zürich collaborators (see
 ``data/02_Pen_IMU_Timestamp_Alignment.pdf``). Physical assumption: while
 the pen is on paper, the wrist holding the watch is comparatively still.
 A wrong shift δ places stroke intervals on top of higher-variance arm

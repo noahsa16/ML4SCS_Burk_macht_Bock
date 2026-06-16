@@ -47,7 +47,7 @@ die explizit verworfen wurde:
 | 1 | **Ambition: Startup/Gründung** (vs. Side Project / B2B-Lizenz) | Side Project nutzt den Wedge nicht voll aus; B2B-Lizenz hätte längere Sales-Zyklen ohne Distribution. |
 | 2 | **Zielgruppe: Focus-Nerds als Wedge, ADHD als Vision** (vs. EdTech / Pen-Replacement) | EdTech-DE zu zäh und langsam; Pen-Replacement zu schmaler Markt. ADHD-First scheitert an Regulatorik vor Distribution. |
 | 3 | **Promise: Streak + AI-Coach (Strava-Pattern)** (vs. Quantified-Self / Pen-Identity) | Streak löst Retention, AI-Coach rechtfertigt Pricing. Strava/Whoop/Oura belegen das Muster. |
-| 4 | **Onboarding: Aktive 90-Sek-Kalibrierung** (vs. Generic-from-day-one / 7-Tage-Trainingsphase / Hybrid) | Magic-Moment in den ersten 60 Sek ist der einzige starke Conversion-Hebel. Engineering-Risiko niedrig (Study-Mode-Code wiederverwendbar). |
+| 4 | **Onboarding: Aktive 90-Sek-Kalibrierung** (vs. Generic-from-day-one / 7-Tage-Trainingsphase / Hybrid) | Der entscheidende erste Eindruck in den ersten 60 Sek ist der wichtigste Conversion-Hebel. Engineering-Risiko niedrig (Study-Mode-Code wiederverwendbar). |
 | 5 | **MVP-Wette: Demand-First** (vs. Pricing / Retention / Tech-Robustheit) | Solo-Founder ohne Audience: teuerster Fehler ist 6 Monate ein Produkt zu bauen, das niemand will. Demand-First kostet 6 Wochen, nicht 6 Monate, falls falsch. |
 | 6 | **Distribution: Build-in-Public + Newsletter, HN als Crescendo** (vs. nur HN / nur Communities / Campus) | BIP baut Audience *vor* Launch auf; HN-Schuss ohne warme Liste konvertiert schlecht. Semester-Story (Sort-Stability-Bug, 90-Sek-Demo) ist BIP-tauglicher Content. |
 | 7 | **Team: Solo Noah, Ben + Taji als Credit-Mention** (vs. Trio Co-Founder / 2er-Team / Solo-then-recruit) | Volle Kontrolle, klare Entscheidungswege, BIP funktioniert besser mit einer Stimme. Ben/Taji nicht automatisch Co-Founder, nur weil sie am Semester-Projekt waren. |
@@ -77,7 +77,7 @@ die explizit verworfen wurde:
 ```
 Woche  1–2:   Pre-Launch-Closure
               - Ben/Taji-Gespräch (siehe Operational Notes)
-              - IP-Check TH (Modulhandbuch + Prof-Mail)
+              - IP-Check TH (Modulhandbuch + Mail an die Betreuung)
               - App-Store-Developer-Account ($99/yr)
               - Privacy-Architektur final entscheiden (on-device only)
               - Erster BIP-Post: "Why I'm trying to measure the
@@ -147,7 +147,7 @@ statt 18 Monaten gelernt.
    (optional) gesynct. Marketing-Asset + EU/DSGVO-schmerzfrei + spart
    Hosting-Kosten.
 2. **IP-Check TH.** Modulhandbuch ML4SCS + Studien-/Prüfungsordnung
-   prüfen, ggf. kurze Nachricht an den Prof. Vor erstem öffentlichen
+   prüfen, ggf. kurze Nachricht an die Betreuung. Vor erstem öffentlichen
    BIP-Post abschließen.
 3. **App-Store-Compliance vorbereiten.** Continuous-Motion-Tracking
    braucht klare Privacy-Disclosure + Justification. 2 Review-Rounds
@@ -179,7 +179,7 @@ Solo-Founder, die's geschafft haben (Pieter Levels, Marc Köhlbrugge),
 hatten alle einen lockeren Beirat — 2–3 Leute, die nicht mitarbeiten,
 aber alle 2 Wochen sparring geben. Naheliegend:
 
-- Prof als Advisor (Modell-/Forschungs-Seite)
+- Betreuer als Advisor (Modell-/Forschungs-Seite)
 - Ein:e Indie-Hacker aus dem deutschen BIP-Twitter (Produkt/Marketing)
 
 Kostet nichts, fängt Tunnel-Blick ab.
