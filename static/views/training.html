@@ -1,0 +1,77 @@
+<div class="trn" id="trn-root">
+
+  <!-- ══════════ IDLE ══════════ -->
+  <section class="trn-state" data-state="idle">
+    <div class="trn-card trn-config">
+      <div class="trn-row">
+        <label>Modell <span class="trn-q" id="trn-model-q" title="">?</span>
+          <select id="trn-model"></select></label>
+        <label>Pool
+          <select id="trn-pool">
+            <option value="legacy">legacy (N=15)</option>
+            <option value="auto">auto</option>
+            <option value="modern">modern</option>
+          </select></label>
+        <label>LOSO-Achse
+          <select id="trn-by">
+            <option value="person">by person</option>
+            <option value="session">by session</option>
+          </select></label>
+        <button type="button" id="trn-start" class="trn-cta">Training starten</button>
+      </div>
+    </div>
+    <div class="trn-card">
+      <div class="trn-label">Run-Historie — nicht-destruktiv</div>
+      <table id="trn-runs" style="width:100%;border-collapse:collapse;font-size:var(--text-sm)"></table>
+    </div>
+  </section>
+
+  <!-- ══════════ RUNNING + DONE (geteiltes Cockpit) ══════════ -->
+  <section class="trn-state" data-state="running done" hidden>
+    <div class="trn-titlerow">
+      <h2 id="trn-title">RandomForest</h2>
+      <span class="trn-pill" id="trn-status"><span class="trn-dot"></span><span id="trn-status-text">—</span></span>
+      <span class="trn-spacer"></span>
+      <button type="button" id="trn-stop" class="trn-ghost">Stop</button>
+      <button type="button" id="trn-again" class="trn-ghost" hidden>Nochmal</button>
+      <button type="button" id="trn-sandbox" class="trn-ghost" hidden>Live in der Sandbox testen</button>
+      <button type="button" id="trn-promote" class="trn-cta" hidden>Als Headline speichern</button>
+    </div>
+
+    <div class="trn-card">
+      <div class="trn-verdict" id="trn-verdict" hidden>
+        <div><b id="trn-verdict-title">—</b><div class="trn-muted" id="trn-verdict-sub">—</div></div>
+        <span class="big" id="trn-verdict-acc">—</span>
+      </div>
+      <div class="trn-hero">
+        <div class="trn-kpi"><b id="trn-acc">—</b><small>accuracy</small></div>
+        <div class="trn-kpi"><b id="trn-auc">—</b><small>ROC-AUC</small></div>
+        <div class="trn-kpi"><b id="trn-f1">—</b><small>F1 writing</small></div>
+        <div class="trn-foldcount"><b id="trn-folds">0 / 0</b><small>Folds</small>
+          <span class="trn-hw" id="trn-hw"></span></div>
+      </div>
+      <div class="trn-label">Per-Person — held-out</div>
+      <div class="trn-pg" id="trn-grid"></div>
+      <div class="trn-cols">
+        <div class="trn-card"><div class="trn-muted">LOSO-Konvergenz — AUC über Folds</div>
+          <svg id="trn-conv" viewBox="0 0 480 170" preserveAspectRatio="none"></svg></div>
+        <div>
+          <div class="trn-box live" id="trn-foldbox"><div class="trn-muted">aktueller Fold</div>
+            <div id="trn-foldnow">—</div></div>
+          <div class="trn-card" style="margin-bottom:0"><div class="trn-muted">Live-Confusion</div>
+            <div class="trn-confusion" id="trn-confusion"></div></div>
+        </div>
+      </div>
+      <div class="trn-tick" id="trn-log"><span class="s">/</span> bereit</div>
+    </div>
+
+    <div class="trn-analysis" id="trn-analysis" hidden>
+      <div class="trn-card"><h4>ROC-Kurve</h4><svg id="trn-roc" viewBox="0 0 160 130"></svg></div>
+      <div class="trn-card"><h4>Feature-Gruppen</h4><div id="trn-feat"></div></div>
+      <div class="trn-card"><h4>Burst-Skalen (acc)</h4><svg id="trn-burst" viewBox="0 0 160 130"></svg></div>
+    </div>
+  </section>
+
+  <!-- drill-in -->
+  <aside class="trn-drawer" id="trn-drawer" hidden></aside>
+</div>
