@@ -1,0 +1,135 @@
+/* Web-Training-Cockpit — immersiver Look über die base.css-Tokens.
+   Light + Dark kommen automatisch (nur --token-Variablen). */
+
+.trn { position: relative; padding: var(--space-5); min-height: 70vh; }
+
+/* Branding-Slash als großer Hintergrund-Glyph (Training-eigener Anker: rechts). */
+.trn::before {
+  content: "/";
+  position: fixed; right: -4vw; top: -10vh;
+  font-family: var(--mono); font-style: italic; font-weight: 600;
+  font-size: 96vh; line-height: 1; color: var(--accent); opacity: 0.05;
+  pointer-events: none; user-select: none; z-index: 0;
+}
+.trn-state { position: relative; z-index: 1; }
+.trn-state[hidden] { display: none; }
+
+.trn-card {
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  box-shadow: 0 8px 30px oklch(0 0 0 / 0.10);
+}
+
+/* ── idle config ── */
+.trn-config .trn-row { display: flex; gap: var(--space-4); flex-wrap: wrap; align-items: flex-end; }
+.trn-config label { display: flex; flex-direction: column; gap: var(--space-1);
+  font-size: var(--text-xs); color: var(--text3); text-transform: uppercase; letter-spacing: .5px; }
+.trn-config select {
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: var(--space-2) var(--space-3);
+  font-family: var(--sans); font-size: var(--text-base); min-width: 170px;
+}
+.trn-q { width: 14px; height: 14px; border: 1px solid var(--text3); border-radius: 50%;
+  font-size: 9px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text3); cursor: help; }
+
+.trn-cta {
+  background: var(--accent); color: var(--text-on-dark); border: none;
+  border-radius: var(--radius-sm); padding: var(--space-3) var(--space-5);
+  font-family: var(--sans); font-weight: 600; font-size: var(--text-base); cursor: pointer;
+  box-shadow: 0 6px 18px color-mix(in oklch, var(--accent) 30%, transparent);
+}
+.trn-cta:hover { background: var(--accent-h); }
+.trn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: var(--space-2) var(--space-4);
+  font-family: var(--sans); font-size: var(--text-sm); cursor: pointer; }
+
+/* ── titlerow / status ── */
+.trn-titlerow { display: flex; align-items: center; gap: var(--space-3); margin-bottom: var(--space-4); }
+.trn-titlerow h2 { font-size: var(--text-md); font-weight: 700; }
+.trn-titlerow .trn-spacer { flex: 1; }
+.trn-pill { display: inline-flex; align-items: center; gap: var(--space-2);
+  border: 1px solid var(--border); border-radius: var(--radius-pill);
+  padding: 4px 12px; font-size: var(--text-sm); color: var(--text2); }
+.trn-pill .trn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+.trn-pill.running .trn-dot { background: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--accent) 28%, transparent), 0 0 12px var(--accent);
+  animation: trn-pulse 1.4s ease-in-out infinite; }
+@keyframes trn-pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+
+/* ── hero ── */
+.trn-hero { display: flex; align-items: flex-end; gap: var(--space-6); flex-wrap: wrap; }
+.trn-hero .trn-kpi b { font-size: var(--text-xl); font-weight: 700; line-height: 1; }
+.trn-hero .trn-kpi small { display: block; color: var(--text3); font-size: var(--text-xs);
+  text-transform: uppercase; letter-spacing: .5px; margin-top: 4px; }
+.trn-hero #trn-acc { color: var(--green); }
+.trn-hero .trn-foldcount { margin-left: auto; text-align: right; }
+.trn-hero #trn-folds { color: var(--accent); }
+.trn-hw { margin-left: var(--space-4); font-family: var(--mono); font-size: var(--text-xs); color: var(--text3); }
+
+/* ── per-person grid ── */
+.trn-label { font-size: var(--text-xs); color: var(--text3); text-transform: uppercase;
+  letter-spacing: .5px; margin: var(--space-2) 0; }
+.trn-pg { display: grid; grid-template-columns: repeat(15, 1fr); gap: var(--space-1); }
+.trn-tile { border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: var(--space-2); text-align: center; background: var(--surface2); cursor: pointer; }
+.trn-tile .who { font-size: var(--text-xs); color: var(--text3); }
+.trn-tile .v { font-weight: 700; font-size: var(--text-base); }
+.trn-tile.good { background: color-mix(in oklch, var(--green) 14%, var(--surface));
+  border-color: color-mix(in oklch, var(--green) 45%, var(--border)); }
+.trn-tile.good .who { color: var(--green); }
+.trn-tile.warn { background: color-mix(in oklch, var(--yellow) 16%, var(--surface));
+  border-color: color-mix(in oklch, var(--yellow) 50%, var(--border)); }
+.trn-tile.live { background: color-mix(in oklch, var(--accent) 14%, var(--surface));
+  border-color: var(--accent); box-shadow: 0 0 14px color-mix(in oklch, var(--accent) 30%, transparent); }
+.trn-tile.live .who { color: var(--accent); }
+.trn-tile.pend { border-style: dashed; opacity: .5; }
+.trn-tile.pend .v { color: var(--text3); font-weight: 400; }
+
+/* ── cockpit columns ── */
+.trn-cols { display: grid; grid-template-columns: 1.8fr 1fr; gap: var(--space-4); margin-top: var(--space-4); }
+.trn-cols .trn-card { margin-bottom: 0; }
+.trn-cols svg { width: 100%; height: auto; }
+.trn-box { background: var(--surface2); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: var(--space-3); margin-bottom: var(--space-3); }
+.trn-box.live { border-color: var(--accent); background: color-mix(in oklch, var(--accent) 9%, var(--surface)); }
+.trn-muted { color: var(--text3); font-size: var(--text-xs); }
+
+.trn-tick { margin-top: var(--space-3); background: var(--surface2);
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3); font-family: var(--mono); font-size: var(--text-xs);
+  color: var(--text2); white-space: nowrap; overflow: hidden; }
+.trn-tick .s { color: var(--accent); }
+
+/* ── confusion ── */
+.trn-confusion { display: grid; grid-template-columns: auto 1fr 1fr; gap: 4px; font-size: var(--text-xs); color: var(--text3); align-items: center; }
+.trn-cell { padding: var(--space-3); text-align: center; border-radius: var(--radius-sm); color: var(--text); font-weight: 600; }
+.trn-cell.diag { background: color-mix(in oklch, var(--green) 20%, var(--surface)); }
+.trn-cell.off  { background: color-mix(in oklch, var(--red) 18%, var(--surface)); font-weight: 400; }
+
+/* ── analysis (done) ── */
+.trn-analysis { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); margin-top: var(--space-4); }
+.trn-analysis[hidden] { display: none; }
+.trn-analysis .trn-card { margin-bottom: 0; }
+.trn-analysis h4 { font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-2); }
+.trn-bar { display: flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--text2); margin-bottom: 4px; }
+.trn-bar i { height: 8px; border-radius: 3px; display: block; }
+
+/* ── verdict ── */
+.trn-verdict { display: flex; align-items: center; gap: var(--space-4);
+  background: color-mix(in oklch, var(--green) 10%, var(--surface));
+  border: 1px solid color-mix(in oklch, var(--green) 40%, var(--border));
+  border-radius: var(--radius-md); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-4); }
+.trn-verdict .big { font-size: var(--text-xl); font-weight: 700; color: var(--green); margin-left: auto; }
+
+/* ── drill-in drawer ── */
+.trn-drawer { position: fixed; right: 0; top: 0; bottom: 0; width: 420px; z-index: 50;
+  background: var(--surface); border-left: 1px solid var(--border);
+  padding: var(--space-5); overflow: auto; box-shadow: -20px 0 60px oklch(0 0 0 / 0.4); }
+.trn-drawer[hidden] { display: none; }
+.trn-drawer h2 { font-size: var(--text-lg); margin: var(--space-3) 0; }
+.trn-drawer .trn-dkpi { display: flex; gap: var(--space-4); margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
+.trn-drawer .trn-dkpi b { font-size: var(--text-lg); }
+.trn-drawer .trn-dkpi small { display: block; color: var(--text3); font-size: var(--text-xs); }
