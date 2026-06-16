@@ -133,6 +133,18 @@ ISSUE_SPECS: dict[str, IssueSpec] = {
         threshold_label="gaps == 0",
         ml_severity="warn", recording_severity="warn",
     ),
+    "duplicate_samples": IssueSpec(
+        check="Identische Watch-Samples mehrfach geliefert (gleicher ts + Sensorwerte)",
+        rationale="Re-Delivery aus dem Watch-Spill kann ein bereits gestreamtes Sample erneut einspeisen. Der Merge dedupliziert sie, damit Fenster und Schreibzeit nicht überbewertet werden; das Flag macht den Vorfall sichtbar.",
+        threshold_label="duplicate_samples == 0",
+        ml_severity=None, recording_severity="warn",
+    ),
+    "sequence_counter_reset": IssueSpec(
+        check="Sequenz-Counter springt mitten in der Session auf eine bereits genutzte Nummer zurück",
+        rationale="Die Watch hat den Batch-Counter neu initialisiert (Reconnect oder App-Neustart). Die Samples bleiben gültig, da die Capture-Zeit vorwärts läuft; häufige Resets deuten auf eine instabile Verbindung.",
+        threshold_label="resets == 0",
+        ml_severity=None, recording_severity="warn",
+    ),
     "watch_count_mismatch": IssueSpec(
         check="Watch-Zeilen in CSV vs. Eintrag in sessions.csv",
         rationale="Größere Abweichung deutet auf nicht abgeschlossenes Flushing oder veraltete Session-Buchhaltung.",
@@ -245,7 +257,7 @@ ISSUE_SPECS: dict[str, IssueSpec] = {
     "low_sync_confidence": IssueSpec(
         check="Pen↔IMU Variance-Alignment liefert klares Minimum",
         rationale=(
-            "Der Stroke-Varianz-Algorithmus (Schweizer TH-Zürich-Verfahren) "
+            "Der Stroke-Varianz-Algorithmus (Schweizer ETH-Zürich-Verfahren) "
             "liefert ein δ aber das Minimum ist nicht stark vom Mittelwert "
             "abgesetzt. Sample-level Merge wird ungenauer, session-level "
             "Overlap aber weiter gültig."

@@ -134,6 +134,149 @@ def test_missing_gyroscope_fires(data_dirs):
     assert "missing_gyroscope" in codes
 
 
+def test_out_of_order_first_batch_does_not_report_sequence_gaps(data_dirs):
+    """S046 regression: batch #1 arrives after 2-5 (slow transferUserInfo path).
+
+    All batches are present, just delivered out of order. The run-length gap
+    detector used to read the file order 2,3,4,5,1,6,... and miscount the
+    5->1->6 jump as 4 missing batches.
+    """
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    # Arrival order: the first generated batch (seq 1) shows up after 2-5.
+    arrival_order = [2, 3, 4, 5, 1] + list(range(6, 20))
+    watch_rows = []
+    for arrival_idx, seq in enumerate(arrival_order):
+        batch_ms = start_ms + arrival_idx * 200  # 10 samples * 20 ms = 200 ms/batch
+        for j in range(10):
+            watch_rows.append(_watch_row(batch_ms + j * 20, sid="S046", seq=seq))
+    write_watch_csv(data_dirs.watch / "S046_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S046_pen.csv", [_pen_row(start_ms + 100)])
+    row = _session_row("S046", start_ms, start_ms + len(arrival_order) * 200,
+                       pen_samples=1, watch_samples=len(watch_rows))
+
+    facts = _session_facts(row)
+    assert facts["watch"]["sequence_gaps"] == 0
+    assert "sequence_gaps" not in _issue_codes(facts)
+
+
+def test_genuine_missing_batch_still_reports_sequence_gaps(data_dirs):
+    """Guard the other direction: a truly dropped batch must still be flagged."""
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    # Batches 4 and 5 never arrive.
+    present = [1, 2, 3, 6, 7, 8]
+    watch_rows = []
+    for arrival_idx, seq in enumerate(present):
+        batch_ms = start_ms + arrival_idx * 200
+        for j in range(10):
+            watch_rows.append(_watch_row(batch_ms + j * 20, sid="S047", seq=seq))
+    write_watch_csv(data_dirs.watch / "S047_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S047_pen.csv", [_pen_row(start_ms + 100)])
+    row = _session_row("S047", start_ms, start_ms + len(present) * 200,
+                       pen_samples=1, watch_samples=len(watch_rows))
+
+    facts = _session_facts(row)
+    assert facts["watch"]["sequence_gaps"] == 2
+    assert "sequence_gaps" in _issue_codes(facts)
+    regions = facts["watch"]["sequence_gap_regions"]
+    assert len(regions) == 1
+    assert regions[0]["after_seq"] == 3
+    assert regions[0]["next_seq"] == 6
+    assert regions[0]["missing"] == 2
+
+
+def test_duplicate_samples_fires_on_replayed_payload(data_dirs):
+    """Spill re-delivery: an already-streamed sample is delivered again verbatim
+    (same capture ts + sensor values). Such payload duplicates must be counted.
+    """
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    watch_rows = [_watch_row(start_ms + i * 20, sid="S100", seq=i // 10)
+                  for i in range(200)]
+    watch_rows += [dict(watch_rows[j]) for j in range(50, 55)]
+    write_watch_csv(data_dirs.watch / "S100_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S100_pen.csv", [_pen_row(start_ms + 100)])
+    row = _session_row("S100", start_ms, start_ms + 4_000,
+                       pen_samples=1, watch_samples=len(watch_rows))
+
+    facts = _session_facts(row)
+    assert facts["watch"]["duplicate_samples"] == 5
+    assert "duplicate_samples" in _issue_codes(facts)
+
+
+def test_duplicate_samples_ignores_ms_timestamp_collision(data_dirs):
+    """Two distinct samples sharing a capture-ms but differing in motion are a
+    benign ms-resolution collision, not a duplicate, and must not be counted.
+    """
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    watch_rows = [_watch_row(start_ms + i * 20, sid="S101", seq=i // 10)
+                  for i in range(100)]
+    a = _watch_row(start_ms + 5_000, sid="S101", seq=99)
+    b = _watch_row(start_ms + 5_000, sid="S101", seq=99)
+    a["ax"], b["ax"] = 0.5, 0.9
+    watch_rows += [a, b]
+    write_watch_csv(data_dirs.watch / "S101_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S101_pen.csv", [_pen_row(start_ms + 100)])
+    row = _session_row("S101", start_ms, start_ms + 6_000,
+                       pen_samples=1, watch_samples=len(watch_rows))
+
+    facts = _session_facts(row)
+    assert facts["watch"]["duplicate_samples"] == 0
+    assert "duplicate_samples" not in _issue_codes(facts)
+
+
+def test_sequence_counter_reset_fires(data_dirs):
+    """The sequence counter re-initialises mid-session (reconnect / app restart):
+    a previously-seen low number starts a new run while capture ts moves forward.
+    """
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    seqs = list(range(10)) + list(range(5))
+    watch_rows = []
+    for arrival_idx, seq in enumerate(seqs):
+        batch_ms = start_ms + arrival_idx * 200
+        for j in range(10):
+            watch_rows.append(_watch_row(batch_ms + j * 20, sid="S102", seq=seq))
+    write_watch_csv(data_dirs.watch / "S102_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S102_pen.csv", [_pen_row(start_ms + 100)])
+    row = _session_row("S102", start_ms, start_ms + len(seqs) * 200,
+                       pen_samples=1, watch_samples=len(watch_rows))
+
+    facts = _session_facts(row)
+    assert facts["watch"]["sequence_counter_reset"] == 1
+    assert "sequence_counter_reset" in _issue_codes(facts)
+
+
+def test_out_of_order_first_batch_not_flagged_as_counter_reset(data_dirs):
+    """Out-of-order arrival (seq 1 lands after 2-5) dips the sequence but the
+    late number is novel, not reused — it must not count as a counter reset.
+    """
+    from src.server.quality import _session_facts
+
+    start_ms = 1_700_000_000_000
+    arrival_order = [2, 3, 4, 5, 1] + list(range(6, 20))
+    watch_rows = []
+    for arrival_idx, seq in enumerate(arrival_order):
+        batch_ms = start_ms + arrival_idx * 200
+        for j in range(10):
+            watch_rows.append(_watch_row(batch_ms + j * 20, sid="S103", seq=seq))
+    write_watch_csv(data_dirs.watch / "S103_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S103_pen.csv", [_pen_row(start_ms + 100)])
+    row = _session_row("S103", start_ms, start_ms + len(arrival_order) * 200,
+                       pen_samples=1, watch_samples=len(watch_rows))
+
+    facts = _session_facts(row)
+    assert facts["watch"]["sequence_counter_reset"] == 0
+    assert "sequence_counter_reset" not in _issue_codes(facts)
+
+
 def test_no_pen_samples_when_file_missing(data_dirs):
     from src.server.quality import _session_facts
 
@@ -359,6 +502,7 @@ def test_low_sync_confidence_fires_when_sigma_borderline(data_dirs, monkeypatch)
         "watch": {"row_count": 100, "exists": True, "load_error": None,
                   "ts_values": [1, 2], "gyro_rows": 100, "accel_rows": 100,
                   "estimated_hz": 50.0, "sequence_gaps": 0,
+                  "duplicate_samples": 0, "sequence_counter_reset": 0,
                   "session_csv_count": 100, "count_delta": 0, "count_tolerance": 20,
                   "server_time_rows": 100, "expected_samples": 100, "clock": {}},
         "pen": {"row_count": 100, "exists": True, "load_error": None,
@@ -536,6 +680,7 @@ def test_100hz_session_does_not_fire_rate_out_of_range():
         "watch": {"row_count": 9000, "exists": True, "load_error": None,
                   "ts_values": [1, 2], "gyro_rows": 9000, "accel_rows": 9000,
                   "estimated_hz": 99.5, "sequence_gaps": 0,
+                  "duplicate_samples": 0, "sequence_counter_reset": 0,
                   "session_csv_count": 9000, "count_delta": 0, "count_tolerance": 20,
                   "server_time_rows": 9000, "expected_samples": 9000, "clock": {}},
         "pen": {"row_count": 9000, "exists": True, "load_error": None,
