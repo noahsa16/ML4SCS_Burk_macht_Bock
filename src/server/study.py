@@ -16,17 +16,23 @@ ContentType = Literal["text", "list", "image"]
 InterleaveMode = Literal["writing_with_pauses", "shuffled", "latin_square"]
 
 
-# Full counterbalance: all 6 permutations of 3 writing tasks.
-# Each task appears in each position exactly twice across 6 subjects,
-# and every ordered pair (A->B, B->A, ...) appears equally often.
-LATIN_SQUARE_3 = [
-    [0, 1, 2],
-    [0, 2, 1],
-    [1, 0, 2],
-    [1, 2, 0],
-    [2, 0, 1],
-    [2, 1, 0],
-]
+def balanced_latin_square(n: int) -> list[list[int]]:
+    """Williams-design balanced Latin square over indices ``0..n-1``.
+
+    Scales counterbalancing to any task count: each treatment appears once
+    per position, and (the Williams property) each treatment immediately
+    follows each other treatment equally often. Even ``n`` needs ``n`` rows;
+    odd ``n`` needs ``2n`` (the square plus each row reversed). Returned rows
+    permute the per-subject task ordering via ``subject_index % len(rows)``.
+    """
+    if n <= 1:
+        return [[0]] if n == 1 else []
+    # Starter row 0, 1, n-1, 2, n-2, ... then each row adds 1 (mod n).
+    starter = [i // 2 if i % 2 == 0 else n - 1 - i // 2 for i in range(n)]
+    rows = [[(v + k) % n for v in starter] for k in range(n)]
+    if n % 2 == 1:
+        rows += [list(reversed(r)) for r in rows]
+    return rows
 
 
 class StudyTask(BaseModel):
@@ -184,14 +190,23 @@ def _interleave_writing_with_pauses(
     return out
 
 
+def _latin_square_order(tasks: list["StudyTask"], subject_index: int) -> list["StudyTask"]:
+    """Permute ``tasks`` by this subject's balanced-Latin-square row."""
+    square = balanced_latin_square(len(tasks))
+    if not square:
+        return tasks
+    row = square[(subject_index - 1) % len(square)]
+    return [tasks[i] for i in row]
+
+
 def build_schedule(protocol: StudyProtocol, seed: int,
                    subject_index: Optional[int] = None) -> list[ScheduledSlot]:
     """Deterministic per-session schedule.
 
-    For ``interleave='latin_square'``: ``subject_index`` selects a row from
-    LATIN_SQUARE_3 (cycles every 6 subjects). Falls back to seeded random
-    shuffle if subject_index is None - keeps the function safe to call from
-    tests / contexts that don't have a subject counter wired up.
+    For ``interleave='latin_square'``: ``subject_index`` selects a row from a
+    balanced Latin square sized to the task count (``balanced_latin_square``),
+    cycling every ``len(square)`` subjects. Without ``subject_index`` (tests /
+    unconfigured contexts) it falls back to the seeded random shuffle below.
     """
     expanded = _expand_instances(protocol.tasks)
     writing = [t for t in expanded if t.category == "writing"]
@@ -199,14 +214,12 @@ def build_schedule(protocol: StudyProtocol, seed: int,
 
     rng = random.Random(seed)
     if protocol.interleave == "latin_square" and subject_index is not None:
-        if len(writing) == 3:
-            row = LATIN_SQUARE_3[(subject_index - 1) % len(LATIN_SQUARE_3)]
-            writing = [writing[i] for i in row]
-        else:
-            if protocol.randomize:
-                rng.shuffle(writing)
-        if protocol.randomize:
-            rng.shuffle(idle)
+        # Balanced Latin square sized to each group's task count — scales
+        # counterbalancing to any protocol (v1's 3 writing tasks, v2's 6).
+        # Applied to writing AND idle/hard-negative blocks so the per-subject
+        # W-I pairings vary (carryover balance only bites once interleaved).
+        writing = _latin_square_order(writing, subject_index)
+        idle = _latin_square_order(idle, subject_index)
     else:
         if protocol.randomize:
             rng.shuffle(writing)

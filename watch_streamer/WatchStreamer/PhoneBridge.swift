@@ -278,7 +278,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             DispatchQueue.main.async {
                 // Dedup: WatchConnectivity kann denselben Batch via Live+Fallback
                 // doppelt liefern. Wir gaten alles (receivedSampleCount, Queue,
-                // Chart) hinter dem (sessionId, sequence)-Check.
+                // Chart) hinter dem (sessionId, Capture-ts)-Check.
                 if self.isDuplicateBatch(normalized) {
                     return
                 }
@@ -304,21 +304,35 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         return true
     }
 
-    /// Returns true if this (sessionId, sequence) has already been processed.
+    /// Returns true if this batch has already been processed.
+    ///
+    /// Keyed on (sessionId, first-sample capture ts) rather than
+    /// (sessionId, sequence). The watch-side sequence counter is run-scoped and
+    /// resets to 0 on every start(); a single server session can span multiple
+    /// runs (reconnect or app relaunch), so sequence numbers get reused within
+    /// the same session. A sequence-based key would collide on that reuse and
+    /// drop legitimate post-reset batches. The first sample's capture ts is
+    /// monotonic across resets and identical on a genuine re-delivery, so it
+    /// deduplicates true duplicates without colliding on reused numbers.
     /// Idempotent in the false branch — only inserts when unseen.
     /// Must be called on main.
     private func isDuplicateBatch(_ normalized: [String: Any]) -> Bool {
         let sessionId = (normalized["sessionId"] as? String) ?? "_"
-        let seqRaw: Int?
-        if let i = normalized["sequence"] as? Int { seqRaw = i }
-        else if let d = normalized["sequence"] as? Double { seqRaw = Int(d) }
-        else if let s = normalized["sequence"] as? String { seqRaw = Int(s) }
-        else { seqRaw = nil }
-        // Without a sequence we can't dedup → pass through (better to over-count
-        // than to drop legitimate data).
-        guard let seq = seqRaw else { return false }
 
-        let key = "\(sessionId)#\(seq)"
+        let identity: String
+        if let samples = normalized["samples"] as? [[String: Any]],
+           let firstTs = Self.asInt64(samples.first?["ts"]) {
+            identity = "ts\(firstTs)"
+        } else if let seq = Self.asInt64(normalized["sequence"]) {
+            // Fallback auf die Sequenznummer, falls ein Batch keine Capture-Zeit
+            // trägt. Ohne beides ist kein Dedup möglich → durchlassen (lieber
+            // über- als unter-zählen).
+            identity = "seq\(seq)"
+        } else {
+            return false
+        }
+
+        let key = "\(sessionId)#\(identity)"
         if seenBatchKeys.contains(key) {
             return true
         }
@@ -329,6 +343,16 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             seenBatchKeys.remove(drop)
         }
         return false
+    }
+
+    /// Defensive numeric coercion: a WatchConnectivity / JSON round-trip can
+    /// surface a number as Int, Int64, Double, or String depending on transport.
+    private static func asInt64(_ value: Any?) -> Int64? {
+        if let i = value as? Int64 { return i }
+        if let i = value as? Int { return Int64(i) }
+        if let d = value as? Double { return Int64(d) }
+        if let s = value as? String { return Int64(s) }
+        return nil
     }
 
     private func normalizePayload(_ payload: [String: Any], source: String) -> [String: Any]? {

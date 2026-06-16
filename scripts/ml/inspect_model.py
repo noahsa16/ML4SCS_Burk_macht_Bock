@@ -19,6 +19,8 @@ from sklearn.metrics import (
 )
 from sklearn.tree import plot_tree
 
+from src.profiles import find_windows
+
 ROOT = Path(__file__).parents[2]
 
 
@@ -40,7 +42,7 @@ def main():
     args = ap.parse_args()
 
     model_path = ROOT / "models" / f"rf_{args.session}.joblib"
-    windows_path = ROOT / "data" / "processed" / f"{args.session}_windows.csv"
+    windows_path = find_windows(args.session)
     if not model_path.exists():
         raise SystemExit(f"Model not found: {model_path}")
 

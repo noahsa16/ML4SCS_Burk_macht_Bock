@@ -26,6 +26,16 @@ let _audioCtx = null;
 let _lastTickSec = null;
 let _lastState = null;
 
+// Why: WS-Status kommt nur ~1/s und stockt bei WLAN-Hängern — die Uhr
+// fror dann ein und sprang beim Reconnect. Zwischen den Ticks zählt ein
+// lokaler 250-ms-Loop die zuletzt gesyncte Restzeit weiter; jedes
+// WS-Paket re-synct hart. UI-only: Task-Transitions und Marker bleiben
+// server-authoritative, der Loop rendert nie einen Zustandswechsel.
+let _lastStudy = null;
+let _syncBaseMs = 0;
+let _syncAtPerf = 0;
+let _localTimer = null;
+
 function _audio() {
   if (!_audioCtx && typeof AudioContext !== 'undefined') {
     try { _audioCtx = new AudioContext(); } catch { return null; }
@@ -90,6 +100,49 @@ function _el(tag, className, text) {
   if (className) e.className = className;
   if (text != null) e.textContent = String(text);
   return e;
+}
+
+// ───── Lokale Timer-Interpolation zwischen WS-Ticks ──────────
+function _renderTimerTick(s, remainingMs) {
+  const remainingSec = Math.ceil((remainingMs ?? 0) / 1000);
+  if (remainingSec >= 1 && remainingSec <= 5 && remainingSec !== _lastTickSec) {
+    _playTick();
+    _lastTickSec = remainingSec;
+  } else if (remainingSec > 5 || remainingSec <= 0) {
+    _lastTickSec = null;
+  }
+  const urgent = remainingSec >= 1 && remainingSec <= 5;
+  if (_timerEl) {
+    _timerEl.textContent = _fmtClock(remainingMs);
+    _timerEl.dataset.urgent = urgent ? '1' : '0';
+  }
+  if (_progressFillEl && Number.isFinite(s.task_duration_ms) && s.task_duration_ms > 0) {
+    const pct = (1 - remainingMs / Math.max(1, s.task_duration_ms)) * 100;
+    _progressFillEl.style.width = `${Math.min(100, Math.max(0, pct)).toFixed(1)}%`;
+  }
+  if (_hintEl && s.state === 'pre_task') {
+    _hintEl.textContent = `starts in ${_fmtClock(remainingMs)} · ready your pen`;
+  }
+}
+
+function _interpolatedRemainingMs() {
+  return Math.max(0, _syncBaseMs - (performance.now() - _syncAtPerf));
+}
+
+function _startLocalTimer() {
+  if (_localTimer) return;
+  _localTimer = setInterval(() => {
+    if (!_lastStudy) return;
+    // Why: nur laufende Countdown-Phasen interpolieren — paused/done
+    // stehen serverseitig still, lokales Weiterzählen wäre falsch.
+    if (_lastStudy.state !== 'pre_task' && _lastStudy.state !== 'running') return;
+    _renderTimerTick(_lastStudy, _interpolatedRemainingMs());
+  }, 250);
+}
+
+function _stopLocalTimer() {
+  if (_localTimer) { clearInterval(_localTimer); _localTimer = null; }
+  _lastStudy = null;
 }
 
 function _renderContent(task) {
@@ -193,6 +246,7 @@ export function renderStudyView(s) {
     _hintEl = null;
     _lastTickSec = null;
     _lastState = null;
+    _stopLocalTimer();
     return;
   }
   wrap.style.display = '';
@@ -204,15 +258,11 @@ export function renderStudyView(s) {
   }
   _lastState = s.state;
 
-  // Tick on each of the last 5 seconds of any timed phase.
-  const remainingSec = Math.ceil((s.task_remaining_ms ?? 0) / 1000);
-  if (remainingSec >= 1 && remainingSec <= 5 && remainingSec !== _lastTickSec) {
-    _playTick();
-    _lastTickSec = remainingSec;
-  } else if (remainingSec > 5 || remainingSec <= 0) {
-    _lastTickSec = null;
-  }
-  const urgent = remainingSec >= 1 && remainingSec <= 5;
+  // WS-Paket = Sync-Anker für die lokale Interpolation.
+  _lastStudy = s;
+  _syncBaseMs = s.task_remaining_ms ?? 0;
+  _syncAtPerf = performance.now();
+  _startLocalTimer();
 
   const key = `${s.state}|${s.task?.id ?? ''}|${s.task_index ?? ''}`;
   if (key !== _renderedKey) {
@@ -228,20 +278,10 @@ export function renderStudyView(s) {
     _progressFillEl = stage.querySelector('.study-progress-fill');
     _hintEl = stage.querySelector('.study-hint');
     _renderedKey = key;
-  } else {
-    // Same state key → only the timer / progress are mutating.
-    if (_timerEl) _timerEl.textContent = _fmtClock(s.task_remaining_ms);
-    if (_progressFillEl && Number.isFinite(s.task_duration_ms) && s.task_duration_ms > 0) {
-      const pct = (1 - s.task_remaining_ms / Math.max(1, s.task_duration_ms)) * 100;
-      _progressFillEl.style.width = pct.toFixed(1) + '%';
-    }
-    if (_hintEl && s.state === 'pre_task') {
-      _hintEl.textContent = `starts in ${_fmtClock(s.task_remaining_ms)} · ready your pen`;
-    }
   }
-
-  // Visual urgency: data-attribute flag flicked on/off each tick.
-  if (_timerEl) _timerEl.dataset.urgent = urgent ? '1' : '0';
+  // Timer / Progress / Urgency / Audio-Tick — gleiche Routine wie der
+  // lokale 250-ms-Loop, hier mit der frischen Server-Restzeit.
+  _renderTimerTick(s, s.task_remaining_ms ?? 0);
 }
 
 export async function studyCmd(cmd) {

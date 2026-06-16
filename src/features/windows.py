@@ -17,7 +17,8 @@ CLI
     python -m src.features              # neueste Session
     python -m src.features S029         # spezifische Session
 
-Schreibt nach ``data/processed/{session}_windows.csv``.
+Schreibt nach ``data/processed/windows/{profil}/{session}_windows.csv``
+(Profil inhalts-abgeleitet, siehe :mod:`src.profiles`).
 """
 
 from __future__ import annotations
@@ -47,9 +48,14 @@ def infer_fs_hz(merged: pd.DataFrame, fallback: float = 50.0) -> float:
     # (Befund aus S032-100-Hz-Selbsttest 2026-05-24).
     # Watch sendet in Batches -> viele Samples teilen local_ts_ms, deshalb
     # NICHT median(diff): nimm den globalen Mittelwert ueber die Spanne.
-    if "local_ts_ms" not in merged.columns or len(merged) < 2:
+    # Why: ts (per-Sample-Capture-Uhr) bevorzugen — local_ts_ms ist bei
+    # Spill-Drain-Strecken Minuten verspätet und verzerrt die Spanne.
+    t_col = "ts" if "ts" in merged.columns else "local_ts_ms"
+    if t_col not in merged.columns or len(merged) < 2:
         return fallback
-    t = merged["local_ts_ms"].to_numpy(dtype=float)
+    t = pd.to_numeric(merged[t_col], errors="coerce").dropna().to_numpy(dtype=float)
+    if len(t) < 2:
+        return fallback
     span_ms = float(t.max() - t.min())
     if span_ms <= 0:
         return fallback
@@ -250,7 +256,10 @@ def build_windows(
 
     imu = df[IMU_COLS].to_numpy(dtype=float)
     raw_labels = df["label_writing"].to_numpy(dtype=int)
-    times = df["local_ts_ms"].to_numpy(dtype=float)
+    # Why: Label-Closing (Gap-Messung) und t_center_ms auf der Capture-Uhr
+    # rechnen — local_ts_ms (Batch-Ankunft) verortet Spill-Strecken Minuten
+    # falsch und misst Gaps in Ankunfts- statt Ereigniszeit.
+    times = pd.to_numeric(df[sort_col], errors="coerce").to_numpy(dtype=float)
     labels = smooth_labels(
         raw_labels, times, max_gap_ms=max_gap_ms, max_spike_ms=max_spike_ms,
     ).astype(float)
@@ -344,12 +353,27 @@ def main() -> None:
         "--fs-hz", type=float, default=None,
         help="Sample-Rate (Hz). Default: aus local_ts_ms abgeleitet.",
     )
-    parser.add_argument("--out", type=Path, help="Ausgabepfad (default: data/processed/{session}_windows.csv)")
+    parser.add_argument(
+        "--merged-suffix", default=None,
+        help="Alternative merged-CSV lesen, z. B. 'legacy' → "
+        "{session}_merged_legacy.csv (Output der Downsample-Bridge). "
+        "Der Zielordner unter windows/ folgt immer dem Inhalt.",
+    )
+    parser.add_argument("--out", type=Path, help="Ausgabepfad (default: data/processed/windows/{profil}/{session}_windows.csv)")
     args = parser.parse_args()
 
     sid = args.session or _latest_session()
-    feats = load_session_windows(
-        sid,
+    suffix = f"_{args.merged_suffix}" if args.merged_suffix else ""
+    merged_path = DATA_PROC / f"{sid}_merged{suffix}.csv"
+    if not merged_path.exists():
+        raise SystemExit(
+            f"{merged_path} fehlt — vorher `python -m src.merge {sid}"
+            + (f" --watch-suffix {args.merged_suffix}" if args.merged_suffix else "")
+            + "` laufen lassen."
+        )
+    merged = pd.read_csv(merged_path)
+    feats = build_windows(
+        merged,
         window_sec=args.window_sec,
         stride_sec=args.stride_sec,
         fs_hz=args.fs_hz,
@@ -359,7 +383,14 @@ def main() -> None:
     if feats.empty:
         raise SystemExit(f"Keine Windows für {sid} — prüfe die merged CSV.")
 
-    out = args.out or (DATA_PROC / f"{sid}_windows.csv")
+    # Why: der Ordner lügt nie — Profil wird aus dem tatsächlich
+    # geschriebenen Artefakt abgeleitet (Gravity-Features im Output +
+    # gemessene Rate), nicht aus einem manuell gesetzten Flag.
+    from src import profiles
+    from src.features.gravity import GRAVITY_FEATURE_NAMES
+    has_grav = set(GRAVITY_FEATURE_NAMES).issubset(feats.columns)
+    fs = args.fs_hz or infer_fs_hz(merged)
+    out = args.out or profiles.windows_path(sid, profiles.profile_for(fs, has_grav))
     out.parent.mkdir(parents=True, exist_ok=True)
     feats.to_csv(out, index=False)
     counts = feats["label"].value_counts().to_dict()

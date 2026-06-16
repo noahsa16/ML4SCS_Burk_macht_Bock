@@ -129,26 +129,47 @@ def merge_watch_pen(
 
     watch = raw_watch.copy()
     watch["local_ts_ms"] = pd.to_numeric(watch["local_ts_ms"], errors="coerce")
-    # Why: stable sort preserves within-batch arrival order (samples sharing
-    # local_ts_ms keep their original sequence). Unstable sort scrambled
-    # feature inputs in a way live inference doesn't replicate -> 2026-05-25
-    # diagnosis of the live-vs-offline accuracy gap.
-    watch = watch.dropna(subset=["local_ts_ms"]).sort_values("local_ts_ms", kind="stable")
-    watch["local_ts_ms"] = watch["local_ts_ms"].astype(float)
+    # Why: Join-Achse muss exakt die Achse sein, gegen die δ optimiert wurde
+    # (match_pen_data nutzt reconstruct_watch_wall_clock = per-Sample `ts`).
+    # local_ts_ms ist Batch-Ankunftszeit: alle Samples eines POSTs teilen
+    # einen Wert (Labels batch-quantisiert), und Spill-Drain-Strecken kommen
+    # Minuten verspätet an (S043: 5,3 % der Samples >2,5 s, max 13,6 s —
+    # Forensik 2026-06-12). Fallback auf local_ts_ms nur ohne ts-Spalte.
+    if "ts" in watch.columns:
+        wall = pd.to_numeric(watch["ts"], errors="coerce")
+        watch["_wall_ms"] = wall.fillna(watch["local_ts_ms"])
+    else:
+        watch["_wall_ms"] = watch["local_ts_ms"]
+    # Why: stable sort preserves arrival order on exact-tie timestamps.
+    # Unstable sort scrambled feature inputs in a way live inference
+    # doesn't replicate -> 2026-05-25 diagnosis of the live-vs-offline
+    # accuracy gap.
+    watch = watch.dropna(subset=["_wall_ms"]).sort_values("_wall_ms", kind="stable")
+    watch["_wall_ms"] = watch["_wall_ms"].astype(float)
+    # Why: Spill-Re-Delivery kann ein bereits geliefertes Sample erneut
+    # einspeisen — gleicher Capture-ts und identische Achsen, nur andere
+    # Ankunfts-Metadaten. Deduplizieren auf (ts + Achsen) verhindert, dass
+    # Doppel-Samples Fenster und Schreibzeit überbewerten; keep="first" behält
+    # die ursprüngliche Lieferung. ts allein ist kein Duplikat-Schlüssel: zwei
+    # verschiedene Samples teilen bei ms-Auflösung gelegentlich denselben ts.
+    _dup_cols = [c for c in ("ts", "ax", "ay", "az", "rx", "ry", "rz", "gx", "gy", "gz")
+                 if c in watch.columns]
+    if _dup_cols:
+        watch = watch.drop_duplicates(subset=_dup_cols, keep="first")
 
     pen = raw_pen.copy()
-    pen["local_ts_ms"] = (
+    pen["_wall_ms"] = (
         pd.to_numeric(pen["local_ts_ms"], errors="coerce") + delta_sec * 1000.0
     )
-    pen = pen.dropna(subset=["local_ts_ms"]).sort_values("local_ts_ms", kind="stable")
-    pen["local_ts_ms"] = pen["local_ts_ms"].astype(float)
+    pen = pen.dropna(subset=["_wall_ms"]).sort_values("_wall_ms", kind="stable")
+    pen["_wall_ms"] = pen["_wall_ms"].astype(float)
     pen["pen_writing"] = pen["dot_type"].isin(WRITING_DOT_TYPES).astype(int)
-    pen_slim = pen[["local_ts_ms", "pen_writing"]]
+    pen_slim = pen[["_wall_ms", "pen_writing"]]
 
     merged = pd.merge_asof(
         watch,
         pen_slim,
-        on="local_ts_ms",
+        on="_wall_ms",
         tolerance=float(label_tol_ms),
         direction="nearest",
     )
@@ -187,12 +208,15 @@ def merge_watch_pen(
 
             merged["task_id"] = pd.NA
             merged["task_category"] = pd.NA
+            # Why: Marker tragen Server-Wall-Clock; die Watch-`ts`-Achse ist
+            # NTP-nah (<100 ms Skew) — für Minuten-lange Task-Blöcke exakt
+            # genug, und anders als local_ts_ms nicht durch Spill verzerrt.
             for iv in intervals:
                 mask = (
-                    (merged["local_ts_ms"] >= iv["start"])
-                    & (merged["local_ts_ms"] < iv["end"])
+                    (merged["_wall_ms"] >= iv["start"])
+                    & (merged["_wall_ms"] < iv["end"])
                 )
                 merged.loc[mask, "task_id"] = iv["task_id"]
                 merged.loc[mask, "task_category"] = iv["task_category"]
 
-    return merged
+    return merged.drop(columns=["_wall_ms"])
