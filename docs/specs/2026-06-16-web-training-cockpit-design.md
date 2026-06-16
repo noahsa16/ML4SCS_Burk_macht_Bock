@@ -332,17 +332,10 @@ modern 92 Features).
   (Cross-Fold-HPO ohne nested CV = Leakage; Gewinne unter Fold-σ = Rauschen),
   SMOTE (physikalisch unplausible IMU-Fenster; `balanced` adressiert Imbalance
   bereits).
-- **Quaternion-Capture (forward-only, jetzt anfangen):**
-  `CMDeviceMotion.attitude.quaternion` (qx/qy/qz/qw) liegt im selben `motion`-
-  Objekt bereit, das `MotionManager.swift` schon abgreift (Z. 158-184) — es wird
-  nur nicht in den Sample geschrieben. Es ist die **hardware-fusionierte
-  Handgelenk-Orientierung** (50 Hz). Mitzustreamen (4 Floats zum Sample, neue
-  Watch-CSV-Spalten, neuer Pool wie damals bei Gravity) ist billig und
-  **forward-only** — nicht retro-imputierbar, jede ohne sie aufgenommene Session
-  verliert die Orientierung dauerhaft. Empfehlung: **früh sammeln**, auch wenn
-  die Nutzung später kommt (das Gravity-Playbook). Schaltet frei: (a) den
-  faithful 3D-Twin, (b) world-frame-/orientierungs-invariante Features
-  (userAccel per Quaternion in den gravity-aligned World-Frame drehen).
+- **Quaternion-Capture:** **in-scope** — eigener Abschnitt *Quaternion-Capture
+  (Bestandteil des Specs)*. Daten-Grundlage (forward-only, daher früh sammeln);
+  schaltet später den faithful 3D-Twin + world-frame-/orientierungs-invariante
+  Features frei. Wird voraussichtlich an einem separaten Tag umgesetzt.
 - **3D Digital Twin (Roadmap, nicht Demo-Scope):** mit getracktem Quaternion
   **faithful machbar** — animiert die echte Watch-/Handgelenk-Orientierung (kein
   geratener Avatar). *Korrektur:* meine frühere Ablehnung „Watch hat kein
@@ -362,3 +355,70 @@ modern 92 Features).
   Nicht-RF-Modelle (eigener Runner vs. Parameter an `train_loso`).
 - Ob das Modell-Leaderboard live mitwächst oder erst im *fertig*-Zustand lädt.
 - Granularität der Deep-`epoch`-Events (jede Epoche vs. gedrosselt).
+
+## Quaternion-Capture (Bestandteil des Specs)
+
+Gehört zum Spec — eine in sich geschlossene Komponente, die voraussichtlich an
+einem **separaten Tag** implementiert wird (Reihenfolge legt der Plan fest).
+
+**Ziel.** `motion.attitude.quaternion` (qx/qy/qz/qw — hardware-fusionierte
+Handgelenk-Orientierung, 50/100 Hz) ab sofort **mitstreamen + persistieren**.
+**Nur Capture** — keine Feature-/Modell-/UI-Nutzung in dieser Aufgabe.
+
+**Warum früh.** forward-only, **nicht retro-imputierbar**: jede ohne sie
+aufgenommene Session verliert die Orientierung dauerhaft → die Capture-Zeilen am
+besten zeitnah scharf schalten, auch wenn die Nutzung (Features/Twin) später folgt.
+
+**Scope-Grenze (bewusst NICHT hier):** world-frame-Features
+(`src/features/attitude.py`), 3D-Twin, Retraining, Quality-Gates auf Attitude.
+Die Aufgabe endet, sobald qx/qy/qz/qw sauber in
+`data/raw/watch/{session}_watch.csv` landen.
+
+**Änderungen (in Abhängigkeitsreihenfolge):**
+
+1. **Watch — `watch_streamer/WatchStreamer Watch App/MotionManager.swift`**
+   (Capture-Callback, Z. 160-174): dem Sample-Dict vier Keys hinzufügen —
+   ```swift
+   "qx": motion.attitude.quaternion.x,
+   "qy": motion.attitude.quaternion.y,
+   "qz": motion.attitude.quaternion.z,
+   "qw": motion.attitude.quaternion.w,
+   ```
+   Staging/Drain/Spill tragen beliebige Dict-Keys → kein weiterer Watch-Eingriff.
+   Quaternion ist einheitsnormiert (‖q‖ ≈ 1), kein Scaling nötig.
+2. **iPhone — `watch_streamer/…/PhoneBridge.swift`:** prüfen, ob die Bridge
+   Felder **whitelisted** oder den Sample-Dict **durchreicht**. Whitelist →
+   qx/qy/qz/qw ergänzen; Passthrough → keine Änderung. *Verifizieren, nicht
+   annehmen.*
+3. **Server-Schema — `src/server/config.py`:** `WATCH_FIELDNAMES` um
+   `qx, qy, qz, qw` erweitern (kanonische Quelle; **nach** gx/gy/gz anhängen,
+   damit Legacy-CSVs ohne sie weiter parsebar bleiben).
+4. **Server-Ingest — `src/server/routes/watch.py` + `models.py`:** qx/qy/qz/qw
+   als **optionale** Sample-Felder akzeptieren (analog gx/gy/gz), in die
+   Watch-CSV schreiben. Fehlen sie (Legacy) → leer/NaN, kein Fehler.
+5. **Pool-Taxonomie — `src/profiles.py` (+ `tests/test_profiles.py`):** neues
+   `watch_profile`-Tag für „modern + attitude" (z. B. `100hz_grav_quat`);
+   `detect_profile()` erkennt die Spalten aus dem Inhalt. Bestehende Pools
+   (legacy/modern) **unberührt** — der neue ist eine Obermenge.
+6. **Schema-Doku — `CLAUDE.md`** (*Data Schemas* + *Pool architecture*):
+   Watch-CSV-Schema um qx/qy/qz/qw, neue Pool-Zeile (wie beim Gravity-Eintrag).
+7. **Merge — `src/merge/merge.py`:** Passthrough nur **verifizieren** —
+   Watch-Spalten werden erhalten, qx/qy/qz/qw fließen automatisch in
+   `{session}_merged.csv` (wie gx/gy/gz). Kein aktiver Eingriff.
+
+**Tests:**
+- `test_endpoints.py`: `POST /watch` mit qx/qy/qz/qw → landen in der Watch-CSV;
+  ohne sie → kein Fehler (Legacy-Pfad bleibt grün).
+- Schema-Test: `WATCH_FIELDNAMES` enthält die vier Felder.
+- `test_profiles.py`: neuer Profile-Tag wird aus Inhalt erkannt; legacy/modern
+  unverändert.
+
+**Manuelle Geräte-Verifikation:** kurze Aufnahme → `data/raw/watch/{id}_watch.csv`
+öffnen → vier neue Spalten gefüllt, `sqrt(qx²+qy²+qz²+qw²) ≈ 1.0` pro Zeile.
+
+**Rollback:** rein additiv. Watch-Zeilen wieder entfernen → neue Sessions
+schreiben die Spalten nicht; bestehende CSVs mit den Spalten bleiben lesbar
+(optionale Felder).
+
+**Aufwand:** ~1 Watch-Edit + ~3 Server-Edits + Schema-Doku + 3 Tests +
+Geräte-Verifikation ≈ ein halber Tag.
