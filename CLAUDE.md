@@ -138,7 +138,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 333 tests, ~10 s
+pytest tests/         # 346 tests, ~10 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -1441,7 +1441,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (333 cases, ~10 s) — anything that
+`tests/` holds Tier-1 smoke tests (346 cases, ~10 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
