@@ -22,6 +22,7 @@ class StartBody(BaseModel):
     model: str = "rf"
     pool: str = "legacy"
     by: str = "person"
+    zscore: bool = True
 
 
 def _feature_group(name: str) -> str:
@@ -57,7 +58,7 @@ async def start(body: StartBody):
         raise HTTPException(400, f"invalid model/pool: {body.model}/{body.pool}")
     if training_mod.run.is_busy():
         raise HTTPException(409, "a training run is already in progress")
-    return await training_mod.run.start(body.model, body.pool, body.by)
+    return await training_mod.run.start(body.model, body.pool, body.by, body.zscore)
 
 
 @router.post("/stop")

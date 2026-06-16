@@ -44,6 +44,13 @@ def test_is_busy_guard():
     assert run.is_busy() is True
 
 
+def test_build_cmd_zscore_flag():
+    on = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r")
+    assert "--emit-json" in on and "--run-dir" in on and "--no-zscore" not in on
+    off = tr._build_cmd("rf", "legacy", "person", False, "/tmp/r")
+    assert "--no-zscore" in off
+
+
 def test_error_event_sets_error_phase():
     run = tr.TrainingRun()
     run._on_started("rf", "legacy", "rid")
