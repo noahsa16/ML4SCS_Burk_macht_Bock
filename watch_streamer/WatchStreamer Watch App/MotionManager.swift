@@ -170,7 +170,16 @@ class MotionManager: NSObject, ObservableObject {
                 // ohne ax/ay/az-Semantik (user-acc ohne g) zu ändern.
                 "gx": motion.gravity.x,
                 "gy": motion.gravity.y,
-                "gz": motion.gravity.z
+                "gz": motion.gravity.z,
+                // Attitude-Quaternion (forward-only): hardware-fusionierte
+                // Handgelenk-Orientierung aus derselben Sensor-Fusion. Reine
+                // Metadaten fürs spätere 3D-Replay — ax/ay/az-Semantik und das
+                // ML/Feature-Set bleiben unberührt; reist passiv durch die
+                // bestehende Staging-/Drain-/Spill-Pipeline.
+                "qx": motion.attitude.quaternion.x,
+                "qy": motion.attitude.quaternion.y,
+                "qz": motion.attitude.quaternion.z,
+                "qw": motion.attitude.quaternion.w
             ]
             self.stagingLock.lock()
             self.stagedSamples.append(sample)
