@@ -427,10 +427,11 @@ Two Xcode targets:
 
 - **WatchStreamer Watch App** (`MotionManager.swift`): captures
   `CMDeviceMotion` over `WCSession.sendMessage` (or `transferUserInfo`
-  background fallback). Streamt seit 2026-05-26 **9 Kanäle pro Sample**:
+  background fallback). Streamt seit 2026-05-26 **9 Werte pro Sample**:
   `motion.userAcceleration` (ax/ay/az), `motion.rotationRate`
-  (rx/ry/rz) und `motion.gravity` (gx/gy/gz) — siehe
-  *Pool architecture*. Sample-Rate und Batch-Größe sind konfigurierbar
+  (rx/ry/rz) und `motion.gravity` (gx/gy/gz). Das sind **6 Sensor-Achsen**
+  (Accel + Gyro); gx/gy/gz ist die Schwerkraft-Komponente desselben
+  Beschleunigungssensors, kein eigener Kanal — siehe *Pool architecture*. Sample-Rate und Batch-Größe sind konfigurierbar
   (Phone-App → Settings → Motion; Default 50 Hz / Batch 10) — die Werte
   kommen über jeden `command`/Poll-Reply als `requested_hz`/`batch_size`
   und werten `effectiveHz`/`effectiveBatchSize` aus (H3). Was sonst
@@ -943,11 +944,21 @@ aggregiert pro Tag/Woche on-demand (kein Cache).
 
 Seit 2026-05-26 unterscheidet die Pipeline zwei Watch-Daten-Pools:
 
-| Pool | Hz | Watch-Kanäle | Features/Window | Inhalt |
+| Pool | Hz | Werte/Sample | Features/Window | Inhalt |
 |---|---:|---:|---:|---|
 | **Legacy** | 50 | 6 (ax/ay/az + rx/ry/rz) | 88 | Die 10 LOSO-Probanden + Vorgeschichte |
 | **Transition** | 100 | 6 | 88 | S032, S033 (Noah-Selbsttests vor dem Gravity-Fix) |
-| **Modern** | 100 | 9 (+ gx/gy/gz) | 92 | Alle Sessions ab 2026-05-26 |
+| **Modern** | 100 | 9 (6 Sensor-Achsen + gx/gy/gz) | 92 | Alle Sessions ab 2026-05-26 |
+
+**Gravity ist kein eigener Sensor-Kanal.** Die Watch hat 6 unabhängige
+Sensor-Achsen: 3-Achsen-`userAcceleration` + 3-Achsen-`rotationRate`.
+`gx/gy/gz` ist die von CoreMotion abgespaltene Schwerkraft-Komponente
+*desselben* Beschleunigungssensors (`userAcceleration + gravity =
+Gesamtbeschleunigung`), keine zusätzliche Messung. Modern speichert diese
+Komponente zusätzlich, statt sie wie Legacy zu verwerfen — die „9" sind
+also **9 Werte pro Sample, nicht 9 Kanäle**. Der Informationsgewinn ist
+allein die rekonstruierbare Wrist-Orientierung relativ zur Schwerkraft
+(→ 4 Tilt-Features), nicht ein drittes Sensor-Tripel.
 
 **Warum zwei Pools statt einer:** Review-Feedback aus der
 Zwischenpräsentation ergab, dass `userAcceleration` ohne `gravity` einen
@@ -987,7 +998,7 @@ pool-spezifischen Modell überschrieben wird.
 
 **Cross-Pool-Mixing — vollständige Bash-Chain:**
 ```bash
-# 1. Modern-Session (100 Hz, 9 Kanäle) zu Legacy-Format umwandeln
+# 1. Modern-Session (100 Hz, 9 Werte/Sample inkl. Gravity) zu Legacy-Format umwandeln
 python -m src.features.downsample S034 --target-hz 50
 #   → data/raw/watch/S034_watch_legacy.csv  (50 Hz, ohne gx/gy/gz)
 
@@ -1026,7 +1037,7 @@ optional gravity-Spalten-Drop. Default-Output:
 Legacy-View behandelt werden — z. B. um sie im 10-Probanden-LOSO-Pool
 mittrainieren zu können.
 
-**Live-Inference 9-Kanal-Support (seit 2026-05-29).**
+**Live-Inference Gravity-Support (Modern-Pool, seit 2026-05-29).**
 `src/server/inference.py::append_sample` nimmt jetzt optional `gx/gy/gz`
 (Gravity) als 7.–9. Argument; der Rolling-Buffer führt 10-Tupel
 `(ts, ax..rz, gx, gy, gz)` (Gravity in **derselben** Tuple — strukturelle
@@ -1507,7 +1518,7 @@ could silently poison the training data or the proband-facing flow:
   Honouring (mu/sigma aus Joblib appliziert), Rate-Mismatch-Guard
   (>20 % fs-Abweichung → `rate_mismatch: true` Payload), Daily-Aggregate-
   Reset bei Datums-Wechsel, model-load-Fallback bei fehlendem joblib,
-  9-Kanal-Modern-Support (`append_sample` mit/ohne Gravity, 92-Feature-
+  Modern-Gravity-Support (`append_sample` mit/ohne Gravity, 92-Feature-
   Predict, Feature-Parität inkl. Gravity gegen `build_windows`,
   `missing_channels`-Guard wenn Modern-Modell auf Legacy-Stream läuft).
 - `test_inference_endpoints.py` — `GET /inference/models` Schema +

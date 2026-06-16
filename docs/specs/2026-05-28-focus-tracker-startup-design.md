@@ -157,7 +157,7 @@ statt 18 Monaten gelernt.
 5. **Modern-Pool-Live-Inference-Gap schließen oder umgehen.**
    `LiveInference.append_sample` akzeptiert aktuell nur 6 Kanäle
    (Legacy). V1 nutzt daher Legacy-Modell (88 Features). Modern-Pool-
-   Migration für 9-Kanal-Modell ist Post-V1.
+   Migration für das Gravity-Modell (92 Features) ist Post-V1.
 
 ## Operational Notes
 

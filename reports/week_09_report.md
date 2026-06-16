@@ -10,13 +10,13 @@ two-pool (Legacy / Modern) data architecture end to end so old and new
 sessions can coexist, record the first Modern-pool proband, and test
 *honestly* whether gravity actually lifts the score. Plus a few
 deployment-polish items carried over from the Focus-Tracker pivot
-(VL-monitor live card, 9-channel live inference).
+(VL-monitor live card, modern-pool live inference with gravity).
 
 ---
 
 ## Work Done This Week
 
-### Two-pool architecture (Legacy 6ch / Modern 9ch)
+### Two-pool architecture (Legacy 6-channel / Modern + gravity)
 
 The dataset's 10 LOSO probands were all recorded before gravity
 capture existed, and `motion.gravity` cannot be reconstructed from
@@ -24,15 +24,24 @@ capture existed, and `motion.gravity` cannot be reconstructed from
 block everything on re-recording, the pipeline now distinguishes two
 pools and lets them coexist:
 
-| Pool | Hz | Watch channels | Features/window | Content |
+| Pool | Hz | Values/sample | Features/window | Content |
 |---|---:|---:|---:|---|
 | **Legacy** | 50 | 6 (ax/ay/az + rx/ry/rz) | 88 | The 10 LOSO probands + history |
 | **Transition** | 100 | 6 | 88 | S032, S033 (100 Hz self-tests pre-gravity) |
-| **Modern** | 100 | 9 (+ gx/gy/gz) | 92 | All sessions from 2026-05-26 |
+| **Modern** | 100 | 9 (6 sensor axes + gx/gy/gz) | 92 | All sessions from 2026-05-26 |
 
-- **Watch capture** (`MotionManager.swift`): now streams 9 channels
+(Gravity is not a separate sensor channel: the watch has 6 sensor axes —
+3-axis `userAcceleration` + 3-axis `rotationRate`. `gx/gy/gz` is the
+gravity component of the *same* accelerometer — `userAccel + gravity =
+total acceleration` — stored separately rather than discarded. So "9"
+means 9 values per sample, not 9 channels; the gain is the recoverable
+wrist orientation, i.e. the 4 tilt features.)
+
+- **Watch capture** (`MotionManager.swift`): now streams 9 values
   per sample — `userAcceleration` (ax/ay/az), `rotationRate`
-  (rx/ry/rz), and `motion.gravity` (gx/gy/gz) as a separate vector.
+  (rx/ry/rz), and `motion.gravity` (gx/gy/gz). Those are 6 sensor axes;
+  `gx/gy/gz` is the gravity component of the same accelerometer, not a
+  separate channel.
   `ax/ay/az` stay gravity-free; total acceleration is always
   recoverable as `(ax+gx, …)`. Schema migration through the whole
   capture chain: `WATCH_FIELDNAMES` + Pydantic envelope + CSV writer
@@ -66,7 +75,7 @@ pools and lets them coexist:
   new `--watch-suffix` flag on `merge`, a Modern session can be viewed
   as Legacy and folded into the 10-proband Legacy LOSO pool.
 - Backward-compat HTTP tests for `POST /watch` covering both legacy
-  (6-channel) and modern (9-channel) payloads.
+  (6-channel) and modern (9-value, with gravity) payloads.
 
 ### First Modern-pool session — S038 / P12
 
@@ -121,7 +130,7 @@ Modern proband, **"gravity helps" is a hypothesis, not a finding.**
 (`reports/100hz_ablation.md`); gravity is the single open lever.
 Documented in `reports/feature_ablation.md`.
 
-### 9-channel live inference
+### Modern-pool live inference (with gravity)
 
 `src/server/inference.py::append_sample` now optionally takes
 `gx/gy/gz`; the rolling buffer carries 10-tuples
@@ -202,7 +211,7 @@ feature count.
   the project so far applies here too: do **not** promote a hypothesis
   to a finding before a second Modern proband. The honest line for the
   final presentation is "gravity looks promising on our first
-  9-channel subject; the cross-subject test is the immediate next
+  modern-pool (gravity) subject; the cross-subject test is the immediate next
   step," not "gravity helps."
 - **The two-pool design is the honest way to add a feature mid-dataset.**
   Old sessions can't get gravity retro-fit. Rather than throw away 10
@@ -254,7 +263,7 @@ feature count.
   unit-vector diagnosis, the `tilt_*_std` rejection, the 10-seed
   robustness check, and the N = 1 caveat write-up
   (`reports/feature_ablation.md`).
-- 9-channel live inference support (`src/server/inference.py`) with
+- Modern-pool (gravity) live inference support (`src/server/inference.py`) with
   the same-tuple buffer, Modern-model detection, `missing_channels`
   guard, and feature-parity test.
 - VL-monitor live writing-prediction card, Focus-Tracker startup
