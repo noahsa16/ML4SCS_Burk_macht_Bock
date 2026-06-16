@@ -129,6 +129,8 @@
 .trn-analysis { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-3); margin-top: var(--space-4); }
 .trn-analysis[hidden] { display: none; }
 .trn-analysis .trn-card { margin-bottom: 0; }
+.trn-drill { cursor: pointer; transition: border-color var(--dur-fast); }
+.trn-drill:hover { border-color: var(--accent); }
 .trn-analysis h4 { font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--space-2); }
 .trn-bar { display: flex; align-items: center; gap: 6px; font-size: var(--text-xs); color: var(--text2); margin-bottom: 4px; }
 .trn-bar i { height: 8px; border-radius: 3px; display: block; }
