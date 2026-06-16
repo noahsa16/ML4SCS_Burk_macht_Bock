@@ -54,6 +54,7 @@ from sklearn.metrics import (
 from src.features.gravity import GRAVITY_FEATURE_NAMES
 from src.profiles import find_windows
 from src.features.windows import load_session_windows
+from src.training import events as _events
 
 ROOT = Path(__file__).parents[2]
 DATA_PROC = ROOT / "data" / "processed"
@@ -404,7 +405,10 @@ def train_loso(
     zscore_per_session: bool = True,
     pool: str = "auto",
     drop_gravity: bool = False,
+    on_event=None,
+    run_dir: Path | None = None,
 ) -> dict:
+    emit = on_event if on_event is not None else (lambda e: None)
     if by not in {"person", "session"}:
         raise ValueError(f"--by must be 'person' or 'session', got {by!r}")
 
@@ -471,8 +475,14 @@ def train_loso(
         f"  | zscore_per_session={zscore_per_session}\n"
     )
 
+    emit({"type": _events.RUN_START, "model": "rf", "by": by, "pool": pool,
+          "n_folds": len(groups), "features": len(feature_cols),
+          "zscore": zscore_per_session})
+    interrupted = False
     fold_results: list[dict] = []
-    for held_out in groups:
+    for fold_idx, held_out in enumerate(groups, start=1):
+        emit({"type": _events.FOLD_START, "idx": fold_idx,
+              "person": str(held_out), "n": len(groups)})
         test_mask = all_windows[group_col] == held_out
         train_df = all_windows[~test_mask]
         test_df = all_windows[test_mask]
@@ -482,9 +492,14 @@ def train_loso(
         ].tolist()
 
         print(f"\n--- Fold: held-out {by}={held_out} (sessions={held_out_sessions}) ---")
-        res = _fit_eval_fold(
-            train_df, test_df, feature_cols, n_estimators, random_state
-        )
+        try:
+            res = _fit_eval_fold(
+                train_df, test_df, feature_cols, n_estimators, random_state
+            )
+        except KeyboardInterrupt:
+            print("\n[stop] KeyboardInterrupt — finalisiere fertige Folds…")
+            interrupted = True
+            break
         if res is None:
             print(f"  skipped — test fold has only one class")
             continue
@@ -511,10 +526,20 @@ def train_loso(
             for scale, m in res["bursts"].items()
         )
         print(f"Burst-aggregated:  1s acc={res['accuracy']:.3f} f1={res['f1_writing']:.3f} auc={res['roc_auc']:.3f}  {burst_line}")
+        cm = res["confusion_matrix"]
+        emit({"type": _events.FOLD_END, "idx": fold_idx, "person": str(held_out),
+              "n": len(groups), "acc": res["accuracy"], "auc": res["roc_auc"],
+              "f1": res["f1_writing"],
+              "burst": {k: v["accuracy"] for k, v in res["bursts"].items()},
+              "confusion": {"tn": int(cm[0, 0]), "fp": int(cm[0, 1]),
+                            "fn": int(cm[1, 0]), "tp": int(cm[1, 1])}})
         fold_results.append(res)
 
     if not fold_results:
-        print("\n[warn] All folds skipped (single-class tests). Nothing to summarise.")
+        print("\n[warn] All folds skipped / interrupted. Nothing to summarise.")
+        emit({"type": _events.RUN_END, "partial": interrupted, "n_done": 0,
+              "mean_acc": 0.0, "std_acc": 0.0, "auc": 0.0, "f1": 0.0,
+              "burst": {}, "out_dir": ""})
         return {"folds": [], "summary": {}}
 
     aucs = np.array([r["roc_auc"] for r in fold_results], dtype=float)
@@ -608,6 +633,21 @@ def train_loso(
             save_final_model,
         )
 
+    if run_dir is not None:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        per_fold_table.to_csv(run_dir / "cv.csv", index=False)
+        pd.concat([r["oof"] for r in fold_results], ignore_index=True).to_csv(
+            run_dir / "oof.csv", index=False)
+        _train_final_model(all_windows, feature_cols, sessions,
+                           n_estimators, random_state, run_dir / "model.joblib")
+
+    emit({"type": _events.RUN_END, "partial": interrupted,
+          "n_done": len(fold_results),
+          "mean_acc": summary["mean_accuracy"], "std_acc": summary["std_accuracy"],
+          "auc": summary["mean_roc_auc"], "f1": summary["mean_f1_writing"],
+          "burst": {k: v["mean_accuracy"] for k, v in burst_summary.items()},
+          "out_dir": str(run_dir) if run_dir else ""})
+
     return {"folds": fold_results, "summary": summary}
 
 
@@ -684,6 +724,19 @@ def _parse_args() -> argparse.Namespace:
         help="Write per-window out-of-fold predictions (raw + calibrated "
         "proba) to PATH (default: models/loso_oof.csv).",
     )
+    p.add_argument(
+        "--emit-json", action="store_true",
+        help="Strukturierte JSON-Events auf stdout (für den Web-Launcher).",
+    )
+    p.add_argument(
+        "--run-dir", type=Path, default=None,
+        help="Artefakte (cv.csv/oof.csv/model.joblib) in dieses Verzeichnis "
+        "schreiben (nicht-destruktiver Run-Store des Web-Cockpits).",
+    )
+    p.add_argument(
+        "--model", default="rf",
+        help="Registry-Modell-ID (MVP: nur 'rf').",
+    )
     return p.parse_args()
 
 
@@ -742,4 +795,6 @@ if __name__ == "__main__":
         zscore_per_session=not args.no_zscore,
         pool=args.pool,
         drop_gravity=args.drop_gravity,
+        on_event=_events.json_line_emitter() if args.emit_json else None,
+        run_dir=args.run_dir,
     )
