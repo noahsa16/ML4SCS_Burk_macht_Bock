@@ -55,3 +55,12 @@ def test_sandbox_unknown_run_404(client, monkeypatch, tmp_path):
     monkeypatch.setattr(tr, "RUNS_ROOT", tmp_path)
     r = client.post("/training/runs/does-not-exist/sandbox")
     assert r.status_code == 404
+
+
+def test_status_payload_includes_training_block(monkeypatch):
+    import src.server.state as state_mod
+    import src.server.status as status_mod
+    monkeypatch.setattr(status_mod, "state", state_mod.SessionState())
+    payload = status_mod._status_payload()
+    assert "training" in payload
+    assert "phase" in payload["training"]
