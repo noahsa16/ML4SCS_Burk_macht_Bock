@@ -176,6 +176,10 @@ async def receive_watch(request: Request):
             "gx":  s.gx,
             "gy":  s.gy,
             "gz":  s.gz,
+            "qx":  s.qx,
+            "qy":  s.qy,
+            "qz":  s.qz,
+            "qw":  s.qw,
         })
         valid_count += 1
 
