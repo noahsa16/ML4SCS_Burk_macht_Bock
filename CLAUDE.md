@@ -274,11 +274,27 @@ focus_log.py       Append-only CSV writer at data/inference_log.csv
                    rate_mismatch ticks skipped. Persists writing
                    activity across server restarts so /focus aggregates
                    are truthful.
+training.py        Web-Training-Cockpit: TrainingRun-State-Machine (idle/
+                   running/done/error, genau EIN Lauf gleichzeitig), startet
+                   train_loso als Subprozess mit --emit-json (Muster pen_proc),
+                   parst JSON-Events → State, psutil-HW-Sampling, Graceful Stop
+                   (SIGINT → Teilergebnis). Reine Event-Handler unit-testbar.
+                   train_loso bekam dafür on_event/run_dir + --emit-json/
+                   --run-dir; CLI ohne diese Flags bit-identisch.
+training_runs.py   Nicht-destruktiver Run-Store: models/runs/{run_id}/
+                   (cv.csv/oof.csv/model.joblib/config.json). promote() ist der
+                   EINZIGE Schreibpfad auf die kanonischen Artefakte
+                   (rf_all.joblib/loso_cv.csv/loso_oof.csv). Modell-Menü +
+                   Pool-Validität: src/training/registry.py; Event-Schema:
+                   src/training/events.py.
 routes/            FastAPI endpoint package — one APIRouter per concern
                    (watch.py, airpods.py, pen.py, sessions.py,
                     study.py, dashboard.py, inference.py, focus.py,
-                    ws.py, _helpers.py); __init__.py aggregates them
-                    into a single `router`
+                    training.py, ws.py, _helpers.py); __init__.py aggregates
+                    them into a single `router`. training.py: /training/
+                    {models,start,stop,current,runs,runs/{id},runs/{id}/
+                    promote,runs/{id}/sandbox} — Frontend: static/js/pages/
+                    training.js (Training-Tab, Live-Cockpit via WS-Snapshot).
 ```
 
 `src/pen_schema.py` is a top-level shared module (no deps) so
