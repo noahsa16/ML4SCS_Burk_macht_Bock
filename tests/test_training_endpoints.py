@@ -26,6 +26,11 @@ def test_start_rejects_invalid_pool(client):
     assert r.status_code == 400
 
 
+def test_start_rejects_not_yet_wired_model(client):
+    r = client.post("/training/start", json={"model": "cnn", "pool": "legacy"})
+    assert r.status_code == 400
+
+
 def test_start_409_when_busy(client, monkeypatch):
     from src.server import training as T
     monkeypatch.setattr(T.run, "is_busy", lambda: True)

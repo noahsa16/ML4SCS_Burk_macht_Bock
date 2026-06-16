@@ -28,20 +28,45 @@ export function onHide() {}
 
 function _q(sel) { return root.querySelector(sel); }
 
+const _FAMILY_LABEL = {
+  classical: 'Klassisch · 88/92 Features',
+  deep: 'Deep-Sequenz · rohe IMU',
+  foundation: 'Foundation · harnet',
+};
+
 async function _loadModels() {
   const models = await api('/training/models');
   if (!Array.isArray(models)) return;
   const sel = _q('#trn-model');
   sel.innerHTML = '';
-  for (const m of models) {
-    const o = document.createElement('option');
-    o.value = m.id;
-    o.textContent = `${m.label} (${m.speed})`;
-    o.title = m.description || '';
-    sel.appendChild(o);
+  const byFam = {};
+  for (const m of models) (byFam[m.family] ||= []).push(m);
+  for (const fam of ['classical', 'deep', 'foundation']) {
+    if (!byFam[fam]) continue;
+    const og = document.createElement('optgroup');
+    og.label = _FAMILY_LABEL[fam] || fam;
+    for (const m of byFam[fam]) {
+      const o = document.createElement('option');
+      o.value = m.id;
+      o.textContent = m.enabled
+        ? `${m.label} · ${m.speed}`
+        : `${m.label} · ${m.speed} (bald)`;
+      o.disabled = !m.enabled;
+      o.title = m.description || '';
+      o.dataset.desc = m.description || '';
+      og.appendChild(o);
+    }
+    sel.appendChild(og);
   }
-  const cur = models.find(m => m.id === sel.value) || models[0];
-  if (cur) _q('#trn-model-q').title = cur.description || '';
+  const firstEnabled = models.find(m => m.enabled);
+  if (firstEnabled) sel.value = firstEnabled.id;
+  _syncModelTooltip();
+  sel.addEventListener('change', _syncModelTooltip);
+}
+
+function _syncModelTooltip() {
+  const opt = _q('#trn-model').selectedOptions[0];
+  _q('#trn-model-q').title = opt ? (opt.dataset.desc || '') : '';
 }
 
 async function _loadRuns() {
