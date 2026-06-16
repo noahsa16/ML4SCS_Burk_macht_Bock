@@ -286,3 +286,4 @@ The full pipeline is operational end-to-end: capture → alignment → merge →
 - [Week 8](reports/week_08_report.md)
 - [Week 9](reports/week_09_report.md) — two-pool gravity architecture + first Modern proband
 - [Week 10](reports/week_10_report.md) — gravity verdict, N=14 headline, profile-sorted windows
+- [Week 11](reports/week_11_report.md) — methodological audit, capture-clock fix (N=15 headline 0.872), stream-integrity hardening
