@@ -16,6 +16,10 @@ export function mount(container) {
   _q('#trn-again').addEventListener('click', _again);
   _q('#trn-promote').addEventListener('click', () => _runId && api(`/training/runs/${_runId}/promote`, 'POST'));
   _q('#trn-sandbox').addEventListener('click', () => _runId && api(`/training/runs/${_runId}/sandbox`, 'POST'));
+  _q('#trn-analysis').addEventListener('click', (e) => {
+    const card = e.target.closest('.trn-drill');
+    if (card) _openInfoDrawer(card.dataset.drill);
+  });
   _setState('idle');
 }
 
@@ -225,10 +229,45 @@ function _renderDone(t) {
   _q('#trn-verdict-acc').textContent = (t.summary?.mean_acc != null)
     ? Number(t.summary.mean_acc).toFixed(3) : '—';
   _renderBurst(t.summary?.burst);
+  _renderLeaderboard();
   if (_runId && _detailLoadedFor !== _runId) {
     _detailLoadedFor = _runId;
     _loadDetail(_runId);
   }
+}
+
+async function _renderLeaderboard() {
+  const el = _q('#trn-leaderboard');
+  if (!el) return;
+  const runs = await api('/training/runs');
+  if (!Array.isArray(runs)) return;
+  const sorted = runs.filter(r => r.mean_acc != null)
+    .sort((a, b) => b.mean_acc - a.mean_acc).slice(0, 6);
+  if (!sorted.length) { el.innerHTML = '<div class="trn-muted">noch keine Läufe</div>'; return; }
+  el.innerHTML = sorted.map(r =>
+    `<div class="trn-bar">${r.model} · ${r.pool}`
+    + `<i style="width:${Math.round(Number(r.mean_acc) * 100)}%;background:var(--accent)"></i>`
+    + `${Number(r.mean_acc).toFixed(3)}</div>`).join('');
+}
+
+const _DRILL = {
+  roc: ['ROC-Kurve', 'Trade-off True-Positive- vs. False-Positive-Rate über alle Schwellen; '
+    + 'AUC = Fläche darunter (1.0 perfekt, 0.5 Zufall). Gepoolt über alle OOF-Vorhersagen.'],
+  feat: ['Feature-Gruppen-Importance', 'Summe der RF-Feature-Importances je semantischer Gruppe '
+    + '(spectral, jerk, time-stats, magnitude, correlation, zcr, ggf. gravity) — worauf das Modell schaut.'],
+  burst: ['Burst-Skalen', 'Accuracy über kausale Decision-Windows 1→30 s. Höhere Skala = mehr Glättung, '
+    + 'gröbere Zeitauflösung — die User-facing-Metrik für Schreibzeit-Tracking.'],
+  leaderboard: ['Modell-Leaderboard', 'Alle Läufe aus models/runs/, sortiert nach mean accuracy. '
+    + '„Als Headline speichern" promotet einen Lauf zu den kanonischen Artefakten (rf_all.joblib / loso_cv.csv).'],
+};
+
+function _openInfoDrawer(kind) {
+  const [title, note] = _DRILL[kind] || [kind, ''];
+  const d = _q('#trn-drawer');
+  d.hidden = false;
+  d.innerHTML = `<button class="trn-ghost" id="trn-drawer-x">schließen</button>`
+    + `<h2>${title}</h2><p class="trn-muted">${note}</p>`;
+  d.querySelector('#trn-drawer-x').addEventListener('click', () => { d.hidden = true; });
 }
 
 // ROC + Feature-Gruppen aus dem Run-Detail-Endpoint (wird in Task 13 geliefert).
