@@ -75,9 +75,15 @@ menschenlesbaren stdout regex-parst.
   | `run_start` | `model, pool, axis, n_folds, config{}` |
   | `fold_start` | `idx, person, n` |
   | `epoch` *(nur Deep)* | `fold_idx, epoch, train_loss, val_acc` |
-  | `fold_end` | `idx, person, acc, auc, f1, burst{5s,10s,30s}` |
-  | `run_end` | `mean_acc, std_acc, auc, f1, burst{}, out_dir` |
+  | `fold_end` | `idx, person, acc, auc, f1, burst{5s,10s,30s}, confusion{tn,fp,fn,tp}` |
+  | `run_end` | `mean_acc, std_acc, auc, f1, burst{}, out_dir, partial, n_done` |
   | `error` | `message` |
+
+  `confusion` speist die **Live-Confusion-Matrix**; `partial`/`n_done` markieren
+  einen per Graceful-Stop verkürzten Lauf. Die **Hardware-Last**
+  (`{cpu_pct, ram_gb}`) ist **kein** Runner-Event — der Server misst sie per
+  `psutil` am Subprozess und hängt sie an die training-WS-Payload (s.
+  *Demo-Bühnen-Features*).
 - **Eingriff in bestehende Runner** (minimal, ein optionaler Parameter, der
   vorhandene Print-Stellen spiegelt):
   - `src/training/train_loso.py`
@@ -119,7 +125,10 @@ Progress-Datei (mehr bewegliche Teile, für „ein Lauf gleichzeitig" unnötig).
   - `GET /training/models` — Registry + pro Modell die Pool-Validität/Flags.
   - `POST /training/start {model, pool, axis, params}` — startet Lauf;
     **409** wenn bereits einer läuft; **400** bei ungültiger Modell×Pool-Kombi.
-  - `POST /training/stop` — bricht den laufenden Lauf ab.
+  - `POST /training/stop` — **Graceful Stop** (SIGINT → Teilergebnis retten,
+    s. *Demo-Bühnen-Features*); SIGKILL nur als Timeout-Fallback.
+  - `POST /training/runs/{id}/sandbox` — lädt das Run-Joblib **temporär** in die
+    `LiveInference`-Singleton (ohne Promotion), für den Live-Test am Handgelenk.
   - `GET /training/runs` — Run-Historie (scannt `models/runs/`).
   - `GET /training/runs/{id}` — Detail eines Laufs (cv/oof/config).
   - `POST /training/runs/{id}/promote` — setzt Lauf als Headline (kopiert in
@@ -127,7 +136,8 @@ Progress-Datei (mehr bewegliche Teile, für „ein Lauf gleichzeitig" unnötig).
   - `GET /training/runs/{id}/compare?other={id}` — zwei Läufe + gepaarter
     Wilcoxon (`src/evaluation/significance.py`).
 - **WS:** das bestehende `_status_loop`/`_broadcast` trägt zusätzlich
-  `{type:"training", phase, model, pool, fold, n, folds[], mean_acc, ...}`.
+  `{type:"training", phase, model, pool, fold, n, folds[], mean_acc,
+  confusion{}, hw{cpu_pct,ram_gb}, ...}`.
 
 ### Run-Output (nicht-destruktiv)
 
@@ -154,7 +164,9 @@ Progress-Datei (mehr bewegliche Teile, für „ein Lauf gleichzeitig" unnötig).
   - *idle:* Config-Panel + „Letzter Lauf" + großer Start-CTA.
   - *läuft:* Cockpit — Hero-KPIs (zählen hoch), Per-Person-Grid (poppt rein),
     Konvergenz-Kurve (Mean ± σ), Live-Rail (aktueller Fold + Loss/Tree-Build),
-    Log-Ticker, Stop. **Bewusst keine Stats** (wären halbleer).
+    Log-Ticker, Hardware-Sparkline, **Live-Confusion-Matrix** (akkumuliert),
+    Stop. Die übrigen Analyse-Module (ROC, Feature-Importance, Burst,
+    Leaderboard, Task) bleiben dem *fertig*-Zustand vorbehalten (live halbleer).
   - *fertig:* Verdict („vs. Headline"), volles Per-Person-Grid, die sechs
     Analyse-Module, CTAs „Nochmal" / „Als Headline speichern".
 - **Drill-in-Drawer:** jede KPI-/Stat-/Person-Card ist anklickbar → rechter
@@ -174,8 +186,10 @@ Progress-Datei (mehr bewegliche Teile, für „ein Lauf gleichzeitig" unnötig).
 - Live-Rail: aktueller Fold, Epoch-Loss (Deep) / Tree-Build (RF), „vs Headline".
 - Log-Ticker mit `/`-Branding-Präfix.
 
-**Analyse-Module (nur im *fertig*-Zustand) — je mit Drill-in:**
-1. **Confusion-Matrix** → Drawer: volle Raten + Precision/Recall (optional per Task).
+**Analyse-Module (im *fertig*-Zustand — Ausnahme: Confusion akkumuliert schon
+live) — je mit Drill-in:**
+1. **Confusion-Matrix** (akkumuliert bereits im *läuft*-Zustand) → Drawer:
+   volle Raten + Precision/Recall (optional per Task).
 2. **ROC-Kurve** → Drawer: pooled + per Fold.
 3. **Feature-Gruppen-Importance** (6 Gruppen, nur Tree-Modelle) → Drawer:
    die 88/92 Einzel-Features. Bei Nicht-Tree-Modellen ausgegraut.
@@ -188,6 +202,50 @@ Progress-Datei (mehr bewegliche Teile, für „ein Lauf gleichzeitig" unnötig).
 **Per-Person-Drill-in (Klick auf Kachel):** Drawer mit KPIs, **Genauigkeit pro
 Task aus den Markern**, Predicted-vs-True-Zeitleiste (FP/FN-Marker), kurze
 Failure-Mode-Notiz.
+
+## Demo-Bühnen-Features (Tier 1 — fest im Scope)
+
+Macht aus dem Cockpit eine interaktive Bühne für die Verteidigung.
+
+- **Graceful Stop (Soft-Stop).** Stop sendet **SIGINT**; die Runner fangen
+  `KeyboardInterrupt`, finalisieren die bereits fertigen Folds, schreiben die
+  Artefakte und emittieren `run_end {partial:true, n_done}` → Zustand „fertig".
+  Erlaubt das „ich stoppe bei Fold 5"-Manöver: die volle Analyse baut sich für
+  die fertigen Folds auf, **klar als *partial n/N* gelabelt** (kein Verkaufen
+  als volle Zahl). SIGKILL nur als Timeout-Fallback (wie `pen_proc`).
+- **Live-Confusion-Matrix.** `fold_end` trägt die per-Fold-2×2; die UI
+  akkumuliert sie **schon während des Laufs**. Einzige Stat, die live sinnvoll
+  wächst (ROC/Feature-Importance brauchen den vollen Lauf) — bei P17 leuchtet
+  die FP-Zelle live auf.
+- **Hardware-Sparkline.** Der `TrainingRun` misst per `psutil` CPU-/RAM-Last des
+  Subprozesses (1 Hz) → WS. Glühende Mini-Sparkline im Cockpit-Header („die
+  Maschine schuftet", v. a. bei Deep/harnet).
+- **Sandbox-Inference.** Button neben „Als Headline speichern" → lädt das
+  Run-Joblib **temporär** in die `LiveInference`-Singleton (nutzt den
+  vorhandenen Hot-Swap + Buffer-Clear), **ohne** die Headline zu überschreiben.
+  **Gate:** nur live-fähige Modelle (RF/Tree/kausale Deep wie TCN); BiLSTM
+  (nicht-kausal) und harnet (kein Live-Embedding-Pfad) ausgegraut.
+
+## Stretch (God-Tier — additiv, eigene Plan-Phase)
+
+- **SHAP-Waterfall.** Im Drill-in eines **einzelnen** Fensters (z. B. ein
+  P17-False-Positive): `shap.TreeExplainer` (schnell + exakt für Tree-Modelle)
+  zeigt den Beitrag jedes Features zur Vorhersage als Wasserfall. „Öffne die
+  Blackbox" — passt zum Lehr-Charakter. Nur Tree-Modelle (Deep bräuchte einen
+  anderen Explainer → später).
+- **Session-Replay-Geist.** Held-out-Session im Schnelldurchlauf durchs Modell
+  (nutzt `scripts/ml/replay_live_inference.py`); Predicted-vs-True scrollt live,
+  FP/FN leuchten. Echte Predictions auf echten Daten — die ehrliche Alternative
+  zum 3D-Twin.
+- **Auto-Narrativ schwache Folds.** Ein-Zeilen-Erklärung pro schwachem Fold aus
+  den Markern (P07 Denkpausen, P09 Soft-Writer) — die dokumentierten
+  Failure-Modi als Live-Text statt nur Zahlen.
+
+## Neue Abhängigkeiten
+
+- `psutil` (Hardware-Sparkline, Tier 1).
+- `shap` (SHAP-Waterfall, Stretch).
+- Beide in `requirements.txt` ergänzen.
 
 ## Modelle
 
@@ -257,6 +315,11 @@ modern 92 Features).
 - Runner-Integration: je ein Smoke, dass `--emit-json` ein valides
   `run_start`/`fold_end`/`run_end` produziert (kleiner synthetischer Datensatz
   oder Mock), und dass **ohne** `--emit-json` der Print-Output unverändert ist.
+- Graceful Stop: SIGINT auf einen laufenden Runner → `run_end {partial:true}`
+  mit den fertigen Folds, Artefakte geschrieben (kein Datenverlust).
+- `fold_end` trägt `confusion{}`; `test_training_endpoints.py` deckt
+  `/runs/{id}/sandbox` (temporärer Live-Load, kein Promote) + 404 ab.
+- Hardware-Sample: `psutil`-Messung liefert plausible `cpu_pct/ram_gb` (Mock).
 
 ## Roadmap / bewusst ausgelassen
 
@@ -269,6 +332,24 @@ modern 92 Features).
   (Cross-Fold-HPO ohne nested CV = Leakage; Gewinne unter Fold-σ = Rauschen),
   SMOTE (physikalisch unplausible IMU-Fenster; `balanced` adressiert Imbalance
   bereits).
+- **Quaternion-Capture (forward-only, jetzt anfangen):**
+  `CMDeviceMotion.attitude.quaternion` (qx/qy/qz/qw) liegt im selben `motion`-
+  Objekt bereit, das `MotionManager.swift` schon abgreift (Z. 158-184) — es wird
+  nur nicht in den Sample geschrieben. Es ist die **hardware-fusionierte
+  Handgelenk-Orientierung** (50 Hz). Mitzustreamen (4 Floats zum Sample, neue
+  Watch-CSV-Spalten, neuer Pool wie damals bei Gravity) ist billig und
+  **forward-only** — nicht retro-imputierbar, jede ohne sie aufgenommene Session
+  verliert die Orientierung dauerhaft. Empfehlung: **früh sammeln**, auch wenn
+  die Nutzung später kommt (das Gravity-Playbook). Schaltet frei: (a) den
+  faithful 3D-Twin, (b) world-frame-/orientierungs-invariante Features
+  (userAccel per Quaternion in den gravity-aligned World-Frame drehen).
+- **3D Digital Twin (Roadmap, nicht Demo-Scope):** mit getracktem Quaternion
+  **faithful machbar** — animiert die echte Watch-/Handgelenk-Orientierung (kein
+  geratener Avatar). *Korrektur:* meine frühere Ablehnung „Watch hat kein
+  Quaternion" war falsch. Grenze bleibt: Quaternion = Wrist-Pose, **nicht**
+  Finger-Level-Handschrift; Kosten = Three.js-Dep + Datensammlung. Daher nach
+  der Demo; der **Session-Replay-Geist** ist die sofort baubare ehrliche
+  Alternative.
 - **Kontext:** Die Leistungsdecke ist modellunabhängig vermessen
   (frozen harnet scheitert an denselben Folds wie RF, per-Fold-AUC r≈0.92;
   CNN Train/Test-Gap 0.019 = data-limited). Neue Architekturen werden die
