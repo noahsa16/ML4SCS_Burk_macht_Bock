@@ -1,5 +1,9 @@
 # Week 11 Report — Machine Learning for Smart and Connected Systems
 
+![Web Training Cockpit — launching and live-visualising a LOSO run from the
+dashboard (legacy pool, fold 14/15): per-person held-out leaderboard, AUC
+over folds, and a live confusion matrix updating as each fold completes.](figures/week_11_training_cockpit.png)
+
 ## Weekly Goal
 
 Two threads after the N=14 headline: (1) act on the intermediate-
