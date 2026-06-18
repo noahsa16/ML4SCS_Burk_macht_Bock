@@ -164,4 +164,6 @@ resets, S046 out-of-order correctly not flagged).
 
 ### Taji
 
-- _to be filled in_
+- Conducted additional recording sessions with participants for the experiment in order to further expand the dataset.
+- Supported the ongoing data collection process by helping gather more subject-specific recordings for later analysis and model training.
+- Searched for relevant scientific papers related to IMU-based writing or activity recognition in order to compare approaches, methods, and reported results.
