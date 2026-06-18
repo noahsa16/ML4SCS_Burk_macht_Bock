@@ -78,6 +78,24 @@
 .trn-preview-est { position: relative; margin-top: auto; padding-top: var(--space-5);
   font-family: var(--mono); font-size: var(--text-sm); color: var(--accent); }
 
+/* ── run history (Sessions-Tab-Look: ssn-table-frame + sessions-table) ── */
+.trn-runs-sec { margin-top: var(--space-5); }
+.trn-runs-head { display: flex; align-items: baseline; gap: var(--space-3);
+  margin-bottom: var(--space-3); }
+.trn-runs-eyebrow, .trn-runs-meta { font-family: var(--mono); font-style: italic;
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.14em; }
+.trn-runs-eyebrow { color: var(--accent); }
+.trn-runs-meta { color: var(--text3); }
+.trn-runs-row { cursor: pointer; }
+.trn-runs-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.trn-runs-action { text-align: right; white-space: nowrap; }
+.trn-runs-action .trn-ghost { margin-left: var(--space-2); }
+.trn-runs-empty { text-align: center; color: var(--text3); padding: var(--space-5) !important; }
+/* destruktive Aktion — rot erst im Hover, damit die Zeile ruhig bleibt */
+.trn-del { color: var(--text2); }
+.trn-del:hover { color: var(--red); border-color: color-mix(in oklch, var(--red) 50%, var(--border));
+  background: color-mix(in oklch, var(--red) 10%, var(--surface2)); }
+
 /* ── custom dropdown (native <select> bleibt versteckter Werte-/A11y-Halter) ── */
 .trn-dd { position: relative; }
 .trn-dd-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -250,3 +268,6 @@
   padding-bottom: var(--space-3); border-bottom: 1px solid var(--border); }
 .trn-drawer .trn-dkpi b { font-size: var(--text-lg); }
 .trn-drawer .trn-dkpi small { display: block; color: var(--text3); font-size: var(--text-xs); }
+.trn-drawer svg { width: 100%; height: auto; max-height: 150px; }
+.trn-drawer-actions { display: flex; gap: var(--space-3); justify-content: flex-end;
+  margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); }

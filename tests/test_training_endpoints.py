@@ -144,6 +144,22 @@ def test_run_detail_unknown_404(client, monkeypatch, tmp_path):
     assert client.get("/training/runs/nope").status_code == 404
 
 
+def test_delete_run_removes_dir(client, monkeypatch, tmp_path):
+    from src.server import training_runs as tr
+    monkeypatch.setattr(tr, "RUNS_ROOT", tmp_path)
+    d = tr.run_dir("2026-06-18_09-00_rf_legacy", root=tmp_path)
+    tr.write_config(d, {"model": "rf", "pool": "legacy"})
+    r = client.delete("/training/runs/2026-06-18_09-00_rf_legacy")
+    assert r.status_code == 200 and r.json()["deleted"].endswith("rf_legacy")
+    assert not d.exists()
+
+
+def test_delete_run_unknown_404(client, monkeypatch, tmp_path):
+    from src.server import training_runs as tr
+    monkeypatch.setattr(tr, "RUNS_ROOT", tmp_path)
+    assert client.delete("/training/runs/nope").status_code == 404
+
+
 def test_status_payload_includes_training_block(monkeypatch):
     import src.server.state as state_mod
     import src.server.status as status_mod

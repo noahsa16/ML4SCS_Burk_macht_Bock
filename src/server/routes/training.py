@@ -101,6 +101,13 @@ def runs():
     return training_runs.list_runs(training_runs.RUNS_ROOT)
 
 
+@router.delete("/runs/{run_id}")
+def delete_run(run_id: str):
+    if not training_runs.delete_run(run_id, training_runs.RUNS_ROOT):
+        raise HTTPException(404, f"run {run_id} not found")
+    return {"deleted": run_id}
+
+
 @router.get("/runs/{run_id}")
 def run_detail(run_id: str):
     """Done-State-Analyse: per-fold cv, Feature-Gruppen-Importance (aggregiert
