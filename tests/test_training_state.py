@@ -72,6 +72,18 @@ def test_build_cmd_burst_scales_empty_is_passed_through():
     assert cmd[i + 1] == ""
 
 
+def test_build_cmd_window_and_gap():
+    cmd = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r",
+                        window_sec=5.0, max_gap_ms=1000.0)
+    assert cmd[cmd.index("--window-sec") + 1] == "5.0"
+    assert cmd[cmd.index("--max-gap-ms") + 1] == "1000.0"
+
+
+def test_build_cmd_window_gap_none_omits_flags():
+    cmd = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r")
+    assert "--window-sec" not in cmd and "--max-gap-ms" not in cmd
+
+
 def test_error_event_sets_error_phase():
     run = tr.TrainingRun()
     run._on_started("rf", "legacy", "rid")

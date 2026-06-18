@@ -13,6 +13,8 @@ export function mount(container) {
   _loadRuns();
   _enhanceSelect(_q('#trn-pool'));
   _enhanceSelect(_q('#trn-by'));
+  _enhanceSelect(_q('#trn-window'));
+  _enhanceSelect(_q('#trn-gap'));
   _wireBurstChips();
   root.addEventListener('change', _updatePreview);  // Why: select/toggle bubbeln 'change'
   document.addEventListener('click', _onDocClick);
@@ -164,6 +166,10 @@ function _updatePreview() {
   _setText('#trn-pv-axis', (by && by.selectedOptions[0])
     ? `LOSO ${by.selectedOptions[0].textContent}` : '—');
   _setText('#trn-pv-z', (_q('#trn-zscore') && _q('#trn-zscore').checked) ? 'an' : 'aus');
+  const win = _q('#trn-window') ? parseFloat(_q('#trn-window').value) : 1;
+  _setText('#trn-pv-window', `${win} s · stride ${win / 2} s`);
+  const gap = _q('#trn-gap') ? _q('#trn-gap').value : '2500';
+  _setText('#trn-pv-gap', `${gap} ms`);
   const scales = _burstScales();
   _setText('#trn-pv-burst', scales ? `1s + ${scales.split(',').join('·')} s` : 'nur 1s');
   // Folds nur ableitbar, wenn die Pool-Größe im Label steht und by=person.
@@ -258,6 +264,8 @@ async function _start() {
     by: _q('#trn-by').value,
     zscore: _q('#trn-zscore') ? _q('#trn-zscore').checked : true,
     burst_scales: _burstScales(),
+    window_sec: _q('#trn-window') ? parseFloat(_q('#trn-window').value) : null,
+    max_gap_ms: _q('#trn-gap') ? parseFloat(_q('#trn-gap').value) : null,
   };
   const res = await api('/training/start', 'POST', body);
   if (res && res.run_id) {

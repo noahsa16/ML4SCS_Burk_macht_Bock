@@ -20,7 +20,9 @@ from . import training_runs
 
 
 def _build_cmd(model: str, pool: str, by: str, zscore: bool, run_dir,
-               burst_scales: str | None = None) -> list[str]:
+               burst_scales: str | None = None,
+               window_sec: float | None = None,
+               max_gap_ms: float | None = None) -> list[str]:
     """Subprozess-Kommando für einen RF-LOSO-Lauf (isoliert testbar)."""
     cmd = [sys.executable, "-u", "-m", "src.training.train_loso",
            "--emit-json", "--model", model, "--pool", pool, "--by", by,
@@ -31,6 +33,11 @@ def _build_cmd(model: str, pool: str, by: str, zscore: bool, run_dir,
     # "use the CLI default 5,10,30" so we omit the flag entirely.
     if burst_scales is not None:
         cmd += ["--burst-scales", burst_scales]
+    # Feature-Build-Parameter: None = Backend-Default (gecachte 1s/2500-Windows).
+    if window_sec is not None:
+        cmd += ["--window-sec", str(window_sec)]
+    if max_gap_ms is not None:
+        cmd += ["--max-gap-ms", str(max_gap_ms)]
     return cmd
 
 
@@ -104,17 +111,21 @@ class TrainingRun:
     # ---- subprocess lifecycle ----
     async def start(self, model: str, pool: str, by: str = "person",
                     zscore: bool = True,
-                    burst_scales: str | None = None) -> dict:
+                    burst_scales: str | None = None,
+                    window_sec: float | None = None,
+                    max_gap_ms: float | None = None) -> dict:
         if self.is_busy():
             return {"error": "busy"}
         run_id = training_runs.new_run_id(model, pool)
         rdir = training_runs.run_dir(run_id)
         training_runs.write_config(
             rdir, {"model": model, "pool": pool, "by": by, "zscore": zscore,
-                   "burst_scales": burst_scales})
+                   "burst_scales": burst_scales, "window_sec": window_sec,
+                   "max_gap_ms": max_gap_ms})
         self._on_started(model, pool, run_id)
         cmd = _build_cmd(model, pool, by, zscore, rdir,
-                         burst_scales=burst_scales)
+                         burst_scales=burst_scales, window_sec=window_sec,
+                         max_gap_ms=max_gap_ms)
         self._proc = await asyncio.create_subprocess_exec(
             *cmd, cwd=str(training_runs.ROOT),
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
