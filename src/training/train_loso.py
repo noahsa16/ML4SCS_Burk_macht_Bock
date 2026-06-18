@@ -162,6 +162,36 @@ def _load_windows(session_id: str, profile: str | None = None) -> pd.DataFrame:
     return df
 
 
+def _exclude_drawing_windows(
+    all_windows: pd.DataFrame, timeline_loader=None
+) -> pd.DataFrame:
+    """Drop windows that fall inside a ``drawing`` task block.
+
+    Non-handwriting pen motion (drawing/sketching/hatching) is out of scope
+    for the writing detector; the ``drawing`` task was removed from v2 on
+    2026-06-18, but already-recorded sessions (S042/S043) still carry the
+    blocks in their marker CSVs and would otherwise enter training as the
+    writing class. Marker-driven: matches windows by ``t_center_ms`` against
+    each session's ``drawing`` blocks (half-open ``[start_ms, end_ms)``).
+    Sessions without a marker CSV (empty timeline) are left untouched.
+    """
+    if timeline_loader is None:
+        from src.evaluation.engagement import task_timeline as timeline_loader
+    keep = pd.Series(True, index=all_windows.index)
+    for sid, g in all_windows.groupby("session_id"):
+        timeline = timeline_loader(sid)
+        if timeline.empty:
+            continue
+        draw = timeline[timeline["task_id"] == "drawing"]
+        if draw.empty:
+            continue
+        t = all_windows.loc[g.index, "t_center_ms"]
+        for _, blk in draw.iterrows():
+            in_block = (t >= blk["start_ms"]) & (t < blk["end_ms"])
+            keep.loc[g.index[in_block.to_numpy()]] = False
+    return all_windows[keep].reset_index(drop=True)
+
+
 def _select_sessions(
     include_all: bool, min_windows: int, profile: str | None = None
 ) -> pd.DataFrame:
@@ -405,6 +435,7 @@ def train_loso(
     zscore_per_session: bool = True,
     pool: str = "auto",
     drop_gravity: bool = False,
+    keep_drawing: bool = False,
     on_event=None,
     run_dir: Path | None = None,
 ) -> dict:
@@ -446,6 +477,16 @@ def train_loso(
     all_windows = all_windows.merge(
         sessions[["session_id", "person_id"]], on="session_id", how="left"
     )
+
+    if not keep_drawing:
+        n_before = len(all_windows)
+        all_windows = _exclude_drawing_windows(all_windows)
+        n_dropped = n_before - len(all_windows)
+        # Why: never silent — drawing is out of scope (non-handwriting pen
+        # motion); print so the user can see how much training data it removed.
+        if n_dropped:
+            print(f"drawing-exclusion: dropped {n_dropped} window(s) "
+                  f"from drawing task blocks")
 
     pre_filter_cols = set(all_windows.columns)
     pre_filter_n = len(all_windows)
@@ -699,6 +740,13 @@ def _parse_args() -> argparse.Namespace:
         "the session selection unchanged (paired 88-vs-92 comparison on "
         "identical folds). Save paths get a *_nogravity suffix.",
     )
+    p.add_argument(
+        "--keep-drawing",
+        action="store_true",
+        help="Keep windows from `drawing` task blocks (default: exclude them). "
+        "Drawing is non-handwriting pen motion and out of scope for the "
+        "detector; use this only for ablation/reproduction.",
+    )
     p.add_argument("--n-estimators", type=int, default=200)
     p.add_argument("--random-state", type=int, default=42)
     p.add_argument(
@@ -795,6 +843,7 @@ if __name__ == "__main__":
         zscore_per_session=not args.no_zscore,
         pool=args.pool,
         drop_gravity=args.drop_gravity,
+        keep_drawing=args.keep_drawing,
         on_event=_events.json_line_emitter() if args.emit_json else None,
         run_dir=args.run_dir,
     )
