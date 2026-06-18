@@ -10,28 +10,28 @@
             <span class="trn-fl">Modell <span class="trn-q" id="trn-model-q">?</span></span>
             <select id="trn-model"></select></label>
           <label>
-            <span class="trn-fl">Pool <span class="trn-q" data-tip="legacy = 50 Hz · 88 Features (N=15). modern = 100 Hz inkl. Gravity. auto = alle Sessions, Gravity gedroppt wenn gemischt.">?</span></span>
+            <span class="trn-fl">Pool <span class="trn-q" data-tip="legacy:&#10;50 Hz · 88 Features (N=15)&#10;&#10;modern:&#10;100 Hz, inkl. Gravity-Vektor (92 Features)&#10;&#10;auto:&#10;alle Sessions; Gravity gedroppt, wenn Pools gemischt">?</span></span>
             <select id="trn-pool">
               <option value="legacy">legacy (N=15)</option>
               <option value="auto">auto</option>
               <option value="modern">modern</option>
             </select></label>
           <label>
-            <span class="trn-fl">LOSO-Achse <span class="trn-q" data-tip="person = Leave-One-Subject-Out (Generalisierung über Personen, die Headline-Metrik). session = Leave-One-Session-Out.">?</span></span>
+            <span class="trn-fl">LOSO-Achse <span class="trn-q" data-tip="by person:&#10;Leave-One-Subject-Out — Generalisierung über Personen (Headline-Metrik)&#10;&#10;by session:&#10;Leave-One-Session-Out — eine Session pro Fold">?</span></span>
             <select id="trn-by">
               <option value="person">by person</option>
               <option value="session">by session</option>
             </select></label>
           <div class="trn-opts">
             <label>
-              <span class="trn-fl">Per-Session Z-Score <span class="trn-q" data-tip="Standardisiert Features pro Session (Wrist-Größe, Handhaltung). An = Headline-Konfiguration; aus = direkt deploybar ohne Kalibrierphase.">?</span></span>
+              <span class="trn-fl">Per-Session Z-Score <span class="trn-q" data-tip="Standardisiert Features pro Session (Wrist-Größe, Handhaltung).&#10;&#10;an:&#10;Headline-Konfiguration&#10;&#10;aus:&#10;direkt deploybar, ohne Kalibrierphase">?</span></span>
               <span class="trn-switch"><input type="checkbox" id="trn-zscore" checked><span class="trn-switch-track"></span></span></label>
             <label>
-              <span class="trn-fl">max_gap_ms <span class="trn-q" data-tip="Label-Closing: Idle-Lücken ≤ diesem Wert zwischen Schreibphasen zählen als Schreibmodus. Fix bei 2500 ms — ändern bräuchte einen Feature-Rebuild.">?</span></span>
+              <span class="trn-fl">max_gap_ms <span class="trn-q" data-tip="Label-Closing: Idle-Lücken ≤ 2500 ms zwischen Schreibphasen zählen als Schreibmodus.&#10;&#10;Fix — Ändern bräuchte einen Feature-Rebuild.">?</span></span>
               <span class="trn-readonly">2500 ms · fix</span></label>
           </div>
           <label>
-            <span class="trn-fl">Burst-Skalen <span class="trn-q" data-tip="Decision-Windows, auf denen acc/AUC zusätzlich berichtet werden (kausale Glättung). 1s ist das Basis-Fenster und wird immer berichtet; 5/10/30s an- und abwählbar.">?</span></span>
+            <span class="trn-fl">Burst-Skalen <span class="trn-q" data-tip="Decision-Windows für zusätzliche acc/AUC (kausale Glättung).&#10;&#10;1s:&#10;Basis-Fenster, immer berichtet&#10;&#10;5 / 10 / 30s:&#10;an- und abwählbar">?</span></span>
             <span class="trn-chips" id="trn-burst-chips">
               <span class="trn-chip base" title="Basis-Fenster — immer berichtet">1s</span>
               <span class="trn-chip on" data-scale="5" role="button" tabindex="0" aria-pressed="true">5s</span>
