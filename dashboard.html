@@ -49,7 +49,9 @@
     </button>
     <nav class="tabs" role="tablist">
       <button type="button" class="tab active" data-page="recording"   role="tab">Recording</button>
-      <button type="button" class="tab"        data-page="focus"       role="tab">Focus</button>
+      <!-- Focus tab intentionally not listed — page slot, route, and JS module
+           stay registered (#focus still resolves), but it is hidden from the
+           tab strip. Same pattern as Admin. -->
       <button type="button" class="tab"        data-page="sessions"    role="tab">Sessions</button>
       <button type="button" class="tab"        data-page="training"    role="tab">Training</button>
       <!-- Admin tab is intentionally not listed here — the page lives at
