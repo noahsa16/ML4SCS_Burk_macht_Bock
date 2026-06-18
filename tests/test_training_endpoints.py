@@ -36,7 +36,8 @@ def test_pools_endpoint_reports_subject_counts(client, monkeypatch):
     r = client.get("/training/pools")
     assert r.status_code == 200
     body = r.json()
-    assert {"legacy", "modern", "auto"} <= {p["id"] for p in body}
+    ids = {p["id"] for p in body}
+    assert ids == {"legacy", "modern"}  # auto ist redundant, nicht angeboten
     legacy = next(p for p in body if p["id"] == "legacy")
     assert legacy["n_subjects"] == 3 and legacy["n_sessions"] == 3
 

@@ -62,7 +62,7 @@ def pools():
     # Why: lazy import — train_loso zieht sklearn; nicht beim Server-Start laden.
     from src.training import train_loso as _loso
     out = []
-    for pid in ("legacy", "modern", "auto"):
+    for pid in ("legacy", "modern"):
         try:
             prof = _loso._profile_for_pool(pid)
             s = _loso._select_sessions(include_all=False, min_windows=0, profile=prof)
