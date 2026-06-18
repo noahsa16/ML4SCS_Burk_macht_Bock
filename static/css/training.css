@@ -32,12 +32,30 @@
    vor dem Start-Button (zusätzlich zum margin-top:auto, das ihn unten hält). */
 .trn-fields { display: flex; flex-direction: column; gap: var(--space-5);
   margin-top: var(--space-4); margin-bottom: var(--space-6); }
-.trn-opts { display: flex; gap: var(--space-6); flex-wrap: wrap; align-items: flex-end; }
-.trn-config label { display: flex; flex-direction: column; gap: var(--space-1);
-  font-size: var(--text-xs); color: var(--text3); text-transform: uppercase; letter-spacing: .5px; }
-.trn-q { width: 14px; height: 14px; border: 1px solid var(--text3); border-radius: 50%;
-  font-size: 9px; display: inline-flex; align-items: center; justify-content: center;
-  color: var(--text3); cursor: help; }
+.trn-opts { display: flex; gap: var(--space-6); flex-wrap: wrap; align-items: flex-start; }
+.trn-config label { display: flex; flex-direction: column; gap: var(--space-2); }
+/* Header-Zeile: Beschriftung + ?-Icon nebeneinander (nicht gestapelt). */
+.trn-fl { display: flex; align-items: center; gap: 6px;
+  font-size: var(--text-xs); color: var(--text2); font-weight: 600;
+  text-transform: uppercase; letter-spacing: .5px; }
+.trn-q { flex: none; width: 15px; height: 15px; border: 1px solid var(--text3); border-radius: 50%;
+  font-size: 10px; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text2); cursor: help; position: relative; }
+.trn-q:hover { border-color: var(--accent); color: var(--accent); }
+/* echter Hover-Tooltip statt des flakigen nativen title-Attributs */
+.trn-q[data-tip]:hover::after {
+  content: attr(data-tip); position: absolute; left: 0; top: calc(100% + 8px); z-index: 60;
+  width: max-content; max-width: 260px; white-space: normal;
+  background: var(--text); color: var(--surface); text-align: left;
+  text-transform: none; letter-spacing: normal; font-weight: 400;
+  padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm);
+  font-size: var(--text-xs); line-height: 1.45;
+  box-shadow: 0 10px 30px oklch(0 0 0 / 0.30); pointer-events: none;
+}
+/* Z-Score-Toggle und max_gap-Text auf gleiche Höhe wie die Header-Zeile. */
+.trn-opts .trn-switch { margin-top: 2px; }
+.trn-readonly { font-family: var(--mono); font-size: var(--text-sm); color: var(--text2);
+  padding: 0; line-height: 22px; }
 
 /* preview card — live "Du startest"-Zusammenfassung */
 .trn-preview { position: relative; overflow: hidden; display: flex; flex-direction: column;
@@ -46,13 +64,13 @@
   font-style: italic; font-weight: 600; font-size: 46vh; line-height: 1; color: var(--accent);
   opacity: 0.08; pointer-events: none; user-select: none; }
 .trn-preview-eyebrow { position: relative; font-size: var(--text-xs); text-transform: uppercase;
-  letter-spacing: .5px; color: var(--text3); }
+  letter-spacing: .5px; color: var(--text2); font-weight: 600; }
 .trn-preview-model { position: relative; font-size: var(--text-xl); font-weight: 700;
   margin: 4px 0 var(--space-5); color: var(--text); }
 .trn-preview-list { position: relative; margin: 0; }
 .trn-preview-list > div { display: flex; justify-content: space-between; align-items: baseline;
   gap: var(--space-4); padding: var(--space-3) 0; border-bottom: 1px solid var(--border); }
-.trn-preview-list dt { color: var(--text3); font-size: var(--text-xs); text-transform: uppercase;
+.trn-preview-list dt { color: var(--text2); font-size: var(--text-xs); text-transform: uppercase;
   letter-spacing: .5px; }
 .trn-preview-list dd { margin: 0; color: var(--text); font-size: var(--text-base);
   font-weight: 600; text-align: right; }
@@ -115,8 +133,6 @@
   transition: transform var(--dur-fast), background var(--dur-fast); }
 .trn-switch input:checked + .trn-switch-track { background: color-mix(in oklch, var(--green) 40%, var(--surface2)); }
 .trn-switch input:checked + .trn-switch-track::after { transform: translateX(20px); background: var(--green); }
-.trn-readonly { font-family: var(--mono); font-size: var(--text-sm); color: var(--text2);
-  padding: var(--space-2) 0; }
 .trn-chips { display: flex; gap: 6px; align-items: center; }
 .trn-chip { border: 1px solid var(--border); color: var(--text3); background: var(--surface2);
   border-radius: var(--radius-pill); padding: 3px 12px; font-size: var(--text-xs);
@@ -167,8 +183,8 @@
 .trn-hw { margin-left: var(--space-4); font-family: var(--mono); font-size: var(--text-xs); color: var(--text3); }
 
 /* ── per-person grid ── */
-.trn-label { font-size: var(--text-xs); color: var(--text3); text-transform: uppercase;
-  letter-spacing: .5px; margin: var(--space-2) 0; }
+.trn-label { font-size: var(--text-xs); color: var(--text2); text-transform: uppercase;
+  letter-spacing: .5px; margin: var(--space-2) 0; font-weight: 600; }
 .trn-pg { display: grid; grid-template-columns: repeat(15, 1fr); gap: var(--space-1); }
 .trn-tile { border: 1px solid var(--border); border-radius: var(--radius-sm);
   padding: var(--space-2); text-align: center; background: var(--surface2); cursor: pointer; }
