@@ -1,6 +1,7 @@
 // Web-Training-Cockpit — Page-Modul (mount/onStatus/onShow/onHide).
 // Rendert den Live-Lauf aus dem `training`-Block des WS-Status-Ticks.
 import { api } from '/static/js/core/api.js';
+import { toast } from '/static/js/core/toast.js';
 
 let root = null;
 let _runId = null;
@@ -24,7 +25,7 @@ export function mount(container) {
   _q('#trn-start').addEventListener('click', _start);
   _q('#trn-stop').addEventListener('click', () => api('/training/stop', 'POST'));
   _q('#trn-again').addEventListener('click', _again);
-  _q('#trn-promote').addEventListener('click', () => _runId && api(`/training/runs/${_runId}/promote`, 'POST'));
+  _q('#trn-promote').addEventListener('click', () => _runId && _promoteRun(_runId));
   _q('#trn-sandbox').addEventListener('click', () => _runId && api(`/training/runs/${_runId}/sandbox`, 'POST'));
   _q('#trn-analysis').addEventListener('click', (e) => {
     const card = e.target.closest('.trn-drill');
@@ -247,34 +248,83 @@ async function _loadPools() {
 }
 
 async function _loadRuns() {
+  const tbody = _q('#trn-runs-body');
+  if (!tbody) return;
   const runs = await api('/training/runs');
-  const t = _q('#trn-runs');
-  if (!t) return;
   if (!Array.isArray(runs) || runs.length === 0) {
-    t.innerHTML = '<tr><td class="trn-muted">Noch keine Läufe.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="trn-runs-empty">Noch keine Läufe.</td></tr>';
     return;
   }
-  t.innerHTML = '<tr style="color:var(--text3);text-align:left">'
-    + '<th>Run</th><th>Modell</th><th>Pool</th><th>acc</th><th></th></tr>';
+  const fmt = (v) => (v != null) ? Number(v).toFixed(3) : '–';
+  tbody.innerHTML = '';
   for (const r of runs) {
     const tr = document.createElement('tr');
-    const acc = (r.mean_acc != null) ? Number(r.mean_acc).toFixed(3) : '–';
-    for (const txt of [r.run_id, r.model, r.pool, acc]) {
+    // Why: ganze Zeile öffnet die Insights; die Action-Buttons stoppen
+    // die Propagation, damit Promote/Delete nicht zusätzlich den Drawer öffnen.
+    tr.className = 'trn-runs-row';
+    tr.tabIndex = 0;
+    tr.setAttribute('role', 'button');
+    const when = _runWhen(r.run_id);
+    tr.addEventListener('click', () => _openRunDrawer(r));
+    tr.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _openRunDrawer(r); }
+    });
+    const cells = [
+      [when, 'mono'], [r.model || '–', ''], [r.pool || '–', ''],
+      [fmt(r.mean_acc), 'mono'], [fmt(r.mean_auc), 'mono'],
+      [(r.n_folds != null ? String(r.n_folds) : '–'), 'mono'],
+    ];
+    for (const [txt, cls] of cells) {
       const td = document.createElement('td');
-      td.style.padding = '6px 8px';
-      td.style.borderBottom = '1px solid var(--border)';
+      if (cls) td.className = cls;
       td.textContent = txt;
       tr.appendChild(td);
     }
     const td = document.createElement('td');
-    td.style.padding = '6px 8px';
-    const btn = document.createElement('button');
-    btn.className = 'trn-ghost';
-    btn.textContent = 'als Headline';
-    btn.addEventListener('click', () => api(`/training/runs/${r.run_id}/promote`, 'POST'));
-    td.appendChild(btn);
+    td.className = 'trn-runs-action';
+    const promote = document.createElement('button');
+    promote.type = 'button';
+    promote.className = 'trn-ghost';
+    promote.textContent = 'als Headline';
+    promote.addEventListener('click', (e) => { e.stopPropagation(); _promoteRun(r.run_id); });
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'trn-ghost trn-del';
+    del.textContent = 'löschen';
+    del.addEventListener('click', (e) => { e.stopPropagation(); _confirmDelete(r, when); });
+    td.appendChild(promote);
+    td.appendChild(del);
     tr.appendChild(td);
-    t.appendChild(tr);
+    tbody.appendChild(tr);
+  }
+}
+
+// run_id = "YYYY-MM-DD_HH-MM_model_pool" → "YYYY-MM-DD · HH:MM"
+function _runWhen(runId) {
+  const parts = String(runId).split('_');
+  return parts.length >= 2 ? `${parts[0]} · ${parts[1].replace('-', ':')}` : runId;
+}
+
+async function _promoteRun(runId) {
+  const res = await api(`/training/runs/${runId}/promote`, 'POST');
+  toast((res && !res.http_status) ? 'Als Headline gespeichert' : 'Promote fehlgeschlagen');
+}
+
+function _confirmDelete(run, when, after) {
+  // Why: Löschen ist nicht-reversibel — harter Bestätigungs-Gate (analog zur
+  // Spill-Verwerfen-Bestätigung auf der iPhone-Seite).
+  if (!window.confirm(`Run „${when}" löschen?\nDas Verzeichnis wird endgültig entfernt.`)) return;
+  _deleteRun(run.run_id, after);
+}
+
+async function _deleteRun(runId, after) {
+  const res = await api(`/training/runs/${runId}`, 'DELETE');
+  if (res && res.deleted) {
+    toast('Run gelöscht');
+    if (after) after();
+    _loadRuns();
+  } else {
+    toast('Löschen fehlgeschlagen');
   }
 }
 
@@ -489,8 +539,9 @@ async function _loadDetail(runId) {
   if (d.roc) _renderRoc(d.roc);
 }
 
-function _renderRoc(roc) {
-  const svg = _q('#trn-roc');
+function _renderRoc(roc) { _renderRocInto(_q('#trn-roc'), roc); }
+
+function _renderRocInto(svg, roc) {
   if (!svg || !Array.isArray(roc)) return;
   const W = 160, H = 130, pad = 18;
   const pts = roc.map(([fpr, tpr]) =>
@@ -517,6 +568,83 @@ async function _renderTasks() {
       + `<i style="width:${Math.round((t.fp + t.fn) / maxErr * 100)}%;background:${col}"></i>`
       + `${t.fp}FP/${t.fn}FN</div>`;
   }).join('');
+}
+
+// Run-Insights: ganze Run-Zeile angeklickt → cv (per-Fold), Feature-Gruppen,
+// ROC und Fehler-nach-Task in den geteilten #trn-drawer, plus Promote/Delete.
+async function _openRunDrawer(run) {
+  const d = _q('#trn-drawer');
+  d.hidden = false;
+  const when = _runWhen(run.run_id);
+  const f = (v) => (v != null) ? Number(v).toFixed(3) : '—';
+  d.innerHTML = `<button class="trn-ghost" id="trn-drawer-x">schließen</button>
+    <h2 id="trn-rd-when"></h2>
+    <div class="trn-muted" id="trn-rd-meta"></div>
+    <div class="trn-dkpi">
+      <div><b>${f(run.mean_acc)}</b><small>accuracy</small></div>
+      <div><b>${f(run.mean_auc)}</b><small>ROC-AUC</small></div>
+      <div><b>${run.n_folds != null ? run.n_folds : '—'}</b><small>Folds</small></div>
+    </div>
+    <div class="trn-label">Per-Fold</div>
+    <div id="trn-rd-folds" class="trn-muted">lädt…</div>
+    <div class="trn-label">ROC-Kurve</div>
+    <svg id="trn-rd-roc" viewBox="0 0 160 130"></svg>
+    <div class="trn-label">Feature-Gruppen-Importance</div>
+    <div id="trn-rd-feat" class="trn-muted">lädt…</div>
+    <div class="trn-label">Fehler nach Task</div>
+    <div id="trn-rd-tasks" class="trn-muted">lädt…</div>
+    <div class="trn-drawer-actions">
+      <button class="trn-ghost trn-del" id="trn-rd-del">löschen</button>
+      <button class="trn-cta" id="trn-rd-promote">als Headline speichern</button>
+    </div>`;
+  // Why: data-abgeleitete Strings via textContent (kein innerHTML-Inject).
+  d.querySelector('#trn-rd-when').textContent = when;
+  d.querySelector('#trn-rd-meta').textContent = `${run.model || '–'} · ${run.pool || '–'}`;
+  d.querySelector('#trn-drawer-x').addEventListener('click', () => { d.hidden = true; });
+  d.querySelector('#trn-rd-promote').addEventListener('click', () => _promoteRun(run.run_id));
+  d.querySelector('#trn-rd-del').addEventListener('click',
+    () => _confirmDelete(run, when, () => { d.hidden = true; }));
+
+  const det = await api(`/training/runs/${run.run_id}`);
+  if (d.hidden || d.querySelector('#trn-rd-folds') == null) return;  // zwischenzeitlich geschlossen
+  const foldsBox = d.querySelector('#trn-rd-folds');
+  if (det && !det.http_status && Array.isArray(det.cv) && det.cv.length) {
+    foldsBox.classList.remove('trn-muted');
+    const acc = (c) => Number(c.accuracy) || 0;
+    foldsBox.innerHTML = det.cv.map(c =>
+      `<div class="trn-bar">${c.held_out ?? '–'}`
+      + `<i style="width:${Math.round(acc(c) * 100)}%;background:${acc(c) >= 0.87 ? 'var(--green)' : 'var(--yellow)'}"></i>`
+      + `${f(c.accuracy)}</div>`).join('');
+  } else {
+    foldsBox.textContent = 'keine cv-Daten für diesen Run';
+  }
+  const featBox = d.querySelector('#trn-rd-feat');
+  if (det && !det.http_status && Array.isArray(det.feature_groups) && det.feature_groups.length) {
+    featBox.classList.remove('trn-muted');
+    const max = Math.max(...det.feature_groups.map(g => g.imp), 1e-9);
+    featBox.innerHTML = det.feature_groups.map(g =>
+      `<div class="trn-bar">${g.group}<i style="width:${Math.round(g.imp / max * 100)}%;background:var(--accent)"></i></div>`).join('');
+  } else {
+    featBox.textContent = 'keine Feature-Importance (Modell nicht gespeichert)';
+  }
+  if (det && Array.isArray(det.roc) && det.roc.length) _renderRocInto(d.querySelector('#trn-rd-roc'), det.roc);
+
+  const tr = await api(`/training/runs/${run.run_id}/tasks`);
+  if (d.hidden) return;
+  const tasksBox = d.querySelector('#trn-rd-tasks');
+  const tasks = (tr && tr.tasks) || [];
+  if (tasksBox && tasks.length) {
+    tasksBox.classList.remove('trn-muted');
+    const maxErr = Math.max(...tasks.map(t => t.fp + t.fn), 1);
+    tasksBox.innerHTML = tasks.slice(0, 8).map(t => {
+      const col = t.category === 'writing' ? 'var(--accent)' : 'var(--yellow)';
+      return `<div class="trn-bar">${t.task}`
+        + `<i style="width:${Math.round((t.fp + t.fn) / maxErr * 100)}%;background:${col}"></i>`
+        + `${t.fp}FP/${t.fn}FN</div>`;
+    }).join('');
+  } else if (tasksBox) {
+    tasksBox.textContent = 'keine Marker-Daten';
+  }
 }
 
 async function _openDrawer(fold) {

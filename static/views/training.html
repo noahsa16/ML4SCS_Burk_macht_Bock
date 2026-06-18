@@ -71,9 +71,27 @@
       </aside>
     </div>
 
-    <div class="trn-card">
-      <div class="trn-label">Run-Historie — nicht-destruktiv</div>
-      <table id="trn-runs" style="width:100%;border-collapse:collapse;font-size:var(--text-sm)"></table>
+    <div class="trn-runs-sec">
+      <div class="trn-runs-head">
+        <span class="trn-runs-eyebrow">/ run-historie</span>
+        <span class="trn-runs-meta">nicht-destruktiv</span>
+      </div>
+      <div class="ssn-table-frame">
+        <table class="sessions-table">
+          <thead>
+            <tr>
+              <th><span class="ssn-th-marker">a</span>Run</th>
+              <th>Modell</th>
+              <th>Pool</th>
+              <th>Accuracy</th>
+              <th>ROC-AUC</th>
+              <th>Folds</th>
+              <th aria-label="Aktion"></th>
+            </tr>
+          </thead>
+          <tbody id="trn-runs-body"></tbody>
+        </table>
+      </div>
     </div>
   </section>
 
