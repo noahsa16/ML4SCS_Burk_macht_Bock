@@ -1113,13 +1113,17 @@ schema. **`v2.json` is the current default** (server default in
 **v2 — "Hard Negatives & Edge Cases" (current SOTA).** Targets the two
 documented failure modes head-on with dedicated writing variants —
 `soft_writing` (→ the P09 soft-writer class) and `think_pause_writing`
-(→ P07's long Denkpausen) — plus `drawing`, and a battery of **hard
+(→ P07's long Denkpausen) — plus a battery of **hard
 negatives** in the `idle` class designed to look writing-like on the
 wrist IMU: `phone_typing`, `phone_scrolling`, `keyboard_typing`,
 `pen_fidgeting` (the documented phone-typing/fidget confound), and
-`gesturing`. 6 writing + 6 idle tasks, `duration_jitter_pct=0.15`
-(±15 % sum-preserving). Net schedule W-I-W-I… (~26.5 min) — notably
-longer than v1's ~15 min. Both the 6 writing tasks **and** the 6 idle
+`gesturing`. 5 writing + 6 idle tasks, `duration_jitter_pct=0.15`
+(±15 % sum-preserving). Net schedule W-I-W-I… (~25 min) — notably
+longer than v1's ~15 min. (A `drawing` task was dropped 2026-06-18:
+non-handwriting pen motion is out of scope for the writing detector.
+Because writing now has an odd count, `_interleave_writing_with_pauses`
+appends the leftover idle block at the end → the run closes on …W-I-I.)
+Both the 5 writing tasks **and** the 6 idle
 hard-negatives are counterbalanced per subject (see Scheduler), so the
 W-I pairings vary — which is where the carryover balance actually bites,
 since writing tasks are never adjacent in the interleaved run.
@@ -1128,12 +1132,15 @@ since writing tasks are never adjacent in the interleaved run.
 generates a **balanced Williams Latin square sized to the task count**
 (`balanced_latin_square(n)`) and applies it — by `subject_index` — to
 **both** the writing tasks and the idle blocks, then interleaves them.
-This scales to any protocol: v1's 3 writing tasks and v2's 6 both get a
+This scales to any protocol: v1's 3 writing tasks and v2's 5 both get a
 proper counterbalance (no special-casing, no random fallback when a
 `subject_index` is present). v1's writing tasks are `abschreiben`
 (text copy), `math`, `free_writing` — each 240 s — separated by pause
-blocks (W-P-W-P-W, ~15 min). v2 weaves its 6 writing + 6 idle tasks
-into W-I-W-I… (~26.5 min).
+blocks (W-P-W-P-W, ~15 min). v2 weaves its 5 writing + 6 idle tasks
+into W-I-W-I… (~25 min). Note v2's odd writing count: `balanced_latin_square(5)`
+yields 2·5 = 10 rows (idle stays at 6), so the full counterbalance cycle
+spans lcm(10, 6) = 30 subjects rather than 6 — Williams balance still holds
+within each group.
 
 **State machine.** `new_runtime(protocol, subject_index)` constructs
 the ordered task list; `state.study` tracks `phase`,

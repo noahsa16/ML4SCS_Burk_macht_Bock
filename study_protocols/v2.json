@@ -70,16 +70,6 @@
       ]
     },
     {
-      "id": "drawing",
-      "label": "Zeichnen & Skizzieren",
-      "category": "writing",
-      "duration_seconds": 120,
-      "instances": 1,
-      "instruction": "Zeichne mit dem Stift auf das Papier: zuerst ein Haus mit Garten, dann geometrische Formen (Kreise, Dreiecke, Spiralen), dann schraffiere eine Fläche aus. Kein Text — nur zeichnen.",
-      "content_type": "text",
-      "content": "Frei zeichnen: Haus, Formen, Spiralen, Schraffuren. Qualität ist egal."
-    },
-    {
       "id": "phone_typing",
       "label": "Handy tippen",
       "category": "idle",
