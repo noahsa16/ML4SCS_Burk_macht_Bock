@@ -213,7 +213,10 @@ async function _loadModels() {
 
 function _syncModelTooltip() {
   const opt = _q('#trn-model').selectedOptions[0];
-  _q('#trn-model-q').title = opt ? (opt.dataset.desc || '') : '';
+  const q = _q('#trn-model-q');
+  const desc = opt ? (opt.dataset.desc || '') : '';
+  if (desc) q.setAttribute('data-tip', desc);
+  else q.removeAttribute('data-tip');  // Why: leeres data-tip würde eine leere Tooltip-Box zeigen.
 }
 
 async function _loadRuns() {
