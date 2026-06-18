@@ -51,6 +51,27 @@ def test_build_cmd_zscore_flag():
     assert "--no-zscore" in off
 
 
+def test_build_cmd_burst_scales():
+    cmd = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r",
+                        burst_scales="5,30")
+    i = cmd.index("--burst-scales")
+    assert cmd[i + 1] == "5,30"
+
+
+def test_build_cmd_burst_scales_default_omits_flag():
+    cmd = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r")
+    assert "--burst-scales" not in cmd
+
+
+def test_build_cmd_burst_scales_empty_is_passed_through():
+    # Why: "" is meaningful (report only the 1 s base) and must reach the CLI,
+    # distinct from None (use the backend default 5,10,30).
+    cmd = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r",
+                        burst_scales="")
+    i = cmd.index("--burst-scales")
+    assert cmd[i + 1] == ""
+
+
 def test_error_event_sets_error_phase():
     run = tr.TrainingRun()
     run._on_started("rf", "legacy", "rid")

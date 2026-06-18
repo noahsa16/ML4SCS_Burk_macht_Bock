@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from src.training.train_loso import _causal_rolling_mean
+from src.training.train_loso import _causal_rolling_mean, _parse_burst_scales
 
 
 def test_causal_rolling_mean_is_trailing():
@@ -31,3 +31,20 @@ def test_causal_rolling_mean_does_not_use_future():
     assert np.allclose(sm_base[:4], sm_alt[:4])
     # And the perturbation does change the present/future positions:
     assert not np.allclose(sm_base[4:], sm_alt[4:])
+
+
+def test_parse_burst_scales_basic():
+    assert _parse_burst_scales("5,10,30") == (5.0, 10.0, 30.0)
+
+
+def test_parse_burst_scales_strips_sorts_dedupes():
+    assert _parse_burst_scales(" 30, 5 ,5, 10 ") == (5.0, 10.0, 30.0)
+
+
+def test_parse_burst_scales_drops_nonpositive():
+    assert _parse_burst_scales("0,-3,5") == (5.0,)
+
+
+def test_parse_burst_scales_empty_is_no_burst():
+    assert _parse_burst_scales("") == ()
+    assert _parse_burst_scales("  ") == ()

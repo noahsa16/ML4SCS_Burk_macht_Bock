@@ -70,6 +70,25 @@ TRAINABLE_VERDICTS = {"trainable", "usable"}
 BURST_SCALES_SEC: tuple[float, ...] = (5.0, 10.0, 30.0)
 
 
+def _parse_burst_scales(spec: str) -> tuple[float, ...]:
+    """Parse a comma-separated burst-scale spec into a sorted, deduped tuple.
+
+    ``"5,10,30"`` → ``(5.0, 10.0, 30.0)``. Whitespace tolerant, non-positive
+    values dropped, empty string → ``()`` (= report only the 1 s base window).
+    The 1 s per-window metric is always reported separately and is not a burst
+    scale, so it need not appear here.
+    """
+    vals = []
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        v = float(part)
+        if v > 0:
+            vals.append(v)
+    return tuple(sorted(set(vals)))
+
+
 def _filter_pool(
     all_windows: pd.DataFrame, pool: str, drop_gravity: bool = False
 ) -> pd.DataFrame:
@@ -322,6 +341,7 @@ def _fit_eval_fold(
     feature_cols: list[str],
     n_estimators: int,
     random_state: int,
+    burst_scales: tuple[float, ...] = BURST_SCALES_SEC,
 ) -> dict | None:
     """Train on train_df, evaluate on test_df. Returns None if test is single-class."""
     y_test = test_df["label"].to_numpy()
@@ -375,7 +395,7 @@ def _fit_eval_fold(
     except ValueError:
         auc = float("nan")
 
-    bursts = _burst_metrics(y_proba, y_test, test_df)
+    bursts = _burst_metrics(y_proba, y_test, test_df, scales_sec=burst_scales)
 
     return {
         "n_train": len(train_df),
@@ -436,6 +456,7 @@ def train_loso(
     pool: str = "auto",
     drop_gravity: bool = False,
     keep_drawing: bool = False,
+    burst_scales: tuple[float, ...] = BURST_SCALES_SEC,
     on_event=None,
     run_dir: Path | None = None,
 ) -> dict:
@@ -535,7 +556,8 @@ def train_loso(
         print(f"\n--- Fold: held-out {by}={held_out} (sessions={held_out_sessions}) ---")
         try:
             res = _fit_eval_fold(
-                train_df, test_df, feature_cols, n_estimators, random_state
+                train_df, test_df, feature_cols, n_estimators, random_state,
+                burst_scales=burst_scales,
             )
         except KeyboardInterrupt:
             print("\n[stop] KeyboardInterrupt — finalisiere fertige Folds…")
@@ -747,6 +769,13 @@ def _parse_args() -> argparse.Namespace:
         "Drawing is non-handwriting pen motion and out of scope for the "
         "detector; use this only for ablation/reproduction.",
     )
+    p.add_argument(
+        "--burst-scales",
+        default=None,
+        help="Comma-separated decision-window scales in seconds for burst "
+        "aggregation (default: 5,10,30). The 1 s per-window metric is always "
+        "reported. Empty string reports only the 1 s base.",
+    )
     p.add_argument("--n-estimators", type=int, default=200)
     p.add_argument("--random-state", type=int, default=42)
     p.add_argument(
@@ -844,6 +873,8 @@ if __name__ == "__main__":
         pool=args.pool,
         drop_gravity=args.drop_gravity,
         keep_drawing=args.keep_drawing,
+        burst_scales=(_parse_burst_scales(args.burst_scales)
+                      if args.burst_scales is not None else BURST_SCALES_SEC),
         on_event=_events.json_line_emitter() if args.emit_json else None,
         run_dir=args.run_dir,
     )
