@@ -52,6 +52,27 @@ def models():
     return registry.list_models()
 
 
+@router.get("/pools")
+def pools():
+    """Probanden-/Session-Zahl je Pool (für die Live-Vorschau, N=x).
+
+    Spiegelt die LOSO-Session-Auswahl (verdict/min-windows-Gates) und zählt die
+    eindeutigen Probanden — n_subjects = Anzahl LOSO-Folds bei by-person.
+    """
+    # Why: lazy import — train_loso zieht sklearn; nicht beim Server-Start laden.
+    from src.training import train_loso as _loso
+    out = []
+    for pid in ("legacy", "modern", "auto"):
+        try:
+            prof = _loso._profile_for_pool(pid)
+            s = _loso._select_sessions(include_all=False, min_windows=0, profile=prof)
+            n_subj = int(s["person_id"].nunique()) if "person_id" in s.columns else 0
+            out.append({"id": pid, "n_subjects": n_subj, "n_sessions": int(len(s))})
+        except Exception:
+            out.append({"id": pid, "n_subjects": 0, "n_sessions": 0})
+    return out
+
+
 @router.get("/current")
 def current():
     return training_mod.run.snapshot()

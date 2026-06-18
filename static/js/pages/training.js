@@ -4,6 +4,7 @@ import { api } from '/static/js/core/api.js';
 
 let root = null;
 let _runId = null;
+let _poolN = {};  // pool-id -> {n_subjects, n_sessions} aus /training/pools
 let _viewingIdle = true;     // true → onStatus lässt den idle-Screen stehen
 let _detailLoadedFor = null; // run_id, für den die Done-Analyse schon geholt wurde
 
@@ -11,7 +12,7 @@ export function mount(container) {
   root = container;
   _loadModels();
   _loadRuns();
-  _enhanceSelect(_q('#trn-pool'));
+  _loadPools();  // fetch N je Pool, dann Pool-Dropdown enhancen (Labels mit N)
   _enhanceSelect(_q('#trn-by'));
   _enhanceSelect(_q('#trn-window'));
   _enhanceSelect(_q('#trn-gap'));
@@ -85,7 +86,9 @@ function _enhanceSelect(sel) {
     b.setAttribute('aria-selected', String(o.selected));
     if (!o.disabled) b.addEventListener('click', () => {
       sel.value = o.value;
-      sel.dispatchEvent(new Event('change'));
+      // Why: bubbles:true, sonst erreicht das change-Event den root-Listener
+      // (_updatePreview) nicht — die Live-Vorschau bliebe stehen.
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
       _closeAllDropdowns();
     });
     return b;
@@ -172,11 +175,13 @@ function _updatePreview() {
   _setText('#trn-pv-gap', `${gap} ms`);
   const scales = _burstScales();
   _setText('#trn-pv-burst', scales ? `1s + ${scales.split(',').join('·')} s` : 'nur 1s');
-  // Folds nur ableitbar, wenn die Pool-Größe im Label steht und by=person.
-  const m = pool && pool.selectedOptions[0]
-    ? pool.selectedOptions[0].textContent.match(/N=(\d+)/) : null;
-  _setText('#trn-pv-est', (m && by && by.value === 'person')
-    ? `≈ wenige Minuten · ${m[1]} Folds` : 'LOSO-Lauf');
+  // Probanden (N) + Fold-Zahl aus /training/pools — immer gezeigt, datengetrieben.
+  const counts = pool && pool.value ? _poolN[pool.value] : null;
+  _setText('#trn-pv-subjects', counts ? `N=${counts.n_subjects}` : '—');
+  const folds = counts
+    ? (by && by.value === 'session' ? counts.n_sessions : counts.n_subjects)
+    : null;
+  _setText('#trn-pv-est', folds ? `≈ wenige Minuten · ${folds} Folds` : 'LOSO-Lauf');
 }
 
 const _FAMILY_LABEL = {
@@ -223,6 +228,22 @@ function _syncModelTooltip() {
   const desc = opt ? (opt.dataset.desc || '') : '';
   if (desc) q.setAttribute('data-tip', desc);
   else q.removeAttribute('data-tip');  // Why: leeres data-tip würde eine leere Tooltip-Box zeigen.
+}
+
+async function _loadPools() {
+  const sel = _q('#trn-pool');
+  try {
+    const pools = await api('/training/pools');
+    if (Array.isArray(pools)) {
+      // Why: N nur in der Probanden-Zeile der Vorschau führen, nicht (hardcoded
+      // oder injiziert) im Pool-Label — eine Quelle für die Probandenzahl.
+      for (const p of pools) {
+        _poolN[p.id] = { n_subjects: p.n_subjects, n_sessions: p.n_sessions };
+      }
+    }
+  } catch { /* offline → Probanden-Zeile bleibt "—" */ }
+  _enhanceSelect(sel);  // nach dem Label-Update, damit das Panel N zeigt
+  _updatePreview();
 }
 
 async function _loadRuns() {

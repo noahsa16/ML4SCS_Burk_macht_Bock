@@ -21,6 +21,26 @@ def test_models_endpoint_lists_rf(client):
     assert any(m["id"] == "rf" for m in r.json())
 
 
+def test_pools_endpoint_reports_subject_counts(client, monkeypatch):
+    import pandas as pd
+    from src.training import train_loso as loso
+
+    def fake_select(include_all, min_windows, profile=None):
+        # legacy-Profil (50hz) -> 3 Probanden; sonst 1.
+        if profile and "50" in str(profile):
+            return pd.DataFrame({"session_id": ["S1", "S2", "S3"],
+                                 "person_id": ["P1", "P2", "P3"]})
+        return pd.DataFrame({"session_id": ["S9"], "person_id": ["P9"]})
+
+    monkeypatch.setattr(loso, "_select_sessions", fake_select)
+    r = client.get("/training/pools")
+    assert r.status_code == 200
+    body = r.json()
+    assert {"legacy", "modern", "auto"} <= {p["id"] for p in body}
+    legacy = next(p for p in body if p["id"] == "legacy")
+    assert legacy["n_subjects"] == 3 and legacy["n_sessions"] == 3
+
+
 def test_start_rejects_invalid_pool(client):
     r = client.post("/training/start", json={"model": "rf", "pool": "nonsense"})
     assert r.status_code == 400
