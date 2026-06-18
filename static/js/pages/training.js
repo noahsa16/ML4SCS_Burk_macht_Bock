@@ -11,6 +11,13 @@ export function mount(container) {
   root = container;
   _loadModels();
   _loadRuns();
+  _enhanceSelect(_q('#trn-pool'));
+  _enhanceSelect(_q('#trn-by'));
+  _wireBurstChips();
+  root.addEventListener('change', _updatePreview);  // Why: select/toggle bubbeln 'change'
+  document.addEventListener('click', _onDocClick);
+  document.addEventListener('keydown', _onDocKey);
+  _updatePreview();
   _q('#trn-start').addEventListener('click', _start);
   _q('#trn-stop').addEventListener('click', () => api('/training/stop', 'POST'));
   _q('#trn-again').addEventListener('click', _again);
@@ -24,9 +31,147 @@ export function mount(container) {
 }
 
 export function onShow() { _loadRuns(); }
-export function onHide() {}
+export function onHide() { _closeAllDropdowns(); }
 
 function _q(sel) { return root.querySelector(sel); }
+
+// ── Custom dropdown: schöne Liste über dem versteckten nativen <select>. ──
+// Das <select> bleibt die Wahrheit (Wert, change-Event, Tooltip-Sync); das
+// Panel spiegelt nur dessen Optionen (inkl. optgroup-Header + disabled).
+function _enhanceSelect(sel) {
+  if (!sel || sel.dataset.enhanced) return;
+  sel.dataset.enhanced = '1';
+
+  const dd = document.createElement('div');
+  dd.className = 'trn-dd';
+  sel.parentNode.insertBefore(dd, sel);
+  dd.appendChild(sel);
+  sel.classList.add('trn-dd-native');
+  sel.setAttribute('aria-hidden', 'true');
+  sel.tabIndex = -1;
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'trn-dd-trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.innerHTML = '<span class="trn-dd-value"></span>'
+    + '<svg class="trn-dd-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    + 'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+  dd.appendChild(trigger);
+
+  const panel = document.createElement('div');
+  panel.className = 'trn-dd-panel';
+  panel.setAttribute('role', 'listbox');
+  panel.hidden = true;
+  panel.innerHTML = '<span class="trn-dd-nub"></span>';
+  dd.appendChild(panel);
+
+  const valEl = trigger.querySelector('.trn-dd-value');
+  const syncValue = () => {
+    const opt = sel.selectedOptions[0];
+    valEl.textContent = opt ? opt.textContent : '—';
+  };
+  const mkOpt = (o) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'trn-dd-opt';
+    b.setAttribute('role', 'option');
+    b.textContent = o.textContent;
+    if (o.title) b.title = o.title;
+    b.disabled = o.disabled;
+    b.setAttribute('aria-selected', String(o.selected));
+    if (!o.disabled) b.addEventListener('click', () => {
+      sel.value = o.value;
+      sel.dispatchEvent(new Event('change'));
+      _closeAllDropdowns();
+    });
+    return b;
+  };
+  const buildPanel = () => {
+    panel.querySelectorAll('.trn-dd-group, .trn-dd-opt').forEach(n => n.remove());
+    for (const child of sel.children) {
+      if (child.tagName === 'OPTGROUP') {
+        const h = document.createElement('div');
+        h.className = 'trn-dd-group';
+        h.textContent = child.label;
+        panel.appendChild(h);
+        for (const o of child.children) panel.appendChild(mkOpt(o));
+      } else if (child.tagName === 'OPTION') {
+        panel.appendChild(mkOpt(child));
+      }
+    }
+  };
+  dd._close = () => {
+    panel.hidden = true; dd.classList.remove('open');
+    trigger.setAttribute('aria-expanded', 'false');
+  };
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (dd.classList.contains('open')) { dd._close(); return; }
+    _closeAllDropdowns();
+    buildPanel();
+    panel.hidden = false; dd.classList.add('open');
+    trigger.setAttribute('aria-expanded', 'true');
+  });
+
+  sel.addEventListener('change', syncValue);
+  syncValue();
+}
+
+function _closeAllDropdowns() {
+  if (!root) return;
+  root.querySelectorAll('.trn-dd.open').forEach(d => d._close && d._close());
+}
+function _onDocClick(e) {
+  if (root && !e.target.closest('.trn-dd')) _closeAllDropdowns();
+}
+function _onDocKey(e) { if (e.key === 'Escape') _closeAllDropdowns(); }
+
+function _wireBurstChips() {
+  const chips = _q('#trn-burst-chips');
+  if (!chips) return;
+  for (const chip of chips.querySelectorAll('.trn-chip[data-scale]')) {
+    const toggle = () => {
+      const on = chip.classList.toggle('on');
+      chip.setAttribute('aria-pressed', String(on));
+      _updatePreview();
+    };
+    chip.addEventListener('click', toggle);
+    chip.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+  }
+}
+function _burstScales() {
+  const chips = _q('#trn-burst-chips');
+  if (!chips) return null;
+  return [...chips.querySelectorAll('.trn-chip[data-scale].on')]
+    .map(c => c.dataset.scale).join(',');
+}
+
+function _setText(sel, v) { const e = _q(sel); if (e) e.textContent = v; }
+
+// Live-Vorschau rechts: spiegelt die aktuelle Auswahl in Prosa.
+function _updatePreview() {
+  if (!root || !_q('#trn-preview')) return;
+  const model = _q('#trn-model'), pool = _q('#trn-pool'), by = _q('#trn-by');
+  const modelTxt = (model && model.selectedOptions[0])
+    ? model.selectedOptions[0].textContent.split(' · ')[0] : '—';
+  _setText('#trn-pv-model', modelTxt);
+  _setText('#trn-pv-pool', (pool && pool.selectedOptions[0])
+    ? pool.selectedOptions[0].textContent : '—');
+  _setText('#trn-pv-axis', (by && by.selectedOptions[0])
+    ? `LOSO ${by.selectedOptions[0].textContent}` : '—');
+  _setText('#trn-pv-z', (_q('#trn-zscore') && _q('#trn-zscore').checked) ? 'an' : 'aus');
+  const scales = _burstScales();
+  _setText('#trn-pv-burst', scales ? `1s + ${scales.split(',').join('·')} s` : 'nur 1s');
+  // Folds nur ableitbar, wenn die Pool-Größe im Label steht und by=person.
+  const m = pool && pool.selectedOptions[0]
+    ? pool.selectedOptions[0].textContent.match(/N=(\d+)/) : null;
+  _setText('#trn-pv-est', (m && by && by.value === 'person')
+    ? `≈ wenige Minuten · ${m[1]} Folds` : 'LOSO-Lauf');
+}
 
 const _FAMILY_LABEL = {
   classical: 'Klassisch · 88/92 Features',
@@ -62,6 +207,8 @@ async function _loadModels() {
   if (firstEnabled) sel.value = firstEnabled.id;
   _syncModelTooltip();
   sel.addEventListener('change', _syncModelTooltip);
+  _enhanceSelect(sel);  // Why: nach dem Befüllen, damit das Panel die Optgroups spiegelt.
+  _updatePreview();
 }
 
 function _syncModelTooltip() {
@@ -107,6 +254,7 @@ async function _start() {
     pool: _q('#trn-pool').value,
     by: _q('#trn-by').value,
     zscore: _q('#trn-zscore') ? _q('#trn-zscore').checked : true,
+    burst_scales: _burstScales(),
   };
   const res = await api('/training/start', 'POST', body);
   if (res && res.run_id) {

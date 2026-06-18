@@ -23,6 +23,8 @@ class StartBody(BaseModel):
     pool: str = "legacy"
     by: str = "person"
     zscore: bool = True
+    # None = backend default (5,10,30); "" = only the 1 s base; else CSV "5,30".
+    burst_scales: str | None = None
 
 
 def _feature_group(name: str) -> str:
@@ -60,7 +62,8 @@ async def start(body: StartBody):
         raise HTTPException(400, f"model '{body.model}' runner not yet wired (post-MVP)")
     if training_mod.run.is_busy():
         raise HTTPException(409, "a training run is already in progress")
-    return await training_mod.run.start(body.model, body.pool, body.by, body.zscore)
+    return await training_mod.run.start(body.model, body.pool, body.by,
+                                        body.zscore, body.burst_scales)
 
 
 @router.post("/stop")
