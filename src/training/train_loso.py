@@ -54,6 +54,7 @@ from sklearn.metrics import (
 from src.features.gravity import GRAVITY_FEATURE_NAMES
 from src.profiles import find_windows
 from src.features.windows import load_session_windows
+from src.features import param_cache as _param_cache
 from src.training import events as _events
 
 ROOT = Path(__file__).parents[2]
@@ -457,6 +458,9 @@ def train_loso(
     drop_gravity: bool = False,
     keep_drawing: bool = False,
     burst_scales: tuple[float, ...] = BURST_SCALES_SEC,
+    window_sec: float = _param_cache.DEFAULT_WINDOW_SEC,
+    stride_sec: float = _param_cache.DEFAULT_STRIDE_SEC,
+    max_gap_ms: float = _param_cache.DEFAULT_MAX_GAP_MS,
     on_event=None,
     run_dir: Path | None = None,
 ) -> dict:
@@ -491,10 +495,23 @@ def train_loso(
         f"{len(sessions)} session(s) — groups: {groups}"
     )
 
-    all_windows = pd.concat(
-        [_load_windows(s, profile) for s in sessions["session_id"].tolist()],
-        ignore_index=True,
-    )
+    sids = sessions["session_id"].tolist()
+    if _param_cache.is_default_params(window_sec, stride_sec, max_gap_ms):
+        frames = [_load_windows(s, profile) for s in sids]
+    else:
+        # Why: Feature-Fenster/Gap sind Build-Parameter — der kanonische
+        # windows/{profile}/-Cache bleibt unangetastet, abweichende Kombis
+        # liegen keyed im Param-Cache (einmal bauen, wiederverwenden).
+        print(f"feature-params: window={window_sec}s stride={stride_sec}s "
+              f"gap={int(max_gap_ms)}ms — Param-Cache (kanonischer Cache unberührt)")
+        frames = []
+        for s in sids:
+            path = _param_cache.ensure_param_windows(
+                s, pool, window_sec, stride_sec, max_gap_ms)
+            df = pd.read_csv(path)
+            df["session_id"] = s
+            frames.append(df)
+    all_windows = pd.concat(frames, ignore_index=True)
     all_windows = all_windows.merge(
         sessions[["session_id", "person_id"]], on="session_id", how="left"
     )
@@ -776,6 +793,17 @@ def _parse_args() -> argparse.Namespace:
         "aggregation (default: 5,10,30). The 1 s per-window metric is always "
         "reported. Empty string reports only the 1 s base.",
     )
+    p.add_argument(
+        "--window-sec", type=float, default=_param_cache.DEFAULT_WINDOW_SEC,
+        help="Feature-Fenstergröße in Sekunden (Default 1.0). Stride = window/2 "
+        "(50%% Overlap). Abweichend vom Default → Features werden in einen keyed "
+        "Param-Cache gebaut, der kanonische windows/-Cache bleibt unberührt.",
+    )
+    p.add_argument(
+        "--max-gap-ms", type=float, default=_param_cache.DEFAULT_MAX_GAP_MS,
+        help="Label-Closing-Gap in ms (Default 2500). Idle-Lücken ≤ diesem Wert "
+        "zwischen Schreibphasen zählen als Schreibmodus.",
+    )
     p.add_argument("--n-estimators", type=int, default=200)
     p.add_argument("--random-state", type=int, default=42)
     p.add_argument(
@@ -875,6 +903,9 @@ if __name__ == "__main__":
         keep_drawing=args.keep_drawing,
         burst_scales=(_parse_burst_scales(args.burst_scales)
                       if args.burst_scales is not None else BURST_SCALES_SEC),
+        window_sec=args.window_sec,
+        stride_sec=args.window_sec / 2.0,  # 50% Overlap, wie im Window-Sweep
+        max_gap_ms=args.max_gap_ms,
         on_event=_events.json_line_emitter() if args.emit_json else None,
         run_dir=args.run_dir,
     )

@@ -22,13 +22,26 @@
               <option value="person">by person</option>
               <option value="session">by session</option>
             </select></label>
+          <label>
+            <span class="trn-fl">Feature-Fenster <span class="trn-q" data-tip="Fenstergröße, über die die 88 Features gerechnet werden (FFT-Auflösung + Statistik-Basis). Stride = Fenster/2.&#10;&#10;1 s:&#10;Standard — feinste Zeitauflösung (gecacht)&#10;&#10;3 / 5 s:&#10;mehr Längs-Kontext pro Fenster&#10;&#10;≠ Burst — das glättet erst die Predictions danach.">?</span></span>
+            <select id="trn-window">
+              <option value="1">1 s · Standard</option>
+              <option value="3">3 s</option>
+              <option value="5">5 s</option>
+            </select></label>
           <div class="trn-opts">
             <label>
               <span class="trn-fl">Per-Session Z-Score <span class="trn-q" data-tip="Standardisiert Features pro Session (Wrist-Größe, Handhaltung).&#10;&#10;an:&#10;Headline-Konfiguration&#10;&#10;aus:&#10;direkt deploybar, ohne Kalibrierphase">?</span></span>
               <span class="trn-switch"><input type="checkbox" id="trn-zscore" checked><span class="trn-switch-track"></span></span></label>
-            <label>
-              <span class="trn-fl">max_gap_ms <span class="trn-q" data-tip="Label-Closing: Idle-Lücken ≤ 2500 ms zwischen Schreibphasen zählen als Schreibmodus.&#10;&#10;Fix — Ändern bräuchte einen Feature-Rebuild.">?</span></span>
-              <span class="trn-readonly">2500 ms · fix</span></label>
+            <label class="trn-grow">
+              <span class="trn-fl">max_gap_ms <span class="trn-q" data-tip="Label-Closing: Idle-Lücken ≤ diesem Wert zwischen Schreibphasen zählen als Schreibmodus.&#10;&#10;2500 ms:&#10;Standard (Headline, gecacht)&#10;&#10;niedriger:&#10;strenger — nur kurze Mikropausen zählen">?</span></span>
+              <select id="trn-gap">
+                <option value="300">300 ms</option>
+                <option value="1000">1000 ms</option>
+                <option value="2000">2000 ms</option>
+                <option value="2500" selected>2500 ms · Standard</option>
+                <option value="3000">3000 ms</option>
+              </select></label>
           </div>
           <label>
             <span class="trn-fl">Burst-Skalen <span class="trn-q" data-tip="Decision-Windows für zusätzliche acc/AUC (kausale Glättung).&#10;&#10;1s:&#10;Basis-Fenster, immer berichtet&#10;&#10;5 / 10 / 30s:&#10;an- und abwählbar">?</span></span>
@@ -49,6 +62,8 @@
         <dl class="trn-preview-list">
           <div><dt>Daten</dt><dd id="trn-pv-pool">—</dd></div>
           <div><dt>Auswertung</dt><dd id="trn-pv-axis">—</dd></div>
+          <div><dt>Feature-Fenster</dt><dd id="trn-pv-window">—</dd></div>
+          <div><dt>Label-Gap</dt><dd id="trn-pv-gap">—</dd></div>
           <div><dt>Z-Score</dt><dd id="trn-pv-z">—</dd></div>
           <div><dt>Burst-Skalen</dt><dd id="trn-pv-burst">—</dd></div>
         </dl>

@@ -25,6 +25,9 @@ class StartBody(BaseModel):
     zscore: bool = True
     # None = backend default (5,10,30); "" = only the 1 s base; else CSV "5,30".
     burst_scales: str | None = None
+    # Feature-Build-Parameter; None = gecachte Defaults (1 s Fenster / 2500 ms gap).
+    window_sec: float | None = None
+    max_gap_ms: float | None = None
 
 
 def _feature_group(name: str) -> str:
@@ -63,7 +66,8 @@ async def start(body: StartBody):
     if training_mod.run.is_busy():
         raise HTTPException(409, "a training run is already in progress")
     return await training_mod.run.start(body.model, body.pool, body.by,
-                                        body.zscore, body.burst_scales)
+                                        body.zscore, body.burst_scales,
+                                        body.window_sec, body.max_gap_ms)
 
 
 @router.post("/stop")
