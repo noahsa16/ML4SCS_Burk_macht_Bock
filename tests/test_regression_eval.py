@@ -47,6 +47,43 @@ def _oof_one_session(n_windows, proba_cal, label, session="S001", person="P01"):
     )
 
 
+def test_pen_truth_prefers_capture_clock_ts(tmp_path, monkeypatch):
+    """Capture-Clock-Fix: pen_truth liest ``ts`` (Capture-Uhr), nicht
+    ``local_ts_ms``. Regression-Guard — ``t_center_ms`` läuft seit dem Fix
+    auf ``ts``; läse die Pen-Wahrheit weiter ``local_ts_ms``, griffen die
+    Diagnostic-Blöcke auf Spill-Strecken (ts ≠ local_ts_ms um Minuten) die
+    falschen Samples.
+    """
+    monkeypatch.setattr(reg, "DATA_PROC", tmp_path)
+    n = 100
+    pd.DataFrame({
+        "ts": np.arange(n, dtype=float) * 20.0,
+        # local_ts_ms 5 s versetzt — Spill-Drain-Szenario
+        "local_ts_ms": np.arange(n, dtype=float) * 20.0 + 5000.0,
+        "label_writing": [1] * 60 + [0] * 40,
+    }).to_csv(tmp_path / "S009_merged.csv", index=False)
+
+    out = reg.pen_truth_per_session("S009")
+
+    assert "ts" in out.columns and "local_ts_ms" not in out.columns
+    assert out["ts"].iloc[0] == 0.0  # ts startet bei 0, local_ts_ms bei 5000
+    assert out["label_writing"].mean() == pytest.approx(0.60)
+
+
+def test_pen_pct_uses_ts_axis_when_present():
+    """``_pen_pct`` selektiert auf der ``ts``-Achse, wenn vorhanden — derselben,
+    aus der die Blockgrenzen (t_center_ms) stammen. Bei local_ts_ms-Selektion
+    läge der 5-s-versetzte Block daneben (→ NaN statt 100 %)."""
+    merged = pd.DataFrame({
+        "ts": np.arange(100, dtype=float) * 20.0,
+        "local_ts_ms": np.arange(100, dtype=float) * 20.0 + 5000.0,
+        "label_writing": [1] * 50 + [0] * 50,
+    })
+    # Block [anchor=0, 1000) auf ts → erste 50 Samples (ts 0..980), alle writing.
+    pct = reg._pen_pct(merged, block_start=0.0, block_end=1000.0, anchor=0.0)
+    assert pct == pytest.approx(100.0)
+
+
 def test_aggregate_whole_session_one_block_per_session():
     # 120 Fenster (= 60 s @ 0.5 s Stride), halb schreibend
     oof = _oof_one_session(120, [0.8] * 120, [1] * 60 + [0] * 60)

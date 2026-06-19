@@ -41,16 +41,23 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).resolve().parents[2]
 MODELS = ROOT / "models"
 
+# Why: rf_all (LOSO-Headline) ist auf per-Session-z-gescorten Features
+# trainiert und traegt KEIN eingebackenes mu/sigma. Live bekaeme es rohe
+# Features und saegte systematisch falsch vorher (Distribution-Mismatch wie
+# beim Sort-Stability-Bug: AUC plausibel, Accuracy kollabiert). Es ist von
+# einem legitimen no-zscore-Modell (rf_noah) am Bundle nicht unterscheidbar,
+# also gehoert es weder in die Auto-Fallback-Kette noch in den Picker. Nur
+# rf_noah (no-zscore) + rf_all_live (baked mu/sigma) sind live-deploybar.
 _DEFAULT_MODEL_PATHS = (
     MODELS / "rf_noah.joblib",
     MODELS / "rf_all_live.joblib",
-    MODELS / "rf_all.joblib",
 )
 
 # Why: nur Modelle, die als Live-Inferenz gemeint sind, sollen im UI-Picker
 # auftauchen. rf_S007 / rf_S013 sind Within-Session-Debug-Artefakte und
-# wuerden den Picker verschmutzen. Diese Liste ist die Whitelist.
-_USER_FACING_MODEL_NAMES = frozenset({"rf_noah", "rf_all_live", "rf_all"})
+# wuerden den Picker verschmutzen. rf_all ist bewusst ausgeschlossen (siehe
+# _DEFAULT_MODEL_PATHS: nicht live-tauglich). Diese Liste ist die Whitelist.
+_USER_FACING_MODEL_NAMES = frozenset({"rf_noah", "rf_all_live"})
 
 WINDOW_SEC = 1.0
 SPARKLINE_MAXLEN = 60  # 1 min of 1-s-ticks
@@ -198,7 +205,7 @@ class LiveInference:
     def _extract_features(self, recent: list[tuple], fs_hz: float) -> dict[str, float]:
         """Compose the live feature vector exactly like build_windows does.
 
-        88 dynamic features from the 6 IMU channels, plus the 6 gravity
+        88 dynamic features from the 6 IMU channels, plus the 4 gravity
         features when the window carries non-NaN gx/gy/gz. Slicing 1:7 vs
         7:10 keeps the IMU window at (N, 6) for _window_features regardless
         of the gravity columns.
@@ -255,9 +262,9 @@ class LiveInference:
         feature_cols = self._bundle["feature_cols"]
         is_modern = set(GRAVITY_FEATURE_NAMES).issubset(feature_cols)
 
-        # Why: ein Modern-Modell (94 Features) braucht motion.gravity. Wenn
+        # Why: ein Modern-Modell (92 Features) braucht motion.gravity. Wenn
         # der Stream keine Gravity liefert (Legacy-Watch -> NaN), wuerden die
-        # 6 Gravity-Features NaN sein und predict() gaebe Garbage zurueck.
+        # 4 Gravity-Features NaN sein und predict() gaebe Garbage zurueck.
         # Transparent skippen, analog zum rate_mismatch-Guard.
         if is_modern and np.isnan(
             np.array([row[7:10] for row in recent], dtype=float)

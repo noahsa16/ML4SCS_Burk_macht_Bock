@@ -799,7 +799,7 @@ def _parse_args() -> argparse.Namespace:
         default="auto",
         help="Session pool selection: 'auto' (include all, drop gravity if "
         "mixed), 'legacy' (no-gravity sessions only, 88 features), "
-        "'modern' (gravity-required sessions only, 94 features). "
+        "'modern' (gravity-required sessions only, 92 features). "
         "Default: auto.",
     )
     p.add_argument(

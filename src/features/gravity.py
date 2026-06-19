@@ -39,7 +39,7 @@ def _nan_features() -> dict[str, float]:
 def _gravity_window_features(window_df: pd.DataFrame) -> dict[str, float]:
     """Per-Window Features die motion.gravity nutzen.
 
-    Bei fehlenden Spalten oder NaN-Werten in der Window → alle 6
+    Bei fehlenden Spalten oder NaN-Werten in der Window → alle 4
     Features NaN (kein Crash, Caller kann filtern oder Imputation
     machen).
     """

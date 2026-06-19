@@ -48,15 +48,20 @@ def load_oof(path: Path) -> pd.DataFrame:
 
 
 def pen_truth_per_session(session_id: str) -> pd.DataFrame:
-    """Rohe Pen-Wahrheit: label_writing je 50-Hz-Sample aus merged.csv.
+    """Rohe Pen-Wahrheit: label_writing je Watch-Sample aus merged.csv.
 
-    Zeit-Achse ``local_ts_ms`` ist dieselbe, aus der windows.py
-    ``t_center_ms`` mittelt — Aggregations-Blöcke greifen ohne Umrechnung.
+    Zeit-Achse ``ts`` (per-Sample-Capture-Uhr) — dieselbe, aus der windows.py
+    seit dem Capture-Clock-Fix ``t_center_ms`` mittelt, sodass die Aggregations-
+    Blöcke ohne Umrechnung greifen. Fallback auf ``local_ts_ms`` nur für
+    Legacy-merged ohne ts-Spalte. Würde man hier weiter ``local_ts_ms`` lesen,
+    griffen die ts-basierten Blockgrenzen auf Spill-Drain-Strecken (ts ≠
+    local_ts_ms um Minuten) die falschen Samples (betrifft nur Diagnostic).
     """
     path = DATA_PROC / f"{session_id}_merged.csv"
-    df = pd.read_csv(path, usecols=["local_ts_ms", "label_writing"])
-    return df.dropna(subset=["local_ts_ms"]).sort_values(
-        "local_ts_ms"
+    df = pd.read_csv(path)
+    t_col = "ts" if "ts" in df.columns else "local_ts_ms"
+    return df[[t_col, "label_writing"]].dropna(subset=[t_col]).sort_values(
+        t_col
     ).reset_index(drop=True)
 
 
@@ -68,7 +73,10 @@ def _pen_pct(merged: pd.DataFrame, block_start: float,
     if block_end is None:
         sel = merged
     else:
-        t = merged["local_ts_ms"]
+        # Why: dieselbe Achse wie t_center_ms (= ts seit Capture-Clock-Fix);
+        # Fallback local_ts_ms für Legacy-merged / synthetische Test-Fixtures.
+        t_col = "ts" if "ts" in merged.columns else "local_ts_ms"
+        t = merged[t_col]
         # Why: Block 0 (block_start == anchor) muss die ~0.5 s vor dem
         # ersten Fenster-Zentrum mitnehmen — sonst fallen frühe Samples
         # durch den window-center-Inset still raus.
