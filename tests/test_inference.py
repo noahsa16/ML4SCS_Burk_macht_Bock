@@ -214,7 +214,7 @@ def test_clear_buffer_keeps_model():
     assert live._bundle is not None  # model still loaded
 
 
-# --- Modern-Pool (9-Kanal / 94-Feature) live inference --------------------
+# --- Modern-Pool (9-Kanal / 92-Feature) live inference --------------------
 
 def _sim_imu_modern(n: int, fs: float, t0_ms: int, seed: int = 0):
     """Like _sim_imu but yields 10-tuples incl. gx/gy/gz gravity channels.
@@ -312,7 +312,7 @@ def test_modern_model_without_gravity_flags_missing_channels(tmp_path):
 
 
 def test_feature_parity_modern_with_build_windows(tmp_path):
-    """The live 94-feature vector must match the training composition
+    """The live 92-feature vector must match the training composition
     (_window_features + _gravity_window_features) bit-for-bit."""
     import pandas as pd
 
@@ -349,3 +349,16 @@ def test_feature_parity_modern_with_build_windows(tmp_path):
         assert k in feats_live, f"missing {k} in live features"
         assert np.isclose(feats_training[k], feats_live[k], rtol=1e-6, atol=1e-9), \
             f"{k}: training={feats_training[k]} live={feats_live[k]}"
+
+
+def test_rf_all_excluded_from_live_picker():
+    """rf_all (LOSO-Headline) ist per-Session-z-gescort ohne baked mu/sigma →
+    live nicht deploybar und am Bundle nicht von einem no-zscore-Modell
+    unterscheidbar. Es darf daher nicht im Picker wählbar sein; die
+    deploybaren Modelle bleiben.
+    """
+    from src.server import inference as inf_module
+
+    assert "rf_all" not in inf_module._USER_FACING_MODEL_NAMES
+    assert "rf_all_live" in inf_module._USER_FACING_MODEL_NAMES
+    assert "rf_noah" in inf_module._USER_FACING_MODEL_NAMES

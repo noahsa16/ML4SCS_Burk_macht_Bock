@@ -34,9 +34,11 @@ def _spec(id, label, family, speed, pools, fi, causal, runner, desc, enabled=Fal
                      description=desc, enabled=enabled)
 
 
-# Volles Menü (gruppiert nach Familie). MVP: nur `rf` ist verdrahtet — die
-# übrigen Runner brauchen dieselbe on_event/run_dir-Instrumentierung wie
-# train_loso und sind bis dahin enabled=False (im UI disabled + 400-Gate).
+# Volles Menü (gruppiert nach Familie). Klassische Modelle teilen sich den
+# train_loso-Runner (via --model); die Deep-Sequenz-Modelle teilen den
+# deep-Runner (src.training.deep, --model) — beide Familien sind verdrahtet.
+# Nur Foundation (harnet) braucht noch eigene Runner-Instrumentierung und
+# bleibt enabled=False (im UI disabled + 400-Gate).
 MODELS: dict[str, ModelSpec] = {m.id: m for m in [
     _spec("rf", "RandomForest", "classical", "fast", _CLASSIC, True, True,
           "src.training.train_loso",
@@ -44,21 +46,29 @@ MODELS: dict[str, ModelSpec] = {m.id: m for m in [
           "Per-Session-Z-Score an. Feature-Gruppen-Importance verfügbar.",
           enabled=True),
     _spec("extratrees", "ExtraTrees", "classical", "fast", _CLASSIC, True, True,
-          "src.training.train_loso", "Extra-randomisierte Bäume — schnelle Tree-Alternative."),
+          "src.training.train_loso", "Extra-randomisierte Bäume — schnelle Tree-Alternative.",
+          enabled=True),
     _spec("histgb", "HistGradBoost", "classical", "fast", _CLASSIC, True, True,
-          "src.training.train_loso", "Histogram-Gradient-Boosting auf den 88 Features."),
+          "src.training.train_loso", "Histogram-Gradient-Boosting auf den 88 Features.",
+          enabled=True),
     _spec("logreg", "LogisticRegression", "classical", "fast", _CLASSIC, False, True,
-          "src.training.train_loso", "Lineares Baseline-Modell."),
+          "src.training.train_loso", "Lineares Baseline-Modell.", enabled=True),
     _spec("svm_rbf", "SVM-RBF", "classical", "slow", _CLASSIC, False, True,
-          "src.training.train_loso", "Kernel-SVM (probability=True) — langsam."),
+          "src.training.train_loso", "Kernel-SVM (probability=True) — langsam.",
+          enabled=True),
     _spec("mlp", "MLP", "classical", "slow", _CLASSIC, False, True,
-          "src.training.train_loso", "Kleines Feed-Forward-Netz auf den 88 Features."),
+          "src.training.train_loso", "Kleines Feed-Forward-Netz auf den 88 Features.",
+          enabled=True),
     _spec("cnn", "CNN", "deep", "slow", _SEQ, False, True,
-          "src.training.deep", "1D-CNN auf rohen IMU-Sequenzen (~12 min, Hintergrund)."),
+          "src.training.deep", "1D-CNN auf rohen IMU-Sequenzen (~Minuten, Hintergrund).",
+          enabled=True),
     _spec("lstm", "LSTM", "deep", "slow", _SEQ, False, True,
-          "src.training.deep", "Unidirektionales LSTM (kausal)."),
+          "src.training.deep", "Unidirektionales LSTM (kausal).", enabled=True),
     _spec("gru", "GRU", "deep", "slow", _SEQ, False, True,
-          "src.training.deep", "GRU-Sequenzmodell."),
+          "src.training.deep", "GRU-Sequenzmodell.", enabled=True),
+    _spec("tcn", "TCN", "deep", "slow", _SEQ, False, True,
+          "src.training.deep", "Dilatierte Kausal-Convs (Bai et al. 2018) — "
+          "kausal, ~6k Params.", enabled=True),
     _spec("harnet5", "harnet5 frozen", "foundation", "slow", _SEQ, False, True,
           "src.training.deep.harnet", "Oxford ssl-wearables, frozen (5-s-Fenster)."),
     _spec("harnet10", "harnet10 frozen", "foundation", "slow", _SEQ, False, True,

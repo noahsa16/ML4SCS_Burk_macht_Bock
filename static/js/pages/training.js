@@ -2,15 +2,24 @@
 // Rendert den Live-Lauf aus dem `training`-Block des WS-Status-Ticks.
 import { api } from '/static/js/core/api.js';
 import { toast } from '/static/js/core/toast.js';
+import { createSeparationLoader } from '/static/js/pages/training_loader.js';
 
 let root = null;
 let _runId = null;
 let _poolN = {};  // pool-id -> {n_subjects, n_sessions} aus /training/pools
+let _modelFamily = {};  // model-id -> family (classical|deep|foundation)
+let _est = {};  // "model|pool" -> {per_fold_sec, n_runs} aus /training/estimate
+let _loader = null;  // Lade-Animation (nur während eines laufenden Runs aktiv)
 let _viewingIdle = true;     // true → onStatus lässt den idle-Screen stehen
 let _detailLoadedFor = null; // run_id, für den die Done-Analyse schon geholt wurde
 
+// Deep-Sequenz-Modelle sind eval-only (kein sklearn-Joblib für die Live-
+// Inferenz) → Promote/Sandbox gesperrt.
+function _isDeep(model) { return _modelFamily[model] === 'deep'; }
+
 export function mount(container) {
   root = container;
+  _loader = createSeparationLoader(_q('#trn-loader'));
   _loadModels();
   _loadRuns();
   _loadPools();  // fetch N je Pool, dann Pool-Dropdown enhancen (Labels mit N)
@@ -35,7 +44,7 @@ export function mount(container) {
 }
 
 export function onShow() { _loadRuns(); }
-export function onHide() { _closeAllDropdowns(); }
+export function onHide() { _closeAllDropdowns(); if (_loader) _loader.stop(); }
 
 function _q(sel) { return root.querySelector(sel); }
 
@@ -158,31 +167,71 @@ function _burstScales() {
 
 function _setText(sel, v) { const e = _q(sel); if (e) e.textContent = v; }
 
+// Sekunden → menschenlesbare Dauer ("45 s" · "3 min" · "1 h 10 min").
+function _humanDur(sec) {
+  if (sec < 90) return `${Math.max(1, Math.round(sec))} s`;
+  if (sec < 3600) return `${Math.round(sec / 60)} min`;
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
+// Holt die Dauer-Schätzung für die aktuelle Modell/Pool-Wahl (gecacht pro
+// Kombination) und rendert die Vorschau neu. Kein Treffer im Cache → ein Fetch,
+// dann Re-Render; in-flight wird mit null markiert (kein Doppel-Fetch).
+async function _refreshEstimate() {
+  const model = _q('#trn-model'), pool = _q('#trn-pool');
+  if (!model || !pool || !model.value || !pool.value) return;
+  const key = `${model.value}|${pool.value}`;
+  if (key in _est) { _updatePreview(); return; }
+  _est[key] = null;
+  try {
+    const e = await api(`/training/estimate?model=${encodeURIComponent(model.value)}`
+      + `&pool=${encodeURIComponent(pool.value)}`);
+    _est[key] = (e && typeof e.per_fold_sec !== 'undefined')
+      ? e : { per_fold_sec: null, n_runs: 0 };
+  } catch { _est[key] = { per_fold_sec: null, n_runs: 0 }; }
+  _updatePreview();
+}
+
 // Live-Vorschau rechts: spiegelt die aktuelle Auswahl in Prosa.
 function _updatePreview() {
   if (!root || !_q('#trn-preview')) return;
   const model = _q('#trn-model'), pool = _q('#trn-pool'), by = _q('#trn-by');
+  const deep = model && _isDeep(model.value);
   const modelTxt = (model && model.selectedOptions[0])
     ? model.selectedOptions[0].textContent.split(' · ')[0] : '—';
   _setText('#trn-pv-model', modelTxt);
   _setText('#trn-pv-pool', (pool && pool.selectedOptions[0])
     ? pool.selectedOptions[0].textContent : '—');
-  _setText('#trn-pv-axis', (by && by.selectedOptions[0])
-    ? `LOSO ${by.selectedOptions[0].textContent}` : '—');
+  // Deep läuft fix: person-LOSO, 1-s-Input, feste 5/10/30-Burst — die Vorschau
+  // zeigt das statt der (gesperrten) Regler-Werte.
+  _setText('#trn-pv-axis', deep ? 'LOSO person · raw-Sequenz'
+    : ((by && by.selectedOptions[0]) ? `LOSO ${by.selectedOptions[0].textContent}` : '—'));
   _setText('#trn-pv-z', (_q('#trn-zscore') && _q('#trn-zscore').checked) ? 'an' : 'aus');
   const win = _q('#trn-window') ? parseFloat(_q('#trn-window').value) : 1;
-  _setText('#trn-pv-window', `${win} s · stride ${win / 2} s`);
+  _setText('#trn-pv-window', deep ? '1 s · raw-Sequenz (fix)' : `${win} s · stride ${win / 2} s`);
   const gap = _q('#trn-gap') ? _q('#trn-gap').value : '2500';
   _setText('#trn-pv-gap', `${gap} ms`);
   const scales = _burstScales();
-  _setText('#trn-pv-burst', scales ? `1s + ${scales.split(',').join('·')} s` : 'nur 1s');
+  _setText('#trn-pv-burst', deep ? '5·10·30 s (fix)'
+    : (scales ? `1s + ${scales.split(',').join('·')} s` : 'nur 1s'));
   // Probanden (N) + Fold-Zahl aus /training/pools — immer gezeigt, datengetrieben.
   const counts = pool && pool.value ? _poolN[pool.value] : null;
   _setText('#trn-pv-subjects', counts ? `N=${counts.n_subjects}` : '—');
   const folds = counts
     ? (by && by.value === 'session' ? counts.n_sessions : counts.n_subjects)
     : null;
-  _setText('#trn-pv-est', folds ? `≈ wenige Minuten · ${folds} Folds` : 'LOSO-Lauf');
+  // Datengetriebene Dauer aus vergangenen Läufen (per_fold_sec × Folds).
+  // Keine Historie → nur die Fold-Zahl, keine erfundene Zeit.
+  const key = (model && pool && model.value && pool.value)
+    ? `${model.value}|${pool.value}` : null;
+  const est = key ? _est[key] : null;
+  let estText;
+  if (!folds) estText = 'LOSO-Lauf';
+  else if (est && est.per_fold_sec != null)
+    estText = `≈ ${_humanDur(est.per_fold_sec * folds)} · ${folds} Folds`;
+  else estText = `${folds} Folds`;
+  _setText('#trn-pv-est', estText);
 }
 
 const _FAMILY_LABEL = {
@@ -203,14 +252,16 @@ async function _loadModels() {
     const og = document.createElement('optgroup');
     og.label = _FAMILY_LABEL[fam] || fam;
     for (const m of byFam[fam]) {
+      _modelFamily[m.id] = m.family;
       const o = document.createElement('option');
       o.value = m.id;
-      o.textContent = m.enabled
-        ? `${m.label} · ${m.speed}`
-        : `${m.label} · ${m.speed} (bald)`;
+      // Kein hartkodiertes fast/slow mehr — die Familie steht im Optgroup-Header,
+      // die echte gemessene Dauer in der Vorschau. "(bald)" = nicht verdrahtet.
+      o.textContent = m.enabled ? m.label : `${m.label} (bald)`;
       o.disabled = !m.enabled;
       o.title = m.description || '';
       o.dataset.desc = m.description || '';
+      o.dataset.family = m.family;
       og.appendChild(o);
     }
     sel.appendChild(og);
@@ -219,7 +270,28 @@ async function _loadModels() {
   if (firstEnabled) sel.value = firstEnabled.id;
   _syncModelTooltip();
   sel.addEventListener('change', _syncModelTooltip);
+  sel.addEventListener('change', _applyDeepMode);
+  sel.addEventListener('change', _refreshEstimate);  // Modellwechsel → neue Dauer-Schätzung
   _enhanceSelect(sel);  // Why: nach dem Befüllen, damit das Panel die Optgroups spiegelt.
+  _applyDeepMode();     // setzt Deep-Look + sperrt nicht zutreffende Regler (ruft _updatePreview)
+  _refreshEstimate();   // initiale Schätzung für die Default-Wahl
+  _loadRuns();          // Familien bekannt → Deep-Runs grauen ihren Promote-Button korrekt aus
+}
+
+// Deep-Modus: nicht zutreffende Regler dimmen/sperren (rein funktional, keine
+// Optik). Deep-Sequenz-Modelle laufen fix person-LOSO, 1-s-Input, 5/10/30-Burst
+// und ohne Per-Session-Z-Score (BatchNorm übernimmt) — die zugehörigen Regler
+// gelten nicht und werden gesperrt, statt still ignoriert zu werden.
+function _applyDeepMode() {
+  const sel = _q('#trn-model');
+  const deep = sel ? _isDeep(sel.value) : false;
+  const z = _q('#trn-zscore');
+  if (deep && z) z.checked = false;  // Deep-Default: kein Z-Score
+  for (const id of ['#trn-window', '#trn-by', '#trn-burst-chips']) {
+    const el = _q(id);
+    const label = el && el.closest('label');
+    if (label) label.classList.toggle('trn-ctl-off', deep);
+  }
   _updatePreview();
 }
 
@@ -243,8 +315,9 @@ async function _loadPools() {
       }
     }
   } catch { /* offline → Probanden-Zeile bleibt "—" */ }
+  sel.addEventListener('change', _refreshEstimate);  // Poolwechsel → neue Dauer-Schätzung
   _enhanceSelect(sel);  // nach dem Label-Update, damit das Panel N zeigt
-  _updatePreview();
+  _refreshEstimate();   // ruft _updatePreview, wenn die Schätzung da ist
 }
 
 async function _loadRuns() {
@@ -252,7 +325,7 @@ async function _loadRuns() {
   if (!tbody) return;
   const runs = await api('/training/runs');
   if (!Array.isArray(runs) || runs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="trn-runs-empty">Noch keine Läufe.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="trn-runs-empty">Noch keine Läufe.</td></tr>';
     return;
   }
   const fmt = (v) => (v != null) ? Number(v).toFixed(3) : '–';
@@ -273,6 +346,7 @@ async function _loadRuns() {
       [when, 'mono'], [r.model || '–', ''], [r.pool || '–', ''],
       [fmt(r.mean_acc), 'mono'], [fmt(r.mean_auc), 'mono'],
       [(r.n_folds != null ? String(r.n_folds) : '–'), 'mono'],
+      [(r.total_sec != null ? _humanDur(r.total_sec) : '–'), 'mono'],
     ];
     for (const [txt, cls] of cells) {
       const td = document.createElement('td');
@@ -286,6 +360,7 @@ async function _loadRuns() {
     promote.type = 'button';
     promote.className = 'trn-ghost';
     promote.textContent = 'als Headline';
+    if (_isDeep(r.model)) { promote.disabled = true; promote.title = 'eval-only — nicht promotebar'; }
     promote.addEventListener('click', (e) => { e.stopPropagation(); _promoteRun(r.run_id); });
     const del = document.createElement('button');
     del.type = 'button';
@@ -369,14 +444,40 @@ export function onStatus(payload) {
 
   _runId = t.run_id || _runId;
   const done = t.phase === 'done';
-  _setState(done ? 'done' : 'running');
+  const errored = t.phase === 'error';
+  // Jede nicht-laufende Phase ist terminal → das Cockpit settled, statt für
+  // immer „läuft" zu zeigen (Fix: error/abgebrochene Läufe blieben hängen).
+  const terminal = done || errored;
+  _setState(terminal ? 'done' : 'running');
+
+  // Running-Visual: Deep-Läufe zeigen ihre echte Loss-Kurve (sobald das erste
+  // Epoch-Event da ist), klassische die ambiente Trennungs-Animation. Bis Epoch-
+  // Daten eintreffen, dient der Loader auch beim Deep-Lauf als Platzhalter.
+  const hist = t.loss_hist || [];
+  const hasEpoch = !terminal && _isDeep(t.model) && t.epoch != null && hist.length > 0;
+  const epochEl = _q('#trn-epoch');
+  if (epochEl) {
+    epochEl.hidden = !hasEpoch;
+    if (hasEpoch) {
+      _q('#trn-epoch-label').textContent =
+        `Epoche ${t.epoch + 1} · loss ${Number(t.epoch_loss).toFixed(3)}`;
+      _renderLoss(hist);
+    }
+  }
+  const loaderEl = _q('#trn-loader');
+  if (loaderEl && _loader) {
+    if (!terminal && !hasEpoch) { loaderEl.hidden = false; _loader.start(); }
+    else { _loader.stop(); loaderEl.hidden = true; }
+  }
 
   _q('#trn-title').textContent = `${t.model || 'rf'} · ${t.pool || ''}`;
   const statusPill = _q('#trn-status');
-  statusPill.classList.toggle('running', !done);
-  _q('#trn-status-text').textContent = done
-    ? (t.partial ? `partial ${t.summary?.n_done ?? '?'}/${t.n}` : 'fertig')
-    : `läuft · Fold ${t.fold}/${t.n}`;
+  statusPill.classList.toggle('running', !terminal);
+  _q('#trn-status-text').textContent = errored
+    ? 'Fehler'
+    : done
+      ? (t.partial ? `gestoppt · ${t.summary?.n_done ?? t.folds?.length ?? '?'}/${t.n}` : 'fertig')
+      : (t.stopping ? 'wird gestoppt…' : `läuft · Fold ${t.fold}/${t.n}`);
   _q('#trn-folds').textContent = `${t.fold} / ${t.n}`;
 
   const s = t.summary || {};
@@ -390,18 +491,39 @@ export function onStatus(payload) {
   _renderConvergence(t.folds || [], t.n || 1);
   _q('#trn-hw').textContent = t.hw
     ? `CPU ${Math.round(t.hw.cpu_pct)}% · RAM ${Number(t.hw.ram_gb).toFixed(1)} GB` : '';
-  _q('#trn-foldnow').textContent = done ? '—' : `Fold ${t.fold} / ${t.n}`;
+  _q('#trn-foldnow').textContent = terminal ? '—' : `Fold ${t.fold} / ${t.n}`;
   const last = (t.log || [])[t.log.length - 1];
   if (last) _q('#trn-log').innerHTML = `<span class="s">/</span> ${last}`;
 
-  // Buttons
-  _q('#trn-stop').hidden = done;
-  _q('#trn-again').hidden = !done;
-  _q('#trn-promote').hidden = !done;
-  _q('#trn-sandbox').hidden = !done;
+  // Buttons. Stop blendet aus, sobald terminal; während des Stoppens deaktiviert
+  // + Label „wird gestoppt…", damit der Klick sofort quittiert wird.
+  const stopBtn = _q('#trn-stop');
+  stopBtn.hidden = terminal;
+  stopBtn.disabled = !!t.stopping && !terminal;
+  stopBtn.textContent = (!terminal && t.stopping) ? 'wird gestoppt…' : 'Stop';
+  _q('#trn-again').hidden = !terminal;
   _q('#trn-analysis').hidden = !done;
+  // Promote/Sandbox laden ein sklearn-Joblib in die Live-Inferenz — nur bei
+  // echtem done; für Deep-Runs (eval-only) sichtbar, aber ausgegraut.
+  const deepRun = _isDeep(t.model);
+  const promote = _q('#trn-promote'), sandbox = _q('#trn-sandbox');
+  promote.hidden = !done; sandbox.hidden = !done;
+  promote.disabled = deepRun; sandbox.disabled = deepRun;
+  promote.title = deepRun ? 'eval-only — Deep-Modelle sind nicht promotebar' : '';
+  sandbox.title = deepRun ? 'eval-only — Deep-Modelle laufen nicht im Live-Tracker' : '';
 
   if (done) _renderDone(t);
+  else if (errored) _renderError(t);
+}
+
+// Terminal-Fehler (Runner-Crash): Cockpit settled mit Fehlertext statt für
+// immer „läuft" zu zeigen. Nutzer-Stops landen dagegen als done(partial).
+function _renderError(t) {
+  const v = _q('#trn-verdict');
+  v.hidden = false;
+  _q('#trn-verdict-title').textContent = 'Lauf fehlgeschlagen';
+  _q('#trn-verdict-sub').textContent = t.error || 'unbekannter Fehler';
+  _q('#trn-verdict-acc').textContent = '—';
 }
 
 function _num(sel, v) { _q(sel).textContent = (v == null || Number.isNaN(v)) ? '—' : Number(v).toFixed(3); }
@@ -455,6 +577,26 @@ function _renderConvergence(folds, n) {
     `<line x1="${pad}" y1="10" x2="${pad}" y2="${H - pad}" stroke="var(--border)"/>`
     + `<line x1="${pad}" y1="${H - pad}" x2="${W - 8}" y2="${H - pad}" stroke="var(--border)"/>`
     + `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${dots}`;
+}
+
+// Echte Loss-Kurve eines Deep-Folds: fallender Verlauf, vertikal auf min..max
+// des Folds skaliert (hoher Loss oben). vector-effect, da das viewBox x-streckt.
+function _renderLoss(hist) {
+  const svg = _q('#trn-loss');
+  if (!svg || !hist.length) return;
+  const W = 160, H = 48, pad = 4, n = hist.length;
+  const losses = hist.map(h => h.loss);
+  const lo = Math.min(...losses), span = (Math.max(...losses) - lo) || 1;
+  let lx = 0, ly = 0;
+  const pts = hist.map((h, i) => {
+    lx = pad + (n <= 1 ? 0 : (i / (n - 1)) * (W - 2 * pad));
+    ly = pad + (1 - (h.loss - lo) / span) * (H - 2 * pad);
+    return `${lx},${ly}`;
+  }).join(' ');
+  svg.innerHTML =
+    `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" `
+    + `vector-effect="non-scaling-stroke" stroke-linejoin="round"/>`
+    + `<circle cx="${lx}" cy="${ly}" r="2.6" fill="var(--accent)"/>`;
 }
 
 function _renderBurst(burst) {
@@ -601,7 +743,9 @@ async function _openRunDrawer(run) {
   d.querySelector('#trn-rd-when').textContent = when;
   d.querySelector('#trn-rd-meta').textContent = `${run.model || '–'} · ${run.pool || '–'}`;
   d.querySelector('#trn-drawer-x').addEventListener('click', () => { d.hidden = true; });
-  d.querySelector('#trn-rd-promote').addEventListener('click', () => _promoteRun(run.run_id));
+  const rdPromote = d.querySelector('#trn-rd-promote');
+  if (_isDeep(run.model)) { rdPromote.disabled = true; rdPromote.title = 'eval-only — nicht promotebar'; }
+  rdPromote.addEventListener('click', () => _promoteRun(run.run_id));
   d.querySelector('#trn-rd-del').addEventListener('click',
     () => _confirmDelete(run, when, () => { d.hidden = true; }));
 

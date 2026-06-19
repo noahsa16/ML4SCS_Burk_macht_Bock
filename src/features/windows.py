@@ -71,8 +71,8 @@ def smooth_labels(
     """Morphologisches Glätten der binären Schreib-Label-Sequenz.
 
     * ``max_gap_ms``: alle ``idle``-Runs ≤ dieser Dauer, die von ``writing``
-      umgeben sind, werden zu ``writing`` (Closing). Default 300 ms fängt
-      Pen-Lift-Artefakte zwischen Buchstaben + kurze Wort-Übergänge.
+      umgeben sind, werden zu ``writing`` (Closing). Default 2500 ms =
+      Schreibmodus-Semantik (Mikropausen ≤ 2.5 s zählen als Schreiben).
     * ``max_spike_ms``: alle ``writing``-Runs ≤ dieser Dauer, die von
       ``idle`` umgeben sind, werden zu ``idle`` (Opening). Default 0 =
       kein Spike-Removal.
@@ -397,7 +397,7 @@ def main() -> None:
     # Why: label/t_center_ms sind immer Metadaten; task_id/task_category nur
     # bei Study-Sessions mit angehaengten Markern. Nur die tatsaechlich
     # vorhandenen Metadaten-Spalten abziehen -> echte Feature-Zahl (88 Legacy
-    # / 94 Modern), nicht ein um die Task-Spalten ueberhoehter Count.
+    # / 92 Modern), nicht ein um die Task-Spalten ueberhoehter Count.
     _META_COLS = {"label", "t_center_ms", "task_id", "task_category"}
     n_features = len(feats.columns) - len(_META_COLS & set(feats.columns))
     print(

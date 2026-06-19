@@ -37,19 +37,29 @@ CLI
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 
 import joblib
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import (
+    ExtraTreesClassifier,
+    HistGradientBoostingClassifier,
+    RandomForestClassifier,
+)
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     f1_score,
     roc_auc_score,
 )
+from sklearn.neural_network import MLPClassifier
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.svm import SVC
 
 from src.features.gravity import GRAVITY_FEATURE_NAMES
 from src.profiles import find_windows
@@ -336,6 +346,54 @@ def _zscore_train_pooled(
     return tr, te
 
 
+def _make_classifier(model: str, n_estimators: int, random_state: int,
+                     params: dict | None = None):
+    """Build a fresh estimator for the given registry model id.
+
+    Hyperparameters match scripts/ml/compare_models.py so the cockpit and the
+    offline panel train the same models. Linear/kernel/MLP get a StandardScaler
+    in front; tree models expose feature_importances_ (the cockpit gates the
+    importance card on registry.supports_feature_importance).
+
+    ``params`` überschreibt die Estimator-Hyperparameter (z. B. SVM ``C``/
+    ``gamma`` oder Tree ``max_depth``) — beim Pipeline-gewrappten Modell landet
+    es im ``clf``-Step. Wird vom Hyperparameter-Sweep (``--model-params``) genutzt.
+    """
+    p = params or {}
+    if model == "rf":
+        return RandomForestClassifier(**{
+            "n_estimators": n_estimators, "random_state": random_state,
+            "class_weight": "balanced", "n_jobs": -1, **p})
+    if model == "extratrees":
+        return ExtraTreesClassifier(**{
+            "n_estimators": n_estimators, "random_state": random_state,
+            "class_weight": "balanced", "n_jobs": -1, **p})
+    if model == "histgb":
+        return HistGradientBoostingClassifier(**{
+            "max_iter": 300, "learning_rate": 0.05, "random_state": random_state, **p})
+    if model == "logreg":
+        return Pipeline([
+            ("scaler", StandardScaler()),
+            ("clf", LogisticRegression(**{
+                "max_iter": 2000, "class_weight": "balanced", **p})),
+        ])
+    if model == "mlp":
+        return Pipeline([
+            ("scaler", StandardScaler()),
+            ("clf", MLPClassifier(**{
+                "hidden_layer_sizes": (64, 32), "max_iter": 300,
+                "early_stopping": True, "random_state": random_state, **p})),
+        ])
+    if model == "svm_rbf":
+        return Pipeline([
+            ("scaler", StandardScaler()),
+            ("clf", SVC(**{
+                "kernel": "rbf", "C": 1.0, "gamma": "scale",
+                "probability": True, "class_weight": "balanced", **p})),
+        ])
+    raise ValueError(f"unknown classical model id {model!r}")
+
+
 def _fit_eval_fold(
     train_df: pd.DataFrame,
     test_df: pd.DataFrame,
@@ -343,6 +401,8 @@ def _fit_eval_fold(
     n_estimators: int,
     random_state: int,
     burst_scales: tuple[float, ...] = BURST_SCALES_SEC,
+    model: str = "rf",
+    model_params: dict | None = None,
 ) -> dict | None:
     """Train on train_df, evaluate on test_df. Returns None if test is single-class."""
     y_test = test_df["label"].to_numpy()
@@ -353,12 +413,7 @@ def _fit_eval_fold(
     y_train = train_df["label"].to_numpy()
     X_test = test_df[feature_cols].to_numpy()
 
-    clf = RandomForestClassifier(
-        n_estimators=n_estimators,
-        random_state=random_state,
-        class_weight="balanced",
-        n_jobs=-1,
-    )
+    clf = _make_classifier(model, n_estimators, random_state, model_params)
     clf.fit(X_train, y_train)
 
     y_pred = clf.predict(X_test)
@@ -370,12 +425,7 @@ def _fit_eval_fold(
     # siehe docs/specs/2026-05-21-regression-schreibprozent-design.md).
     # Eigene Estimator-Instanz, damit der Headline-clf unangetastet bleibt.
     cal = CalibratedClassifierCV(
-        RandomForestClassifier(
-            n_estimators=n_estimators,
-            random_state=random_state,
-            class_weight="balanced",
-            n_jobs=-1,
-        ),
+        _make_classifier(model, n_estimators, random_state, model_params),
         method="isotonic",
         cv=3,
     )
@@ -421,15 +471,12 @@ def _train_final_model(
     n_estimators: int,
     random_state: int,
     save_to: Path,
+    model: str = "rf",
+    model_params: dict | None = None,
 ) -> None:
     """Re-train on every available window and dump the deployment model."""
     print("\nTraining final model on all sessions…")
-    clf = RandomForestClassifier(
-        n_estimators=n_estimators,
-        random_state=random_state,
-        class_weight="balanced",
-        n_jobs=-1,
-    )
+    clf = _make_classifier(model, n_estimators, random_state, model_params)
     clf.fit(all_windows[feature_cols].to_numpy(), all_windows["label"].to_numpy())
     save_to.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(
@@ -461,6 +508,8 @@ def train_loso(
     window_sec: float = _param_cache.DEFAULT_WINDOW_SEC,
     stride_sec: float = _param_cache.DEFAULT_STRIDE_SEC,
     max_gap_ms: float = _param_cache.DEFAULT_MAX_GAP_MS,
+    model: str = "rf",
+    model_params: dict | None = None,
     on_event=None,
     run_dir: Path | None = None,
 ) -> dict:
@@ -554,7 +603,7 @@ def train_loso(
         f"  | zscore_per_session={zscore_per_session}\n"
     )
 
-    emit({"type": _events.RUN_START, "model": "rf", "by": by, "pool": pool,
+    emit({"type": _events.RUN_START, "model": model, "by": by, "pool": pool,
           "n_folds": len(groups), "features": len(feature_cols),
           "zscore": zscore_per_session})
     interrupted = False
@@ -574,7 +623,7 @@ def train_loso(
         try:
             res = _fit_eval_fold(
                 train_df, test_df, feature_cols, n_estimators, random_state,
-                burst_scales=burst_scales,
+                burst_scales=burst_scales, model=model, model_params=model_params,
             )
         except KeyboardInterrupt:
             print("\n[stop] KeyboardInterrupt — finalisiere fertige Folds…")
@@ -711,6 +760,8 @@ def train_loso(
             n_estimators,
             random_state,
             save_final_model,
+            model=model,
+            model_params=model_params,
         )
 
     if run_dir is not None:
@@ -719,7 +770,8 @@ def train_loso(
         pd.concat([r["oof"] for r in fold_results], ignore_index=True).to_csv(
             run_dir / "oof.csv", index=False)
         _train_final_model(all_windows, feature_cols, sessions,
-                           n_estimators, random_state, run_dir / "model.joblib")
+                           n_estimators, random_state, run_dir / "model.joblib",
+                           model=model)
 
     emit({"type": _events.RUN_END, "partial": interrupted,
           "n_done": len(fold_results),
@@ -761,7 +813,7 @@ def _parse_args() -> argparse.Namespace:
         default="auto",
         help="Session pool selection: 'auto' (include all, drop gravity if "
         "mixed), 'legacy' (no-gravity sessions only, 88 features), "
-        "'modern' (gravity-required sessions only, 94 features). "
+        "'modern' (gravity-required sessions only, 92 features). "
         "Default: auto.",
     )
     p.add_argument(
@@ -840,7 +892,15 @@ def _parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--model", default="rf",
-        help="Registry-Modell-ID (MVP: nur 'rf').",
+        help="Klassische Registry-Modell-ID: rf | extratrees | histgb | "
+             "logreg | svm_rbf | mlp.",
+    )
+    p.add_argument(
+        "--model-params", default=None,
+        help="JSON-Dict mit Estimator-Hyperparameter-Overrides für den Sweep, "
+             "z. B. '{\"C\": 10, \"gamma\": 0.01}' (svm_rbf) oder "
+             "'{\"max_depth\": 12}' (extratrees). Beim Pipeline-Modell landet es "
+             "im clf-Step.",
     )
     return p.parse_args()
 
@@ -906,6 +966,8 @@ if __name__ == "__main__":
         window_sec=args.window_sec,
         stride_sec=args.window_sec / 2.0,  # 50% Overlap, wie im Window-Sweep
         max_gap_ms=args.max_gap_ms,
+        model=args.model,
+        model_params=(json.loads(args.model_params) if args.model_params else None),
         on_event=_events.json_line_emitter() if args.emit_json else None,
         run_dir=args.run_dir,
     )

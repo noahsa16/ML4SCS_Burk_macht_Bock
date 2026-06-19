@@ -6,6 +6,7 @@ Ein Aufruf trainiert genau **ein** Modell auf genau **einem** Pool:
 
     python -m src.training.deep --model cnn                  # legacy-Pool, 1-s-Fenster
     python -m src.training.deep --model gru --pool legacy    # N=14-Kohorte (50 Hz)
+    python -m src.training.deep --model tcn --pool legacy    # dilatierte Kausal-Convs
     python -m src.training.deep --model cnn --pool modern    # native 100hz_grav (N=4)
     python -m src.training.deep --model lstm --win both      # 1-s- + 5-s-Input
 
@@ -33,21 +34,26 @@ Wert schon eine ~5-s-Entscheidung ist (Referenz: RF-Burst@5s).
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 import pandas as pd
 
+from src.training import events as _events
 from src.training.deep.train_loso import MODEL_DIR, train_deep_loso
 
 # RF-Headline-Decision-Windows je Pool (acc, AUC) -- die faire Vergleichs-
 # achse fuer 1-s-Input-Modelle (RF nutzt 1-s-Input + Burst-Aggregation).
-# legacy = N=14-LOSO-Headline (CLAUDE.md, 2026-06-10). modern hat keine
-# vorzeigbare RF-Zeile (N=4 ist zu klein) -> Tabellen ohne Baseline.
+# legacy = N=15-LOSO-Headline, post Capture-Clock-Fix, KAUSALE Burst-Agg
+# (CLAUDE.md, 2026-06-13). Frueher standen hier die N=14-Pre-Fix-Zahlen mit
+# center=True-Burst (5/10/30 s ~5-6 pp inflationiert) -- nicht mit den
+# kausalen Deep-Burst-Zahlen vergleichbar. modern hat keine vorzeigbare
+# RF-Zeile (N=4 ist zu klein) -> Tabellen ohne Baseline.
 RF_DECISION_BY_POOL: dict[str, dict[str, tuple[float, float]] | None] = {
     "legacy": {
-        "1s": (0.855, 0.929),
-        "5s": (0.899, 0.962),
-        "10s": (0.882, 0.952),
-        "30s": (0.838, 0.917),
+        "1s": (0.872, 0.947),
+        "5s": (0.860, 0.933),
+        "10s": (0.825, 0.906),
+        "30s": (0.771, 0.856),
     },
     "modern": None,
 }
@@ -136,7 +142,7 @@ def _print_gap_table(by_group: dict[tuple[str, int], pd.DataFrame]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m src.training.deep")
     parser.add_argument(
-        "--model", choices=["cnn", "lstm", "gru"], required=True,
+        "--model", choices=["cnn", "lstm", "gru", "tcn"], required=True,
         help="Genau ein Sequenz-Modell pro Lauf.",
     )
     parser.add_argument(
@@ -163,12 +169,25 @@ def main() -> None:
         help="Mehrdeutige Uebergangs-Fenster (writing-Anteil 0.4-0.6) "
              "ausschliessen -- fuer das Label-Qualitaets-Experiment.",
     )
+    parser.add_argument(
+        "--emit-json", action="store_true",
+        help="Eine JSON-Zeile pro Event auf stdout (Web-Training-Cockpit).",
+    )
+    parser.add_argument(
+        "--run-dir", default=None,
+        help="Run-Verzeichnis fuer cv.csv/oof.csv (Cockpit). Eval-only -- "
+             "kein model.joblib. Mit --win both wird nur das letzte Fenster "
+             "abgelegt (das Cockpit nutzt immer ein Einzelfenster).",
+    )
     args = parser.parse_args()
 
     exclude_boundary = (0.4, 0.6) if args.exclude_boundary else None
     zscore = args.zscore
     rf = RF_DECISION_BY_POOL[args.pool]
     windows = [1, 5] if args.win == "both" else [int(args.win)]
+
+    on_event = _events.json_line_emitter() if args.emit_json else None
+    run_dir = Path(args.run_dir) if args.run_dir else None
 
     all_folds: list[pd.DataFrame] = []
     by_group: dict[tuple[str, int], pd.DataFrame] = {}
@@ -181,6 +200,8 @@ def main() -> None:
             seed=args.seed,
             exclude_boundary=exclude_boundary,
             zscore=zscore,
+            on_event=on_event,
+            run_dir=run_dir,
         )
         if df.empty:
             print(f"[warn] {args.model}/{win}s: keine Folds.")

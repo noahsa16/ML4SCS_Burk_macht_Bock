@@ -271,3 +271,21 @@
 .trn-drawer svg { width: 100%; height: auto; max-height: 150px; }
 .trn-drawer-actions { display: flex; gap: var(--space-3); justify-content: flex-end;
   margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+
+/* ── gesperrte Aktionen / Regler ──
+   eval-only Deep-Runs: Promote/Sandbox + nicht zutreffende Regler ausgegraut. */
+.trn-ghost:disabled, .trn-cta:disabled { opacity: 0.4; cursor: not-allowed; }
+.trn-ctl-off { opacity: 0.4; pointer-events: none; transition: opacity .3s ease; }
+
+/* ── Lade-Animation (Running-State, im "aktueller Fold"-Box) ──
+   Kleines, dezentes Canvas; nur sichtbar während der Lauf läuft. */
+.trn-loader { display: block; width: 100%; height: 64px;
+  border-radius: var(--radius-sm); margin-bottom: var(--space-2); }
+.trn-loader[hidden] { display: none; }
+
+/* Deep-Modelle: echte Loss-Kurve + Epoche (statt des Loaders, sobald Daten da). */
+.trn-epoch { margin-bottom: var(--space-2); }
+.trn-epoch[hidden] { display: none; }
+.trn-loss { display: block; width: 100%; height: 56px; }
+.trn-epoch-label { font-family: var(--mono); font-size: var(--text-xs);
+  color: var(--text2); margin-top: 4px; }
