@@ -171,7 +171,8 @@ Moleskine Smart Pen (BLE)
                     ↓
        src/alignment/pen_match.py    (recover per-session δ via
                                       stroke-variance minimization;
-                                      σ ≤ -3 → use for ML)
+                                      σ ≤ -3 → auto-`trainable`, -2…-3
+                                      `usable` nach Review — siehe Gate-Note)
                     ↓
        src/merge/merge.py            (watch-base: 1 row per watch
                                       sample with label_writing from
@@ -263,8 +264,10 @@ study.py           Study Mode internals: protocol loader (Pydantic
                    / paused / done). Pure Python — no FastAPI imports,
                    fully unit-testable.
 inference.py       LiveInference singleton: rolling watch-sample buffer,
-                   lazy joblib load (rf_noah preferred, fallback chain
-                   rf_all_live -> rf_all), per-window predict() with
+                   lazy joblib load (rf_noah preferred, fallback rf_all_live;
+                   rf_all NICHT live-tauglich — per-Session-Z-Score ohne baked
+                   mu/sigma, daher aus Fallback + Picker ausgeschlossen),
+                   per-window predict() with
                    rate-mismatch guard, sparkline ring, daily-aggregate
                    counter. Reuses _window_features() from
                    src.features.windows so live + training share the
@@ -330,7 +333,8 @@ session start/stop start/stop it automatically.
 - `GET /inference/models` — lists available joblibs in `models/` with
   metadata (`id`, `person_id`, `sample_rate_hz`, `trained_on`,
   `n_windows`, `normalisation`). Whitelist of user-facing models:
-  `rf_noah`, `rf_all_live`, `rf_all`.
+  `rf_noah`, `rf_all_live` (rf_all ist als Headline-Artefakt NICHT
+  live-deploybar und bewusst nicht im Picker).
 - `GET /inference/current` — currently loaded model id + meta
 - `POST /inference/model {id}` — swap the live model; clears the
   inference buffer for a clean restart. 404 on unknown id.
@@ -383,7 +387,7 @@ updates from each WS tick. Styles in `static/css/focus.css` with its
 own background slash glyph (mirror-flipped vs Recording's). The
 Recording-page also exposes an embedded inference card (writing-now
 state + 60-s sparkline + "writing time tracked" counter) with an
-in-place model picker (Personal ↔ Generic ↔ Generic-per-session)
+in-place model picker (Personal `rf_noah` ↔ Generic `rf_all_live`)
 that calls `POST /inference/model`.
 
 `recording-study.js` is the **fullscreen takeover** for the proband
@@ -1419,14 +1423,33 @@ because bursty writing-periods fall entirely on one side of the split
 of writing and idle for any session that should contribute to ML
 metrics.
 
-**Alignment confidence as ML gate.** The current merge applies δ when
-`σ ≤ -2`, but that threshold is too loose for ML — borderline σ values
-(-2.0 to -2.5) sometimes find spurious local minima at large δ
-(seen on S011/S027: δ = 16–18 s, ROC-AUC 0.36/0.47). For training data
-the practical filter is **σ ≤ -3** (S028: -3.30, S029: -5.27). Lower
-confidence sessions are still valid for data collection (the pen logs
-remain useful raw material), they just shouldn't be fed into the
-trainer without manual review of the alignment plot.
+**Alignment confidence as ML gate — σ ist konservativ, kein Hard-Gate.**
+The merge applies δ when `σ ≤ -2`, but that threshold is too loose to
+*auto-trust* — borderline σ values (-2.0 to -2.5) *can* find spurious
+local minima at large δ (seen on S011/S027: δ = 16–18 s, ROC-AUC
+0.36/0.47). σ ≤ -3 is therefore the bar for the **auto-`trainable`**
+verdict tier (S028: -3.30, S029: -5.27). **Wichtig: σ ≤ -3 ist KEIN
+erzwungener Trainings-Filter.** `train_loso` includes
+`verdict ∈ {trainable, usable}`, and `usable` carries no σ floor — so a
+sub-threshold session enters training once it passes the **manual
+alignment-plot review** (the actual gate for -2…-3). This is by design,
+not an oversight: **σ is a conservative well-depth proxy, not an δ-error
+measure.** Worked example — **S039/P13 has σ = -2.73 (below -3) yet is
+the strongest LOSO fold of the cohort (acc 0.926, AUC 0.980).** A spurious
+δ would *collapse* the fold (cf. the 0.36/0.47 cases above); P13's
+excellence shows its δ is correct and the weak σ only reflects a shallow
+variance well (very steady writer → flat minimization curve). A hard
+σ ≤ -3 cutoff would have wrongly dropped the best session. Lower-σ
+sessions remain valid raw data either way; they just require the manual
+plot check before training, never an automatic include.
+
+*Data-hygiene caveat:* `sessions.csv` is server-owned and not always
+refreshed — `duration_seconds` can sit stale at empty even when
+`start_time`/`end_time` are present, which collapses every stored
+`verdict` to `usable` (the `trainable` tier needs `duration ≥ 300`).
+The live quality engine (`quality.py`) recomputes both correctly; the
+CSV staleness does not change the training cohort because `train_loso`
+admits `usable` regardless.
 
 **Temporal split, not random** (within-session only). Sliding windows
 overlap by 50% (stride 0.5 s, window 1 s). Random splits leak adjacent
