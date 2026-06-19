@@ -171,7 +171,8 @@ Moleskine Smart Pen (BLE)
                     ↓
        src/alignment/pen_match.py    (recover per-session δ via
                                       stroke-variance minimization;
-                                      σ ≤ -3 → use for ML)
+                                      σ ≤ -3 → auto-`trainable`, -2…-3
+                                      `usable` nach Review — siehe Gate-Note)
                     ↓
        src/merge/merge.py            (watch-base: 1 row per watch
                                       sample with label_writing from
@@ -263,8 +264,10 @@ study.py           Study Mode internals: protocol loader (Pydantic
                    / paused / done). Pure Python — no FastAPI imports,
                    fully unit-testable.
 inference.py       LiveInference singleton: rolling watch-sample buffer,
-                   lazy joblib load (rf_noah preferred, fallback chain
-                   rf_all_live -> rf_all), per-window predict() with
+                   lazy joblib load (rf_noah preferred, fallback rf_all_live;
+                   rf_all NICHT live-tauglich — per-Session-Z-Score ohne baked
+                   mu/sigma, daher aus Fallback + Picker ausgeschlossen),
+                   per-window predict() with
                    rate-mismatch guard, sparkline ring, daily-aggregate
                    counter. Reuses _window_features() from
                    src.features.windows so live + training share the
@@ -330,7 +333,8 @@ session start/stop start/stop it automatically.
 - `GET /inference/models` — lists available joblibs in `models/` with
   metadata (`id`, `person_id`, `sample_rate_hz`, `trained_on`,
   `n_windows`, `normalisation`). Whitelist of user-facing models:
-  `rf_noah`, `rf_all_live`, `rf_all`.
+  `rf_noah`, `rf_all_live` (rf_all ist als Headline-Artefakt NICHT
+  live-deploybar und bewusst nicht im Picker).
 - `GET /inference/current` — currently loaded model id + meta
 - `POST /inference/model {id}` — swap the live model; clears the
   inference buffer for a clean restart. 404 on unknown id.
@@ -383,7 +387,7 @@ updates from each WS tick. Styles in `static/css/focus.css` with its
 own background slash glyph (mirror-flipped vs Recording's). The
 Recording-page also exposes an embedded inference card (writing-now
 state + 60-s sparkline + "writing time tracked" counter) with an
-in-place model picker (Personal ↔ Generic ↔ Generic-per-session)
+in-place model picker (Personal `rf_noah` ↔ Generic `rf_all_live`)
 that calls `POST /inference/model`.
 
 `recording-study.js` is the **fullscreen takeover** for the proband
@@ -586,14 +590,18 @@ no longer vibrates continuously when the server is down.
   3-person dataset and tightened fold-σ 4× (0.042 → 0.009) — the
   biggest single ML-side improvement of the project.
 - `src/training/deep/` — **Deep-Sequenz-Modell-LOSO** (Roadmap
-  Prio 3/4). 1D-CNN / LSTM / GRU auf rohen IMU-Sequenzen statt der 88
+  Prio 3/4). 1D-CNN / LSTM / GRU / TCN auf rohen IMU-Sequenzen statt der 88
   Features, im identischen LOSO-by-person-Protokoll wie `train_loso.py`
   (importiert dessen `_select_sessions` / `_burst_metrics`). `data.py`
   baut rohe Fenster (6 Kanäle; `load_session_raw` nimmt `merged_suffix`
-  für die Legacy-View-Quelle + `zscore`-Schalter), `models.py` die drei
+  für die Legacy-View-Quelle + `zscore`-Schalter), `models.py` die vier
   kleinen `nn.Module`-Klassen (seq-len-agnostisch via `AdaptiveAvgPool1d`
   / letztem Hidden-State, daher laufen 50- und 100-Hz-Fenster ohne
-  Architektur-Änderung), `train_loso.py` den Trainings-Loop (Early
+  Architektur-Änderung; der `TCN` ist ein Stack dilatierter **Kausal**-Convs
+  nach Bai et al. 2018 — `TemporalBlock` mit Dilationen 1/2/4/8, rezeptives
+  Feld 61 Samples, ~6k Params, kausal by construction und damit passend zur
+  trailing Burst-Glättung; `BatchNorm1d` wie beim CNN → ohne Z-Score
+  deploybar), `train_loso.py` den Trainings-Loop (Early
   Stopping auf rotierendem Person-Holdout) + pool-fähigen LOSO-Runner.
   **Genau ein Modell pro Aufruf**, mit `--pool`-Auswahl analog zum RF:
   `seq_len`/`stride` werden aus der Pool-Sample-Rate abgeleitet
@@ -612,12 +620,27 @@ no longer vibrates continuously when the server is down.
   schaltet ihn opt-in ein (→ `deep_loso_{pool}_zscore.csv`). Caveat: nur
   fürs CNN belegt; LSTM/GRU haben keine Input-Normalisierung, dort kann
   Z-Score sehr wohl zählen. CLI:
-  `python -m src.training.deep --model {cnn|lstm|gru} [--pool legacy|modern] [--win 1|5|both] [--zscore]`
+  `python -m src.training.deep --model {cnn|lstm|gru|tcn} [--pool legacy|modern] [--win 1|5|both] [--zscore]`
   → `models/deep_loso_{pool}.csv` + Vergleichstabellen gegen die
-  RF-Headline (legacy = N=14-Baseline; modern ohne RF-Zeile).
-  Legacy-Headline (CNN @1s, N=14, **no-zscore**): acc 0.873 ± 0.035,
-  AUC 0.936, @5s 0.897/0.963, @30s 0.843/0.918 — auf Augenhöhe mit dem
-  RF (Train/Test-Gap 0.016 = data-limited, nicht Overfit).
+  RF-Headline (`RF_DECISION_BY_POOL["legacy"]` = **N=15 post-Capture-Clock-Fix,
+  kausale Burst**: @1s 0.872/0.947, @5s 0.860/0.933, @10s 0.825/0.906,
+  @30s 0.771/0.856; modern ohne RF-Zeile).
+  **TCN-Headline (@1s, N=15, post-fix, no-zscore, 2026-06-19): acc
+  0.895 ± 0.035, AUC 0.960 — signifikant über RF@1s.** Gepaarter Wilcoxon
+  auf denselben 15 Folds (`src/evaluation/significance.py`,
+  `deep_loso_legacy.csv` vs frisch regeneriertes `loso_cv_legacy.csv`):
+  Δacc +0.021 p=0.0006, ΔAUC +0.010 p=0.015. **Aber @5/10/30 s
+  statistisch ununterscheidbar vom RF** (alle p>0.1, |Δacc|<0.6 pp,
+  vorzeichen-inkonsistent): der 1-s-Vorsprung ist genau das von der
+  Burst-Aggregation entfernte Hochfrequenz-Rauschen — **kein
+  Headline-Gewinn**. Schwächste Fold P17 (0.794), dieselben schwachen
+  Folds wie RF. Train/Test-Gap 0.012 = data-limited (nicht Overfit).
+  Drittes Architektur-Pendant (nach frozen-harnet + RF-Window-Sweep), das
+  die Decision-Window-Decke modellunabhängig bestätigt — siehe
+  `feature_engineering_ceiling`-Memory. CNN @1s (N=14, **pre-Capture-
+  Clock-Fix**, no-zscore): acc 0.873 ± 0.035, AUC 0.936, @5s 0.897/0.963,
+  @30s 0.843/0.918 — auf Augenhöhe mit dem damaligen RF, aber
+  regenerations-pflichtig auf N=15.
 - `src/training/deep/harnet*.py` — **Transfer-Learning-Vergleich mit dem
   Oxford `ssl-wearables`-Foundation-Model (harnet)**, im identischen
   LOSO-by-person-Protokoll wie `train_loso.py` (importiert nur
@@ -1400,14 +1423,33 @@ because bursty writing-periods fall entirely on one side of the split
 of writing and idle for any session that should contribute to ML
 metrics.
 
-**Alignment confidence as ML gate.** The current merge applies δ when
-`σ ≤ -2`, but that threshold is too loose for ML — borderline σ values
-(-2.0 to -2.5) sometimes find spurious local minima at large δ
-(seen on S011/S027: δ = 16–18 s, ROC-AUC 0.36/0.47). For training data
-the practical filter is **σ ≤ -3** (S028: -3.30, S029: -5.27). Lower
-confidence sessions are still valid for data collection (the pen logs
-remain useful raw material), they just shouldn't be fed into the
-trainer without manual review of the alignment plot.
+**Alignment confidence as ML gate — σ ist konservativ, kein Hard-Gate.**
+The merge applies δ when `σ ≤ -2`, but that threshold is too loose to
+*auto-trust* — borderline σ values (-2.0 to -2.5) *can* find spurious
+local minima at large δ (seen on S011/S027: δ = 16–18 s, ROC-AUC
+0.36/0.47). σ ≤ -3 is therefore the bar for the **auto-`trainable`**
+verdict tier (S028: -3.30, S029: -5.27). **Wichtig: σ ≤ -3 ist KEIN
+erzwungener Trainings-Filter.** `train_loso` includes
+`verdict ∈ {trainable, usable}`, and `usable` carries no σ floor — so a
+sub-threshold session enters training once it passes the **manual
+alignment-plot review** (the actual gate for -2…-3). This is by design,
+not an oversight: **σ is a conservative well-depth proxy, not an δ-error
+measure.** Worked example — **S039/P13 has σ = -2.73 (below -3) yet is
+the strongest LOSO fold of the cohort (acc 0.926, AUC 0.980).** A spurious
+δ would *collapse* the fold (cf. the 0.36/0.47 cases above); P13's
+excellence shows its δ is correct and the weak σ only reflects a shallow
+variance well (very steady writer → flat minimization curve). A hard
+σ ≤ -3 cutoff would have wrongly dropped the best session. Lower-σ
+sessions remain valid raw data either way; they just require the manual
+plot check before training, never an automatic include.
+
+*Data-hygiene caveat:* `sessions.csv` is server-owned and not always
+refreshed — `duration_seconds` can sit stale at empty even when
+`start_time`/`end_time` are present, which collapses every stored
+`verdict` to `usable` (the `trainable` tier needs `duration ≥ 300`).
+The live quality engine (`quality.py`) recomputes both correctly; the
+CSV staleness does not change the training cohort because `train_loso`
+admits `usable` regardless.
 
 **Temporal split, not random** (within-session only). Sliding windows
 overlap by 50% (stride 0.5 s, window 1 s). Random splits leak adjacent
@@ -1522,7 +1564,9 @@ could silently poison the training data or the proband-facing flow:
   when served as `text/html`).
 - `test_deep.py` — Deep-Sequenz-Modell-Paket (`src/training/deep/`):
   `build_raw_windows` Shapes/Labels, Per-Kanal-Z-Score, Forward-Pass
-  aller drei Modelle (CNN/LSTM/GRU) bei beiden Sequenzlängen,
+  aller vier Modelle (CNN/LSTM/GRU/TCN) bei beiden Sequenzlängen,
+  TCN-spezifisch: `TemporalBlock`-Kausalitätstest (Störung bei t lässt
+  Outputs < t unverändert, im eval()-Modus) + Parameter-Budget-Guard,
   Mini-Trainingslauf von `train_one_model`/`predict_proba`/`fold_metrics`,
   plus Pool-/Suffix-Auswahl (`load_session_raw(merged_suffix=…)` lädt die
   Legacy-View bzw. nennt die Downsample-Chain, `_pool_plan` mappt

@@ -86,6 +86,7 @@
               <th>Accuracy</th>
               <th>ROC-AUC</th>
               <th>Folds</th>
+              <th>Dauer</th>
               <th aria-label="Aktion"></th>
             </tr>
           </thead>
@@ -125,7 +126,12 @@
         <div class="trn-card"><div class="trn-muted">LOSO-Konvergenz — AUC über Folds</div>
           <svg id="trn-conv" viewBox="0 0 480 170" preserveAspectRatio="none"></svg></div>
         <div>
-          <div class="trn-box live" id="trn-foldbox"><div class="trn-muted">aktueller Fold</div>
+          <div class="trn-box live" id="trn-foldbox">
+            <canvas class="trn-loader" id="trn-loader" hidden></canvas>
+            <div class="trn-epoch" id="trn-epoch" hidden>
+              <svg class="trn-loss" id="trn-loss" viewBox="0 0 160 48" preserveAspectRatio="none"></svg>
+              <div class="trn-epoch-label" id="trn-epoch-label">Epoche —</div></div>
+            <div class="trn-muted">aktueller Fold</div>
             <div id="trn-foldnow">—</div></div>
           <div class="trn-card" style="margin-bottom:0"><div class="trn-muted">Live-Confusion</div>
             <div class="trn-confusion" id="trn-confusion"></div></div>

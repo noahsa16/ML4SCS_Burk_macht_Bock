@@ -33,14 +33,21 @@ def test_validate_pool_rejects_invalid_combo():
     assert registry.validate("rf", "nonsense") is False
 
 
-def test_menu_grouped_families_only_rf_enabled():
+def test_classical_and_deep_enabled_foundation_gated():
     by_id = {r["id"]: r for r in registry.list_models()}
-    assert by_id["rf"]["enabled"] is True
-    # Weitere Familien sind gelistet (volles Menü), aber Runner noch nicht
-    # verdrahtet → enabled False (post-MVP).
-    assert by_id["cnn"]["family"] == "deep" and by_id["cnn"]["enabled"] is False
-    assert any(r["family"] == "foundation" for r in by_id.values())
-    assert any(r["family"] == "classical" and r["id"] != "rf"
-               for r in by_id.values())
+    # Klassische teilen den train_loso-Runner (via --model) und sind verdrahtet.
+    for mid in ("rf", "extratrees", "histgb", "logreg", "svm_rbf", "mlp"):
+        assert by_id[mid]["family"] == "classical"
+        assert by_id[mid]["enabled"] is True, f"{mid} should be enabled"
+    # Deep-Sequenz-Modelle teilen den deep-Runner (src.training.deep) — ebenfalls
+    # verdrahtet.
+    for mid in ("cnn", "lstm", "gru", "tcn"):
+        assert by_id[mid]["family"] == "deep"
+        assert by_id[mid]["runner"] == "src.training.deep"
+        assert by_id[mid]["enabled"] is True, f"{mid} should be enabled"
+    # Nur Foundation (harnet) braucht noch eigene Runner-Instrumentierung → gated.
+    for mid in ("harnet5", "harnet10", "harnet5_ft"):
+        assert by_id[mid]["family"] == "foundation"
+        assert by_id[mid]["enabled"] is False, f"{mid} should be gated"
     # nur Tree-Modelle haben Feature-Importance
     assert by_id["logreg"]["supports_feature_importance"] is False

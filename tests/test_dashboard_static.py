@@ -62,6 +62,7 @@ def test_bootstrap_module_served_as_js():
         "/static/js/pages/sessions.js",
         "/static/js/pages/settings.js",
         "/static/js/pages/training.js",
+        "/static/js/pages/training_loader.js",
         "/static/views/admin.html",
         "/static/views/focus.html",
         "/static/views/recording.html",

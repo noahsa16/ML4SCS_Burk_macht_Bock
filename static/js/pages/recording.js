@@ -697,10 +697,11 @@ export function mount(container) {
 // ════════════════════════════════════════════════════════════
 //  INFERENCE MODEL SWITCH
 // ════════════════════════════════════════════════════════════
+// rf_all ist NICHT live-tauglich (per-Session-Z-Score ohne baked mu/sigma)
+// und wird vom /inference/models-Endpoint nicht mehr ausgeliefert.
 const _MODEL_LABELS = {
   rf_noah: 'personal',
   rf_all_live: 'generic',
-  rf_all: 'generic (per-session)',
 };
 
 async function _initInferenceModelSwitch() {

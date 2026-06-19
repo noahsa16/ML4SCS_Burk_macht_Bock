@@ -85,3 +85,46 @@ def test_promote_unknown_run_raises(tmp_path):
     import pytest
     with pytest.raises(FileNotFoundError):
         tr.promote("nope", root=tmp_path, canonical_dir=tmp_path / "c")
+
+
+def test_write_timing_persists_folds_and_total(tmp_path):
+    d = tr.run_dir("2026-06-19_10-00_rf_legacy", root=tmp_path)
+    tr.write_timing(d, [{"person": "P1", "sec": 3.0},
+                        {"person": "P2", "sec": 5.0}], total_sec=10.0)
+    data = json.loads((d / "timing.json").read_text())
+    assert data["total_sec"] == 10.0
+    assert [f["sec"] for f in data["folds"]] == [3.0, 5.0]
+
+
+def test_list_runs_attaches_total_sec_from_timing(tmp_path):
+    d = tr.run_dir("2026-06-19_10-00_rf_legacy", root=tmp_path)
+    tr.write_config(d, {"model": "rf", "pool": "legacy"})
+    tr.write_timing(d, [{"person": "P1", "sec": 4.0}], total_sec=12.5)
+    r = tr.list_runs(root=tmp_path)[0]
+    assert r["total_sec"] == 12.5
+
+
+def test_estimate_returns_median_per_fold_across_matching_runs(tmp_path):
+    # Zwei rf/legacy-Läufe → alle Fold-Dauern gepoolt, Median als pro-Fold-Schätzer.
+    d1 = tr.run_dir("2026-06-19_10-00_rf_legacy", root=tmp_path)
+    tr.write_config(d1, {"model": "rf", "pool": "legacy"})
+    tr.write_timing(d1, [{"person": "P1", "sec": 4.0},
+                         {"person": "P2", "sec": 6.0}], total_sec=12.0)
+    d2 = tr.run_dir("2026-06-19_11-00_rf_legacy", root=tmp_path)
+    tr.write_config(d2, {"model": "rf", "pool": "legacy"})
+    tr.write_timing(d2, [{"person": "P3", "sec": 8.0}], total_sec=9.0)
+    est = tr.estimate("rf", "legacy", root=tmp_path)
+    assert est["n_runs"] == 2
+    assert est["per_fold_sec"] == 6.0  # median([4, 6, 8])
+
+
+def test_estimate_filters_by_model_and_pool(tmp_path):
+    d = tr.run_dir("2026-06-19_10-00_cnn_legacy", root=tmp_path)
+    tr.write_config(d, {"model": "cnn", "pool": "legacy"})
+    tr.write_timing(d, [{"person": "P1", "sec": 90.0}], total_sec=100.0)
+    est = tr.estimate("rf", "legacy", root=tmp_path)  # anderes Modell → kein Treffer
+    assert est == {"per_fold_sec": None, "n_runs": 0}
+
+
+def test_estimate_empty_when_no_history(tmp_path):
+    assert tr.estimate("rf", "legacy", root=tmp_path) == {"per_fold_sec": None, "n_runs": 0}
