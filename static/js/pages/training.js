@@ -11,7 +11,7 @@ let _viewingIdle = true;     // true → onStatus lässt den idle-Screen stehen
 let _detailLoadedFor = null; // run_id, für den die Done-Analyse schon geholt wurde
 
 // Deep-Sequenz-Modelle sind eval-only (kein sklearn-Joblib für die Live-
-// Inferenz) → Promote/Sandbox gesperrt; zudem dunkler Cockpit-Look.
+// Inferenz) → Promote/Sandbox gesperrt.
 function _isDeep(model) { return _modelFamily[model] === 'deep'; }
 
 export function mount(container) {
@@ -236,15 +236,13 @@ async function _loadModels() {
   _loadRuns();          // Familien bekannt → Deep-Runs grauen ihren Promote-Button korrekt aus
 }
 
-// Deep-Modus: dunkleres Cockpit + nicht zutreffende Regler dimmen/sperren.
-// Deep-Sequenz-Modelle laufen fix person-LOSO, 1-s-Input, 5/10/30-Burst und
-// ohne Per-Session-Z-Score (BatchNorm übernimmt) — die zugehörigen Regler
+// Deep-Modus: nicht zutreffende Regler dimmen/sperren (rein funktional, keine
+// Optik). Deep-Sequenz-Modelle laufen fix person-LOSO, 1-s-Input, 5/10/30-Burst
+// und ohne Per-Session-Z-Score (BatchNorm übernimmt) — die zugehörigen Regler
 // gelten nicht und werden gesperrt, statt still ignoriert zu werden.
 function _applyDeepMode() {
   const sel = _q('#trn-model');
   const deep = sel ? _isDeep(sel.value) : false;
-  const trn = _q('#trn-root');
-  if (trn) trn.classList.toggle('trn-deep', deep);
   const z = _q('#trn-zscore');
   if (deep && z) z.checked = false;  // Deep-Default: kein Z-Score
   for (const id of ['#trn-window', '#trn-by', '#trn-burst-chips']) {
