@@ -56,6 +56,24 @@ def test_make_classifier_maps_ids_to_estimator_types():
         assert hasattr(est, "fit") and hasattr(est, "predict_proba")
 
 
+def test_make_classifier_model_params_override():
+    """``params`` überschreibt Estimator-Hyperparameter (SVM C/gamma, Tree
+    max_depth …) — der Hebel fürs Hyperparameter-Sweeping. Defaults bleiben,
+    wo nicht überschrieben."""
+    # svm_rbf: C/gamma landen im clf-Step der Pipeline
+    svc = T._make_classifier("svm_rbf", 200, 42,
+                             params={"C": 10, "gamma": 0.01}).named_steps["clf"]
+    assert svc.C == 10 and svc.gamma == 0.01
+    assert svc.kernel == "rbf" and svc.probability is True   # Defaults unberührt
+    # extratrees: direkter Estimator, n_estimators bleibt
+    et = T._make_classifier("extratrees", 200, 42,
+                            params={"max_depth": 7, "max_features": "sqrt"})
+    assert et.max_depth == 7 and et.max_features == "sqrt" and et.n_estimators == 200
+    # ohne params unverändert
+    assert T._make_classifier("svm_rbf", 200, 42).named_steps["clf"].C == 1.0
+    assert T._make_classifier("extratrees", 200, 42).max_depth is None
+
+
 def test_make_classifier_unknown_id_raises():
     with pytest.raises((KeyError, ValueError)):
         T._make_classifier("does-not-exist", 200, 42)
