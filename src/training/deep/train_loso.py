@@ -12,9 +12,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from sklearn.metrics import f1_score, roc_auc_score
+from sklearn.metrics import confusion_matrix, f1_score, roc_auc_score
 from torch.utils.data import DataLoader, TensorDataset
 
+from src.training import events as _events
 from src.training.deep.data import load_session_raw
 from src.training.deep.models import MODELS
 from src.training.train_loso import _burst_metrics, _select_sessions
@@ -245,6 +246,8 @@ def train_deep_loso(
     seed: int = 42,
     exclude_boundary: tuple[float, float] | None = None,
     zscore: bool = False,
+    on_event=None,
+    run_dir: Path | None = None,
 ) -> pd.DataFrame:
     """LOSO-by-person fuer ein Deep-Modell. Returns per-fold Metrik-Tabelle.
 
@@ -262,6 +265,14 @@ def train_deep_loso(
     ``exclude_boundary`` wird an :func:`build_raw_windows` durchgereicht —
     fuer das Label-Qualitaets-Experiment (mehrdeutige Uebergangs-Fenster
     ausschliessen).
+
+    ``on_event`` / ``run_dir`` verdrahten den Lauf ins Web-Training-Cockpit
+    (Muster wie :func:`src.training.train_loso.train_loso`). ``on_event``
+    bekommt run_start/fold_start/fold_end/run_end-Events; ``run_dir`` (wenn
+    gesetzt) erhaelt ``cv.csv`` + ``oof.csv``. Bewusst **kein**
+    ``model.joblib`` — Deep-Laeufe sind eval-only (nicht promotebar/sandbox-
+    faehig, weil die Live-Inferenz nur sklearn laedt). Ohne beide Parameter
+    ist das CLI-Verhalten unveraendert.
     """
     if pool not in POOL_FS:
         raise ValueError(f"pool must be one of {sorted(POOL_FS)}, got {pool!r}")
@@ -305,8 +316,15 @@ def train_deep_loso(
         f"{len(person_ids)} Folds | device={DEVICE} ==="
     )
 
+    emit = on_event if on_event is not None else (lambda _ev: None)
+    emit({"type": _events.RUN_START, "model": model_name, "by": "person",
+          "pool": pool, "n_folds": len(person_ids)})
+
     rows: list[dict] = []
+    oof_frames: list[pd.DataFrame] = []
+    interrupted = False
     for i, test_p in enumerate(person_ids):
+        emit({"type": _events.FOLD_START, "idx": i, "person": str(test_p)})
         # Val: naechste Person in sortierter Reihenfolge, wrap-around --
         # jede Person ist genau einmal Test und genau einmal Val.
         val_p = person_ids[(i + 1) % len(person_ids)]
@@ -335,18 +353,26 @@ def train_deep_loso(
             ignore_index=True,
         )
 
-        model = MODELS[model_name]()
-        model, best_epoch = train_one_model(model, train_X, train_y, val_X, val_y)
+        # Why: SIGINT (Stop-Knopf) faengt im torch-Trainingsloop -- fertige
+        # Folds finalisieren statt hart abbrechen, wie der RF-Runner.
+        try:
+            model = MODELS[model_name]()
+            model, best_epoch = train_one_model(
+                model, train_X, train_y, val_X, val_y)
 
-        # Under-/Overfit-Diagnose: Train- und Val-Metriken am besten Modell.
-        # train_acc misst Fit auf die 8 Trainings-Personen, val_acc auf die
-        # rotierende Holdout-Person, accuracy (unten) auf die Test-Person.
-        # Gap train>>val~test => data-limited; train>>val>>test => Overfit.
-        train_acc, train_auc = _acc_auc(predict_proba(model, train_X), train_y)
-        val_acc, val_auc = _acc_auc(predict_proba(model, val_X), val_y)
+            # Under-/Overfit-Diagnose: Train- und Val-Metriken am besten Modell.
+            # train_acc misst Fit auf die 8 Trainings-Personen, val_acc auf die
+            # rotierende Holdout-Person, accuracy (unten) auf die Test-Person.
+            # Gap train>>val~test => data-limited; train>>val>>test => Overfit.
+            train_acc, train_auc = _acc_auc(predict_proba(model, train_X), train_y)
+            val_acc, val_auc = _acc_auc(predict_proba(model, val_X), val_y)
 
-        proba = predict_proba(model, test_X)
-        m = fold_metrics(proba, test_y, test_df)
+            proba = predict_proba(model, test_X)
+            m = fold_metrics(proba, test_y, test_df)
+        except KeyboardInterrupt:
+            print("\n[stop] KeyboardInterrupt -- finalisiere fertige Folds…")
+            interrupted = True
+            break
 
         row = {
             "model": model_name,
@@ -366,10 +392,68 @@ def train_deep_loso(
             row[f"acc_{scale}"] = bm["accuracy"]
             row[f"auc_{scale}"] = bm["roc_auc"]
         rows.append(row)
+        # OOF fuer ROC-Kurve + Fehler-nach-Task im Cockpit-Drawer. proba/test_y
+        # liegen in derselben Reihenfolge wie test_df (beide ueber persons[test_p]
+        # gestackt) -> spaltenweise ausrichtbar.
+        oof_frames.append(pd.DataFrame({
+            "label": test_y,
+            "proba_raw": proba,
+            "session_id": test_df["session_id"].to_numpy(),
+            "person_id": test_p,
+            "t_center_ms": test_df["t_center_ms"].to_numpy(),
+        }))
+
+        pred = (proba >= 0.5).astype(int)
+        cm = confusion_matrix(test_y, pred, labels=[0, 1])
+        emit({"type": _events.FOLD_END, "idx": i, "person": str(test_p),
+              "n": len(person_ids), "acc": m["accuracy"], "auc": m["roc_auc"],
+              "f1": m["f1_writing"],
+              "burst": {scale: bm["accuracy"] for scale, bm in m["bursts"].items()},
+              "confusion": {"tn": int(cm[0, 0]), "fp": int(cm[0, 1]),
+                            "fn": int(cm[1, 0]), "tp": int(cm[1, 1])}})
         print(
             f"  Fold {test_p}: train={train_acc:.3f} val={val_acc:.3f} "
             f"test={m['accuracy']:.3f}  f1={m['f1_writing']:.3f} "
             f"auc={m['roc_auc']:.3f}  best_epoch={best_epoch}"
         )
 
-    return pd.DataFrame(rows)
+    folds_df = pd.DataFrame(rows)
+    _emit_run_end(emit, folds_df, oof_frames, run_dir, interrupted)
+    return folds_df
+
+
+def _emit_run_end(
+    emit,
+    folds_df: pd.DataFrame,
+    oof_frames: list[pd.DataFrame],
+    run_dir: Path | None,
+    interrupted: bool,
+) -> None:
+    """Schreibt cv.csv/oof.csv (wenn run_dir) und emittiert das run_end-Event.
+
+    Summary-Felder spiegeln den RF-Runner (mean_acc/std_acc/auc/f1/burst), damit
+    ``TrainingRun._handle_event`` Deep- und RF-Laeufe gleich behandelt. Kein
+    ``model.joblib`` -- Deep-Laeufe sind eval-only.
+    """
+    if not folds_df.empty:
+        mean_acc = float(folds_df["accuracy"].mean())
+        std_acc = float(folds_df["accuracy"].std(ddof=0))
+        mean_auc = float(folds_df["roc_auc"].mean())
+        mean_f1 = float(folds_df["f1_writing"].mean())
+        burst = {scale: float(folds_df[f"acc_{scale}"].mean())
+                 for scale in ("5s", "10s", "30s") if f"acc_{scale}" in folds_df}
+    else:
+        mean_acc = std_acc = mean_auc = mean_f1 = 0.0
+        burst = {}
+
+    if run_dir is not None and not folds_df.empty:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        folds_df.to_csv(run_dir / "cv.csv", index=False)
+        pd.concat(oof_frames, ignore_index=True).to_csv(
+            run_dir / "oof.csv", index=False)
+
+    emit({"type": _events.RUN_END, "partial": interrupted,
+          "n_done": int(len(folds_df)),
+          "mean_acc": mean_acc, "std_acc": std_acc,
+          "auc": mean_auc, "f1": mean_f1, "burst": burst,
+          "out_dir": str(run_dir) if run_dir else ""})

@@ -48,8 +48,37 @@ def test_start_rejects_invalid_pool(client):
 
 
 def test_start_rejects_not_yet_wired_model(client):
-    r = client.post("/training/start", json={"model": "cnn", "pool": "legacy"})
+    # harnet5 (Foundation) hat noch keine Runner-Instrumentierung → gated.
+    r = client.post("/training/start", json={"model": "harnet5", "pool": "legacy"})
     assert r.status_code == 400
+
+
+def test_start_accepts_classical_model(client, monkeypatch):
+    # extratrees teilt sich den train_loso-Runner → passiert das enabled-Gate.
+    from src.server import training as T
+
+    async def fake_start(*a, **k):
+        return {"ok": True, "run_id": "test"}
+
+    monkeypatch.setattr(T.run, "is_busy", lambda: False)
+    monkeypatch.setattr(T.run, "start", fake_start)
+    r = client.post("/training/start", json={"model": "extratrees", "pool": "legacy"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+
+
+def test_start_accepts_deep_model(client, monkeypatch):
+    # cnn teilt sich den deep-Runner → passiert das enabled-Gate.
+    from src.server import training as T
+
+    async def fake_start(*a, **k):
+        return {"ok": True, "run_id": "test"}
+
+    monkeypatch.setattr(T.run, "is_busy", lambda: False)
+    monkeypatch.setattr(T.run, "start", fake_start)
+    r = client.post("/training/start", json={"model": "cnn", "pool": "legacy"})
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
 
 
 def test_start_409_when_busy(client, monkeypatch):
@@ -74,6 +103,21 @@ def test_promote_unknown_run_404(client, monkeypatch, tmp_path):
     monkeypatch.setattr(tr, "RUNS_ROOT", tmp_path)
     r = client.post("/training/runs/does-not-exist/promote")
     assert r.status_code == 404
+
+
+def test_promote_eval_only_run_without_model_400(client, monkeypatch, tmp_path):
+    # Deep-Runs schreiben kein model.joblib → eval-only, nicht promotebar (400),
+    # statt loso_cv/oof halb zu überschreiben.
+    import pandas as pd
+    from src.server import training_runs as tr
+    monkeypatch.setattr(tr, "RUNS_ROOT", tmp_path)
+    rid = "2026-06-19_12-00_cnn_legacy"
+    d = tr.run_dir(rid, root=tmp_path)
+    tr.write_config(d, {"model": "cnn", "pool": "legacy"})
+    pd.DataFrame([{"held_out": "P1", "accuracy": 0.8, "roc_auc": 0.9}]).to_csv(
+        d / "cv.csv", index=False)
+    r = client.post(f"/training/runs/{rid}/promote")
+    assert r.status_code == 400
 
 
 def test_sandbox_unknown_run_404(client, monkeypatch, tmp_path):
@@ -105,6 +149,34 @@ def test_run_detail_returns_feature_groups_and_roc(client, monkeypatch, tmp_path
     body = r.json()
     groups = {g["group"] for g in body["feature_groups"]}
     assert {"time_stats", "jerk", "zcr", "spectral", "magnitude", "correlation"} & groups
+    assert isinstance(body["roc"], list) and len(body["roc"]) >= 2
+
+
+def test_run_detail_non_tree_model_empty_feature_groups(client, monkeypatch, tmp_path):
+    # logreg/svm/mlp werden als Pipeline gespeichert und haben kein
+    # feature_importances_ — run_detail muss 200 + leere Gruppen liefern, nicht crashen.
+    import joblib
+    import numpy as np
+    import pandas as pd
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import StandardScaler
+    from src.server import training_runs as tr
+    monkeypatch.setattr(tr, "RUNS_ROOT", tmp_path)
+    d = tr.run_dir("2026-06-19_12-00_logreg_legacy", root=tmp_path)
+    tr.write_config(d, {"model": "logreg", "pool": "legacy"})
+    pd.DataFrame([{"held_out": "P1", "accuracy": 0.8}]).to_csv(d / "cv.csv", index=False)
+    cols = ["ax_mean", "ax_jerk_std", "ax_zcr"]
+    clf = Pipeline([("scaler", StandardScaler()),
+                    ("clf", LogisticRegression(max_iter=200))]).fit(
+        np.random.rand(30, len(cols)), np.random.randint(0, 2, 30))
+    joblib.dump({"model": clf, "feature_cols": cols}, d / "model.joblib")
+    pd.DataFrame({"label": [0, 1, 0, 1, 1, 0],
+                  "proba_raw": [.1, .8, .2, .7, .9, .3]}).to_csv(d / "oof.csv", index=False)
+    r = client.get("/training/runs/2026-06-19_12-00_logreg_legacy")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["feature_groups"] == []
     assert isinstance(body["roc"], list) and len(body["roc"]) >= 2
 
 

@@ -196,6 +196,15 @@ def run_tasks(run_id: str, person: str | None = None):
 
 @router.post("/runs/{run_id}/promote")
 def promote(run_id: str):
+    d = training_runs.RUNS_ROOT / run_id
+    if not d.exists():
+        raise HTTPException(404, f"run {run_id} not found")
+    # Why: eval-only Läufe (Deep-Sequenz-Modelle) schreiben kein model.joblib —
+    # ohne Joblib wäre die Promotion halb (loso_cv/oof überschrieben, aber
+    # rf_all.joblib stale). Hartes Gate statt inkonsistenter Headline.
+    if not (d / "model.joblib").exists():
+        raise HTTPException(
+            400, "eval-only run (kein deploybares Modell) — nicht promotebar")
     try:
         training_runs.promote(run_id, root=training_runs.RUNS_ROOT)
     except FileNotFoundError:

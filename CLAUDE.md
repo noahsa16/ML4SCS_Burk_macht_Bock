@@ -586,14 +586,18 @@ no longer vibrates continuously when the server is down.
   3-person dataset and tightened fold-σ 4× (0.042 → 0.009) — the
   biggest single ML-side improvement of the project.
 - `src/training/deep/` — **Deep-Sequenz-Modell-LOSO** (Roadmap
-  Prio 3/4). 1D-CNN / LSTM / GRU auf rohen IMU-Sequenzen statt der 88
+  Prio 3/4). 1D-CNN / LSTM / GRU / TCN auf rohen IMU-Sequenzen statt der 88
   Features, im identischen LOSO-by-person-Protokoll wie `train_loso.py`
   (importiert dessen `_select_sessions` / `_burst_metrics`). `data.py`
   baut rohe Fenster (6 Kanäle; `load_session_raw` nimmt `merged_suffix`
-  für die Legacy-View-Quelle + `zscore`-Schalter), `models.py` die drei
+  für die Legacy-View-Quelle + `zscore`-Schalter), `models.py` die vier
   kleinen `nn.Module`-Klassen (seq-len-agnostisch via `AdaptiveAvgPool1d`
   / letztem Hidden-State, daher laufen 50- und 100-Hz-Fenster ohne
-  Architektur-Änderung), `train_loso.py` den Trainings-Loop (Early
+  Architektur-Änderung; der `TCN` ist ein Stack dilatierter **Kausal**-Convs
+  nach Bai et al. 2018 — `TemporalBlock` mit Dilationen 1/2/4/8, rezeptives
+  Feld 61 Samples, ~6k Params, kausal by construction und damit passend zur
+  trailing Burst-Glättung; `BatchNorm1d` wie beim CNN → ohne Z-Score
+  deploybar), `train_loso.py` den Trainings-Loop (Early
   Stopping auf rotierendem Person-Holdout) + pool-fähigen LOSO-Runner.
   **Genau ein Modell pro Aufruf**, mit `--pool`-Auswahl analog zum RF:
   `seq_len`/`stride` werden aus der Pool-Sample-Rate abgeleitet
@@ -612,12 +616,27 @@ no longer vibrates continuously when the server is down.
   schaltet ihn opt-in ein (→ `deep_loso_{pool}_zscore.csv`). Caveat: nur
   fürs CNN belegt; LSTM/GRU haben keine Input-Normalisierung, dort kann
   Z-Score sehr wohl zählen. CLI:
-  `python -m src.training.deep --model {cnn|lstm|gru} [--pool legacy|modern] [--win 1|5|both] [--zscore]`
+  `python -m src.training.deep --model {cnn|lstm|gru|tcn} [--pool legacy|modern] [--win 1|5|both] [--zscore]`
   → `models/deep_loso_{pool}.csv` + Vergleichstabellen gegen die
-  RF-Headline (legacy = N=14-Baseline; modern ohne RF-Zeile).
-  Legacy-Headline (CNN @1s, N=14, **no-zscore**): acc 0.873 ± 0.035,
-  AUC 0.936, @5s 0.897/0.963, @30s 0.843/0.918 — auf Augenhöhe mit dem
-  RF (Train/Test-Gap 0.016 = data-limited, nicht Overfit).
+  RF-Headline (`RF_DECISION_BY_POOL["legacy"]` = **N=15 post-Capture-Clock-Fix,
+  kausale Burst**: @1s 0.872/0.947, @5s 0.860/0.933, @10s 0.825/0.906,
+  @30s 0.771/0.856; modern ohne RF-Zeile).
+  **TCN-Headline (@1s, N=15, post-fix, no-zscore, 2026-06-19): acc
+  0.895 ± 0.035, AUC 0.960 — signifikant über RF@1s.** Gepaarter Wilcoxon
+  auf denselben 15 Folds (`src/evaluation/significance.py`,
+  `deep_loso_legacy.csv` vs frisch regeneriertes `loso_cv_legacy.csv`):
+  Δacc +0.021 p=0.0006, ΔAUC +0.010 p=0.015. **Aber @5/10/30 s
+  statistisch ununterscheidbar vom RF** (alle p>0.1, |Δacc|<0.6 pp,
+  vorzeichen-inkonsistent): der 1-s-Vorsprung ist genau das von der
+  Burst-Aggregation entfernte Hochfrequenz-Rauschen — **kein
+  Headline-Gewinn**. Schwächste Fold P17 (0.794), dieselben schwachen
+  Folds wie RF. Train/Test-Gap 0.012 = data-limited (nicht Overfit).
+  Drittes Architektur-Pendant (nach frozen-harnet + RF-Window-Sweep), das
+  die Decision-Window-Decke modellunabhängig bestätigt — siehe
+  `feature_engineering_ceiling`-Memory. CNN @1s (N=14, **pre-Capture-
+  Clock-Fix**, no-zscore): acc 0.873 ± 0.035, AUC 0.936, @5s 0.897/0.963,
+  @30s 0.843/0.918 — auf Augenhöhe mit dem damaligen RF, aber
+  regenerations-pflichtig auf N=15.
 - `src/training/deep/harnet*.py` — **Transfer-Learning-Vergleich mit dem
   Oxford `ssl-wearables`-Foundation-Model (harnet)**, im identischen
   LOSO-by-person-Protokoll wie `train_loso.py` (importiert nur
@@ -1522,7 +1541,9 @@ could silently poison the training data or the proband-facing flow:
   when served as `text/html`).
 - `test_deep.py` — Deep-Sequenz-Modell-Paket (`src/training/deep/`):
   `build_raw_windows` Shapes/Labels, Per-Kanal-Z-Score, Forward-Pass
-  aller drei Modelle (CNN/LSTM/GRU) bei beiden Sequenzlängen,
+  aller vier Modelle (CNN/LSTM/GRU/TCN) bei beiden Sequenzlängen,
+  TCN-spezifisch: `TemporalBlock`-Kausalitätstest (Störung bei t lässt
+  Outputs < t unverändert, im eval()-Modus) + Parameter-Budget-Guard,
   Mini-Trainingslauf von `train_one_model`/`predict_proba`/`fold_metrics`,
   plus Pool-/Suffix-Auswahl (`load_session_raw(merged_suffix=…)` lädt die
   Legacy-View bzw. nennt die Downsample-Chain, `_pool_plan` mappt

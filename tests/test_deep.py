@@ -8,7 +8,7 @@ import torch
 
 from src.training.deep import data as deep_data
 from src.training.deep.data import build_raw_windows, load_session_raw, zscore_channels
-from src.training.deep.models import CNN1D, MODELS
+from src.training.deep.models import CNN1D, MODELS, TCN, TemporalBlock
 from src.training.deep.train_loso import (
     POOL_FS,
     _acc_auc,
@@ -132,7 +132,7 @@ def test_cnn_forward_batch_one():
     assert torch.all(torch.isfinite(out))
 
 
-@pytest.mark.parametrize("name", ["cnn", "lstm", "gru"])
+@pytest.mark.parametrize("name", ["cnn", "lstm", "gru", "tcn"])
 @pytest.mark.parametrize("seq_len", [50, 250])
 def test_model_registry_forward(name, seq_len):
     model = MODELS[name]()
@@ -142,7 +142,56 @@ def test_model_registry_forward(name, seq_len):
 
 
 def test_models_registry_keys():
-    assert set(MODELS.keys()) == {"cnn", "lstm", "gru"}
+    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn"}
+
+
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_tcn_forward_shape(seq_len):
+    model = TCN()
+    x = torch.randn(8, seq_len, 6)
+    out = model(x)
+    # Output: ein Logit pro Sample, Shape (batch,) -- wie CNN/LSTM/GRU.
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn_forward_batch_one():
+    model = TCN()
+    model.eval()
+    out = model(torch.randn(1, 50, 6))
+    assert out.shape == (1,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_temporal_block_is_causal():
+    """Kausale Faltung: eine Stoerung zum Zeitpunkt t darf keinen Output
+    zu einem frueheren Zeitpunkt < t veraendern (nur vorwaerts wirken).
+
+    eval()-Modus ist Pflicht: BatchNorm1d mischt im Trainings-Modus
+    Statistik ueber die Zeitachse und wuerde die Kausalitaet scheinbar
+    brechen; im eval()-Modus nutzt es feste running stats (positions-
+    unabhaengig) -- genau die Bedingung der Live-Inferenz.
+    """
+    block = TemporalBlock(6, 8, kernel_size=3, dilation=2, dropout=0.0)
+    block.eval()
+    length = 40
+    x = torch.randn(1, 6, length)  # (batch, channels, seq) -- conv-intern
+    x_perturbed = x.clone()
+    t = length - 1
+    x_perturbed[..., t] += 5.0  # nur den letzten Zeitschritt stoeren
+    with torch.no_grad():
+        y = block(x)
+        y_perturbed = block(x_perturbed)
+    # Vergangene Outputs (< t) unveraendert -> kein Look-ahead.
+    assert torch.allclose(y[..., :t], y_perturbed[..., :t], atol=1e-5)
+    # Sanity: am Zeitpunkt t selbst schlaegt die Stoerung durch.
+    assert not torch.allclose(y[..., t], y_perturbed[..., t], atol=1e-5)
+
+
+def test_tcn_is_small():
+    """Parameter-Sparsamkeit (Paket-Philosophie bei N<=15): TCN bleibt klein."""
+    n_params = sum(p.numel() for p in TCN().parameters())
+    assert n_params < 20_000
 
 
 def test_train_one_model_runs_and_predicts():
@@ -274,3 +323,58 @@ def test_pool_plan_requires_watch_profile():
 
 def test_pool_fs_values():
     assert POOL_FS == {"legacy": 50, "modern": 100}
+
+
+def test_train_deep_loso_emits_events_and_writes_artifacts(monkeypatch, tmp_path):
+    """Cockpit-Instrumentierung: Events + cv.csv/oof.csv, KEIN model.joblib.
+
+    Patcht den torch-Trainingsteil weg (train_one_model/predict_proba) — der Test
+    fixiert die Verdrahtung (Event-Schema + Artefakte), nicht das Training.
+    """
+    from src.training.deep import train_loso as DL
+
+    sessions = pd.DataFrame({
+        "session_id": ["S1", "S2", "S3"],
+        "person_id": ["P1", "P2", "P3"],
+        "watch_profile": ["50hz", "50hz", "50hz"],
+    })
+    monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
+
+    def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
+                      exclude_boundary=None, zscore=False):
+        out = {}
+        for sid, pid in zip(sessions.session_id, sessions.person_id):
+            n = 40
+            out[sid] = {
+                "X": np.zeros((n, 6, seq_len), dtype=np.float32),
+                "y": np.tile([0, 1], n // 2).astype(np.int64),
+                "t": (np.arange(n) * 500).astype(float),
+                "person_id": pid,
+            }
+        return out
+
+    rng = np.random.default_rng(0)
+    monkeypatch.setattr(DL, "_load_all_sessions", fake_load_all)
+    monkeypatch.setattr(DL, "train_one_model", lambda m, *a, **k: (m, 0))
+    monkeypatch.setattr(DL, "predict_proba", lambda m, X: rng.random(len(X)))
+
+    events = []
+    run_dir = tmp_path / "run"
+    df = DL.train_deep_loso("cnn", 1, pool="legacy", include_all=True,
+                            on_event=events.append, run_dir=run_dir)
+
+    types = [e["type"] for e in events]
+    assert types[0] == "run_start"
+    assert events[0]["model"] == "cnn" and events[0]["n_folds"] == 3
+    assert "fold_end" in types and types[-1] == "run_end"
+    fe = next(e for e in events if e["type"] == "fold_end")
+    assert set(fe["confusion"]) == {"tn", "fp", "fn", "tp"}
+    end = next(e for e in events if e["type"] == "run_end")
+    assert end["n_done"] == len(df) == 3
+    # Artefakte: cv.csv + oof.csv, aber KEIN model.joblib (eval-only).
+    assert (run_dir / "cv.csv").exists()
+    assert (run_dir / "oof.csv").exists()
+    assert not (run_dir / "model.joblib").exists()
+    oof = pd.read_csv(run_dir / "oof.csv")
+    assert {"label", "proba_raw", "session_id", "person_id",
+            "t_center_ms"} <= set(oof.columns)
