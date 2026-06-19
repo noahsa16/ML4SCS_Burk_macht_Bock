@@ -215,6 +215,27 @@ def test_train_one_model_runs_and_predicts():
     assert np.all((proba >= 0.0) & (proba <= 1.0))
 
 
+def test_train_one_model_emits_epoch_progress():
+    """on_epoch feuert pro Epoche mit (epoch, loss, val_auc) — echte Werte aus
+    dem Loop, für die Cockpit-Loss-Kurve der Deep-Modelle."""
+    rng = np.random.default_rng(3)
+    def _make(n, scale):
+        return rng.normal(scale=scale, size=(n, 50, 6)).astype(np.float32)
+    X = np.concatenate([_make(16, 0.2), _make(16, 2.0)])
+    y = np.concatenate([np.zeros(16), np.ones(16)]).astype(np.int64)
+    Xv = np.concatenate([_make(8, 0.2), _make(8, 2.0)])
+    yv = np.concatenate([np.zeros(8), np.ones(8)]).astype(np.int64)
+    seen = []
+    train_one_model(CNN1D(), X, y, Xv, yv, max_epochs=3, patience=3, batch_size=16,
+                    on_epoch=lambda e, l, a: seen.append((e, l, a)))
+    assert len(seen) >= 1
+    assert seen[0][0] == 0                                  # 0-indexiert
+    assert [e for e, _, _ in seen] == sorted(e for e, _, _ in seen)  # monoton
+    assert all(isinstance(e, int) for e, _, _ in seen)
+    assert all(isinstance(l, float) and l == l for _, l, _ in seen)  # Loss endlich
+    assert all(isinstance(a, float) for _, _, a in seen)
+
+
 def test_acc_auc_ranges_and_perfect_split():
     """_acc_auc: Wertebereich + perfekt trennbarer Fall."""
     rng = np.random.default_rng(7)

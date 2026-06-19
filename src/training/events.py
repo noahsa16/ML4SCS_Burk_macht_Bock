@@ -14,6 +14,7 @@ RUN_START = "run_start"
 FOLD_START = "fold_start"
 FOLD_END = "fold_end"
 RUN_END = "run_end"
+EPOCH = "epoch"  # nur Deep-Modelle: echte Per-Epochen-Loss/Val-AUC
 ERROR = "error"
 
 EventCallback = Callable[[dict], None]

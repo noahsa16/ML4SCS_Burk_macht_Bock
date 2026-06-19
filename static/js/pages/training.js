@@ -449,11 +449,24 @@ export function onStatus(payload) {
   const terminal = done || errored;
   _setState(terminal ? 'done' : 'running');
 
-  // Lade-Animation nur während des laufenden Runs; bei done/error aus + verstecken.
+  // Running-Visual: Deep-Läufe zeigen ihre echte Loss-Kurve (sobald das erste
+  // Epoch-Event da ist), klassische die ambiente Trennungs-Animation. Bis Epoch-
+  // Daten eintreffen, dient der Loader auch beim Deep-Lauf als Platzhalter.
+  const hist = t.loss_hist || [];
+  const hasEpoch = !terminal && _isDeep(t.model) && t.epoch != null && hist.length > 0;
+  const epochEl = _q('#trn-epoch');
+  if (epochEl) {
+    epochEl.hidden = !hasEpoch;
+    if (hasEpoch) {
+      _q('#trn-epoch-label').textContent =
+        `Epoche ${t.epoch + 1} · loss ${Number(t.epoch_loss).toFixed(3)}`;
+      _renderLoss(hist);
+    }
+  }
   const loaderEl = _q('#trn-loader');
   if (loaderEl && _loader) {
-    if (terminal) { _loader.stop(); loaderEl.hidden = true; }
-    else { loaderEl.hidden = false; _loader.start(); }
+    if (!terminal && !hasEpoch) { loaderEl.hidden = false; _loader.start(); }
+    else { _loader.stop(); loaderEl.hidden = true; }
   }
 
   _q('#trn-title').textContent = `${t.model || 'rf'} · ${t.pool || ''}`;
@@ -563,6 +576,26 @@ function _renderConvergence(folds, n) {
     `<line x1="${pad}" y1="10" x2="${pad}" y2="${H - pad}" stroke="var(--border)"/>`
     + `<line x1="${pad}" y1="${H - pad}" x2="${W - 8}" y2="${H - pad}" stroke="var(--border)"/>`
     + `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2.5"/>${dots}`;
+}
+
+// Echte Loss-Kurve eines Deep-Folds: fallender Verlauf, vertikal auf min..max
+// des Folds skaliert (hoher Loss oben). vector-effect, da das viewBox x-streckt.
+function _renderLoss(hist) {
+  const svg = _q('#trn-loss');
+  if (!svg || !hist.length) return;
+  const W = 160, H = 48, pad = 4, n = hist.length;
+  const losses = hist.map(h => h.loss);
+  const lo = Math.min(...losses), span = (Math.max(...losses) - lo) || 1;
+  let lx = 0, ly = 0;
+  const pts = hist.map((h, i) => {
+    lx = pad + (n <= 1 ? 0 : (i / (n - 1)) * (W - 2 * pad));
+    ly = pad + (1 - (h.loss - lo) / span) * (H - 2 * pad);
+    return `${lx},${ly}`;
+  }).join(' ');
+  svg.innerHTML =
+    `<polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2" `
+    + `vector-effect="non-scaling-stroke" stroke-linejoin="round"/>`
+    + `<circle cx="${lx}" cy="${ly}" r="2.6" fill="var(--accent)"/>`;
 }
 
 function _renderBurst(burst) {

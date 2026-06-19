@@ -253,3 +253,23 @@ def test_persist_timing_noop_without_fold_data(tmp_path):
     run._run_dir = tmp_path
     run._persist_timing()
     assert not (tmp_path / "timing.json").exists()
+
+
+def test_epoch_events_track_loss_history_reset_per_fold():
+    # Deep-Modelle: echte Per-Epochen-Loss/Val-AUC werden gesammelt; jeder Fold
+    # trainiert frisch → loss_hist startet pro Fold neu.
+    run = tr.TrainingRun()
+    run._on_started("cnn", "legacy", "rid")
+    run._handle_event({"type": "run_start", "n_folds": 2})
+    run._handle_event({"type": "fold_start", "idx": 1, "person": "P1", "n": 2})
+    run._handle_event({"type": "epoch", "fold": 1, "epoch": 0, "loss": 0.5, "val_auc": 0.7})
+    run._handle_event({"type": "epoch", "fold": 1, "epoch": 1, "loss": 0.3, "val_auc": 0.85})
+    snap = run.snapshot()
+    assert snap["epoch"] == 1
+    assert round(snap["epoch_loss"], 3) == 0.3
+    assert [h["loss"] for h in snap["loss_hist"]] == [0.5, 0.3]
+    assert snap["loss_hist"][1]["val_auc"] == 0.85
+    # neuer Fold → loss_hist + epoch zurückgesetzt
+    run._handle_event({"type": "fold_start", "idx": 2, "person": "P2", "n": 2})
+    snap2 = run.snapshot()
+    assert snap2["loss_hist"] == [] and snap2["epoch"] is None
