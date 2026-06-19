@@ -1,4 +1,85 @@
+import asyncio
+import sys
+import textwrap
+
 from src.server import training as tr
+
+# Synthetischer Runner: run_start, dann eine Schleife. "catch" ehrt SIGINT und
+# emittiert run_end (graceful); "ignore" ignoriert SIGINT und läuft weiter
+# (mimt einen Runner, dessen Interrupt nicht landet — torch/joblib in C).
+_CHILD = textwrap.dedent('''
+    import sys, time, json, signal
+    mode = sys.argv[1]
+    def emit(e): sys.stdout.write(json.dumps(e)+"\\n"); sys.stdout.flush()
+    emit({"type":"run_start","n_folds":3})
+    stop = {"v": False}
+    if mode == "catch":
+        signal.signal(signal.SIGINT, lambda s,f: stop.__setitem__("v", True))
+    elif mode == "ignore":
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
+    i = 0
+    while not stop["v"] and i < 400:   # ~20 s, deutlich > Test-grace
+        time.sleep(0.05); i += 1
+    emit({"type":"run_end","partial":True,"n_done":1,"mean_acc":0.5,
+          "std_acc":0.0,"auc":0.5,"f1":0.5,"burst":{},"out_dir":""})
+''')
+
+
+def _stop_trial(monkeypatch, tmp_path, mode, grace=0.4):
+    """Fährt start()→stop() mit einem synthetischen Child und gibt den Snapshot
+    nach dem Stop zurück (Runner-/Subprozess-frei dank gepatchtem _build_cmd)."""
+    monkeypatch.setattr(
+        tr, "_build_cmd",
+        lambda *a, **k: [sys.executable, "-u", "-c", _CHILD, mode])
+
+    def fake_run_dir(rid):
+        d = tmp_path / rid
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    monkeypatch.setattr(tr.training_runs, "new_run_id", lambda m, p: "testrun")
+    monkeypatch.setattr(tr.training_runs, "run_dir", fake_run_dir)
+    monkeypatch.setattr(tr.training_runs, "write_config", lambda d, c: None)
+
+    async def go():
+        run = tr.TrainingRun()
+        run._stop_grace_sec = grace
+        await run.start("rf", "legacy")
+        for _ in range(60):  # auf run_start warten
+            if run.snapshot()["n"] == 3:
+                break
+            await asyncio.sleep(0.02)
+        t0 = asyncio.get_event_loop().time()
+        await run.stop()
+        elapsed = asyncio.get_event_loop().time() - t0
+        if run._reader is not None:
+            await run._reader  # _read finalisiert die Terminal-Phase
+        return run.snapshot(), elapsed
+
+    return asyncio.run(go())
+
+
+def test_stop_graceful_runner_settles_partial_done(monkeypatch, tmp_path):
+    snap, _ = _stop_trial(monkeypatch, tmp_path, "catch")
+    assert snap["phase"] == "done"
+    assert snap["partial"] is True
+
+
+def test_stop_unresponsive_runner_killed_clean_done(monkeypatch, tmp_path):
+    # Runner ignoriert SIGINT → Eskalation auf Kill nach grace; ein NUTZER-Stop
+    # landet sauber in done(partial), NICHT in error (Regression für den
+    # "stoppt nicht wirklich bis Refresh"-Bug). elapsed << 20 s belegt, dass
+    # nicht auf die natürliche Beendigung gewartet wird.
+    snap, elapsed = _stop_trial(monkeypatch, tmp_path, "ignore", grace=0.3)
+    assert snap["phase"] == "done"
+    assert snap["partial"] is True
+    assert snap["error"] is None
+    assert elapsed < 3.0, f"stop dauerte {elapsed:.1f}s — keine Kill-Eskalation?"
+
+
+def test_snapshot_exposes_stopping_flag():
+    run = tr.TrainingRun()
+    assert run.snapshot()["stopping"] is False
 
 
 def test_initial_state_is_idle():

@@ -61,11 +61,17 @@ def _build_cmd(model: str, pool: str, by: str, zscore: bool, run_dir,
 
 
 class TrainingRun:
+    # Grace nach SIGINT, bevor der Runner hart gekillt wird. Kurz genug, dass
+    # ein Stop sich sofort anfühlt; lang genug, dass ein SIGINT-ehrender Runner
+    # noch ein graceful run_end (partial) emittieren kann. In Tests überschrieben.
+    _stop_grace_sec = 8.0
+
     def __init__(self) -> None:
         self.reset()
 
     def reset(self) -> None:
         self.phase = "idle"            # idle | running | done | error
+        self.stopping = False          # True ab Stop-Request bis Terminal-Phase
         self.model: str | None = None
         self.pool: str | None = None
         self.run_id: str | None = None
@@ -123,7 +129,7 @@ class TrainingRun:
             "run_id": self.run_id, "fold": self.fold, "n": self.n,
             "folds": self.folds, "confusion": self.confusion,
             "summary": self.summary, "partial": self.partial,
-            "error": self.error, "hw": self.hw,
+            "error": self.error, "hw": self.hw, "stopping": self.stopping,
             "log": self.log[-8:],
         }
 
@@ -179,16 +185,29 @@ class TrainingRun:
                 except psutil.NoSuchProcess:
                     pass
         rc = await proc.wait()
-        if rc != 0 and self.phase == "running":
-            self.error = f"runner exited with code {rc}"
-            self.phase = "error"
+        # Runner endete ohne run_end (run_end setzt sonst phase=done).
+        if self.phase == "running":
+            if self.stopping:
+                # Why: vom Nutzer gestoppt → sauberer partial-Done statt "error",
+                # auch wenn der Runner via Kill endete (SIGINT nicht geehrt).
+                self.partial = True
+                self.phase = "done"
+            elif rc != 0:
+                self.error = f"runner exited with code {rc}"
+                self.phase = "error"
+        self.stopping = False
 
     async def stop(self) -> dict:
-        """Graceful: SIGINT → Runner finalisiert fertige Folds (partial run_end)."""
+        """Stop mit Eskalation: SIGINT (Runner finalisiert fertige Folds als
+        partial run_end) → nach ``_stop_grace_sec`` hart killen, falls der
+        Runner SIGINT nicht (rechtzeitig) ehrt. ``stopping`` flippt sofort, damit
+        der nächste WS-Tick „wird gestoppt…" zeigt (kein toter Klick)."""
         if self._proc and self._proc.returncode is None:
+            self.stopping = True
             self._proc.send_signal(signal.SIGINT)
             try:
-                await asyncio.wait_for(self._proc.wait(), timeout=20)
+                await asyncio.wait_for(self._proc.wait(),
+                                       timeout=self._stop_grace_sec)
             except asyncio.TimeoutError:
                 self._proc.kill()
                 await self._proc.wait()
