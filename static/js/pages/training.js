@@ -325,7 +325,7 @@ async function _loadRuns() {
   if (!tbody) return;
   const runs = await api('/training/runs');
   if (!Array.isArray(runs) || runs.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="trn-runs-empty">Noch keine Läufe.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="trn-runs-empty">Noch keine Läufe.</td></tr>';
     return;
   }
   const fmt = (v) => (v != null) ? Number(v).toFixed(3) : '–';
@@ -346,6 +346,7 @@ async function _loadRuns() {
       [when, 'mono'], [r.model || '–', ''], [r.pool || '–', ''],
       [fmt(r.mean_acc), 'mono'], [fmt(r.mean_auc), 'mono'],
       [(r.n_folds != null ? String(r.n_folds) : '–'), 'mono'],
+      [(r.total_sec != null ? _humanDur(r.total_sec) : '–'), 'mono'],
     ];
     for (const [txt, cls] of cells) {
       const td = document.createElement('td');
