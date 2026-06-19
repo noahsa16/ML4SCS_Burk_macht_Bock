@@ -74,6 +74,7 @@ def train_one_model(
     patience: int = 8,
     batch_size: int = 64,
     lr: float = 1e-3,
+    on_epoch=None,
 ) -> tuple[torch.nn.Module, int]:
     """Trainiere ein Modell mit Early Stopping auf Val-ROC-AUC.
 
@@ -108,12 +109,14 @@ def train_one_model(
 
     for epoch in range(max_epochs):
         model.train()
+        loss_sum, n_batches = 0.0, 0
         for xb, yb in loader:
             xb, yb = xb.to(DEVICE), yb.to(DEVICE)
             opt.zero_grad()
             loss = loss_fn(model(xb), yb)
             loss.backward()
             opt.step()
+            loss_sum += float(loss.item()); n_batches += 1
 
         model.eval()
         with torch.no_grad():
@@ -122,6 +125,16 @@ def train_one_model(
             val_auc = roc_auc_score(val_y, val_logits)
         except ValueError:
             val_auc = 0.0
+
+        # Why: echte Per-Epochen-Werte fürs Cockpit (Loss-Kurve der Deep-Modelle).
+        # NaN/Inf abfangen (val_auc ist NaN bei einklassiger Val-Person) — sonst
+        # bräche das ein WS-Tick-JSON (JSON kennt kein NaN).
+        if on_epoch is not None:
+            ep_loss = loss_sum / max(n_batches, 1)
+            ep_auc = float(val_auc)
+            on_epoch(epoch,
+                     float(ep_loss) if np.isfinite(ep_loss) else 0.0,
+                     ep_auc if np.isfinite(ep_auc) else 0.0)
 
         if val_auc > best_auc:
             best_auc = val_auc
@@ -358,7 +371,10 @@ def train_deep_loso(
         try:
             model = MODELS[model_name]()
             model, best_epoch = train_one_model(
-                model, train_X, train_y, val_X, val_y)
+                model, train_X, train_y, val_X, val_y,
+                on_epoch=lambda e, l, a, _i=i: emit(
+                    {"type": _events.EPOCH, "fold": _i, "epoch": e,
+                     "loss": l, "val_auc": a}))
 
             # Under-/Overfit-Diagnose: Train- und Val-Metriken am besten Modell.
             # train_acc misst Fit auf die 8 Trainings-Personen, val_acc auf die

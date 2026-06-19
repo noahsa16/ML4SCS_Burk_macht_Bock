@@ -96,6 +96,10 @@ class TrainingRun:
         self._run_t0: float | None = None
         self._fold_t0: float | None = None
         self._run_dir = None
+        # Deep-Modelle: echte Per-Epochen-Loss/Val-AUC des aktuellen Folds.
+        self.epoch: int | None = None
+        self.epoch_loss: float | None = None
+        self.loss_hist: list[dict] = []
         self._proc: asyncio.subprocess.Process | None = None
         self._reader: asyncio.Task | None = None
 
@@ -116,6 +120,15 @@ class TrainingRun:
         elif t == "fold_start":
             self.fold = int(ev.get("idx", self.fold))
             self._fold_t0 = self._clock()
+            # Jeder Fold trainiert frisch → Loss-Verlauf pro Fold neu.
+            self.loss_hist = []
+            self.epoch = None
+            self.epoch_loss = None
+        elif t == "epoch":
+            self.epoch = int(ev.get("epoch", 0))
+            self.epoch_loss = float(ev.get("loss", 0.0))
+            self.loss_hist.append({"epoch": self.epoch, "loss": self.epoch_loss,
+                                   "val_auc": float(ev.get("val_auc", 0.0))})
         elif t == "fold_end":
             self.fold = int(ev.get("idx", self.fold))
             self.n = int(ev.get("n", self.n))
@@ -166,7 +179,9 @@ class TrainingRun:
             "folds": self.folds, "confusion": self.confusion,
             "summary": self.summary, "partial": self.partial,
             "error": self.error, "hw": self.hw, "stopping": self.stopping,
-            "elapsed_sec": elapsed, "log": self.log[-8:],
+            "elapsed_sec": elapsed, "epoch": self.epoch,
+            "epoch_loss": self.epoch_loss, "loss_hist": self.loss_hist,
+            "log": self.log[-8:],
         }
 
     # ---- subprocess lifecycle ----
