@@ -51,6 +51,39 @@ def test_build_cmd_zscore_flag():
     assert "--no-zscore" in off
 
 
+def test_build_cmd_burst_scales():
+    cmd = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r",
+                        burst_scales="5,30")
+    i = cmd.index("--burst-scales")
+    assert cmd[i + 1] == "5,30"
+
+
+def test_build_cmd_burst_scales_default_omits_flag():
+    cmd = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r")
+    assert "--burst-scales" not in cmd
+
+
+def test_build_cmd_burst_scales_empty_is_passed_through():
+    # Why: "" is meaningful (report only the 1 s base) and must reach the CLI,
+    # distinct from None (use the backend default 5,10,30).
+    cmd = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r",
+                        burst_scales="")
+    i = cmd.index("--burst-scales")
+    assert cmd[i + 1] == ""
+
+
+def test_build_cmd_window_and_gap():
+    cmd = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r",
+                        window_sec=5.0, max_gap_ms=1000.0)
+    assert cmd[cmd.index("--window-sec") + 1] == "5.0"
+    assert cmd[cmd.index("--max-gap-ms") + 1] == "1000.0"
+
+
+def test_build_cmd_window_gap_none_omits_flags():
+    cmd = tr._build_cmd("rf", "legacy", "person", True, "/tmp/r")
+    assert "--window-sec" not in cmd and "--max-gap-ms" not in cmd
+
+
 def test_error_event_sets_error_phase():
     run = tr.TrainingRun()
     run._on_started("rf", "legacy", "rid")
