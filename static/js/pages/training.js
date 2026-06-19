@@ -402,14 +402,20 @@ export function onStatus(payload) {
 
   _runId = t.run_id || _runId;
   const done = t.phase === 'done';
-  _setState(done ? 'done' : 'running');
+  const errored = t.phase === 'error';
+  // Jede nicht-laufende Phase ist terminal → das Cockpit settled, statt für
+  // immer „läuft" zu zeigen (Fix: error/abgebrochene Läufe blieben hängen).
+  const terminal = done || errored;
+  _setState(terminal ? 'done' : 'running');
 
   _q('#trn-title').textContent = `${t.model || 'rf'} · ${t.pool || ''}`;
   const statusPill = _q('#trn-status');
-  statusPill.classList.toggle('running', !done);
-  _q('#trn-status-text').textContent = done
-    ? (t.partial ? `partial ${t.summary?.n_done ?? '?'}/${t.n}` : 'fertig')
-    : `läuft · Fold ${t.fold}/${t.n}`;
+  statusPill.classList.toggle('running', !terminal);
+  _q('#trn-status-text').textContent = errored
+    ? 'Fehler'
+    : done
+      ? (t.partial ? `gestoppt · ${t.summary?.n_done ?? t.folds?.length ?? '?'}/${t.n}` : 'fertig')
+      : (t.stopping ? 'wird gestoppt…' : `läuft · Fold ${t.fold}/${t.n}`);
   _q('#trn-folds').textContent = `${t.fold} / ${t.n}`;
 
   const s = t.summary || {};
@@ -423,16 +429,20 @@ export function onStatus(payload) {
   _renderConvergence(t.folds || [], t.n || 1);
   _q('#trn-hw').textContent = t.hw
     ? `CPU ${Math.round(t.hw.cpu_pct)}% · RAM ${Number(t.hw.ram_gb).toFixed(1)} GB` : '';
-  _q('#trn-foldnow').textContent = done ? '—' : `Fold ${t.fold} / ${t.n}`;
+  _q('#trn-foldnow').textContent = terminal ? '—' : `Fold ${t.fold} / ${t.n}`;
   const last = (t.log || [])[t.log.length - 1];
   if (last) _q('#trn-log').innerHTML = `<span class="s">/</span> ${last}`;
 
-  // Buttons
-  _q('#trn-stop').hidden = done;
-  _q('#trn-again').hidden = !done;
+  // Buttons. Stop blendet aus, sobald terminal; während des Stoppens deaktiviert
+  // + Label „wird gestoppt…", damit der Klick sofort quittiert wird.
+  const stopBtn = _q('#trn-stop');
+  stopBtn.hidden = terminal;
+  stopBtn.disabled = !!t.stopping && !terminal;
+  stopBtn.textContent = (!terminal && t.stopping) ? 'wird gestoppt…' : 'Stop';
+  _q('#trn-again').hidden = !terminal;
   _q('#trn-analysis').hidden = !done;
-  // Promote/Sandbox laden ein sklearn-Joblib in die Live-Inferenz — für
-  // Deep-Runs (eval-only) sichtbar, aber ausgegraut.
+  // Promote/Sandbox laden ein sklearn-Joblib in die Live-Inferenz — nur bei
+  // echtem done; für Deep-Runs (eval-only) sichtbar, aber ausgegraut.
   const deepRun = _isDeep(t.model);
   const promote = _q('#trn-promote'), sandbox = _q('#trn-sandbox');
   promote.hidden = !done; sandbox.hidden = !done;
@@ -441,6 +451,17 @@ export function onStatus(payload) {
   sandbox.title = deepRun ? 'eval-only — Deep-Modelle laufen nicht im Live-Tracker' : '';
 
   if (done) _renderDone(t);
+  else if (errored) _renderError(t);
+}
+
+// Terminal-Fehler (Runner-Crash): Cockpit settled mit Fehlertext statt für
+// immer „läuft" zu zeigen. Nutzer-Stops landen dagegen als done(partial).
+function _renderError(t) {
+  const v = _q('#trn-verdict');
+  v.hidden = false;
+  _q('#trn-verdict-title').textContent = 'Lauf fehlgeschlagen';
+  _q('#trn-verdict-sub').textContent = t.error || 'unbekannter Fehler';
+  _q('#trn-verdict-acc').textContent = '—';
 }
 
 function _num(sel, v) { _q(sel).textContent = (v == null || Number.isNaN(v)) ? '—' : Number(v).toFixed(3); }
