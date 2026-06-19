@@ -232,6 +232,27 @@ def test_delete_run_unknown_404(client, monkeypatch, tmp_path):
     assert client.delete("/training/runs/nope").status_code == 404
 
 
+def test_estimate_endpoint_returns_per_fold_from_history(client, monkeypatch, tmp_path):
+    from src.server import training_runs as tr
+    monkeypatch.setattr(tr, "RUNS_ROOT", tmp_path)
+    d = tr.run_dir("2026-06-19_10-00_rf_legacy", root=tmp_path)
+    tr.write_config(d, {"model": "rf", "pool": "legacy"})
+    tr.write_timing(d, [{"person": "P1", "sec": 4.0},
+                        {"person": "P2", "sec": 8.0}], total_sec=14.0)
+    r = client.get("/training/estimate?model=rf&pool=legacy")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["per_fold_sec"] == 6.0 and body["n_runs"] == 1
+
+
+def test_estimate_endpoint_empty_history(client, monkeypatch, tmp_path):
+    from src.server import training_runs as tr
+    monkeypatch.setattr(tr, "RUNS_ROOT", tmp_path)
+    r = client.get("/training/estimate?model=rf&pool=legacy")
+    assert r.status_code == 200
+    assert r.json() == {"per_fold_sec": None, "n_runs": 0}
+
+
 def test_status_payload_includes_training_block(monkeypatch):
     import src.server.state as state_mod
     import src.server.status as status_mod

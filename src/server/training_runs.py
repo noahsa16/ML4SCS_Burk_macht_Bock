@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import statistics
 from datetime import datetime
 from pathlib import Path
 
@@ -38,6 +39,52 @@ def write_config(d: Path, config: dict) -> None:
     (d / "config.json").write_text(json.dumps(config, indent=2))
 
 
+def write_timing(d: Path, folds: list[dict], total_sec: float | None) -> None:
+    """Persistiert die gemessene Laufzeit eines Runs (timing.json).
+
+    ``folds`` = [{"person", "sec"}, …] (pro Fold), ``total_sec`` = Gesamtzeit
+    inkl. Setup. Quelle für die datengetriebene Dauer-Schätzung (``estimate``)
+    statt eines hartkodierten Vorschau-Strings.
+    """
+    (d / "timing.json").write_text(json.dumps(
+        {"total_sec": total_sec, "folds": folds}, indent=2))
+
+
+def estimate(model: str, pool: str, root: Path = RUNS_ROOT) -> dict:
+    """Pro-Fold-Sekunden (Median) aus vergangenen Läufen desselben model/pool.
+
+    Poolt die Fold-Dauern aller passenden Läufe und nimmt den Median — robust
+    gegen Ausreißer und gegen unterschiedliche Fold-Zahlen je Lauf. Ohne
+    Historie → ``per_fold_sec = None`` (das Frontend zeigt dann keine erfundene
+    Zeit, nur die Fold-Zahl).
+    """
+    empty = {"per_fold_sec": None, "n_runs": 0}
+    if not root.exists():
+        return empty
+    secs: list[float] = []
+    n_runs = 0
+    for d in root.iterdir():
+        if not d.is_dir():
+            continue
+        cfg, tim = d / "config.json", d / "timing.json"
+        if not (cfg.exists() and tim.exists()):
+            continue
+        try:
+            c = json.loads(cfg.read_text())
+            if c.get("model") != model or c.get("pool") != pool:
+                continue
+            fold_secs = [float(f["sec"]) for f in json.loads(tim.read_text())
+                         .get("folds", []) if f.get("sec") is not None]
+        except (ValueError, OSError, KeyError):
+            continue
+        if fold_secs:
+            secs.extend(fold_secs)
+            n_runs += 1
+    if not secs:
+        return empty
+    return {"per_fold_sec": float(statistics.median(secs)), "n_runs": n_runs}
+
+
 def list_runs(root: Path = RUNS_ROOT) -> list[dict]:
     if not root.exists():
         return []
@@ -53,6 +100,7 @@ def list_runs(root: Path = RUNS_ROOT) -> list[dict]:
             # per-fold-Metriken liegen in cv.csv. Hier mitteln, damit die
             # Run-Historie/Leaderboard mean_acc zeigen (sonst überall "–").
             _attach_cv_summary(data, d / "cv.csv")
+            _attach_timing(data, d / "timing.json")
             rows.append(data)
     rows.sort(key=lambda r: r["run_id"], reverse=True)
     return rows
@@ -66,6 +114,18 @@ def delete_run(run_id: str, root: Path = RUNS_ROOT) -> bool:
         return False
     shutil.rmtree(d)
     return True
+
+
+def _attach_timing(data: dict, tim_path: Path) -> None:
+    """Hängt die persistierte Gesamtlaufzeit an (no-op ohne timing.json)."""
+    if not tim_path.exists():
+        return
+    try:
+        total = json.loads(tim_path.read_text()).get("total_sec")
+    except (ValueError, OSError):
+        return
+    if total is not None:
+        data["total_sec"] = total
 
 
 def _attach_cv_summary(data: dict, cv_path: Path) -> None:

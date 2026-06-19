@@ -73,6 +73,15 @@ def pools():
     return out
 
 
+@router.get("/estimate")
+def estimate(model: str, pool: str):
+    """Datengetriebene Dauer-Schätzung: Median-Sekunden pro Fold aus vergangenen
+    Läufen desselben model/pool. Ersetzt den hartkodierten Vorschau-String —
+    das Frontend rechnet ``per_fold_sec × Fold-Zahl``. Ohne Historie:
+    ``per_fold_sec = null`` (dann zeigt das Frontend nur die Fold-Zahl)."""
+    return training_runs.estimate(model, pool, training_runs.RUNS_ROOT)
+
+
 @router.get("/current")
 def current():
     return training_mod.run.snapshot()

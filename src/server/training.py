@@ -13,6 +13,7 @@ import asyncio
 import json
 import signal
 import sys
+import time
 
 import psutil
 
@@ -66,6 +67,10 @@ class TrainingRun:
     # noch ein graceful run_end (partial) emittieren kann. In Tests überschrieben.
     _stop_grace_sec = 8.0
 
+    # Uhr für die Laufzeit-Messung; in Tests durch eine deterministische
+    # Funktion ersetzbar, damit _handle_event ohne echte Zeit prüfbar bleibt.
+    _clock = staticmethod(time.monotonic)
+
     def __init__(self) -> None:
         self.reset()
 
@@ -84,6 +89,13 @@ class TrainingRun:
         self.error: str | None = None
         self.hw = {"cpu_pct": 0.0, "ram_gb": 0.0}
         self.partial = False
+        # Laufzeit-Messung: pro-Fold-Sekunden + Gesamtzeit, persistiert bei
+        # Terminal-Phase (timing.json) → speist die datengetriebene Schätzung.
+        self.fold_secs: list[dict] = []
+        self.total_sec: float | None = None
+        self._run_t0: float | None = None
+        self._fold_t0: float | None = None
+        self._run_dir = None
         self._proc: asyncio.subprocess.Process | None = None
         self._reader: asyncio.Task | None = None
 
@@ -95,6 +107,7 @@ class TrainingRun:
         self.reset()
         self.phase = "running"
         self.model, self.pool, self.run_id = model, pool, run_id
+        self._run_t0 = self._clock()
 
     def _handle_event(self, ev: dict) -> None:
         t = ev.get("type")
@@ -102,11 +115,16 @@ class TrainingRun:
             self.n = int(ev.get("n_folds", self.n))
         elif t == "fold_start":
             self.fold = int(ev.get("idx", self.fold))
+            self._fold_t0 = self._clock()
         elif t == "fold_end":
             self.fold = int(ev.get("idx", self.fold))
             self.n = int(ev.get("n", self.n))
             self.folds.append({k: ev.get(k) for k in
                                ("idx", "person", "acc", "auc", "f1")})
+            if self._fold_t0 is not None:
+                self.fold_secs.append({"person": ev.get("person"),
+                                       "sec": self._clock() - self._fold_t0})
+                self._fold_t0 = None
             c = ev.get("confusion") or {}
             for k in self.confusion:
                 self.confusion[k] += int(c.get(k, 0))
@@ -118,19 +136,37 @@ class TrainingRun:
             self.summary = {k: ev.get(k) for k in
                             ("mean_acc", "std_acc", "auc", "f1", "burst",
                              "out_dir", "n_done")}
+            if self._run_t0 is not None:
+                self.total_sec = self._clock() - self._run_t0
             self.phase = "done"
         elif t == "error":
             self.error = str(ev.get("message", "unknown"))
             self.phase = "error"
 
+    def _persist_timing(self) -> None:
+        """Schreibt timing.json, sobald fertige Folds vorliegen. Läufe ohne
+        einen einzigen fertigen Fold (sofort gestoppt) werden übersprungen,
+        damit keine Null-Dauer den Schätz-Pool verfälscht."""
+        if self._run_dir is None or not self.fold_secs:
+            return
+        total = self.total_sec
+        if total is None and self._run_t0 is not None:
+            total = self._clock() - self._run_t0
+        training_runs.write_timing(self._run_dir, self.fold_secs, total)
+
     def snapshot(self) -> dict:
+        # Läuft → live verstrichene Zeit; terminal → eingefrorene Gesamtzeit.
+        if self.phase == "running" and self._run_t0 is not None:
+            elapsed = self._clock() - self._run_t0
+        else:
+            elapsed = self.total_sec
         return {
             "phase": self.phase, "model": self.model, "pool": self.pool,
             "run_id": self.run_id, "fold": self.fold, "n": self.n,
             "folds": self.folds, "confusion": self.confusion,
             "summary": self.summary, "partial": self.partial,
             "error": self.error, "hw": self.hw, "stopping": self.stopping,
-            "log": self.log[-8:],
+            "elapsed_sec": elapsed, "log": self.log[-8:],
         }
 
     # ---- subprocess lifecycle ----
@@ -148,6 +184,7 @@ class TrainingRun:
                    "burst_scales": burst_scales, "window_sec": window_sec,
                    "max_gap_ms": max_gap_ms})
         self._on_started(model, pool, run_id)
+        self._run_dir = rdir
         cmd = _build_cmd(model, pool, by, zscore, rdir,
                          burst_scales=burst_scales, window_sec=window_sec,
                          max_gap_ms=max_gap_ms)
@@ -195,6 +232,9 @@ class TrainingRun:
             elif rc != 0:
                 self.error = f"runner exited with code {rc}"
                 self.phase = "error"
+        # Why: auch partial/fehlgeschlagene Läufe tragen gültige Fold-Dauern bei
+        # (fertige Folds sind echte Samples) — _persist_timing no-opt sonst.
+        self._persist_timing()
         self.stopping = False
 
     async def stop(self) -> dict:

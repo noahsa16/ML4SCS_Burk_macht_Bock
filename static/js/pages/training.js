@@ -2,11 +2,14 @@
 // Rendert den Live-Lauf aus dem `training`-Block des WS-Status-Ticks.
 import { api } from '/static/js/core/api.js';
 import { toast } from '/static/js/core/toast.js';
+import { createSeparationLoader } from '/static/js/pages/training_loader.js';
 
 let root = null;
 let _runId = null;
 let _poolN = {};  // pool-id -> {n_subjects, n_sessions} aus /training/pools
 let _modelFamily = {};  // model-id -> family (classical|deep|foundation)
+let _est = {};  // "model|pool" -> {per_fold_sec, n_runs} aus /training/estimate
+let _loader = null;  // Lade-Animation (nur während eines laufenden Runs aktiv)
 let _viewingIdle = true;     // true → onStatus lässt den idle-Screen stehen
 let _detailLoadedFor = null; // run_id, für den die Done-Analyse schon geholt wurde
 
@@ -16,6 +19,7 @@ function _isDeep(model) { return _modelFamily[model] === 'deep'; }
 
 export function mount(container) {
   root = container;
+  _loader = createSeparationLoader(_q('#trn-loader'));
   _loadModels();
   _loadRuns();
   _loadPools();  // fetch N je Pool, dann Pool-Dropdown enhancen (Labels mit N)
@@ -40,7 +44,7 @@ export function mount(container) {
 }
 
 export function onShow() { _loadRuns(); }
-export function onHide() { _closeAllDropdowns(); }
+export function onHide() { _closeAllDropdowns(); if (_loader) _loader.stop(); }
 
 function _q(sel) { return root.querySelector(sel); }
 
@@ -163,6 +167,32 @@ function _burstScales() {
 
 function _setText(sel, v) { const e = _q(sel); if (e) e.textContent = v; }
 
+// Sekunden → menschenlesbare Dauer ("45 s" · "3 min" · "1 h 10 min").
+function _humanDur(sec) {
+  if (sec < 90) return `${Math.max(1, Math.round(sec))} s`;
+  if (sec < 3600) return `${Math.round(sec / 60)} min`;
+  const h = Math.floor(sec / 3600), m = Math.round((sec % 3600) / 60);
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
+// Holt die Dauer-Schätzung für die aktuelle Modell/Pool-Wahl (gecacht pro
+// Kombination) und rendert die Vorschau neu. Kein Treffer im Cache → ein Fetch,
+// dann Re-Render; in-flight wird mit null markiert (kein Doppel-Fetch).
+async function _refreshEstimate() {
+  const model = _q('#trn-model'), pool = _q('#trn-pool');
+  if (!model || !pool || !model.value || !pool.value) return;
+  const key = `${model.value}|${pool.value}`;
+  if (key in _est) { _updatePreview(); return; }
+  _est[key] = null;
+  try {
+    const e = await api(`/training/estimate?model=${encodeURIComponent(model.value)}`
+      + `&pool=${encodeURIComponent(pool.value)}`);
+    _est[key] = (e && typeof e.per_fold_sec !== 'undefined')
+      ? e : { per_fold_sec: null, n_runs: 0 };
+  } catch { _est[key] = { per_fold_sec: null, n_runs: 0 }; }
+  _updatePreview();
+}
+
 // Live-Vorschau rechts: spiegelt die aktuelle Auswahl in Prosa.
 function _updatePreview() {
   if (!root || !_q('#trn-preview')) return;
@@ -191,7 +221,17 @@ function _updatePreview() {
   const folds = counts
     ? (by && by.value === 'session' ? counts.n_sessions : counts.n_subjects)
     : null;
-  _setText('#trn-pv-est', folds ? `≈ wenige Minuten · ${folds} Folds` : 'LOSO-Lauf');
+  // Datengetriebene Dauer aus vergangenen Läufen (per_fold_sec × Folds).
+  // Keine Historie → nur die Fold-Zahl, keine erfundene Zeit.
+  const key = (model && pool && model.value && pool.value)
+    ? `${model.value}|${pool.value}` : null;
+  const est = key ? _est[key] : null;
+  let estText;
+  if (!folds) estText = 'LOSO-Lauf';
+  else if (est && est.per_fold_sec != null)
+    estText = `≈ ${_humanDur(est.per_fold_sec * folds)} · ${folds} Folds`;
+  else estText = `${folds} Folds`;
+  _setText('#trn-pv-est', estText);
 }
 
 const _FAMILY_LABEL = {
@@ -215,9 +255,9 @@ async function _loadModels() {
       _modelFamily[m.id] = m.family;
       const o = document.createElement('option');
       o.value = m.id;
-      o.textContent = m.enabled
-        ? `${m.label} · ${m.speed}`
-        : `${m.label} · ${m.speed} (bald)`;
+      // Kein hartkodiertes fast/slow mehr — die Familie steht im Optgroup-Header,
+      // die echte gemessene Dauer in der Vorschau. "(bald)" = nicht verdrahtet.
+      o.textContent = m.enabled ? m.label : `${m.label} (bald)`;
       o.disabled = !m.enabled;
       o.title = m.description || '';
       o.dataset.desc = m.description || '';
@@ -231,8 +271,10 @@ async function _loadModels() {
   _syncModelTooltip();
   sel.addEventListener('change', _syncModelTooltip);
   sel.addEventListener('change', _applyDeepMode);
+  sel.addEventListener('change', _refreshEstimate);  // Modellwechsel → neue Dauer-Schätzung
   _enhanceSelect(sel);  // Why: nach dem Befüllen, damit das Panel die Optgroups spiegelt.
   _applyDeepMode();     // setzt Deep-Look + sperrt nicht zutreffende Regler (ruft _updatePreview)
+  _refreshEstimate();   // initiale Schätzung für die Default-Wahl
   _loadRuns();          // Familien bekannt → Deep-Runs grauen ihren Promote-Button korrekt aus
 }
 
@@ -273,8 +315,9 @@ async function _loadPools() {
       }
     }
   } catch { /* offline → Probanden-Zeile bleibt "—" */ }
+  sel.addEventListener('change', _refreshEstimate);  // Poolwechsel → neue Dauer-Schätzung
   _enhanceSelect(sel);  // nach dem Label-Update, damit das Panel N zeigt
-  _updatePreview();
+  _refreshEstimate();   // ruft _updatePreview, wenn die Schätzung da ist
 }
 
 async function _loadRuns() {
@@ -405,6 +448,13 @@ export function onStatus(payload) {
   // immer „läuft" zu zeigen (Fix: error/abgebrochene Läufe blieben hängen).
   const terminal = done || errored;
   _setState(terminal ? 'done' : 'running');
+
+  // Lade-Animation nur während des laufenden Runs; bei done/error aus + verstecken.
+  const loaderEl = _q('#trn-loader');
+  if (loaderEl && _loader) {
+    if (terminal) { _loader.stop(); loaderEl.hidden = true; }
+    else { loaderEl.hidden = false; _loader.start(); }
+  }
 
   _q('#trn-title').textContent = `${t.model || 'rf'} · ${t.pool || ''}`;
   const statusPill = _q('#trn-status');

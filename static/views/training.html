@@ -125,7 +125,9 @@
         <div class="trn-card"><div class="trn-muted">LOSO-Konvergenz — AUC über Folds</div>
           <svg id="trn-conv" viewBox="0 0 480 170" preserveAspectRatio="none"></svg></div>
         <div>
-          <div class="trn-box live" id="trn-foldbox"><div class="trn-muted">aktueller Fold</div>
+          <div class="trn-box live" id="trn-foldbox">
+            <canvas class="trn-loader" id="trn-loader" hidden></canvas>
+            <div class="trn-muted">aktueller Fold</div>
             <div id="trn-foldnow">—</div></div>
           <div class="trn-card" style="margin-bottom:0"><div class="trn-muted">Live-Confusion</div>
             <div class="trn-confusion" id="trn-confusion"></div></div>
