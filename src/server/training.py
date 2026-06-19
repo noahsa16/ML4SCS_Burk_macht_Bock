@@ -16,6 +16,7 @@ import sys
 
 import psutil
 
+from src.training import registry
 from . import training_runs
 
 
@@ -23,7 +24,25 @@ def _build_cmd(model: str, pool: str, by: str, zscore: bool, run_dir,
                burst_scales: str | None = None,
                window_sec: float | None = None,
                max_gap_ms: float | None = None) -> list[str]:
-    """Subprozess-Kommando für einen RF-LOSO-Lauf (isoliert testbar)."""
+    """Subprozess-Kommando je nach Runner der Modell-Familie (isoliert testbar).
+
+    Klassische Modelle teilen ``src.training.train_loso`` (--model, voller
+    Parametersatz). Deep-Sequenz-Modelle teilen ``src.training.deep`` und
+    laufen mit festem 1-s-Input, person-LOSO und festen 5/10/30-Burst-Skalen —
+    ``by`` / ``burst_scales`` / ``window_sec`` gelten dort nicht (rohe
+    Sequenzen) und werden bewusst nicht durchgereicht.
+    """
+    if registry.get(model).runner == "src.training.deep":
+        cmd = [sys.executable, "-u", "-m", "src.training.deep",
+               "--emit-json", "--model", model, "--pool", pool,
+               "--run-dir", str(run_dir)]
+        # Why: Deep-Z-Score-Default ist AUS -- nur das opt-in-Flag durchreichen.
+        if zscore:
+            cmd.append("--zscore")
+        if max_gap_ms is not None:
+            cmd += ["--max-gap-ms", str(max_gap_ms)]
+        return cmd
+
     cmd = [sys.executable, "-u", "-m", "src.training.train_loso",
            "--emit-json", "--model", model, "--pool", pool, "--by", by,
            "--run-dir", str(run_dir)]

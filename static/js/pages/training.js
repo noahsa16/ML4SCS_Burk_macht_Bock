@@ -6,8 +6,13 @@ import { toast } from '/static/js/core/toast.js';
 let root = null;
 let _runId = null;
 let _poolN = {};  // pool-id -> {n_subjects, n_sessions} aus /training/pools
+let _modelFamily = {};  // model-id -> family (classical|deep|foundation)
 let _viewingIdle = true;     // true → onStatus lässt den idle-Screen stehen
 let _detailLoadedFor = null; // run_id, für den die Done-Analyse schon geholt wurde
+
+// Deep-Sequenz-Modelle sind eval-only (kein sklearn-Joblib für die Live-
+// Inferenz) → Promote/Sandbox gesperrt; zudem dunkler Cockpit-Look.
+function _isDeep(model) { return _modelFamily[model] === 'deep'; }
 
 export function mount(container) {
   root = container;
@@ -162,20 +167,24 @@ function _setText(sel, v) { const e = _q(sel); if (e) e.textContent = v; }
 function _updatePreview() {
   if (!root || !_q('#trn-preview')) return;
   const model = _q('#trn-model'), pool = _q('#trn-pool'), by = _q('#trn-by');
+  const deep = model && _isDeep(model.value);
   const modelTxt = (model && model.selectedOptions[0])
     ? model.selectedOptions[0].textContent.split(' · ')[0] : '—';
   _setText('#trn-pv-model', modelTxt);
   _setText('#trn-pv-pool', (pool && pool.selectedOptions[0])
     ? pool.selectedOptions[0].textContent : '—');
-  _setText('#trn-pv-axis', (by && by.selectedOptions[0])
-    ? `LOSO ${by.selectedOptions[0].textContent}` : '—');
+  // Deep läuft fix: person-LOSO, 1-s-Input, feste 5/10/30-Burst — die Vorschau
+  // zeigt das statt der (gesperrten) Regler-Werte.
+  _setText('#trn-pv-axis', deep ? 'LOSO person · raw-Sequenz'
+    : ((by && by.selectedOptions[0]) ? `LOSO ${by.selectedOptions[0].textContent}` : '—'));
   _setText('#trn-pv-z', (_q('#trn-zscore') && _q('#trn-zscore').checked) ? 'an' : 'aus');
   const win = _q('#trn-window') ? parseFloat(_q('#trn-window').value) : 1;
-  _setText('#trn-pv-window', `${win} s · stride ${win / 2} s`);
+  _setText('#trn-pv-window', deep ? '1 s · raw-Sequenz (fix)' : `${win} s · stride ${win / 2} s`);
   const gap = _q('#trn-gap') ? _q('#trn-gap').value : '2500';
   _setText('#trn-pv-gap', `${gap} ms`);
   const scales = _burstScales();
-  _setText('#trn-pv-burst', scales ? `1s + ${scales.split(',').join('·')} s` : 'nur 1s');
+  _setText('#trn-pv-burst', deep ? '5·10·30 s (fix)'
+    : (scales ? `1s + ${scales.split(',').join('·')} s` : 'nur 1s'));
   // Probanden (N) + Fold-Zahl aus /training/pools — immer gezeigt, datengetrieben.
   const counts = pool && pool.value ? _poolN[pool.value] : null;
   _setText('#trn-pv-subjects', counts ? `N=${counts.n_subjects}` : '—');
@@ -203,6 +212,7 @@ async function _loadModels() {
     const og = document.createElement('optgroup');
     og.label = _FAMILY_LABEL[fam] || fam;
     for (const m of byFam[fam]) {
+      _modelFamily[m.id] = m.family;
       const o = document.createElement('option');
       o.value = m.id;
       o.textContent = m.enabled
@@ -211,6 +221,7 @@ async function _loadModels() {
       o.disabled = !m.enabled;
       o.title = m.description || '';
       o.dataset.desc = m.description || '';
+      o.dataset.family = m.family;
       og.appendChild(o);
     }
     sel.appendChild(og);
@@ -219,7 +230,28 @@ async function _loadModels() {
   if (firstEnabled) sel.value = firstEnabled.id;
   _syncModelTooltip();
   sel.addEventListener('change', _syncModelTooltip);
+  sel.addEventListener('change', _applyDeepMode);
   _enhanceSelect(sel);  // Why: nach dem Befüllen, damit das Panel die Optgroups spiegelt.
+  _applyDeepMode();     // setzt Deep-Look + sperrt nicht zutreffende Regler (ruft _updatePreview)
+  _loadRuns();          // Familien bekannt → Deep-Runs grauen ihren Promote-Button korrekt aus
+}
+
+// Deep-Modus: dunkleres Cockpit + nicht zutreffende Regler dimmen/sperren.
+// Deep-Sequenz-Modelle laufen fix person-LOSO, 1-s-Input, 5/10/30-Burst und
+// ohne Per-Session-Z-Score (BatchNorm übernimmt) — die zugehörigen Regler
+// gelten nicht und werden gesperrt, statt still ignoriert zu werden.
+function _applyDeepMode() {
+  const sel = _q('#trn-model');
+  const deep = sel ? _isDeep(sel.value) : false;
+  const trn = _q('#trn-root');
+  if (trn) trn.classList.toggle('trn-deep', deep);
+  const z = _q('#trn-zscore');
+  if (deep && z) z.checked = false;  // Deep-Default: kein Z-Score
+  for (const id of ['#trn-window', '#trn-by', '#trn-burst-chips']) {
+    const el = _q(id);
+    const label = el && el.closest('label');
+    if (label) label.classList.toggle('trn-ctl-off', deep);
+  }
   _updatePreview();
 }
 
@@ -286,6 +318,7 @@ async function _loadRuns() {
     promote.type = 'button';
     promote.className = 'trn-ghost';
     promote.textContent = 'als Headline';
+    if (_isDeep(r.model)) { promote.disabled = true; promote.title = 'eval-only — nicht promotebar'; }
     promote.addEventListener('click', (e) => { e.stopPropagation(); _promoteRun(r.run_id); });
     const del = document.createElement('button');
     del.type = 'button';
@@ -397,9 +430,15 @@ export function onStatus(payload) {
   // Buttons
   _q('#trn-stop').hidden = done;
   _q('#trn-again').hidden = !done;
-  _q('#trn-promote').hidden = !done;
-  _q('#trn-sandbox').hidden = !done;
   _q('#trn-analysis').hidden = !done;
+  // Promote/Sandbox laden ein sklearn-Joblib in die Live-Inferenz — für
+  // Deep-Runs (eval-only) sichtbar, aber ausgegraut.
+  const deepRun = _isDeep(t.model);
+  const promote = _q('#trn-promote'), sandbox = _q('#trn-sandbox');
+  promote.hidden = !done; sandbox.hidden = !done;
+  promote.disabled = deepRun; sandbox.disabled = deepRun;
+  promote.title = deepRun ? 'eval-only — Deep-Modelle sind nicht promotebar' : '';
+  sandbox.title = deepRun ? 'eval-only — Deep-Modelle laufen nicht im Live-Tracker' : '';
 
   if (done) _renderDone(t);
 }
@@ -601,7 +640,9 @@ async function _openRunDrawer(run) {
   d.querySelector('#trn-rd-when').textContent = when;
   d.querySelector('#trn-rd-meta').textContent = `${run.model || '–'} · ${run.pool || '–'}`;
   d.querySelector('#trn-drawer-x').addEventListener('click', () => { d.hidden = true; });
-  d.querySelector('#trn-rd-promote').addEventListener('click', () => _promoteRun(run.run_id));
+  const rdPromote = d.querySelector('#trn-rd-promote');
+  if (_isDeep(run.model)) { rdPromote.disabled = true; rdPromote.title = 'eval-only — nicht promotebar'; }
+  rdPromote.addEventListener('click', () => _promoteRun(run.run_id));
   d.querySelector('#trn-rd-del').addEventListener('click',
     () => _confirmDelete(run, when, () => { d.hidden = true; }));
 

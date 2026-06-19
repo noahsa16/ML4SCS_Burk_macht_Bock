@@ -271,3 +271,28 @@
 .trn-drawer svg { width: 100%; height: auto; max-height: 150px; }
 .trn-drawer-actions { display: flex; gap: var(--space-3); justify-content: flex-end;
   margin-top: var(--space-5); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+
+/* ── gesperrte Aktionen / Regler ──
+   eval-only Deep-Runs: Promote/Sandbox + nicht zutreffende Regler ausgegraut. */
+.trn-ghost:disabled, .trn-cta:disabled { opacity: 0.4; cursor: not-allowed; }
+.trn-ctl-off { opacity: 0.4; pointer-events: none; transition: opacity .3s ease; }
+
+/* ── Deep-Modus ──
+   Wird ein Deep-Sequenz-Modell gewählt, fährt das Cockpit in ein dunkleres
+   Theme. Reine Re-Tints der base.css-Tokens NUR im #trn-root-Subtree (alles
+   nutzt var(--token)) plus eine dunkle Fläche — visuelles „deep"-Signal. */
+#trn-root.trn-deep {
+  --surface: oklch(0.23 0.018 270);
+  --bg: oklch(0.17 0.02 270);
+  --border: oklch(0.36 0.02 270);
+  --text: oklch(0.96 0.01 270);
+  --text2: oklch(0.78 0.015 270);
+  --text3: oklch(0.58 0.015 270);
+  --accent: oklch(0.74 0.15 285);
+  background: var(--bg); color: var(--text);
+  border-radius: var(--radius-md);
+  margin: calc(-1 * var(--space-5)); padding: var(--space-5);
+  transition: background .45s ease, color .45s ease;
+}
+#trn-root.trn-deep .trn-card { box-shadow: 0 8px 30px oklch(0 0 0 / 0.45); }
+#trn-root.trn-deep::before { opacity: 0.09; }  /* Hintergrund-Slash kräftiger */

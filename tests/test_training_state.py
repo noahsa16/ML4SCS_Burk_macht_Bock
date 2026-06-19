@@ -84,6 +84,27 @@ def test_build_cmd_window_gap_none_omits_flags():
     assert "--window-sec" not in cmd and "--max-gap-ms" not in cmd
 
 
+def test_build_cmd_deep_uses_deep_runner():
+    # Deep-Modelle verzweigen auf src.training.deep mit reduziertem Argsatz.
+    cmd = tr._build_cmd("cnn", "legacy", "person", False, "/tmp/r")
+    assert "src.training.deep" in cmd
+    assert cmd[cmd.index("--model") + 1] == "cnn"
+    assert "--emit-json" in cmd and "--run-dir" in cmd
+    # by/burst/window gelten für rohe Sequenzen nicht → nicht durchgereicht.
+    assert "--by" not in cmd
+    assert "--burst-scales" not in cmd
+    assert "--window-sec" not in cmd
+    assert "--no-zscore" not in cmd  # Deep nutzt --zscore opt-in
+
+
+def test_build_cmd_deep_zscore_optin_and_gap():
+    on = tr._build_cmd("cnn", "legacy", "person", True, "/tmp/r", max_gap_ms=2500.0)
+    assert "--zscore" in on
+    assert on[on.index("--max-gap-ms") + 1] == "2500.0"
+    off = tr._build_cmd("cnn", "legacy", "person", False, "/tmp/r")
+    assert "--zscore" not in off
+
+
 def test_error_event_sets_error_phase():
     run = tr.TrainingRun()
     run._on_started("rf", "legacy", "rid")
