@@ -193,3 +193,63 @@ def test_error_event_sets_error_phase():
     run._handle_event({"type": "error", "message": "boom"})
     snap = run.snapshot()
     assert snap["phase"] == "error" and snap["error"] == "boom"
+
+
+def test_fold_and_total_timing_accumulate_with_injected_clock():
+    # Why: pro-Fold + Gesamt-Dauer werden über eine injizierbare Uhr gemessen,
+    # damit _handle_event deterministisch unit-testbar bleibt (keine echte Zeit).
+    run = tr.TrainingRun()
+    now = [1000.0]
+    run._clock = lambda: now[0]
+    run._on_started("rf", "legacy", "rid")          # run_t0 = 1000
+    run._handle_event({"type": "run_start", "n_folds": 2})
+    run._handle_event({"type": "fold_start", "idx": 1, "person": "P1", "n": 2})
+    now[0] = 1003.0
+    run._handle_event({"type": "fold_end", "idx": 1, "person": "P1", "n": 2,
+                       "acc": 0.9, "auc": 0.9, "f1": 0.9, "confusion": {}})   # 3 s
+    run._handle_event({"type": "fold_start", "idx": 2, "person": "P2", "n": 2})
+    now[0] = 1009.0
+    run._handle_event({"type": "fold_end", "idx": 2, "person": "P2", "n": 2,
+                       "acc": 0.9, "auc": 0.9, "f1": 0.9, "confusion": {}})   # 6 s
+    now[0] = 1010.0
+    run._handle_event({"type": "run_end", "partial": False, "n_done": 2,
+                       "mean_acc": 0.9, "std_acc": 0.0, "auc": 0.9, "f1": 0.9,
+                       "burst": {}, "out_dir": ""})
+    assert [round(f["sec"]) for f in run.fold_secs] == [3, 6]
+    assert [f["person"] for f in run.fold_secs] == ["P1", "P2"]
+    assert round(run.total_sec) == 10
+
+
+def test_snapshot_exposes_elapsed_running_then_total_when_done():
+    run = tr.TrainingRun()
+    now = [100.0]
+    run._clock = lambda: now[0]
+    run._on_started("rf", "legacy", "rid")          # run_t0 = 100
+    run._handle_event({"type": "run_start", "n_folds": 1})
+    now[0] = 107.0
+    assert round(run.snapshot()["elapsed_sec"]) == 7          # läuft → live elapsed
+    now[0] = 120.0
+    run._handle_event({"type": "run_end", "partial": False, "n_done": 1,
+                       "mean_acc": 0.9, "std_acc": 0.0, "auc": 0.9, "f1": 0.9,
+                       "burst": {}, "out_dir": ""})
+    assert round(run.snapshot()["elapsed_sec"]) == 20         # done → eingefrorene Gesamtzeit
+
+
+def test_persist_timing_writes_file(tmp_path):
+    run = tr.TrainingRun()
+    run._run_dir = tmp_path
+    run.fold_secs = [{"person": "P1", "sec": 3.0}]
+    run.total_sec = 5.0
+    run._persist_timing()
+    import json
+    data = json.loads((tmp_path / "timing.json").read_text())
+    assert data["total_sec"] == 5.0 and data["folds"][0]["person"] == "P1"
+
+
+def test_persist_timing_noop_without_fold_data(tmp_path):
+    # Lauf ohne fertige Folds (sofort gestoppt) schreibt keine irreführende
+    # Null-Dauer in den Schätz-Pool.
+    run = tr.TrainingRun()
+    run._run_dir = tmp_path
+    run._persist_timing()
+    assert not (tmp_path / "timing.json").exists()
