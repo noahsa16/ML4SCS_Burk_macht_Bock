@@ -1,68 +1,63 @@
-# LOSO-Sweep — fährt eine kuratierte Batch aus Modellen + Parametern auf
-# GitHubs Runnern (CPU), nicht auf deinem Mac. Jede Config ist ein eigener Job
-# (parallel, fail-fast aus → ein kaputter Lauf killt die anderen nicht); jeder
-# lädt seine Metriken als Artefakt hoch. Der collect-Job baut daraus EINE
-# Ergebnis-Tabelle (sweep_summary.md).
+# LOSO-Sweep — fährt eine Batch aus Modellen + Parametern auf GitHubs Runnern
+# (CPU), nicht auf deinem Mac. Die Matrix wird vom prepare-Job dynamisch aus den
+# Eingabefeldern gebaut (scripts/ml/sweep_matrix.py) → Parameter variieren ohne
+# YAML-Editieren. Jede Config ist ein eigener Job (parallel, fail-fast aus);
+# der collect-Job baut daraus EINE Ergebnis-Tabelle (sweep_summary.md).
 #
 # Voraussetzung (einmalig): die gitignored Daten als Bundle hosten —
-#   scripts/ops/pack_sweep_data.sh  → sweep_data.zip
-#   als GitHub-Release-Asset hochladen, dessen URL als Repo-Secret
-#   SWEEP_DATA_URL hinterlegen (Settings → Secrets and variables → Actions).
+#   scripts/ops/pack_sweep_data.sh  → sweep_data.zip → hosten → dessen
+#   Direkt-Download-URL als Repo-Secret SWEEP_DATA_URL hinterlegen.
 name: LOSO-Sweep
 
 on:
-  workflow_dispatch:          # Knopf im "Actions"-Tab — vor dem Schlafengehen klicken
-  # schedule:
-  #   - cron: "0 2 * * *"     # einkommentieren für automatisch jede Nacht 02:00 UTC
+  workflow_dispatch:        # Knopf im Actions-Tab — Felder anpassen, "Run workflow"
+    inputs:
+      models:
+        description: "Modelle (Komma) — rf,extratrees,histgb,logreg,svm_rbf,mlp,cnn,lstm,gru,tcn"
+        default: "rf,extratrees,histgb,logreg,svm_rbf,mlp,cnn,lstm,gru,tcn"
+      gaps:
+        description: "RF Label-Gap-Sweep in ms (Komma; 'none' = aus)"
+        default: "300,1000,2000,3000"
+      windows:
+        description: "RF Feature-Fenster in s, 50% Overlap (Komma; 'none' = aus)"
+        default: "3,5"
+      extras:
+        description: "Kuratierte Extras (Overlap-Sweep + SVM/ExtraTrees-Hyperparameter)"
+        type: boolean
+        default: true
+  schedule:
+    - cron: "0 2 * * *"     # jede Nacht 02:00 UTC, volle Default-Matrix
 
 permissions:
   contents: read
 
 jobs:
+  # Baut die Matrix aus den Eingaben (leer/Cron → volle Default-Matrix).
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - id: gen
+        env:
+          MODELS: ${{ inputs.models }}
+          GAPS: ${{ inputs.gaps }}
+          WINDOWS: ${{ inputs.windows }}
+          EXTRAS: ${{ inputs.extras }}
+        run: |
+          echo "matrix=$(python scripts/ml/sweep_matrix.py)" >> "$GITHUB_OUTPUT"
+
   sweep:
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 120      # je Job; GitHub-Hardcap liegt bei 6 h
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          # ── Modell-Sweep · Headline-Config (legacy, gap 2500, 1-s-Fenster, Z-Score an) ──
-          - { name: rf,         cmd: "python -m src.training.train_loso --pool legacy --model rf --save-cv-csv" }
-          - { name: extratrees, cmd: "python -m src.training.train_loso --pool legacy --model extratrees --save-cv-csv" }
-          - { name: histgb,     cmd: "python -m src.training.train_loso --pool legacy --model histgb --save-cv-csv" }
-          - { name: logreg,     cmd: "python -m src.training.train_loso --pool legacy --model logreg --save-cv-csv" }
-          - { name: svm_rbf,    cmd: "python -m src.training.train_loso --pool legacy --model svm_rbf --save-cv-csv" }
-          - { name: mlp,        cmd: "python -m src.training.train_loso --pool legacy --model mlp --save-cv-csv" }
-          # ── Deep-Sequenz-Modelle (legacy) ──
-          - { name: cnn,  cmd: "python -m src.training.deep --model cnn --pool legacy" }
-          - { name: lstm, cmd: "python -m src.training.deep --model lstm --pool legacy" }
-          - { name: gru,  cmd: "python -m src.training.deep --model gru --pool legacy" }
-          - { name: tcn,  cmd: "python -m src.training.deep --model tcn --pool legacy" }
-          # ── Label-Gap-Sweep (RF, gap 2500 ist die Baseline oben) ──
-          - { name: rf-gap300,  cmd: "python -m src.training.train_loso --pool legacy --model rf --max-gap-ms 300 --save-cv-csv" }
-          - { name: rf-gap1000, cmd: "python -m src.training.train_loso --pool legacy --model rf --max-gap-ms 1000 --save-cv-csv" }
-          - { name: rf-gap2000, cmd: "python -m src.training.train_loso --pool legacy --model rf --max-gap-ms 2000 --save-cv-csv" }
-          - { name: rf-gap3000, cmd: "python -m src.training.train_loso --pool legacy --model rf --max-gap-ms 3000 --save-cv-csv" }
-          # ── Feature-Fenster-Sweep (RF, 1 s ist die Baseline oben) ──
-          - { name: rf-win3, cmd: "python -m src.training.train_loso --pool legacy --model rf --window-sec 3 --save-cv-csv" }
-          - { name: rf-win5, cmd: "python -m src.training.train_loso --pool legacy --model rf --window-sec 5 --save-cv-csv" }
-          # ── Z-Score aus (RF) ──
-          - { name: rf-nozscore, cmd: "python -m src.training.train_loso --pool legacy --model rf --no-zscore --save-cv-csv" }
-          # ── Modell-Config-Sweep (RF Baum-Anzahl; 200 ist Default oben) ──
-          - { name: rf-trees100, cmd: "python -m src.training.train_loso --pool legacy --model rf --n-estimators 100 --save-cv-csv" }
-          - { name: rf-trees400, cmd: "python -m src.training.train_loso --pool legacy --model rf --n-estimators 400 --save-cv-csv" }
-          # ── Fenster × Overlap × Modell-Panel (dediziertes Tool: --config W,S = Fenster,Stride) ──
-          # Eine Datei je Job mit mehreren (config,model)-Combos; collect gruppiert.
-          - { name: wsweep-w2, cmd: "python scripts/ml/sweep_window_size.py --pool legacy --models --config 2,1 --config 2,0.5" }
-          - { name: wsweep-w3, cmd: "python scripts/ml/sweep_window_size.py --pool legacy --models --config 3,1.5 --config 3,1" }
-          - { name: wsweep-w5, cmd: "python scripts/ml/sweep_window_size.py --pool legacy --models --config 5,2.5 --config 5,1" }
-          # ── SVM-RBF Hyperparameter (C/gamma; Baseline svm_rbf = C1/scale oben) ──
-          - { name: svm-C0.1,      cmd: "python -m src.training.train_loso --pool legacy --model svm_rbf --model-params '{\"C\": 0.1}' --save-cv-csv" }
-          - { name: svm-C10,       cmd: "python -m src.training.train_loso --pool legacy --model svm_rbf --model-params '{\"C\": 10}' --save-cv-csv" }
-          - { name: svm-gammaAuto, cmd: "python -m src.training.train_loso --pool legacy --model svm_rbf --model-params '{\"gamma\": \"auto\"}' --save-cv-csv" }
-          # ── ExtraTrees Hyperparameter (Tiefe / Feature-Subsampling) ──
-          - { name: et-depth12, cmd: "python -m src.training.train_loso --pool legacy --model extratrees --model-params '{\"max_depth\": 12}' --save-cv-csv" }
-          - { name: et-sqrt,    cmd: "python -m src.training.train_loso --pool legacy --model extratrees --model-params '{\"max_features\": \"sqrt\"}' --save-cv-csv" }
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
