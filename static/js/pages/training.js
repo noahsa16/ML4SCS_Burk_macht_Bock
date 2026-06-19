@@ -1,9 +1,11 @@
 // Web-Training-Cockpit — Page-Modul (mount/onStatus/onShow/onHide).
 // Rendert den Live-Lauf aus dem `training`-Block des WS-Status-Ticks.
 import { api } from '/static/js/core/api.js';
+import { toast } from '/static/js/core/toast.js';
 
 let root = null;
 let _runId = null;
+let _poolN = {};  // pool-id -> {n_subjects, n_sessions} aus /training/pools
 let _viewingIdle = true;     // true → onStatus lässt den idle-Screen stehen
 let _detailLoadedFor = null; // run_id, für den die Done-Analyse schon geholt wurde
 
@@ -11,10 +13,19 @@ export function mount(container) {
   root = container;
   _loadModels();
   _loadRuns();
+  _loadPools();  // fetch N je Pool, dann Pool-Dropdown enhancen (Labels mit N)
+  _enhanceSelect(_q('#trn-by'));
+  _enhanceSelect(_q('#trn-window'));
+  _enhanceSelect(_q('#trn-gap'));
+  _wireBurstChips();
+  root.addEventListener('change', _updatePreview);  // Why: select/toggle bubbeln 'change'
+  document.addEventListener('click', _onDocClick);
+  document.addEventListener('keydown', _onDocKey);
+  _updatePreview();
   _q('#trn-start').addEventListener('click', _start);
   _q('#trn-stop').addEventListener('click', () => api('/training/stop', 'POST'));
   _q('#trn-again').addEventListener('click', _again);
-  _q('#trn-promote').addEventListener('click', () => _runId && api(`/training/runs/${_runId}/promote`, 'POST'));
+  _q('#trn-promote').addEventListener('click', () => _runId && _promoteRun(_runId));
   _q('#trn-sandbox').addEventListener('click', () => _runId && api(`/training/runs/${_runId}/sandbox`, 'POST'));
   _q('#trn-analysis').addEventListener('click', (e) => {
     const card = e.target.closest('.trn-drill');
@@ -24,9 +35,155 @@ export function mount(container) {
 }
 
 export function onShow() { _loadRuns(); }
-export function onHide() {}
+export function onHide() { _closeAllDropdowns(); }
 
 function _q(sel) { return root.querySelector(sel); }
+
+// ── Custom dropdown: schöne Liste über dem versteckten nativen <select>. ──
+// Das <select> bleibt die Wahrheit (Wert, change-Event, Tooltip-Sync); das
+// Panel spiegelt nur dessen Optionen (inkl. optgroup-Header + disabled).
+function _enhanceSelect(sel) {
+  if (!sel || sel.dataset.enhanced) return;
+  sel.dataset.enhanced = '1';
+
+  const dd = document.createElement('div');
+  dd.className = 'trn-dd';
+  sel.parentNode.insertBefore(dd, sel);
+  dd.appendChild(sel);
+  sel.classList.add('trn-dd-native');
+  sel.setAttribute('aria-hidden', 'true');
+  sel.tabIndex = -1;
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'trn-dd-trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.innerHTML = '<span class="trn-dd-value"></span>'
+    + '<svg class="trn-dd-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" '
+    + 'stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+  dd.appendChild(trigger);
+
+  const panel = document.createElement('div');
+  panel.className = 'trn-dd-panel';
+  panel.setAttribute('role', 'listbox');
+  panel.hidden = true;
+  panel.innerHTML = '<span class="trn-dd-nub"></span>';
+  dd.appendChild(panel);
+
+  const valEl = trigger.querySelector('.trn-dd-value');
+  const syncValue = () => {
+    const opt = sel.selectedOptions[0];
+    valEl.textContent = opt ? opt.textContent : '—';
+  };
+  const mkOpt = (o) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'trn-dd-opt';
+    b.setAttribute('role', 'option');
+    b.textContent = o.textContent;
+    if (o.title) b.title = o.title;
+    b.disabled = o.disabled;
+    b.setAttribute('aria-selected', String(o.selected));
+    if (!o.disabled) b.addEventListener('click', () => {
+      sel.value = o.value;
+      // Why: bubbles:true, sonst erreicht das change-Event den root-Listener
+      // (_updatePreview) nicht — die Live-Vorschau bliebe stehen.
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
+      _closeAllDropdowns();
+    });
+    return b;
+  };
+  const buildPanel = () => {
+    panel.querySelectorAll('.trn-dd-group, .trn-dd-opt').forEach(n => n.remove());
+    for (const child of sel.children) {
+      if (child.tagName === 'OPTGROUP') {
+        const h = document.createElement('div');
+        h.className = 'trn-dd-group';
+        h.textContent = child.label;
+        panel.appendChild(h);
+        for (const o of child.children) panel.appendChild(mkOpt(o));
+      } else if (child.tagName === 'OPTION') {
+        panel.appendChild(mkOpt(child));
+      }
+    }
+  };
+  dd._close = () => {
+    panel.hidden = true; dd.classList.remove('open');
+    trigger.setAttribute('aria-expanded', 'false');
+  };
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (dd.classList.contains('open')) { dd._close(); return; }
+    _closeAllDropdowns();
+    buildPanel();
+    panel.hidden = false; dd.classList.add('open');
+    trigger.setAttribute('aria-expanded', 'true');
+  });
+
+  sel.addEventListener('change', syncValue);
+  syncValue();
+}
+
+function _closeAllDropdowns() {
+  if (!root) return;
+  root.querySelectorAll('.trn-dd.open').forEach(d => d._close && d._close());
+}
+function _onDocClick(e) {
+  if (root && !e.target.closest('.trn-dd')) _closeAllDropdowns();
+}
+function _onDocKey(e) { if (e.key === 'Escape') _closeAllDropdowns(); }
+
+function _wireBurstChips() {
+  const chips = _q('#trn-burst-chips');
+  if (!chips) return;
+  for (const chip of chips.querySelectorAll('.trn-chip[data-scale]')) {
+    const toggle = () => {
+      const on = chip.classList.toggle('on');
+      chip.setAttribute('aria-pressed', String(on));
+      _updatePreview();
+    };
+    chip.addEventListener('click', toggle);
+    chip.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+  }
+}
+function _burstScales() {
+  const chips = _q('#trn-burst-chips');
+  if (!chips) return null;
+  return [...chips.querySelectorAll('.trn-chip[data-scale].on')]
+    .map(c => c.dataset.scale).join(',');
+}
+
+function _setText(sel, v) { const e = _q(sel); if (e) e.textContent = v; }
+
+// Live-Vorschau rechts: spiegelt die aktuelle Auswahl in Prosa.
+function _updatePreview() {
+  if (!root || !_q('#trn-preview')) return;
+  const model = _q('#trn-model'), pool = _q('#trn-pool'), by = _q('#trn-by');
+  const modelTxt = (model && model.selectedOptions[0])
+    ? model.selectedOptions[0].textContent.split(' · ')[0] : '—';
+  _setText('#trn-pv-model', modelTxt);
+  _setText('#trn-pv-pool', (pool && pool.selectedOptions[0])
+    ? pool.selectedOptions[0].textContent : '—');
+  _setText('#trn-pv-axis', (by && by.selectedOptions[0])
+    ? `LOSO ${by.selectedOptions[0].textContent}` : '—');
+  _setText('#trn-pv-z', (_q('#trn-zscore') && _q('#trn-zscore').checked) ? 'an' : 'aus');
+  const win = _q('#trn-window') ? parseFloat(_q('#trn-window').value) : 1;
+  _setText('#trn-pv-window', `${win} s · stride ${win / 2} s`);
+  const gap = _q('#trn-gap') ? _q('#trn-gap').value : '2500';
+  _setText('#trn-pv-gap', `${gap} ms`);
+  const scales = _burstScales();
+  _setText('#trn-pv-burst', scales ? `1s + ${scales.split(',').join('·')} s` : 'nur 1s');
+  // Probanden (N) + Fold-Zahl aus /training/pools — immer gezeigt, datengetrieben.
+  const counts = pool && pool.value ? _poolN[pool.value] : null;
+  _setText('#trn-pv-subjects', counts ? `N=${counts.n_subjects}` : '—');
+  const folds = counts
+    ? (by && by.value === 'session' ? counts.n_sessions : counts.n_subjects)
+    : null;
+  _setText('#trn-pv-est', folds ? `≈ wenige Minuten · ${folds} Folds` : 'LOSO-Lauf');
+}
 
 const _FAMILY_LABEL = {
   classical: 'Klassisch · 88/92 Features',
@@ -62,42 +219,112 @@ async function _loadModels() {
   if (firstEnabled) sel.value = firstEnabled.id;
   _syncModelTooltip();
   sel.addEventListener('change', _syncModelTooltip);
+  _enhanceSelect(sel);  // Why: nach dem Befüllen, damit das Panel die Optgroups spiegelt.
+  _updatePreview();
 }
 
 function _syncModelTooltip() {
   const opt = _q('#trn-model').selectedOptions[0];
-  _q('#trn-model-q').title = opt ? (opt.dataset.desc || '') : '';
+  const q = _q('#trn-model-q');
+  const desc = opt ? (opt.dataset.desc || '') : '';
+  if (desc) q.setAttribute('data-tip', desc);
+  else q.removeAttribute('data-tip');  // Why: leeres data-tip würde eine leere Tooltip-Box zeigen.
+}
+
+async function _loadPools() {
+  const sel = _q('#trn-pool');
+  try {
+    const pools = await api('/training/pools');
+    if (Array.isArray(pools)) {
+      // Why: N nur in der Probanden-Zeile der Vorschau führen, nicht (hardcoded
+      // oder injiziert) im Pool-Label — eine Quelle für die Probandenzahl.
+      for (const p of pools) {
+        _poolN[p.id] = { n_subjects: p.n_subjects, n_sessions: p.n_sessions };
+      }
+    }
+  } catch { /* offline → Probanden-Zeile bleibt "—" */ }
+  _enhanceSelect(sel);  // nach dem Label-Update, damit das Panel N zeigt
+  _updatePreview();
 }
 
 async function _loadRuns() {
+  const tbody = _q('#trn-runs-body');
+  if (!tbody) return;
   const runs = await api('/training/runs');
-  const t = _q('#trn-runs');
-  if (!t) return;
   if (!Array.isArray(runs) || runs.length === 0) {
-    t.innerHTML = '<tr><td class="trn-muted">Noch keine Läufe.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="trn-runs-empty">Noch keine Läufe.</td></tr>';
     return;
   }
-  t.innerHTML = '<tr style="color:var(--text3);text-align:left">'
-    + '<th>Run</th><th>Modell</th><th>Pool</th><th>acc</th><th></th></tr>';
+  const fmt = (v) => (v != null) ? Number(v).toFixed(3) : '–';
+  tbody.innerHTML = '';
   for (const r of runs) {
     const tr = document.createElement('tr');
-    const acc = (r.mean_acc != null) ? Number(r.mean_acc).toFixed(3) : '–';
-    for (const txt of [r.run_id, r.model, r.pool, acc]) {
+    // Why: ganze Zeile öffnet die Insights; die Action-Buttons stoppen
+    // die Propagation, damit Promote/Delete nicht zusätzlich den Drawer öffnen.
+    tr.className = 'trn-runs-row';
+    tr.tabIndex = 0;
+    tr.setAttribute('role', 'button');
+    const when = _runWhen(r.run_id);
+    tr.addEventListener('click', () => _openRunDrawer(r));
+    tr.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); _openRunDrawer(r); }
+    });
+    const cells = [
+      [when, 'mono'], [r.model || '–', ''], [r.pool || '–', ''],
+      [fmt(r.mean_acc), 'mono'], [fmt(r.mean_auc), 'mono'],
+      [(r.n_folds != null ? String(r.n_folds) : '–'), 'mono'],
+    ];
+    for (const [txt, cls] of cells) {
       const td = document.createElement('td');
-      td.style.padding = '6px 8px';
-      td.style.borderBottom = '1px solid var(--border)';
+      if (cls) td.className = cls;
       td.textContent = txt;
       tr.appendChild(td);
     }
     const td = document.createElement('td');
-    td.style.padding = '6px 8px';
-    const btn = document.createElement('button');
-    btn.className = 'trn-ghost';
-    btn.textContent = 'als Headline';
-    btn.addEventListener('click', () => api(`/training/runs/${r.run_id}/promote`, 'POST'));
-    td.appendChild(btn);
+    td.className = 'trn-runs-action';
+    const promote = document.createElement('button');
+    promote.type = 'button';
+    promote.className = 'trn-ghost';
+    promote.textContent = 'als Headline';
+    promote.addEventListener('click', (e) => { e.stopPropagation(); _promoteRun(r.run_id); });
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'trn-ghost trn-del';
+    del.textContent = 'löschen';
+    del.addEventListener('click', (e) => { e.stopPropagation(); _confirmDelete(r, when); });
+    td.appendChild(promote);
+    td.appendChild(del);
     tr.appendChild(td);
-    t.appendChild(tr);
+    tbody.appendChild(tr);
+  }
+}
+
+// run_id = "YYYY-MM-DD_HH-MM_model_pool" → "YYYY-MM-DD · HH:MM"
+function _runWhen(runId) {
+  const parts = String(runId).split('_');
+  return parts.length >= 2 ? `${parts[0]} · ${parts[1].replace('-', ':')}` : runId;
+}
+
+async function _promoteRun(runId) {
+  const res = await api(`/training/runs/${runId}/promote`, 'POST');
+  toast((res && !res.http_status) ? 'Als Headline gespeichert' : 'Promote fehlgeschlagen');
+}
+
+function _confirmDelete(run, when, after) {
+  // Why: Löschen ist nicht-reversibel — harter Bestätigungs-Gate (analog zur
+  // Spill-Verwerfen-Bestätigung auf der iPhone-Seite).
+  if (!window.confirm(`Run „${when}" löschen?\nDas Verzeichnis wird endgültig entfernt.`)) return;
+  _deleteRun(run.run_id, after);
+}
+
+async function _deleteRun(runId, after) {
+  const res = await api(`/training/runs/${runId}`, 'DELETE');
+  if (res && res.deleted) {
+    toast('Run gelöscht');
+    if (after) after();
+    _loadRuns();
+  } else {
+    toast('Löschen fehlgeschlagen');
   }
 }
 
@@ -107,6 +334,9 @@ async function _start() {
     pool: _q('#trn-pool').value,
     by: _q('#trn-by').value,
     zscore: _q('#trn-zscore') ? _q('#trn-zscore').checked : true,
+    burst_scales: _burstScales(),
+    window_sec: _q('#trn-window') ? parseFloat(_q('#trn-window').value) : null,
+    max_gap_ms: _q('#trn-gap') ? parseFloat(_q('#trn-gap').value) : null,
   };
   const res = await api('/training/start', 'POST', body);
   if (res && res.run_id) {
@@ -309,8 +539,9 @@ async function _loadDetail(runId) {
   if (d.roc) _renderRoc(d.roc);
 }
 
-function _renderRoc(roc) {
-  const svg = _q('#trn-roc');
+function _renderRoc(roc) { _renderRocInto(_q('#trn-roc'), roc); }
+
+function _renderRocInto(svg, roc) {
   if (!svg || !Array.isArray(roc)) return;
   const W = 160, H = 130, pad = 18;
   const pts = roc.map(([fpr, tpr]) =>
@@ -337,6 +568,83 @@ async function _renderTasks() {
       + `<i style="width:${Math.round((t.fp + t.fn) / maxErr * 100)}%;background:${col}"></i>`
       + `${t.fp}FP/${t.fn}FN</div>`;
   }).join('');
+}
+
+// Run-Insights: ganze Run-Zeile angeklickt → cv (per-Fold), Feature-Gruppen,
+// ROC und Fehler-nach-Task in den geteilten #trn-drawer, plus Promote/Delete.
+async function _openRunDrawer(run) {
+  const d = _q('#trn-drawer');
+  d.hidden = false;
+  const when = _runWhen(run.run_id);
+  const f = (v) => (v != null) ? Number(v).toFixed(3) : '—';
+  d.innerHTML = `<button class="trn-ghost" id="trn-drawer-x">schließen</button>
+    <h2 id="trn-rd-when"></h2>
+    <div class="trn-muted" id="trn-rd-meta"></div>
+    <div class="trn-dkpi">
+      <div><b>${f(run.mean_acc)}</b><small>accuracy</small></div>
+      <div><b>${f(run.mean_auc)}</b><small>ROC-AUC</small></div>
+      <div><b>${run.n_folds != null ? run.n_folds : '—'}</b><small>Folds</small></div>
+    </div>
+    <div class="trn-label">Per-Fold</div>
+    <div id="trn-rd-folds" class="trn-muted">lädt…</div>
+    <div class="trn-label">ROC-Kurve</div>
+    <svg id="trn-rd-roc" viewBox="0 0 160 130"></svg>
+    <div class="trn-label">Feature-Gruppen-Importance</div>
+    <div id="trn-rd-feat" class="trn-muted">lädt…</div>
+    <div class="trn-label">Fehler nach Task</div>
+    <div id="trn-rd-tasks" class="trn-muted">lädt…</div>
+    <div class="trn-drawer-actions">
+      <button class="trn-ghost trn-del" id="trn-rd-del">löschen</button>
+      <button class="trn-cta" id="trn-rd-promote">als Headline speichern</button>
+    </div>`;
+  // Why: data-abgeleitete Strings via textContent (kein innerHTML-Inject).
+  d.querySelector('#trn-rd-when').textContent = when;
+  d.querySelector('#trn-rd-meta').textContent = `${run.model || '–'} · ${run.pool || '–'}`;
+  d.querySelector('#trn-drawer-x').addEventListener('click', () => { d.hidden = true; });
+  d.querySelector('#trn-rd-promote').addEventListener('click', () => _promoteRun(run.run_id));
+  d.querySelector('#trn-rd-del').addEventListener('click',
+    () => _confirmDelete(run, when, () => { d.hidden = true; }));
+
+  const det = await api(`/training/runs/${run.run_id}`);
+  if (d.hidden || d.querySelector('#trn-rd-folds') == null) return;  // zwischenzeitlich geschlossen
+  const foldsBox = d.querySelector('#trn-rd-folds');
+  if (det && !det.http_status && Array.isArray(det.cv) && det.cv.length) {
+    foldsBox.classList.remove('trn-muted');
+    const acc = (c) => Number(c.accuracy) || 0;
+    foldsBox.innerHTML = det.cv.map(c =>
+      `<div class="trn-bar">${c.held_out ?? '–'}`
+      + `<i style="width:${Math.round(acc(c) * 100)}%;background:${acc(c) >= 0.87 ? 'var(--green)' : 'var(--yellow)'}"></i>`
+      + `${f(c.accuracy)}</div>`).join('');
+  } else {
+    foldsBox.textContent = 'keine cv-Daten für diesen Run';
+  }
+  const featBox = d.querySelector('#trn-rd-feat');
+  if (det && !det.http_status && Array.isArray(det.feature_groups) && det.feature_groups.length) {
+    featBox.classList.remove('trn-muted');
+    const max = Math.max(...det.feature_groups.map(g => g.imp), 1e-9);
+    featBox.innerHTML = det.feature_groups.map(g =>
+      `<div class="trn-bar">${g.group}<i style="width:${Math.round(g.imp / max * 100)}%;background:var(--accent)"></i></div>`).join('');
+  } else {
+    featBox.textContent = 'keine Feature-Importance (Modell nicht gespeichert)';
+  }
+  if (det && Array.isArray(det.roc) && det.roc.length) _renderRocInto(d.querySelector('#trn-rd-roc'), det.roc);
+
+  const tr = await api(`/training/runs/${run.run_id}/tasks`);
+  if (d.hidden) return;
+  const tasksBox = d.querySelector('#trn-rd-tasks');
+  const tasks = (tr && tr.tasks) || [];
+  if (tasksBox && tasks.length) {
+    tasksBox.classList.remove('trn-muted');
+    const maxErr = Math.max(...tasks.map(t => t.fp + t.fn), 1);
+    tasksBox.innerHTML = tasks.slice(0, 8).map(t => {
+      const col = t.category === 'writing' ? 'var(--accent)' : 'var(--yellow)';
+      return `<div class="trn-bar">${t.task}`
+        + `<i style="width:${Math.round((t.fp + t.fn) / maxErr * 100)}%;background:${col}"></i>`
+        + `${t.fp}FP/${t.fn}FN</div>`;
+    }).join('');
+  } else if (tasksBox) {
+    tasksBox.textContent = 'keine Marker-Daten';
+  }
 }
 
 async function _openDrawer(fold) {

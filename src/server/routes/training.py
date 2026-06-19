@@ -23,6 +23,11 @@ class StartBody(BaseModel):
     pool: str = "legacy"
     by: str = "person"
     zscore: bool = True
+    # None = backend default (5,10,30); "" = only the 1 s base; else CSV "5,30".
+    burst_scales: str | None = None
+    # Feature-Build-Parameter; None = gecachte Defaults (1 s Fenster / 2500 ms gap).
+    window_sec: float | None = None
+    max_gap_ms: float | None = None
 
 
 def _feature_group(name: str) -> str:
@@ -47,6 +52,27 @@ def models():
     return registry.list_models()
 
 
+@router.get("/pools")
+def pools():
+    """Probanden-/Session-Zahl je Pool (für die Live-Vorschau, N=x).
+
+    Spiegelt die LOSO-Session-Auswahl (verdict/min-windows-Gates) und zählt die
+    eindeutigen Probanden — n_subjects = Anzahl LOSO-Folds bei by-person.
+    """
+    # Why: lazy import — train_loso zieht sklearn; nicht beim Server-Start laden.
+    from src.training import train_loso as _loso
+    out = []
+    for pid in ("legacy", "modern"):
+        try:
+            prof = _loso._profile_for_pool(pid)
+            s = _loso._select_sessions(include_all=False, min_windows=0, profile=prof)
+            n_subj = int(s["person_id"].nunique()) if "person_id" in s.columns else 0
+            out.append({"id": pid, "n_subjects": n_subj, "n_sessions": int(len(s))})
+        except Exception:
+            out.append({"id": pid, "n_subjects": 0, "n_sessions": 0})
+    return out
+
+
 @router.get("/current")
 def current():
     return training_mod.run.snapshot()
@@ -60,7 +86,9 @@ async def start(body: StartBody):
         raise HTTPException(400, f"model '{body.model}' runner not yet wired (post-MVP)")
     if training_mod.run.is_busy():
         raise HTTPException(409, "a training run is already in progress")
-    return await training_mod.run.start(body.model, body.pool, body.by, body.zscore)
+    return await training_mod.run.start(body.model, body.pool, body.by,
+                                        body.zscore, body.burst_scales,
+                                        body.window_sec, body.max_gap_ms)
 
 
 @router.post("/stop")
@@ -71,6 +99,13 @@ async def stop():
 @router.get("/runs")
 def runs():
     return training_runs.list_runs(training_runs.RUNS_ROOT)
+
+
+@router.delete("/runs/{run_id}")
+def delete_run(run_id: str):
+    if not training_runs.delete_run(run_id, training_runs.RUNS_ROOT):
+        raise HTTPException(404, f"run {run_id} not found")
+    return {"deleted": run_id}
 
 
 @router.get("/runs/{run_id}")
