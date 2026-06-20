@@ -620,7 +620,7 @@ no longer vibrates continuously when the server is down.
   schaltet ihn opt-in ein (→ `deep_loso_{pool}_zscore.csv`). Caveat: nur
   fürs CNN belegt; LSTM/GRU haben keine Input-Normalisierung, dort kann
   Z-Score sehr wohl zählen. CLI:
-  `python -m src.training.deep --model {cnn|lstm|gru|tcn} [--pool legacy|modern] [--win 1|5|both] [--zscore]`
+  `python -m src.training.deep --model {cnn|lstm|gru|tcn|tcn6} [--pool legacy|modern] [--win 1|5|10|both] [--zscore]`
   → `models/deep_loso_{pool}.csv` + Vergleichstabellen gegen die
   RF-Headline (`RF_DECISION_BY_POOL["legacy"]` = **N=15 post-Capture-Clock-Fix,
   kausale Burst**: @1s 0.872/0.947, @5s 0.860/0.933, @10s 0.825/0.906,
@@ -641,6 +641,44 @@ no longer vibrates continuously when the server is down.
   Clock-Fix**, no-zscore): acc 0.873 ± 0.035, AUC 0.936, @5s 0.897/0.963,
   @30s 0.843/0.918 — auf Augenhöhe mit dem damaligen RF, aber
   regenerations-pflichtig auf N=15.
+  **Native-Lang-Fenster-Befund (Deep, 2026-06-20, N=15 legacy, post-fix,
+  no-zscore).** Anders als die @5/10/30-s-Burst-Aggregation oben (1-s-Input-
+  Modell, Predictions nachträglich geglättet → ununterscheidbar vom RF)
+  trainieren CNN/TCN hier direkt auf **nativen 5-s-Fenstern** (250 Samples,
+  `--win 5`). Per-window (= 5-s-Entscheidung): **TCN-5s acc 0.911 / AUC 0.976
+  (σ 0.030), CNN-5s 0.905 / 0.970 (σ 0.036)** vs. **RF-nativ-5s (rf-win5,
+  `train_loso --window-sec 5`) 0.885 / 0.953**. Gepaarter Wilcoxon auf
+  denselben 15 Folds (lokal, gleiche Maschine + Daten — Environment-Confound
+  ausgeschlossen, lokales rf-win5 0.885 ≡ GitHub-Sweep 0.886): **TCN-5s vs
+  RF-5s Δacc +0.021 p=0.0012, ΔAUC +0.026 p=0.0001; CNN-5s vs RF-5s Δacc
+  +0.021 p=0.0043, ΔAUC +0.019 p=0.0034 — beide signifikant.** Das ist das
+  Deep-Pendant zum RF-Feature-Fenster-Sweep (`sweep_window_size.py`:
+  RF-nativ-5s schlägt RF-1s+Burst@5s um +2.8 pp): echter Längs-Kontext *in
+  der Repräsentation* hebt die Deep-Netze auf der 5-s-Decision-Skala über den
+  RF — die Decision-Window-Decke gilt damit nur fürs **Burst-Framing**
+  (1-s-Input nachglätten), nicht fürs native Lang-Fenster-Training.
+  **`tcn6` (TCN mit 6 Ebenen, Dilationen bis 32, rezeptives Feld 253 Samples
+  ≈ 5 s @ 50 Hz): acc 0.922 / AUC 0.978 (σ 0.033)** — höchster Punktschätzer,
+  schlägt RF-nativ-5s noch deutlicher (Δacc +0.041 p=0.0012, ΔAUC +0.026
+  p=0.0001). **Aber der Vorsprung gegenüber dem 4-Ebenen-TCN-5s (0.911) ist
+  NICHT signifikant** (Δacc +0.019 p=0.083; ΔAUC +0.002 p=0.008 zwar
+  signifikant, aber +0.2 pp trivial). Heißt: der Lang-Fenster-Gewinn kommt aus
+  dem **längeren Roh-Input** (mehr Kontext zum Pooling), nicht aus einem
+  buchstäblich 5-s-weiten rezeptiven Feld — der `AdaptiveAvgPool` über den
+  4-Ebenen-TCN holt das schon. **@10-s nativ (RF-nativ-10s = rf-win10 =
+  0.880 / 0.955):** TCN-10s acc 0.914 / AUC 0.979 (σ 0.037) schlägt RF-10s
+  weiterhin signifikant (Δacc +0.035 p=0.015, ΔAUC +0.028 p=0.002); CNN-10s
+  fällt dagegen auf 0.889 / 0.969 (σ 0.047) und ist gegen RF-10s nur noch im
+  AUC signifikant (Δacc +0.005 p=0.42 n.s., ΔAUC +0.014 p=0.015). Der
+  Lang-Fenster-Gewinn **plateauiert bei ~5 s**: TCN-10s vs TCN-5s Δacc +0.007
+  p=0.60 n.s. (Verdopplung bringt keine Accuracy), und der CNN verliert bei
+  10 s Zeitauflösung (zwei MaxPool(2) + GlobalAvgPool über 500 Samples,
+  σ wächst 0.036→0.047). **Praktisches Optimum: 5-s-Fenster mit TCN/tcn6
+  (0.911 / 0.922)** — robustester signifikanter Vorsprung über RF bei
+  kürzester Latenz; CNN nur @5 s konkurrenzfähig, TCN über 5 s + 10 s stabil.
+  Tooling neu (2026-06-20): `tcn6` in `MODELS` + CLI, `--win 10`, Tabelle 2
+  skalen-bewusst (RF-Ref auf passender Decision-Skala statt hart @5s);
+  GitHub-Sweep-Dimension `DEEP_WIN5` (cnn/tcn/tcn6 @5s, Cron aus / Dispatch an).
 - `src/training/deep/harnet*.py` — **Transfer-Learning-Vergleich mit dem
   Oxford `ssl-wearables`-Foundation-Model (harnet)**, im identischen
   LOSO-by-person-Protokoll wie `train_loso.py` (importiert nur
