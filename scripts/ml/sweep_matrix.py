@@ -8,10 +8,13 @@ braucht es zum Variieren der Parameter kein YAML-Editieren mehr.
 Env-Eingaben (alle optional). Leer/ungesetzt → Default (so läuft der Cron auf
 der vollen Matrix, ohne Eingaben); ``none`` (bzw. off/-) schaltet die Dimension
 gezielt ab:
-  MODELS   Komma-Liste der Modelle für den Headline-Config-Lauf
-  GAPS     Komma-Liste RF-Label-Gaps in ms (``none`` = aus)
-  WINDOWS  Komma-Liste RF-Feature-Fenster in s, 50% Overlap (``none`` = aus)
-  EXTRAS   true/false: kuratierte Extras (Overlap-Sweep + SVM/ExtraTrees-HP)
+  MODELS    Komma-Liste der Modelle für den Headline-Config-Lauf
+  GAPS      Komma-Liste RF-Label-Gaps in ms (``none`` = aus)
+  WINDOWS   Komma-Liste RF-Feature-Fenster in s, 50% Overlap (``none`` = aus)
+  EXTRAS    true/false: kuratierte Extras (Overlap-Sweep + SVM/ExtraTrees-HP)
+  DEEP_WINS  Komma-Liste Deep-Input-Fenster in s (cnn/tcn; tcn6 nur @5 s).
+            ``none`` = aus. Default aus (leer/Cron) — CPU-Runner brauchen dafür
+            lange; per workflow_dispatch (Default '5,10') einschalten.
 
 Gibt eine Zeile aus: {"include": [{"name": ..., "cmd": ...}, ...]}
 """
@@ -75,6 +78,23 @@ def build() -> dict:
             {"name": "et-depth12", "cmd": _classical("extratrees", '--model-params \'{"max_depth": 12}\' ')},
             {"name": "et-sqrt", "cmd": _classical("extratrees", '--model-params \'{"max_features": "sqrt"}\' ')},
         ]
+    # Deep-Modelle auf langen Input-Fenstern: laengerer Roh-Kontext fliesst in
+    # EINE Entscheidung, statt 1-s-Predictions per Burst zu mitteln. cnn/tcn
+    # spannen jede in DEEP_WINS angeforderte Skala; tcn6 (6 Ebenen, rezeptives
+    # Feld ~5 s) laeuft nur auf seiner Design-Skala 5 s. Default aus (leer/Cron
+    # -> 'none'); per Dispatch einschalten (CPU-Runner brauchen dafuer lange).
+    deep_wins = _list("DEEP_WINS", "none")
+    for w in deep_wins:
+        for m in ("cnn", "tcn"):
+            inc.append({
+                "name": f"{m}-win{w}",
+                "cmd": f"python -m src.training.deep --model {m} --pool legacy --win {w}",
+            })
+    if "5" in deep_wins:
+        inc.append({
+            "name": "tcn6-win5",
+            "cmd": "python -m src.training.deep --model tcn6 --pool legacy --win 5",
+        })
     return {"include": inc}
 
 

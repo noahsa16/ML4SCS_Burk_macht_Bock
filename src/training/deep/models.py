@@ -141,6 +141,21 @@ class TCN(nn.Module):
         return self.head(x).squeeze(-1)  # (batch,)
 
 
+class TCN6(TCN):
+    """TCN mit 6 Dilatations-Ebenen statt 4 -- rezeptives Feld 253 Samples.
+
+    Dilationen 1/2/4/8/16/32 -> ``1 + 2*(k-1)*sum(dilations) = 253`` Samples
+    (~5 s @ 50 Hz). Damit integriert die letzte Position das ganze 5-s-Fenster
+    in EINE Entscheidung, statt -- wie der 4-Ebenen-TCN (Feld 61 = ~1.2 s) --
+    ~250 lokale 1.2-s-Detektionen zu mitteln. Fairer Gegenpart zum
+    RF-Feature-Fenster-Sweep (echter Laengs-Kontext statt Prediction-Mittelung)
+    auf der 5-s-Decision-Skala. Bleibt mit ~9k Params klein.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels=n_channels, levels=6, dropout=dropout)
+
+
 class _RNNClassifier(nn.Module):
     """Gemeinsame Basis fuer LSTM/GRU -- ein RNN-Layer, letzter Hidden-State -> FC."""
 
@@ -179,4 +194,5 @@ MODELS: dict[str, type[nn.Module]] = {
     "lstm": LSTMClassifier,
     "gru": GRUClassifier,
     "tcn": TCN,
+    "tcn6": TCN6,
 }
