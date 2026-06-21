@@ -103,22 +103,27 @@ def _print_long_input_table(
     by_group: dict[tuple[str, int], pd.DataFrame],
     rf: dict[str, tuple[float, float]] | None,
 ) -> None:
-    """Tabelle 2: 5-s-Input-Modelle (per-window-Wert ist schon ~5-s-Entscheidung)."""
-    rows = {(m, w): df for (m, w), df in by_group.items() if w == 5}
+    """Tabelle 2: Lange-Input-Modelle (per-window-Wert ist schon ~Input-s-Entscheidung).
+
+    Eine Zeile pro (Modell, Fenster>1 s). ``RF-Ref`` ist die RF-Baseline auf der
+    zum Input-Fenster passenden Decision-Skala (RF = 1-s-Input + Burst); fehlt
+    sie (z. B. modern-Pool), steht ``n/a``.
+    """
+    rows = {(m, w): df for (m, w), df in by_group.items() if w != 1}
     if not rows:
         return
-    ref = (
-        f"RF-Burst@5s = {rf['5s'][0]:.3f}/{rf['5s'][1]:.3f}"
-        if rf is not None else "keine RF-Baseline fuer diesen Pool"
-    )
-    print("\n=== Tabelle 2: 5-s-Input-Modelle ===")
-    print(f"(per-window = ~5-s-Entscheidung; Referenz: {ref})")
-    print(f"{'Modell':<14}{'per-window':>16}{'acc-sigma':>11}{'@30s':>16}")
-    for (model, _), df in sorted(rows.items()):
+    print("\n=== Tabelle 2: Lange-Input-Modelle ===")
+    print("(per-window = ~Input-s-Entscheidung; RF-Ref = RF-Burst auf gleicher Skala)")
+    print(f"{'Modell':<8}{'Input':>7}{'per-window':>16}{'acc-sigma':>11}"
+          f"{'RF-Ref':>16}{'@30s':>16}")
+    for (model, win), df in sorted(rows.items()):
         acc, auc = df["accuracy"].mean(), df["roc_auc"].mean()
         a30, u30 = df["acc_30s"].mean(), df["auc_30s"].mean()
-        print(f"{model:<14}{acc:>7.3f}/{auc:<8.3f}{df['accuracy'].std():>11.3f}"
-              f"{a30:>7.3f}/{u30:<8.3f}")
+        scale = f"{win}s"
+        rf_ref = (f"{rf[scale][0]:.3f}/{rf[scale][1]:.3f}"
+                  if rf is not None and scale in rf else "n/a")
+        print(f"{model:<8}{str(win) + 's':>7}{acc:>7.3f}/{auc:<8.3f}"
+              f"{df['accuracy'].std():>11.3f}{rf_ref:>16}{a30:>7.3f}/{u30:<8.3f}")
 
 
 def _print_gap_table(by_group: dict[tuple[str, int], pd.DataFrame]) -> None:
@@ -142,8 +147,9 @@ def _print_gap_table(by_group: dict[tuple[str, int], pd.DataFrame]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m src.training.deep")
     parser.add_argument(
-        "--model", choices=["cnn", "lstm", "gru", "tcn"], required=True,
-        help="Genau ein Sequenz-Modell pro Lauf.",
+        "--model", choices=["cnn", "lstm", "gru", "tcn", "tcn6"], required=True,
+        help="Genau ein Sequenz-Modell pro Lauf. tcn6 = TCN mit rezeptivem Feld "
+             "~5 s (6 Ebenen) fuer den 5-s-Input-Vergleich.",
     )
     parser.add_argument(
         "--pool", choices=["legacy", "modern"], default="legacy",
@@ -152,8 +158,9 @@ def main() -> None:
              "Sequenzen koennen keine Sample-Raten mischen.",
     )
     parser.add_argument(
-        "--win", choices=["1", "5", "both"], default="1",
-        help="Input-Fenster in Sekunden (NICHT das Decision-Window).",
+        "--win", choices=["1", "5", "10", "both"], default="1",
+        help="Input-Fenster in Sekunden (NICHT das Decision-Window). "
+             "'both' = 1 s + 5 s.",
     )
     parser.add_argument("--include-all", action="store_true")
     parser.add_argument("--max-gap-ms", type=float, default=2500.0)

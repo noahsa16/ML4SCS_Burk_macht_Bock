@@ -25,8 +25,14 @@ on:
         description: "Kuratierte Extras (Overlap-Sweep + SVM/ExtraTrees-Hyperparameter)"
         type: boolean
         default: true
+      deep_wins:
+        description: "Deep-Input-Fenster in s (Komma; cnn/tcn, tcn6 nur @5s; 'none' = aus). CPU-Runner: langsam"
+        default: "5,10"
   schedule:
-    - cron: "0 2 * * *"     # jede Nacht 02:00 UTC, volle Default-Matrix
+    # Jede Nacht 02:00 UTC, volle Default-Matrix. deep_wins ist hier AUS
+    # (leerer inputs-Kontext → sweep_matrix-Default 'none'), damit der Cron
+    # nicht an langsamen Lang-Fenster-Deep-Jobs hängt; per Dispatch einschaltbar.
+    - cron: "0 2 * * *"
 
 permissions:
   contents: read
@@ -48,13 +54,14 @@ jobs:
           GAPS: ${{ inputs.gaps }}
           WINDOWS: ${{ inputs.windows }}
           EXTRAS: ${{ inputs.extras }}
+          DEEP_WINS: ${{ inputs.deep_wins }}
         run: |
           echo "matrix=$(python scripts/ml/sweep_matrix.py)" >> "$GITHUB_OUTPUT"
 
   sweep:
     needs: prepare
     runs-on: ubuntu-latest
-    timeout-minutes: 120      # je Job; GitHub-Hardcap liegt bei 6 h
+    timeout-minutes: 300      # je Job; 5-s-Deep-Laeufe (tcn6) sind auf CPU lang. GitHub-Hardcap 6 h
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
