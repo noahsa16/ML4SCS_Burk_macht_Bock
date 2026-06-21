@@ -138,7 +138,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 479 tests, ~25 s
+pytest tests/         # 485 tests, ~25 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -897,6 +897,21 @@ no longer vibrates continuously when the server is down.
   das HMM schon eingebaut“). Deployment-Konsequenz: HMM auf den 1-s-RF, **nicht**
   auf 5-s-RF oder TCN. Output: `reports/hmm_context_ladder.md`. Knüpft an den
   `feature_engineering_ceiling`-Befund an.
+- `src/evaluation/calibration.py` — Kalibrierungs-Primitive (`reliability_curve`,
+  `expected_calibration_error`/ECE), getestet. Geteilt von
+  `plot_reliability_diagram.py` (vorher private Kopien) und dem Decision-Scale-Skript.
+- `scripts/ml/calibration_decision_scale.py` — **Phase-2-Kalibrierung**: ECE +
+  Brier + Reliability-Kurve auf den *Decision-Scale*-Probas (raw/cal @1s, kausaler
+  Burst @5/10/30s, HMM-Filter), leakage-frei auf `loso_oof.csv`. Befunde (N=15):
+  **die 1-s-RF-Proba ist schon ehrlich** (ECE 0.020 < 0.05; isotone `proba_cal`
+  verbessert nichts → keine Nach-Kalibrierung nötig — per-Session-Z-Score +
+  `class_weight=balanced` liefert brauchbare Probas); **Burst verschlechtert die
+  Kalibrierung** (ECE rauf, Brier monoton 0.09 → 0.16 = Auflösungsverlust, aber die
+  *thresholdete* Schreibzeit-Entscheidung bleibt unberührt); **der HMM-Filter hat
+  den besten Brier (0.080), ist aber leicht über-konfident** (ECE 0.057 — sticky
+  Prior treibt zu 0/1; für eine als Prozent angezeigte Pille lohnt eine leichte
+  Posterior-Nach-Kalibrierung). Output: `reports/calibration_decision_scale.md` +
+  `reports/figures/calibration_decision_scale.png`.
 - `src/evaluation/regression.py` — Schreib-Prozent-Regression (Stufe 2).
   Reines Post-Processing über `models/loso_oof.csv`: aggregiert die
   OOF-Vorhersagen auf 60 s / 300 s / ganze-Session-Blöcke und reportet
@@ -1593,7 +1608,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (479 cases, ~25 s) — anything that
+`tests/` holds Tier-1 smoke tests (485 cases, ~25 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
@@ -1689,6 +1704,10 @@ could silently poison the training data or the proband-facing flow:
   **Kausalitäts-Invariante** des `forward_filter` (Störung der Emission bei t
   lässt jeden Posterior *vor* t unverändert) + der nicht-kausale Kontrast des
   `forward_backward` (nutzt die Zukunft). 14 Tests.
+- `test_calibration.py` — `reliability_curve` + `expected_calibration_error`
+  (ECE): perfekt kalibriert → 0, Over-Confidence → Gap, Count-Gewichtung der
+  Bins, letzter Bin rechts-inklusiv (`proba == 1.0` fällt nicht durch), leere
+  Eingabe → nan.
 
 Hardware loops (real BLE pen, watchOS app, iPhone bridge) remain
 **manual** smoke tests — there is no XCTest target in the Xcode
