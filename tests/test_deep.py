@@ -142,7 +142,7 @@ def test_model_registry_forward(name, seq_len):
 
 
 def test_models_registry_keys():
-    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn"}
+    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn", "tcn6"}
 
 
 @pytest.mark.parametrize("seq_len", [50, 250])
@@ -192,6 +192,54 @@ def test_tcn_is_small():
     """Parameter-Sparsamkeit (Paket-Philosophie bei N<=15): TCN bleibt klein."""
     n_params = sum(p.numel() for p in TCN().parameters())
     assert n_params < 20_000
+
+
+def _last_pos_depends_on_window_start(tcn_stack, seq_len: int) -> bool:
+    """True, wenn die letzte Output-Position von der ersten Fenster-Haelfte abhaengt.
+
+    Stoert ``[0:seq_len//2]`` (nicht nur das Randsample -- dessen Beitrag ist
+    am Rand des rezeptiven Felds numerisch ~0) und prueft, ob Output
+    ``[..., -1]`` sich aendert. So trennt der Test robust ein rezeptives Feld,
+    das die erste Fenster-Haelfte erreicht, von einem, das es nicht tut.
+    eval()-Modus: BatchNorm nutzt feste running stats (positions-unabhaengig).
+    """
+    tcn_stack.eval()
+    x = torch.randn(1, 6, seq_len)
+    xp = x.clone()
+    xp[..., : seq_len // 2] += 5.0
+    with torch.no_grad():
+        y = tcn_stack(x)
+        yp = tcn_stack(xp)
+    return not torch.allclose(y[..., -1], yp[..., -1], atol=1e-5)
+
+
+def test_tcn_receptive_field_does_not_span_5s_window():
+    """4-Ebenen-TCN: rezeptives Feld 61 Samples < 250 -> die letzte Position
+    sieht die erste Haelfte des 5-s-Fensters NICHT (mittelt ~1.2-s-Detektionen)."""
+    assert not _last_pos_depends_on_window_start(TCN().tcn, 250)
+
+
+def test_tcn6_in_registry():
+    assert "tcn6" in MODELS
+
+
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_tcn6_forward_shape(seq_len):
+    out = MODELS["tcn6"]()(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn6_is_small():
+    """tcn6 hat 2 Ebenen mehr, bleibt aber im Sparsamkeits-Budget."""
+    n_params = sum(p.numel() for p in MODELS["tcn6"]().parameters())
+    assert n_params < 20_000
+
+
+def test_tcn6_receptive_field_spans_5s_window():
+    """6-Ebenen-TCN: rezeptives Feld 253 Samples >= 250 -> die letzte Position
+    integriert die erste Haelfte des 5-s-Fensters (250 Samples @ 50 Hz) mit ein."""
+    assert _last_pos_depends_on_window_start(MODELS["tcn6"]().tcn, 250)
 
 
 def test_train_one_model_runs_and_predicts():
@@ -399,3 +447,20 @@ def test_train_deep_loso_emits_events_and_writes_artifacts(monkeypatch, tmp_path
     oof = pd.read_csv(run_dir / "oof.csv")
     assert {"label", "proba_raw", "session_id", "person_id",
             "t_center_ms"} <= set(oof.columns)
+
+
+def test_long_input_table_reports_win10(capsys):
+    """Tabelle 2 zeigt 10-s-Input-Modelle mit RF-Referenz auf 10-s-Skala
+    (vorher hart auf w==5 / RF@5s -> 10-s-Laeufe fielen still weg)."""
+    from src.training.deep import __main__ as deep_main
+
+    df10 = pd.DataFrame({
+        "accuracy": [0.90, 0.92], "roc_auc": [0.95, 0.96],
+        "acc_30s": [0.80, 0.82], "auc_30s": [0.86, 0.88],
+    })
+    rf = {"5s": (0.860, 0.933), "10s": (0.825, 0.906)}
+    deep_main._print_long_input_table({("tcn", 10): df10}, rf)
+    out = capsys.readouterr().out
+    assert "10s" in out
+    assert "tcn" in out
+    assert "0.825" in out  # RF@10s-Referenz erscheint, nicht RF@5s
