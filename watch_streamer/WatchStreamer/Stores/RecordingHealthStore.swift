@@ -9,8 +9,7 @@ final class RecordingHealthStore: ObservableObject {
     static let shared = RecordingHealthStore()
     @Published private(set) var dataFlowing = false
 
-    private var lastUploaded: Int?
-    private var lastProgressAt = Date.distantPast
+    private var evaluator = DataFlowEvaluator()
     private var timer: Timer?
 
     private init() {
@@ -23,12 +22,7 @@ final class RecordingHealthStore: ObservableObject {
     }
 
     private func tick() {
-        let now = PhoneBridge.shared.uploadedSampleCount
-        // Why: skip the first observation — only a real increase counts as
-        // progress, otherwise the baseline read would register as flow on launch.
-        if let last = lastUploaded, now > last { lastProgressAt = Date() }
-        lastUploaded = now
-        let flowing = Date().timeIntervalSince(lastProgressAt) < 5.0
+        let flowing = evaluator.update(count: PhoneBridge.shared.uploadedSampleCount, now: Date())
         if flowing != dataFlowing { dataFlowing = flowing }
     }
 }
