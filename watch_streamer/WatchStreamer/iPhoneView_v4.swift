@@ -586,7 +586,6 @@ struct FTConnectivityConsole: View {
     @Environment(\.ft) var t
     @ObservedObject private var bridge = PhoneBridge.shared
     @ObservedObject private var server = ServerCommandListener.shared
-    @ObservedObject private var airpods = AirPodsMotionManager.shared
     @AppStorage("ft_showConnectivityDetails") private var showDetails = true
     @State private var confirmClearSpill = false
     var compact = false
@@ -597,7 +596,6 @@ struct FTConnectivityConsole: View {
     private var watchPollOk: Bool { server.watchPolling }
     private var uploadOk: Bool { bridge.failedUploadCount == 0 && bridge.lastError.isEmpty }
     private var streamOk: Bool { server.watchRunning || bridge.receivedSampleCount > 0 }
-    private var airpodsOk: Bool { airpods.isHeadphonesConnected }
 
     private var pollAgeText: String {
         guard let age = server.watchPollAgeMs else { return "no poll" }
@@ -681,26 +679,6 @@ struct FTConnectivityConsole: View {
                     if !bridge.lastError.isEmpty {
                         FTDiagRow(label: "Last error",
                                   value: bridge.lastError,
-                                  ok: false)
-                    }
-                    FTDiagRow(label: "AirPods motion",
-                              value: !airpods.isAvailable ? "unavailable on this device"
-                                  : (airpods.isHeadphonesConnected
-                                     ? (airpods.isStreaming ? "streaming · \(airpods.sampleCount) samples"
-                                                            : "paired · idle")
-                                     : (airpods.isStreaming ? "listening · waiting for AirPods"
-                                                            : "not paired")),
-                              ok: airpods.isHeadphonesConnected,
-                              warn: airpods.isStreaming && !airpods.isHeadphonesConnected)
-                    if airpods.queuedBatchCount > 0 || airpods.failedUploadCount > 0 {
-                        FTDiagRow(label: "AirPods upload",
-                                  value: "\(airpods.queuedBatchCount) queued · \(airpods.failedUploadCount) failed · \(airpods.uploadedCount) uploaded",
-                                  ok: airpods.failedUploadCount == 0,
-                                  warn: airpods.queuedBatchCount > 0)
-                    }
-                    if !airpods.lastError.isEmpty {
-                        FTDiagRow(label: "AirPods error",
-                                  value: airpods.lastError,
                                   ok: false)
                     }
                 }
