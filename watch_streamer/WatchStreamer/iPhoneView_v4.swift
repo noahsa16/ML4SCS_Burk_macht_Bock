@@ -822,10 +822,10 @@ struct FTConnectivityConsole: View {
                         repairButton("Clear errors", icon: "xmark.circle") {
                             FTHaptics.light(); bridge.clearDiagnostics()
                         }
-                        repairButton("Spill senden", icon: "tray.and.arrow.up.fill") {
+                        repairButton("Send buffered data", icon: "tray.and.arrow.up.fill") {
                             FTHaptics.light(); server.drainWatchSpill()
                         }
-                        repairButton("Spill verwerfen", icon: "trash") {
+                        repairButton("Discard buffer", icon: "trash") {
                             FTHaptics.warning(); confirmClearSpill = true
                         }
                     }
@@ -833,14 +833,14 @@ struct FTConnectivityConsole: View {
                 .padding(14)
             }
         }
-        .alert("Spill verwerfen?", isPresented: $confirmClearSpill) {
-            Button("Verwerfen", role: .destructive) {
+        .alert("Discard buffer?", isPresented: $confirmClearSpill) {
+            Button("Discard", role: .destructive) {
                 FTHaptics.light(); server.clearWatchSpill()
             }
-            Button("Abbrechen", role: .cancel) {}
+            Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Löscht den gepufferten Mess-Stau auf der Watch unwiderruflich. "
-                 + "Während einer laufenden Aufnahme ignoriert die Watch den Befehl.")
+            Text("Permanently deletes the buffered measurement backlog on the watch. "
+                 + "The watch ignores this command during an active recording.")
         }
     }
 
@@ -1365,6 +1365,138 @@ struct FTLiveQualityCard: View {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// MARK: – Recording health
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Tracks whether watch data is actually reaching the server, independent of the
+/// command WebSocket. "Data flowing" = the uploaded-sample counter advanced within
+/// the last few seconds — the honest answer to "is the recording capturing data".
+@MainActor
+final class RecordingHealthStore: ObservableObject {
+    static let shared = RecordingHealthStore()
+    @Published private(set) var dataFlowing = false
+
+    private var lastUploaded: Int?
+    private var lastProgressAt = Date.distantPast
+    private var timer: Timer?
+
+    private init() {
+        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.tick() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        self.timer = timer
+    }
+
+    private func tick() {
+        let now = PhoneBridge.shared.uploadedSampleCount
+        // Why: skip the first observation — only a real increase counts as
+        // progress, otherwise the baseline read would register as flow on launch.
+        if let last = lastUploaded, now > last { lastProgressAt = Date() }
+        lastUploaded = now
+        let flowing = Date().timeIntervalSince(lastProgressAt) < 5.0
+        if flowing != dataFlowing { dataFlowing = flowing }
+    }
+}
+
+/// Recording-health banner: separates "the link is up" from "data is actually
+/// flowing". Green only when the watch is polling AND uploads are advancing — the
+/// state a session leader needs to trust the recording at a glance.
+struct FTRecordingHealth: View {
+    @Environment(\.ft) var t
+    @ObservedObject private var server = ServerCommandListener.shared
+    @ObservedObject private var bridge = PhoneBridge.shared
+    @ObservedObject private var health = RecordingHealthStore.shared
+
+    private enum Health: Equatable { case idle, healthy, warning, error }
+
+    private var hasSession: Bool { server.currentSessionId != nil }
+    private var pollFresh:  Bool { server.watchPolling }
+    private var dataFlowing: Bool { health.dataFlowing }
+    private var wsUp: Bool { server.isConnected }
+
+    private var state: Health {
+        guard hasSession else { return .idle }
+        if dataFlowing && pollFresh { return .healthy }
+        if !dataFlowing && !pollFresh && !wsUp { return .error }
+        return .warning
+    }
+
+    private var color: Color {
+        switch state {
+        case .idle:    return t.text3
+        case .healthy: return t.green
+        case .warning: return t.yellow
+        case .error:   return t.red
+        }
+    }
+
+    private var title: String {
+        switch state {
+        case .idle:    return "Ready"
+        case .healthy: return "Recording healthy"
+        case .warning: return "Needs attention"
+        case .error:   return "Recording stalled"
+        }
+    }
+
+    private var reason: String {
+        switch state {
+        case .idle:    return "No active session — start one from the dashboard"
+        case .healthy: return "Data reaching server · watch polling"
+        case .warning:
+            if !dataFlowing { return "No data reaching server" }
+            if !pollFresh   { return "Watch not polling" }
+            return "Link up — waiting for data"
+        case .error:    return "No data, watch not polling, command channel down"
+        }
+    }
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle().fill(color.opacity(0.16)).frame(width: 46, height: 46)
+                FTDot(color: color, pulse: state == .healthy, size: 18)
+            }
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(FT.sans(16, weight: .bold))
+                    .foregroundColor(t.text)
+                Text(reason)
+                    .font(FT.mono(11))
+                    .foregroundColor(t.text2)
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            VStack(alignment: .trailing, spacing: 5) {
+                miniFlag("WS", ok: wsUp)
+                miniFlag("DATA", ok: dataFlowing)
+                miniFlag("WATCH", ok: pollFresh)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(color.opacity(0.08))
+        .clipShape(RoundedRectangle(cornerRadius: FTRadius.md))
+        .overlay(RoundedRectangle(cornerRadius: FTRadius.md)
+            .stroke(color.opacity(0.32), lineWidth: 1))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Recording health: \(title). \(reason)")
+    }
+
+    private func miniFlag(_ label: String, ok: Bool) -> some View {
+        HStack(spacing: 4) {
+            Text(label)
+                .font(FT.mono(8, weight: .semibold))
+                .kerning(0.4)
+                .foregroundColor(t.text3)
+            FTDot(color: ok ? t.green : t.text3.opacity(0.5), size: 5)
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MARK: – TAB 1: Dashboard
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1372,8 +1504,6 @@ struct DashboardTab: View {
     @Environment(\.ft) var t
     @ObservedObject private var bridge  = PhoneBridge.shared
     @ObservedObject private var server  = ServerCommandListener.shared
-    @ObservedObject private var imu     = IMUDataStore.shared
-    @AppStorage("serverIP") private var serverIP = "192.168.178.147"
 
     private var hasSession: Bool { server.currentSessionId != nil }
     private var received: Int { bridge.receivedSampleCount }
@@ -1395,6 +1525,8 @@ struct DashboardTab: View {
             VStack(spacing: FTSpace.stack) {
 
                 // ── HERO: IMU live chart + chart-stats ──────────────────────
+                FTRecordingHealth()
+
                 FTHeroCard(live: hasSession) {
                     HStack(alignment: .firstTextBaseline) {
                         Text("Live recording")
@@ -1567,7 +1699,6 @@ struct SessionTab: View {
     @Environment(\.ft) var t
     @ObservedObject private var server = ServerCommandListener.shared
     @ObservedObject private var bridge = PhoneBridge.shared
-    @ObservedObject private var imu    = IMUDataStore.shared
     @State private var elapsed: Int    = 0
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
@@ -1708,7 +1839,8 @@ struct SettingsTab: View {
     @Environment(\.ft) var t
     @ObservedObject private var server = ServerCommandListener.shared
     @ObservedObject private var bridge = PhoneBridge.shared
-    @AppStorage("serverIP")     private var serverIP   = "192.168.178.147"
+    @ObservedObject private var health = RecordingHealthStore.shared
+    @AppStorage("serverIP")     private var serverIP   = ServerConfig.defaultIP
     @AppStorage("ft_showStats") private var showStats  = true
     @AppStorage("ft_showLog")   private var showLog    = true
     // H3 — Motion-Config. Wird von ServerCommandListener.watchPayload aus
@@ -1772,14 +1904,24 @@ struct SettingsTab: View {
 
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text("Connection").font(FT.sans(13, weight: .medium))
+                            Text("Command channel").font(FT.sans(13, weight: .medium))
                                 .foregroundColor(t.text)
                             HStack(spacing: 5) {
                                 FTDot(color: server.isConnected ? t.green : t.red,
                                       pulse: server.isConnected, size: 6)
-                                Text(server.isConnected ? "WebSocket connected" : "Disconnected")
+                                Text(server.isConnected ? "WebSocket connected" : "WebSocket disconnected")
                                     .font(FT.mono(10))
                                     .foregroundColor(server.isConnected ? t.green : t.red)
+                            }
+                            // Why: the WebSocket is only the command channel; watch
+                            // data travels over a separate HTTP path. Surface both so
+                            // a dead WS is never read as "the recording is dead".
+                            HStack(spacing: 5) {
+                                FTDot(color: health.dataFlowing ? t.green : t.text3,
+                                      pulse: health.dataFlowing, size: 6)
+                                Text("Data \(health.dataFlowing ? "flowing" : "idle") · \(bridge.uploadedSampleCount.formatted()) uploaded")
+                                    .font(FT.mono(10))
+                                    .foregroundColor(health.dataFlowing ? t.green : t.text3)
                             }
                         }
                         Spacer()
@@ -1840,15 +1982,15 @@ struct SettingsTab: View {
                         HStack {
                             FTSLabel(text: "Batch size")
                             Spacer()
-                            // Range bis 80: deckt den 100-Hz-Sweet-Spot (40)
-                            // + Tunnel-Reserve (50–60) ab. Die Watch clampt
-                            // ohnehin auf 1...200; >80 braechte nur Monitor-
-                            // Lag (N/Hz Pufferzeit) ohne Upload-Nutzen.
+                            // Range up to 80: covers the 100 Hz sweet spot (40)
+                            // + tunnel reserve (50–60). The watch clamps to
+                            // 1...200 anyway; >80 would only add monitor lag
+                            // (N/Hz buffer time) without upload benefit.
                             Stepper("\(batchSize) samples",
                                     value: $batchSize, in: 5...80, step: 5)
                                 .font(FT.mono(13)).foregroundColor(t.text)
                         }
-                        Text("Wirkt ab der nächsten Aufnahme — die Watch übernimmt die Werte über den 1-s-Poll. Bei 100 Hz: Batch 40 empfohlen (haelt den Upload-Durchsatz; groesser = mehr Live-Monitor-Lag).")
+                        Text("Applies from the next recording — the watch picks up the values over the 1 s poll. At 100 Hz: batch 40 recommended (keeps upload throughput; larger = more live-monitor lag).")
                             .font(FT.mono(9)).foregroundColor(t.text3)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -1920,11 +2062,12 @@ struct SettingsTab: View {
 struct iPhoneView: View {
     @ObservedObject private var server = ServerCommandListener.shared
     @ObservedObject private var bridge = PhoneBridge.shared
-    @AppStorage("serverIP") private var serverIP = "192.168.178.147"
+    @AppStorage("serverIP") private var serverIP = ServerConfig.defaultIP
     @Environment(\.colorScheme) private var scheme
     @State private var lastFailHaptic: Int = 0
     @State private var lastWSConnected: Bool? = nil
     @State private var lastBridgeConnected: Bool? = nil
+    @State private var lastPollLogged: String? = nil
 
     private var theme: FTTheme { scheme == .dark ? .dark : .light }
 
@@ -1940,20 +2083,22 @@ struct iPhoneView: View {
             SettingsTab()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
         }
-        .accentColor(theme.accent)
+        .tint(theme.accent)
         .environment(\.ft, theme)
         .preferredColorScheme(.none)
         .onAppear { bridge.syncServerIP(serverIP) }
         .onReceive(server.$isConnected) { ok in
+            // Why: isConnected re-emits on every received WS frame (~1 Hz). Log and
+            // buzz only on an actual up/down transition, else the event feed floods
+            // with "connected" and pushes real events out of the 60-entry cap.
+            guard lastWSConnected != ok else { return }
+            lastWSConnected = ok
             Task { @MainActor in
                 FTLogStore.shared.add("WS",
                     ok ? "connected → ws://\(serverIP):8000/ws" : "disconnected",
                     color: ok ? theme.green : theme.red)
             }
-            if lastWSConnected != ok {
-                lastWSConnected = ok
-                if ok { FTHaptics.success() } else { FTHaptics.warning() }
-            }
+            if ok { FTHaptics.success() } else { FTHaptics.warning() }
         }
         .onReceive(server.$lastWatchCommandStatus) { cmd in
             guard !cmd.isEmpty, cmd != "No command sent" else { return }
@@ -1964,7 +2109,9 @@ struct iPhoneView: View {
             }
         }
         .onReceive(server.$lastWatchPollStatus) { poll in
-            guard poll != "No Watch poll yet" else { return }
+            // Why: re-emits ~1 Hz with the same string; log only when it changes.
+            guard poll != "No Watch poll yet", poll != lastPollLogged else { return }
+            lastPollLogged = poll
             Task { @MainActor in
                 FTLogStore.shared.add("POLL", poll, color: theme.blue)
             }

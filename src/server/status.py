@@ -56,9 +56,20 @@ def _watch_direct_status_connected() -> bool:
     )
 
 
+# Why: a bridge client counts as connected only while it is still reporting.
+# The iPhone sends phone_status on every ~1 Hz watch poll, so a healthy bridge
+# stays well inside this window; a half-open connection that stopped sending
+# crosses it and is treated as offline. Mirrors _watch_connected()'s 5 s gate.
+# Scoped to iphone/watch_bridge on purpose — dashboard clients are passive
+# receivers (one hello, then silence) and must never be gated by recency.
+_BRIDGE_STALE_MS = 5000
+
+
 def _watch_bridge_connected() -> bool:
+    now = _now_ms()
     return any(
         meta.get("client") in {"iphone", "watch_bridge"}
+        and now - int(meta.get("last_seen_ms") or 0) < _BRIDGE_STALE_MS
         for meta in state.ws_client_meta.values()
     )
 
