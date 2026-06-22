@@ -10,6 +10,9 @@ class MotionManager: NSObject, ObservableObject {
         static let requestedHz = 50.0
         static let batchSize = 10
         static let maxBufferedSamples = 500
+        static let commandPollInterval = 1.0
+        static let commandPollWatchdog = 3.0
+        static let spillDrainInterval = 3.0
     }
 
     private let cm = CMMotionManager()
@@ -84,12 +87,22 @@ class MotionManager: NSObject, ObservableObject {
     private var rawLastAccMag = 0.0
     private var rawLastGyroMag = 0.0
 
+    // Why: the per-sample capture clock is the ML ground-truth axis. We anchor the
+    // monotonic sensor clock (motion.timestamp, boot-relative — the true sampling
+    // instant) to wall-clock once per run and derive every ts from it. Date() in the
+    // background callback is non-monotonic (an NTP step shifts all labels) and stamps
+    // callback-execution time, not the sampling instant. Guarded by stagingLock (same
+    // cross-thread surface as stagedSamples); sentinel < 0 means "not yet anchored".
+    private var anchorUptime: TimeInterval = -1
+    private var anchorWallMs: Int64 = 0
+
     @Published private(set) var sampleCount = 0
     @Published private(set) var deliveredSampleCount = 0
     @Published private(set) var backgroundQueuedSampleCount = 0
     @Published private(set) var failedBatchCount = 0
-    @Published private(set) var droppedSampleCount = 0
     @Published private(set) var spilledSampleCount = 0
+    // Recent |acc| magnitudes (batch rate, capped) for the on-watch sparkline.
+    @Published private(set) var accMagHistory: [Double] = []
     @Published private(set) var queuedSampleCount = 0
     @Published private(set) var isRunning = false
     @Published private(set) var runStartedAt: Date?
@@ -157,8 +170,18 @@ class MotionManager: NSObject, ObservableObject {
         // drainStaging() auf Main.
         cm.startDeviceMotionUpdates(to: motionOpQueue) { [weak self] motion, _ in
             guard let self, let motion else { return }
+            self.stagingLock.lock()
+            // Why: anchor the monotonic sensor clock to wall-clock on the first
+            // sample of the run; every ts derives from it, so a mid-session NTP
+            // step or callback jitter can no longer move labels.
+            if self.anchorUptime < 0 {
+                self.anchorUptime = motion.timestamp
+                self.anchorWallMs = Self.currentTimestampMillis()
+            }
+            let ts = self.anchorWallMs
+                + Int64((motion.timestamp - self.anchorUptime) * 1000)
             let sample: [String: Any] = [
-                "ts": Self.currentTimestampMillis(),
+                "ts": ts,
                 "ax": motion.userAcceleration.x,
                 "ay": motion.userAcceleration.y,
                 "az": motion.userAcceleration.z,
@@ -181,7 +204,6 @@ class MotionManager: NSObject, ObservableObject {
                 "qz": motion.attitude.quaternion.z,
                 "qw": motion.attitude.quaternion.w
             ]
-            self.stagingLock.lock()
             self.stagedSamples.append(sample)
             let needDrain = !self.drainScheduled
             if needDrain { self.drainScheduled = true }
@@ -239,6 +261,7 @@ class MotionManager: NSObject, ObservableObject {
         stagingLock.lock()
         stagedSamples.removeAll()
         drainScheduled = false
+        anchorUptime = -1   // re-anchor the capture clock on the next sample
         stagingLock.unlock()
         nextSequence = 0
         inFlightSequences.removeAll()
@@ -249,11 +272,11 @@ class MotionManager: NSObject, ObservableObject {
         deliveredSampleCount = 0
         backgroundQueuedSampleCount = 0
         failedBatchCount = 0
-        droppedSampleCount = 0
         queuedSampleCount = 0
         actualSampleRateHz = 0
         lastAccelerationMagnitude = 0
         lastGyroscopeMagnitude = 0
+        accMagHistory = []
         runStartedAt = nil
     }
 
@@ -264,6 +287,9 @@ class MotionManager: NSObject, ObservableObject {
         sampleCount = rawSampleCount
         lastAccelerationMagnitude = rawLastAccMag
         lastGyroscopeMagnitude = rawLastGyroMag
+        // Real |acc| trail for the on-watch sparkline (published at batch rate).
+        accMagHistory.append(rawLastAccMag)
+        if accMagHistory.count > 40 { accMagHistory.removeFirst(accMagHistory.count - 40) }
         queuedSampleCount = buffer.count
         if let runStartedAt {
             actualSampleRateHz = Double(rawSampleCount) / max(0.001, Date().timeIntervalSince(runStartedAt))
@@ -359,7 +385,7 @@ class MotionManager: NSObject, ObservableObject {
 
     private func startCommandPolling() {
         commandPollTimer?.invalidate()
-        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
+        let timer = Timer(timeInterval: Config.commandPollInterval, repeats: true) { [weak self] _ in
             self?.pollPhoneForCommand()
         }
         commandPollTimer = timer
@@ -370,7 +396,7 @@ class MotionManager: NSObject, ObservableObject {
     private func pollPhoneForCommand() {
         // Watchdog: if a poll has been in-flight for >3 s without a reply, force-clear the flag.
         if commandPollInFlight, let sentAt = commandPollSentAt,
-           Date().timeIntervalSince(sentAt) > 3.0 {
+           Date().timeIntervalSince(sentAt) > Config.commandPollWatchdog {
             commandPollInFlight = false
         }
         guard WCSession.default.activationState == .activated, !commandPollInFlight else { return }
@@ -489,11 +515,23 @@ class MotionManager: NSObject, ObservableObject {
 
     private func startSpillDrain() {
         spillTimer?.invalidate()
-        let timer = Timer(timeInterval: 3.0, repeats: true) { [weak self] _ in
-            self?.drainSpill()
+        let timer = Timer(timeInterval: Config.spillDrainInterval, repeats: true) { [weak self] _ in
+            self?.autoDrainSpillIfBacklog()
         }
         spillTimer = timer
         RunLoop.main.add(timer, forMode: .common)
+    }
+
+    /// Why: one spilled line per 3 s tick cannot keep up with 50–100 Hz capture —
+    /// after a stall the real tail samples would arrive minutes late, past the end
+    /// of the session (→ server-side unsessioned quarantine). When the phone is
+    /// reachable and a backlog exists, burst-drain it (sendSpilled's success handler
+    /// chains the next line) so it converges within the session instead of trickling.
+    private func autoDrainSpillIfBacklog() {
+        guard spilledSampleCount > 0,
+              WCSession.default.activationState == .activated,
+              WCSession.default.isReachable else { return }
+        forceDrainSpill()
     }
 
     /// Liest die älteste Spill-Zeile und schickt sie über den Live-Pfad neu.

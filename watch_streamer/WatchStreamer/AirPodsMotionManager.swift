@@ -76,6 +76,11 @@ final class AirPodsMotionManager: NSObject, ObservableObject {
     private var uploadQueue: [[String: Any]] = []
     private var isUploading = false
 
+    // Why: capped exponential backoff for upload retries (mirrors PhoneBridge);
+    // reset to base after a successful upload.
+    private static let uploadRetryMaxDelay: TimeInterval = 30.0
+    private var uploadRetryDelay: TimeInterval = 2.0
+
     private override init() {
         super.init()
         isAvailable = manager.isDeviceMotionAvailable
@@ -129,7 +134,6 @@ final class AirPodsMotionManager: NSObject, ObservableObject {
     // MARK: - Ingest
 
     private func ingest(_ motion: CMDeviceMotion) {
-        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
         let tsMs = Int(motion.timestamp * 1000)  // seconds since boot → ms
 
         let sample: [String: Any] = [
@@ -153,7 +157,6 @@ final class AirPodsMotionManager: NSObject, ObservableObject {
         }
         buffer.append(sample)
         sampleCount += 1
-        _ = nowMs  // reserved for future per-sample receive timestamps
 
         if buffer.count >= batchSize {
             flush(force: false)
@@ -185,6 +188,10 @@ final class AirPodsMotionManager: NSObject, ObservableObject {
         sequence += 1
 
         let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        // Why: phoneReceivedAt mirrors airpodsSentAt on purpose — AirPods motion
+        // originates on this device, so capture and receipt share one clock and
+        // one instant. Kept (not dropped) because the server's /airpods schema
+        // has a phone_received_at column.
         let envelope: [String: Any] = [
             "samples": buffer,
             "sequence": sequence,
@@ -209,7 +216,7 @@ final class AirPodsMotionManager: NSObject, ObservableObject {
     // MARK: - Upload
 
     private var serverURL: URL? {
-        let raw = UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147"
+        let raw = UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP
         let trimmed = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -276,13 +283,16 @@ final class AirPodsMotionManager: NSObject, ObservableObject {
                 if !self.uploadQueue.isEmpty { self.uploadQueue.removeFirst() }
                 self.queuedBatchCount = self.uploadQueue.count
                 self.lastError = ""
+                self.uploadRetryDelay = 2.0
                 self.uploadNextIfNeeded()
             }
         }.resume()
     }
 
     private func scheduleRetry() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+        let delay = uploadRetryDelay
+        uploadRetryDelay = min(uploadRetryDelay * 2, Self.uploadRetryMaxDelay)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
             Task { @MainActor in
                 self?.uploadNextIfNeeded()
             }

@@ -47,7 +47,28 @@ class ServerCommandListener: NSObject, ObservableObject {
         get { pollStateLock.withLock { _lastWatchSnapshot } }
         set { pollStateLock.withLock { _lastWatchSnapshot = newValue } }
     }
-    private var serverIP: String { UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147" }
+
+    // Why: poll-freshness threshold (ms). A Watch poll older than this counts as
+    // "not polling". Was a bare 3000 literal at three call sites.
+    private static let pollFreshMs = 3000
+
+    // Why: currentSessionId/currentPersonId/currentCommandId are @Published (main
+    // thread, for the UI) but are read on the WCSession bg thread in the poll path
+    // (handleWatchCommandPoll → currentWatchCommandPayload / confirmCommandFromWatchPoll,
+    // plus sendPhoneStatus via the listenLoop receive callback). Mirror them under a
+    // lock so the bg read gets a consistent snapshot instead of racing the setters.
+    private let sessionStateLock = NSLock()
+    private var _sessionSnapshot: (sessionId: String?, personId: String?, commandId: String?) = (nil, nil, nil)
+    private func syncSessionStateSnapshot() {
+        let snap: (sessionId: String?, personId: String?, commandId: String?) =
+            (currentSessionId, currentPersonId, currentCommandId)
+        sessionStateLock.withLock { _sessionSnapshot = snap }
+    }
+    private func sessionStateSnapshot() -> (sessionId: String?, personId: String?, commandId: String?) {
+        sessionStateLock.withLock { _sessionSnapshot }
+    }
+
+    private var serverIP: String { UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP }
     private var serverWebSocketURL: URL? {
         let trimmed = serverIP
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -174,6 +195,8 @@ class ServerCommandListener: NSObject, ObservableObject {
                 }
                 self.sendPhoneStatus()
             }
+            // Why: mirror the just-applied session/command state for the bg poll path.
+            self.syncSessionStateSnapshot()
         }
     }
 
@@ -208,16 +231,19 @@ class ServerCommandListener: NSObject, ObservableObject {
     }
 
     func currentWatchCommandPayload() -> [String: Any] {
-        if let currentSessionId {
+        // Why: read the lock-protected snapshot — this also runs on the WCSession
+        // bg thread via handleWatchCommandPoll.
+        let snap = sessionStateSnapshot()
+        if let sid = snap.sessionId {
             return watchPayload(command: "start",
-                                sessionId: currentSessionId,
-                                personId: currentPersonId,
-                                commandId: currentCommandId)
+                                sessionId: sid,
+                                personId: snap.personId,
+                                commandId: snap.commandId)
         }
         return watchPayload(command: "stop",
                             sessionId: nil,
                             personId: nil,
-                            commandId: currentCommandId)
+                            commandId: snap.commandId)
     }
 
     func handleWatchCommandPoll(_ message: [String: Any]) -> [String: Any] {
@@ -240,23 +266,12 @@ class ServerCommandListener: NSObject, ObservableObject {
                                     watchRunning: watchRunning,
                                     watchSessionId: watchSessionId,
                                     watchLastCommandId: watchLastCommandId)
-        sendServerEvent([
-            "type": "phone_status",
-            "watch_reachable": true,
-            "watch_polling": true,
-            "watch_running": watchRunning,
-            "watch_session_id": watchSessionId,
-            "watch_samples": message["sample_count"] as? Int ?? 0,
-            "watch_queued_samples": message["queued_samples"] as? Int ?? 0,
-            "watch_delivered_samples": message["delivered_samples"] as? Int ?? 0,
-            "watch_failed_batches": message["failed_batches"] as? Int ?? 0,
-            "watch_upload_mode": message["upload_mode"] as? String ?? "",
-            "current_session_id": currentSessionId ?? "",
-            "current_command_id": currentCommandId ?? "",
-            "watch_last_command_id": watchLastCommandId,
-            "last_watch_command_status": lastWatchCommandStatus,
-            "last_watch_poll_status": pollStatus
-        ])
+        // Why: a poll just arrived, so the Watch is reachable and polling (age 0).
+        sendServerEvent(makePhoneStatus(watchInfo: message,
+                                        reachable: true,
+                                        polling: true,
+                                        pollAgeMs: 0,
+                                        pollStatus: pollStatus))
         return payload
     }
 
@@ -286,7 +301,7 @@ class ServerCommandListener: NSObject, ObservableObject {
 
     private func updatePublishedWatchStatus(from message: [String: Any], pollAgeMs: Int?) {
         DispatchQueue.main.async {
-            self.watchPolling = (pollAgeMs ?? 0) < 3000
+            self.watchPolling = (pollAgeMs ?? 0) < Self.pollFreshMs
             self.watchPollAgeMs = pollAgeMs
             self.watchRunning = message["is_running"] as? Bool ?? false
             self.watchSessionId = message["session_id"] as? String ?? ""
@@ -303,8 +318,9 @@ class ServerCommandListener: NSObject, ObservableObject {
                                              watchRunning: Bool,
                                              watchSessionId: String,
                                              watchLastCommandId: String) {
-        let expectedSessionId = currentSessionId ?? ""
-        let expectedCommandId = currentCommandId ?? ""
+        let snap = sessionStateSnapshot()
+        let expectedSessionId = snap.sessionId ?? ""
+        let expectedCommandId = snap.commandId ?? ""
         let commandIdMatches = expectedCommandId.isEmpty || watchLastCommandId == expectedCommandId
         let commandApplied = commandIdMatches && (
             (command == "start" && watchRunning && watchSessionId == expectedSessionId) ||
@@ -399,27 +415,32 @@ class ServerCommandListener: NSObject, ObservableObject {
         }
     }
 
-    func sendPhoneStatus() {
-        let pollAgeMs = lastWatchPollAt.map { Int(Date().timeIntervalSince($0) * 1000) }
-        let watchPolling = pollAgeMs.map { $0 < 3000 } ?? false
+    // Why: single builder for the phone_status payload — was duplicated between
+    // the poll path and sendPhoneStatus with drift-prone field subsets.
+    private func makePhoneStatus(watchInfo: [String: Any],
+                                 reachable: Bool,
+                                 polling: Bool,
+                                 pollAgeMs: Int?,
+                                 pollStatus: String) -> [String: Any] {
+        let snap = sessionStateSnapshot()
         let airpods = AirPodsMotionManager.shared
-        sendServerEvent([
+        return [
             "type": "phone_status",
-            "watch_reachable": WCSession.default.isReachable || watchPolling,
-            "watch_polling": watchPolling,
+            "watch_reachable": reachable,
+            "watch_polling": polling,
             "watch_poll_age_ms": pollAgeMs ?? -1,
-            "watch_running": lastWatchSnapshot["is_running"] as? Bool ?? false,
-            "watch_session_id": lastWatchSnapshot["session_id"] as? String ?? "",
-            "watch_samples": lastWatchSnapshot["sample_count"] as? Int ?? 0,
-            "watch_queued_samples": lastWatchSnapshot["queued_samples"] as? Int ?? 0,
-            "watch_delivered_samples": lastWatchSnapshot["delivered_samples"] as? Int ?? 0,
-            "watch_failed_batches": lastWatchSnapshot["failed_batches"] as? Int ?? 0,
-            "watch_upload_mode": lastWatchSnapshot["upload_mode"] as? String ?? "",
-            "current_session_id": currentSessionId ?? "",
-            "current_command_id": currentCommandId ?? "",
-            "watch_last_command_id": lastWatchSnapshot["last_command_id"] as? String ?? "",
+            "watch_running": watchInfo["is_running"] as? Bool ?? false,
+            "watch_session_id": watchInfo["session_id"] as? String ?? "",
+            "watch_samples": watchInfo["sample_count"] as? Int ?? 0,
+            "watch_queued_samples": watchInfo["queued_samples"] as? Int ?? 0,
+            "watch_delivered_samples": watchInfo["delivered_samples"] as? Int ?? 0,
+            "watch_failed_batches": watchInfo["failed_batches"] as? Int ?? 0,
+            "watch_upload_mode": watchInfo["upload_mode"] as? String ?? "",
+            "current_session_id": snap.sessionId ?? "",
+            "current_command_id": snap.commandId ?? "",
+            "watch_last_command_id": watchInfo["last_command_id"] as? String ?? "",
             "last_watch_command_status": lastWatchCommandStatus,
-            "last_watch_poll_status": lastWatchPollStatus,
+            "last_watch_poll_status": pollStatus,
             "airpods_available": airpods.isAvailable,
             "airpods_paired": airpods.isHeadphonesConnected,
             "airpods_streaming": airpods.isStreaming,
@@ -429,14 +450,37 @@ class ServerCommandListener: NSObject, ObservableObject {
             "airpods_failed_batches": airpods.failedUploadCount,
             "airpods_dropped_batches": airpods.droppedBatchCount,
             "airpods_last_error": airpods.lastError,
-        ])
+        ]
+    }
+
+    func sendPhoneStatus() {
+        let pollAgeMs = lastWatchPollAt.map { Int(Date().timeIntervalSince($0) * 1000) }
+        let polling = pollAgeMs.map { $0 < Self.pollFreshMs } ?? false
+        sendServerEvent(makePhoneStatus(watchInfo: lastWatchSnapshot,
+                                        reachable: WCSession.default.isReachable || polling,
+                                        polling: polling,
+                                        pollAgeMs: pollAgeMs,
+                                        pollStatus: lastWatchPollStatus))
     }
 
     private func scheduleReconnect() {
-        reconnectWorkItem?.cancel()
-        let item = DispatchWorkItem { [weak self] in self?.connect() }
-        reconnectWorkItem = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: item)
+        // Why: the reconnect is debounced by 3 s, but failing WS sends recur at
+        // the ~1 Hz watch-poll cadence (handleWatchCommandPoll → sendServerEvent).
+        // Cancelling + rescheduling on every call tore the work item down ~1 s
+        // after it was armed, so it never survived the 3 s to fire — the WS stayed
+        // dead (isConnected=false / bridge offline) while HTTP /watch kept flowing.
+        // Guarding on a pending item lets the already-armed reconnect run instead
+        // of being perpetually deferred. Hop to main so reconnectWorkItem is only
+        // ever touched there (connect() runs on main too).
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.reconnectWorkItem == nil else { return }
+            let item = DispatchWorkItem { [weak self] in
+                self?.reconnectWorkItem = nil
+                self?.connect()
+            }
+            self.reconnectWorkItem = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: item)
+        }
     }
 
     private func startPollAgeTimer() {
@@ -444,7 +488,7 @@ class ServerCommandListener: NSObject, ObservableObject {
         pollAgeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
             let age = self.lastWatchPollAt.map { Int(Date().timeIntervalSince($0) * 1000) }
-            let isFresh = age.map { $0 < 3000 } ?? false
+            let isFresh = age.map { $0 < Self.pollFreshMs } ?? false
             DispatchQueue.main.async {
                 self.watchPollAgeMs = age
                 self.watchPolling = isFresh
