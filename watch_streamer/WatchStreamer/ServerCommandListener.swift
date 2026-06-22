@@ -24,6 +24,7 @@ class ServerCommandListener: NSObject, ObservableObject {
     @Published var watchLastCommandId = ""
     @Published var watchUploadMode = "Offline"
     @Published var watchActualHz: Double = 0
+    @Published var liveInference: LiveInferencePayload?
 
     private var task: URLSessionWebSocketTask?
     private var reconnectWorkItem: DispatchWorkItem?
@@ -124,6 +125,18 @@ class ServerCommandListener: NSObject, ObservableObject {
         }
     }
 
+    // Live-Inference rides on the 1 Hz status broadcast as a nested object.
+    // A missing/null live_inference (predict() returned None this tick) keeps
+    // the last value rather than flickering the UI off.
+    private func updateLiveInference(from json: [String: Any]) {
+        guard let dict = json["live_inference"] as? [String: Any],
+              let data = try? JSONSerialization.data(withJSONObject: dict),
+              let payload = try? JSONDecoder().decode(LiveInferencePayload.self, from: data) else {
+            return
+        }
+        DispatchQueue.main.async { self.liveInference = payload }
+    }
+
     private func handle(_ message: URLSessionWebSocketTask.Message) {
         let text: String
         switch message {
@@ -137,6 +150,8 @@ class ServerCommandListener: NSObject, ObservableObject {
         else { return }
 
         let type = json["type"] as? String ?? text.trimmingCharacters(in: .whitespaces)
+
+        updateLiveInference(from: json)
 
         DispatchQueue.main.async {
             if type == "start" {
