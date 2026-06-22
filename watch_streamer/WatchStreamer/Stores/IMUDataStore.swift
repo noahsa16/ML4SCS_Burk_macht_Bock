@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MARK: – IMU data store
