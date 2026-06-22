@@ -25,7 +25,8 @@ final class IMUDataStore: ObservableObject {
 
     private init() {
         let timer = Timer(timeInterval: 1.0 / 12.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.flush() }
+            guard let self else { return }
+            Task { @MainActor in self.flush() }
         }
         RunLoop.main.add(timer, forMode: .common)
         flushTimer = timer

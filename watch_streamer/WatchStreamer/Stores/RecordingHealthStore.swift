@@ -15,7 +15,8 @@ final class RecordingHealthStore: ObservableObject {
 
     private init() {
         let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.tick() }
+            guard let self else { return }
+            Task { @MainActor in self.tick() }
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
