@@ -36,9 +36,26 @@ private enum WT {
 struct WTPulseDot: View {
     let color: Color
     var pulse: Bool = true
+    @State private var animating = false
 
     var body: some View {
-        Circle().fill(color).frame(width: 5, height: 5)
+        Circle()
+            .fill(color)
+            .frame(width: 5, height: 5)
+            .scaleEffect(animating ? 1.3 : 1.0)
+            .opacity(animating ? 0.6 : 1.0)
+            .onAppear { updatePulse() }
+            .onChange(of: pulse) { _ in updatePulse() }
+    }
+
+    private func updatePulse() {
+        if pulse {
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) {
+                animating = true
+            }
+        } else {
+            withAnimation(.default) { animating = false }
+        }
     }
 }
 
@@ -362,9 +379,6 @@ struct WTStatsPage: View {
                     color: (motion.queuedSampleCount + motion.backgroundQueuedSampleCount) > 0 ? WT.orange : .primary
                 )
 
-                if motion.droppedSampleCount > 0 {
-                    WTStatsRow(label: "Dropped", value: motion.droppedSampleCount.formatted(), color: WT.orange)
-                }
                 if motion.failedBatchCount > 0 {
                     WTStatsRow(label: "Failed",  value: motion.failedBatchCount.formatted(),   color: WT.red)
                 }
@@ -382,23 +396,14 @@ struct WTStatsPage: View {
                     color: .secondary
                 )
 
-                // Mini sparkline — only when active
-                // NOTE: In production, feed real acc samples from MotionManager
-                // For now shows a placeholder when running
-                if isActive {
-                    WTSparkline(samples: generateSparkSamples())
+                // Mini sparkline — real |acc| trail published by MotionManager.
+                if isActive && motion.accMagHistory.count > 1 {
+                    WTSparkline(samples: motion.accMagHistory)
                         .padding(.top, 8)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 14)
-        }
-    }
-
-    private func generateSparkSamples() -> [Double] {
-        return (0..<40).map { i in
-            let d = Double(i)
-            return sin(d * 0.35) * 0.5 + sin(d * 0.8) * 0.25
         }
     }
 }

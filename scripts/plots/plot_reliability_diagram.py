@@ -46,6 +46,10 @@ from src.training.train_loso import (  # noqa: E402
     _select_sessions,
     _zscore_per_session,
 )
+from src.evaluation.calibration import (  # noqa: E402
+    expected_calibration_error,
+    reliability_curve,
+)
 
 
 MODELS = {
@@ -84,42 +88,10 @@ MODELS = {
 }
 
 
-def _reliability_curve(
-    y_true: np.ndarray, proba: np.ndarray, n_bins: int
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Pro Bin: mean predicted proba, fraction positives, count.
-
-    Leere Bins → nan (werden im Plot übersprungen).
-    """
-    edges = np.linspace(0.0, 1.0, n_bins + 1)
-    mean_p = np.full(n_bins, np.nan)
-    frac_pos = np.full(n_bins, np.nan)
-    counts = np.zeros(n_bins, dtype=int)
-    for i in range(n_bins):
-        lo, hi = edges[i], edges[i + 1]
-        # Letzter Bin inklusive; sonst exklusive rechte Grenze.
-        mask = (proba >= lo) & (proba < hi) if i < n_bins - 1 \
-            else (proba >= lo) & (proba <= hi)
-        n = int(mask.sum())
-        counts[i] = n
-        if n > 0:
-            mean_p[i] = proba[mask].mean()
-            frac_pos[i] = y_true[mask].mean()
-    return mean_p, frac_pos, counts
-
-
-def _ece(y_true: np.ndarray, proba: np.ndarray, n_bins: int = 10) -> float:
-    """Expected Calibration Error: Σ (bin_size / n) × |bin_acc − bin_conf|."""
-    mean_p, frac_pos, counts = _reliability_curve(y_true, proba, n_bins)
-    n_total = counts.sum()
-    if n_total == 0:
-        return float("nan")
-    ece = 0.0
-    for i in range(n_bins):
-        if counts[i] == 0:
-            continue
-        ece += (counts[i] / n_total) * abs(frac_pos[i] - mean_p[i])
-    return float(ece)
+# Reliability-Kurve + ECE leben jetzt in src.evaluation.calibration (getestet);
+# hier nur Aliase, damit die Plot-Call-Sites unverändert bleiben.
+_reliability_curve = reliability_curve
+_ece = expected_calibration_error
 
 
 def main() -> None:

@@ -139,35 +139,54 @@ async def focus_today() -> dict:
     }
 
 
+def _day_buckets(rows: list[dict], n_days: int, now: datetime) -> tuple[list[dict], float]:
+    """Sum writing-stretch seconds per local day for the last `n_days` days.
+
+    Returns (days, max_seconds) where days is oldest -> newest, exactly
+    `n_days` entries, today always last. Single source of truth shared by
+    /focus/week and /focus/history.
+    """
+    today_iso = now.strftime("%Y-%m-%d")
+    by_day: dict[str, list[dict]] = {}
+    for r in rows:
+        by_day.setdefault(_local_iso_date(r["ts_ms"]), []).append(r)
+
+    days: list[dict] = []
+    max_seconds = 0.0
+    for i in range(n_days - 1, -1, -1):
+        d = now - timedelta(days=i)
+        day = d.strftime("%Y-%m-%d")
+        secs = round(sum(s["duration_s"] for s in _stretches(by_day.get(day, []))), 1)
+        max_seconds = max(max_seconds, secs)
+        days.append({
+            "date": day,
+            "weekday": d.strftime("%a"),
+            "writing_seconds": secs,
+            "is_today": day == today_iso,
+        })
+    return days, max_seconds
+
+
 @router.get("/focus/week")
 async def focus_week() -> dict:
     rows = _read_log_rows()
     now = datetime.now()
-    today_iso = now.strftime("%Y-%m-%d")
-
-    bucket: dict[str, float] = {}
-    by_day: dict[str, list[dict]] = {}
-    for r in rows:
-        d = _local_iso_date(r["ts_ms"])
-        by_day.setdefault(d, []).append(r)
-
-    # Iterate the last 7 days (oldest -> newest) so the frontend gets a
-    # ready-to-render ordering.
-    days: list[dict] = []
-    for i in range(6, -1, -1):
-        day = (now - timedelta(days=i)).strftime("%Y-%m-%d")
-        day_rows = by_day.get(day, [])
-        secs = sum(s["duration_s"] for s in _stretches(day_rows))
-        bucket[day] = round(secs, 1)
-        days.append({
-            "date": day,
-            "weekday": (now - timedelta(days=i)).strftime("%a"),
-            "writing_seconds": round(secs, 1),
-            "is_today": day == today_iso,
-        })
-
+    days, max_seconds = _day_buckets(rows, 7, now)
     return {
         "days": days,
-        "today": today_iso,
-        "max_seconds": max(bucket.values(), default=0.0),
+        "today": now.strftime("%Y-%m-%d"),
+        "max_seconds": max_seconds,
+    }
+
+
+@router.get("/focus/history")
+async def focus_history(days: int = 7) -> dict:
+    days = max(1, min(days, 365))
+    rows = _read_log_rows()
+    now = datetime.now()
+    buckets, max_seconds = _day_buckets(rows, days, now)
+    return {
+        "days": buckets,
+        "today": now.strftime("%Y-%m-%d"),
+        "max_seconds": max_seconds,
     }
