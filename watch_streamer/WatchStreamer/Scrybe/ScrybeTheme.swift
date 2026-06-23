@@ -66,3 +66,66 @@ extension View {
         environment(\.scrybe, theme)
     }
 }
+
+// MARK: - Liquid Glass (iOS 26+) with matte-paper fallback
+//
+// Single home for all glass treatment so the iOS-26 API lives in one place and
+// every surface stays consistent (spec: design system centralized in ScrybeTheme).
+// Earlier OS — and Reduce Transparency at any OS — fall back to the paper card.
+
+extension View {
+    /// Rounded card / panel surface.
+    func scrybeSurface(cornerRadius: CGFloat = 16, tint: Color? = nil, interactive: Bool = false) -> some View {
+        modifier(ScrybeGlassSurface(
+            clip: AnyShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)),
+            tint: tint, interactive: interactive))
+    }
+
+    /// Capsule chip surface (live chip, offline banner, tags).
+    func scrybeCapsuleSurface(tint: Color? = nil, interactive: Bool = false) -> some View {
+        modifier(ScrybeGlassSurface(clip: AnyShape(Capsule()), tint: tint, interactive: interactive))
+    }
+}
+
+private struct ScrybeGlassSurface: ViewModifier {
+    let clip: AnyShape
+    var tint: Color? = nil
+    var interactive: Bool = false
+
+    @Environment(\.scrybe) private var theme
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26, *), !reduceTransparency {
+            content.glassEffect(glass, in: clip)
+        } else {
+            content
+                .background(clip.fill(tint ?? theme.cardFill))
+                .overlay(clip.stroke(theme.hairline))
+        }
+    }
+
+    @available(iOS 26, *)
+    private var glass: Glass {
+        var g = Glass.regular
+        if let tint { g = g.tint(tint) }
+        if interactive { g = g.interactive() }
+        return g
+    }
+}
+
+/// Wraps coexisting glass surfaces in a `GlassEffectContainer` on iOS 26 (shared
+/// sampling + correct blending when elements are near each other); a passthrough
+/// on earlier OS.
+struct ScrybeGlassGroup<Content: View>: View {
+    var spacing: CGFloat = 16
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if #available(iOS 26, *) {
+            GlassEffectContainer(spacing: spacing) { content }
+        } else {
+            content
+        }
+    }
+}
