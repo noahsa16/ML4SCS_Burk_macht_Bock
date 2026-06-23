@@ -4,7 +4,9 @@ struct RootPagerView: View {
     @State private var selection = 0
     @State private var adminPresented = false
     @State private var adminUnlocked = false
+    @State private var showSplash = true
     @Environment(\.scrybe) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private let labels = ["Heute", "Trends", "Verlauf"]
 
@@ -29,6 +31,22 @@ struct RootPagerView: View {
         }
         .onAppear { FocusStore.shared.start() }
         .onDisappear { FocusStore.shared.stop() }
+        .overlay {
+            if showSplash {
+                ScrybeSplashView()
+                    .transition(.opacity)
+                    .zIndex(1)
+                    .onAppear(perform: dismissSplash)
+            }
+        }
+    }
+
+    private func dismissSplash() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.45)) {
+                showSplash = false
+            }
+        }
     }
 }
 
