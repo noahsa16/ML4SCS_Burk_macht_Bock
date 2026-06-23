@@ -9,16 +9,34 @@ struct ScrybeTheme {
     let success: Color
     let warning: Color
     let danger: Color
+    /// Warm terracotta shown only at the goal-met moment (ring fill + badge).
+    let goalReached: Color
 
+    /// Light palette — warm cream paper, deep indigo accent, muted gold.
     static let standard = ScrybeTheme(
-        paperTop: Color(hex: 0xF6EFE0),
-        paperBottom: Color(hex: 0xECE3D0),
+        paperTop: Color(hex: 0xF2EBDC),
+        paperBottom: Color(hex: 0xE8DEC8),
         ink: Color(hex: 0x2A2733),
-        accent: Color(hex: 0x4B4E8C),
-        sepia: Color(hex: 0x8A6D3B),
+        accent: Color(hex: 0x3B3A6B),
+        sepia: Color(hex: 0xA8893F),
         success: Color(hex: 0x5A7D4E),
         warning: Color(hex: 0xB8862F),
-        danger: Color(hex: 0xA23B46)
+        danger: Color(hex: 0xA23B46),
+        goalReached: Color(hex: 0xC25B3A)
+    )
+
+    /// Dark palette — mirror of `standard`: warm brown-black paper, off-white
+    /// ink, brighter accent/gold/goal tones tuned to read on the dark ground.
+    static let dark = ScrybeTheme(
+        paperTop: Color(hex: 0x221E18),
+        paperBottom: Color(hex: 0x14110C),
+        ink: Color(hex: 0xF2ECE0),
+        accent: Color(hex: 0x8C8FD6),
+        sepia: Color(hex: 0xC9A85A),
+        success: Color(hex: 0x84A877),
+        warning: Color(hex: 0xD4A84A),
+        danger: Color(hex: 0xD06B74),
+        goalReached: Color(hex: 0xE07A50)
     )
 
     /// Radial cream wash used as the app background.
@@ -64,6 +82,40 @@ extension EnvironmentValues {
 extension View {
     func scrybeTheme(_ theme: ScrybeTheme = .standard) -> some View {
         environment(\.scrybe, theme)
+    }
+}
+
+/// Injects `.standard` / `.dark` based on the active system color scheme. Wrap
+/// the app root in this once so every screen follows light/dark automatically.
+struct ScrybeThemeProvider<Content: View>: View {
+    @Environment(\.colorScheme) private var colorScheme
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        content.scrybeTheme(colorScheme == .dark ? .dark : .standard)
+    }
+}
+
+/// Applies the in-app DE/EN language override (set in Profil) to the view tree.
+/// "system" leaves the device locale untouched.
+struct ScrybeLocaleProvider<Content: View>: View {
+    @AppStorage(ScrybeSettings.languageKey) private var language = ScrybeSettings.defaultLanguage
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        if let loc = override {
+            content.environment(\.locale, loc)
+        } else {
+            content
+        }
+    }
+
+    private var override: Locale? {
+        switch language {
+        case "de": return Locale(identifier: "de")
+        case "en": return Locale(identifier: "en")
+        default: return nil
+        }
     }
 }
 

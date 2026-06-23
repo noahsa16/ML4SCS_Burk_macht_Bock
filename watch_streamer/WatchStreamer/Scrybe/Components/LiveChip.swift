@@ -19,7 +19,7 @@ struct LiveChip: View {
                 .fill(dotColor)
                 .frame(width: 8, height: 8)
                 .scaleEffect(pulse ? 1.4 : 1.0)
-            Text(statusText)
+            Text(LocalizedStringKey(statusText))
                 .font(.footnote.weight(.medium))
                 .foregroundStyle(textColor)
         }

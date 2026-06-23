@@ -30,7 +30,9 @@ enum DateFormatting {
 
     private static func formatter(_ pattern: String) -> DateFormatter {
         let f = DateFormatter()
-        f.locale = .current
+        // Follow the in-app DE/EN override so weekday/month names match the
+        // chosen language (not just the device locale).
+        f.locale = ScrybeSettings.localeOverride ?? .current
         f.timeZone = .current
         f.setLocalizedDateFormatFromTemplate(pattern)
         return f

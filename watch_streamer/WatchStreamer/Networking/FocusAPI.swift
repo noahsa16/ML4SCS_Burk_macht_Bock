@@ -7,6 +7,13 @@ struct FocusAPI {
     func history(days: Int) async throws -> FocusRangeDTO {
         try await get("/focus/history?days=\(days)")
     }
+    // Stretches + intensity for an arbitrary local day (YYYY-MM-DD).
+    func day(_ date: String) async throws -> FocusTodayDTO {
+        try await get("/focus/day/\(date)")
+    }
+    func timeOfDay(days: Int) async throws -> FocusTimeOfDayDTO {
+        try await get("/focus/timeofday?days=\(days)")
+    }
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
         guard let url = URL(string: PhoneBridge.serverBaseURL + path) else { throw URLError(.badURL) }
