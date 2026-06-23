@@ -15,7 +15,7 @@ struct SessionCard: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(sid).font(.headline).foregroundStyle(theme.ink)
-                        Text(server.currentPersonId ?? "Anonymous")
+                        Text(server.currentPersonId ?? "Anonym")
                             .font(.caption).foregroundStyle(theme.sepia)
                     }
                     Spacer()

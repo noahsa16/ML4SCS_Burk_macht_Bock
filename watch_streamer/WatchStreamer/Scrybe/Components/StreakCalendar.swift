@@ -33,7 +33,7 @@ private struct DayDot: View {
             .fill(fill)
             .frame(height: 16)
             .overlay(Circle().stroke(theme.accent, lineWidth: ringWidth))
-            .accessibilityLabel(day.date)
+            .accessibilityLabel(DateFormatting.dayMonth(iso: day.date))
             .accessibilityValue(stateText)
     }
 }

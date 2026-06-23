@@ -29,14 +29,16 @@ private struct DayBar: View {
 
     private var barFill: Color { day.isToday ? theme.accent : theme.mutedInk }
     private var labelColor: Color { day.isToday ? theme.ink : theme.sepia.opacity(0.7) }
-    private var voiceLabel: String { day.isToday ? "\(day.weekday), heute" : day.weekday }
+    private var weekday: String { DateFormatting.weekday(iso: day.date) }
+    private var shortWeekday: String { DateFormatting.shortWeekday(iso: day.date) }
+    private var voiceLabel: String { day.isToday ? "\(weekday), heute" : weekday }
 
     var body: some View {
         VStack(spacing: 8) {
             Capsule()
                 .fill(barFill)
                 .frame(width: 10, height: barHeight)
-            Text(String(day.weekday.prefix(2)))
+            Text(shortWeekday)
                 .font(.caption2)
                 .foregroundStyle(labelColor)
         }

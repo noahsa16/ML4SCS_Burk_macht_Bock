@@ -47,8 +47,10 @@ private struct HistoryRow: View {
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text(day.date).font(.subheadline).foregroundStyle(theme.ink)
-                Text(day.weekday).font(.caption).foregroundStyle(theme.sepia)
+                Text(DateFormatting.dayMonth(iso: day.date))
+                    .font(.subheadline).foregroundStyle(theme.ink)
+                Text(DateFormatting.weekday(iso: day.date))
+                    .font(.caption).foregroundStyle(theme.sepia)
             }
             Spacer()
             Text(durationText)

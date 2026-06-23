@@ -8,7 +8,7 @@ struct OfflineBanner: View {
     private var message: String {
         guard let lastUpdated else { return "Offline" }
         let time = lastUpdated.formatted(date: .omitted, time: .shortened)
-        return "Offline — Letztes Update: \(time)"
+        return "Offline · Stand \(time)"
     }
 
     var body: some View {
