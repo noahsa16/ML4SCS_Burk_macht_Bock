@@ -75,3 +75,7 @@ forecast/
 # Regenerates on every open and creates noisy diffs.
 **/xcuserdata/
 *.xcuserstate
+
+# Pasted macOS screenshots (verification artifacts, not repo docs).
+Bildschirmfoto*.png
+Screenshot*.png
