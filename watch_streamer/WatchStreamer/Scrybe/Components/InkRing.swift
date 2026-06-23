@@ -5,19 +5,25 @@ struct InkRing: View {
     var lineWidth: CGFloat = 16
     var centerText: String? = nil
     var subtitle: String? = nil
+    /// Ring fill colour; defaults to the theme accent. Pass the goal-reached tone
+    /// at the goal-met moment.
+    var tint: Color? = nil
 
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var clamped: Double { max(0, min(1, fraction)) }
 
     var body: some View {
         ZStack {
             Circle().stroke(theme.track, lineWidth: lineWidth)
             Circle()
-                .trim(from: 0, to: max(0.001, min(1, fraction)))
-                .stroke(theme.accent,
+                .trim(from: 0, to: clamped)
+                .stroke(tint ?? theme.accent,
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: fraction)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: tint)
             VStack(spacing: 4) {
                 if let centerText {
                     Text(centerText)

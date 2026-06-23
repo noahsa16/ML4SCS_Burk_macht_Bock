@@ -11,7 +11,9 @@ struct ScrybeApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootPagerView().scrybeTheme()
+            ScrybeLocaleProvider {
+                ScrybeThemeProvider { RootPagerView() }
+            }
         }
     }
 }

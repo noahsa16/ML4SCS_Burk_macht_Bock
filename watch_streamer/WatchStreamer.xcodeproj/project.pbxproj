@@ -225,10 +225,11 @@
 				};
 			};
 			buildConfigurationList = 46AB61622FA34F98001AD28F /* Build configuration list for PBXProject "WatchStreamer" */;
-			developmentRegion = en;
+			developmentRegion = de;
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				de,
 				Base,
 			);
 			mainGroup = 46AB615E2FA34F98001AD28F;
