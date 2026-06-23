@@ -14,6 +14,13 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		46997B962FE994D2003301E0 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 46AB615F2FA34F98001AD28F /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 46AB61662FA34F98001AD28F;
+			remoteInfo = WatchStreamer;
+		};
 		CC000010CC000010CC000010 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 46AB615F2FA34F98001AD28F /* Project object */;
@@ -38,6 +45,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		46997B922FE994D2003301E0 /* ScrybeTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScrybeTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		46AB61672FA34F98001AD28F /* WatchStreamer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = WatchStreamer.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC000009CC000009CC000009 /* WatchStreamer Watch App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "WatchStreamer Watch App.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC00000ACC00000ACC00000A /* WatchConnectivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WatchConnectivity.framework; path = System/Library/Frameworks/WatchConnectivity.framework; sourceTree = SDKROOT; };
@@ -46,6 +54,11 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		46997B932FE994D2003301E0 /* ScrybeTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = ScrybeTests;
+			sourceTree = "<group>";
+		};
 		46AB61692FA34F98001AD28F /* WatchStreamer */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = WatchStreamer;
@@ -59,6 +72,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		46997B8F2FE994D2003301E0 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		46AB61642FA34F98001AD28F /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -94,6 +114,7 @@
 			children = (
 				46AB61692FA34F98001AD28F /* WatchStreamer */,
 				CC000001CC000001CC000001 /* WatchStreamer Watch App */,
+				46997B932FE994D2003301E0 /* ScrybeTests */,
 				46AB61682FA34F98001AD28F /* Products */,
 				469F6A862FA37415007299E6 /* Recovered References */,
 			);
@@ -104,6 +125,7 @@
 			children = (
 				46AB61672FA34F98001AD28F /* WatchStreamer.app */,
 				CC000009CC000009CC000009 /* WatchStreamer Watch App.app */,
+				46997B922FE994D2003301E0 /* ScrybeTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -111,6 +133,29 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		46997B912FE994D2003301E0 /* ScrybeTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 46997B982FE994D2003301E0 /* Build configuration list for PBXNativeTarget "ScrybeTests" */;
+			buildPhases = (
+				46997B8E2FE994D2003301E0 /* Sources */,
+				46997B8F2FE994D2003301E0 /* Frameworks */,
+				46997B902FE994D2003301E0 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				46997B972FE994D2003301E0 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				46997B932FE994D2003301E0 /* ScrybeTests */,
+			);
+			name = ScrybeTests;
+			packageProductDependencies = (
+			);
+			productName = ScrybeTests;
+			productReference = 46997B922FE994D2003301E0 /* ScrybeTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 		46AB61662FA34F98001AD28F /* WatchStreamer */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 46AB61722FA34F99001AD28F /* Build configuration list for PBXNativeTarget "WatchStreamer" */;
@@ -167,6 +212,10 @@
 				LastSwiftUpdateCheck = 2640;
 				LastUpgradeCheck = 2640;
 				TargetAttributes = {
+					46997B912FE994D2003301E0 = {
+						CreatedOnToolsVersion = 26.4.1;
+						TestTargetID = 46AB61662FA34F98001AD28F;
+					};
 					46AB61662FA34F98001AD28F = {
 						CreatedOnToolsVersion = 26.4.1;
 					};
@@ -191,11 +240,19 @@
 			targets = (
 				46AB61662FA34F98001AD28F /* WatchStreamer */,
 				CC000002CC000002CC000002 /* WatchStreamer Watch App */,
+				46997B912FE994D2003301E0 /* ScrybeTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		46997B902FE994D2003301E0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		46AB61652FA34F98001AD28F /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -213,6 +270,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		46997B8E2FE994D2003301E0 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		46AB61632FA34F98001AD28F /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -230,6 +294,11 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		46997B972FE994D2003301E0 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 46AB61662FA34F98001AD28F /* WatchStreamer */;
+			targetProxy = 46997B962FE994D2003301E0 /* PBXContainerItemProxy */;
+		};
 		CC000011CC000011CC000011 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = CC000002CC000002CC000002 /* WatchStreamer Watch App */;
@@ -238,6 +307,50 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		46997B992FE994D2003301E0 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 85SSM5GQXF;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ML4SCS.ScrybeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WatchStreamer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WatchStreamer";
+			};
+			name = Debug;
+		};
+		46997B9A2FE994D2003301E0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 85SSM5GQXF;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.4;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = ML4SCS.ScrybeTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				STRING_CATALOG_GENERATE_SYMBOLS = NO;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/WatchStreamer.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/WatchStreamer";
+			};
+			name = Release;
+		};
 		46AB61702FA34F99001AD28F /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -494,6 +607,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		46997B982FE994D2003301E0 /* Build configuration list for PBXNativeTarget "ScrybeTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				46997B992FE994D2003301E0 /* Debug */,
+				46997B9A2FE994D2003301E0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		46AB61622FA34F98001AD28F /* Build configuration list for PBXProject "WatchStreamer" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

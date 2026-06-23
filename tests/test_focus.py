@@ -173,3 +173,42 @@ def test_focus_week_aggregates_per_day(client, isolated_log):
     yest_bucket = next(d for d in body["days"] if d["date"] == yesterday_iso)
     assert today_bucket["writing_seconds"] >= 55
     assert yest_bucket["writing_seconds"] >= 25
+
+
+def test_focus_history_default_is_seven_days(client, isolated_log):
+    body = client.get("/focus/history").json()
+    assert len(body["days"]) == 7
+    assert body["days"][-1]["is_today"] is True
+
+
+def test_focus_history_n_days_buckets(client, isolated_log):
+    now = datetime.now().replace(hour=10, minute=0, second=0, microsecond=0)
+    ticks = []
+    # 60 writing ticks today, 30 two days ago.
+    for i in range(60):
+        ticks.append((int(now.timestamp() * 1000) + i * 1000, True))
+    two_days_ago = now - timedelta(days=2)
+    for i in range(30):
+        ticks.append((int(two_days_ago.timestamp() * 1000) + i * 1000, True))
+    _seed_log(isolated_log, ticks)
+
+    body = client.get("/focus/history?days=3").json()
+    assert len(body["days"]) == 3
+    today = next(d for d in body["days"] if d["is_today"])
+    older = next(d for d in body["days"]
+                 if d["date"] == two_days_ago.strftime("%Y-%m-%d"))
+    assert today["writing_seconds"] > older["writing_seconds"] > 0
+
+
+def test_focus_history_clamps_days(client, isolated_log):
+    assert len(client.get("/focus/history?days=0").json()["days"]) == 1
+    assert len(client.get("/focus/history?days=-5").json()["days"]) == 1
+    assert len(client.get("/focus/history?days=9999").json()["days"]) == 365
+
+
+def test_focus_week_unchanged_after_refactor(client, isolated_log):
+    body = client.get("/focus/week").json()
+    assert len(body["days"]) == 7
+    assert body["days"][-1]["is_today"] is True
+    assert body["days"][0]["is_today"] is False
+    assert "max_seconds" in body

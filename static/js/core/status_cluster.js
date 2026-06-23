@@ -193,11 +193,13 @@ export function handleStatus(s, prevSessionId) {
   if (s.session_id !== prevSessionId) clearPenPreview();
 
   const watchRate = Number(s.watch_rate_hz || 0);
-  const validation = s.validation || {};
-  const clients = s.connected_clients || {};
   const watchStreamActive = s.watch_stream_active ?? s.watch_connected;
   const watchDirectConnected = s.watch_direct_connected === true;
-  const watchBridgeConnected = s.watch_bridge_connected || Boolean(clients.iphone || clients.watch_bridge);
+  // Why: trust the server's bridge signal directly — it is now recency-gated
+  // (5 s) and pruned on dead sends (status.py / broadcast.py). ORing in the raw
+  // connected_clients count (no recency gate) re-introduced the stale-positive
+  // the server fix removes: a half-open bridge would still read as connected.
+  const watchBridgeConnected = !!s.watch_bridge_connected;
   const watchReachable = s.watch_reachable === true;
   const watchPolling = s.watch_polling === true;
   const watchUiOnline = watchStreamActive || watchDirectConnected || watchReachable || watchPolling || watchBridgeConnected;
