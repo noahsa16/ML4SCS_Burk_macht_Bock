@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct SessionCard: View {
     @ObservedObject private var server = ServerCommandListener.shared
