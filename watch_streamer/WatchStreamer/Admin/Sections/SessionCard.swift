@@ -35,9 +35,7 @@ struct SessionCard: View {
                 }
             } else {
                 Text("Keine aktive Session")
-                    .font(.subheadline).foregroundStyle(theme.ink)
-                Text("Session im Dashboard starten.")
-                    .font(.caption).foregroundStyle(theme.sepia)
+                    .font(.subheadline).foregroundStyle(theme.sepia)
             }
         }
         .onReceive(timer) { _ in if hasSession { elapsed += 1 } }
