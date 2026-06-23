@@ -138,7 +138,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 346 tests, ~10 s
+pytest tests/         # 485 tests, ~25 s
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -862,6 +862,56 @@ no longer vibrates continuously when the server is down.
   Fold-σ ≈ 3.4 pp sind sub-pp-Gewinne ohne p < 0.05 Rauschen. Greift nur
   für Within-Kohorten-A/Bs (gap, Z-Score, Gravity, center/causal) —
   Cross-Kohorten-Vergleiche (N=7 vs N=14) sind nicht paarbar.
+- `src/evaluation/hmm.py` — **kausaler HMM-Post-Processor** der
+  Per-Fenster-Probas (2 Zustände idle/writing), reine Numerik. Scaled-
+  Likelihood-Hybrid: die kalibrierte RF-Proba *ist* die Emission (`proba_cal`
+  / Klassen-Prior), das HMM lernt nur die 2×2-Übergangsmatrix
+  (`estimate_transition_matrix`, per-Session-Counts + Laplace; `class_priors`;
+  `scaled_likelihoods`). `forward_filter` ist der **kausale** Headline-Decoder
+  (nur Vergangenheit+Gegenwart), `forward_backward` + `viterbi` die
+  nicht-kausale Obergrenze. Seq-len-/raten-agnostisch → läuft auf RF- wie
+  Deep-OOF.
+- `scripts/ml/hmm_postprocess_loso.py` — HMM-Treiber auf `models/loso_oof.csv`,
+  leakage-frei per-Person-Holdout (Transition + Prior nur aus Train-Personen).
+  **Hebt den 1-s-RF acc 0.881 → 0.905 (Δ +2,4 pp, ohne Retraining)** und schlägt
+  die kausale Burst-Glättung auf jeder Skala (+4,4 pp @5s … +13 pp @30s, 15/15
+  Folds, p=0.0001), bei ~16 s *adaptiver* Latenz (langes Gedächtnis bei schwacher
+  Evidenz, schneller Kipp bei starker — deshalb > fixer Rolling-Mean).
+  **Negativkontrolle** (in-session geshuffelte Emission → acc 0.50) schließt ein
+  Block-Erkennungs-Artefakt aus; der Gewinn ist signalgetrieben. Verfeinert den
+  Decken-Befund „kausale Post-Glättung hebt nichts“: der *Rolling-Mean* nicht,
+  ein *HMM* schon. Kausal + O(1)/Tick + parameter-leicht → live-deploybar (Caveat:
+  stateful → Gap/Session-Reset nötig; ~16 s Latenz ideal fürs Schreibzeit-Tracking,
+  träge für die instantane Pille). Output: `models/hmm_postprocess_{cv,detail}.csv`
+  (cv ist loso_cv-kompatibel → `significance.py`) + `reports/hmm_postprocess.md`.
+- `scripts/ml/hmm_cross_model.py` — **Cross-Model-Kontext-Leiter**: derselbe
+  HMM-Filter über die per-window-OOF mehrerer Basismodelle, je gegen den eigenen
+  Floor + Negativkontrolle. **2×2-Faktordesign (RF/Deep × 1s/5s): der HMM-Gewinn
+  hängt am Zeitkontext (Fenstergröße), NICHT an der Modellfamilie.** RF-1s +2,4 pp
+  / TCN-1s +1,0 pp (beide *hilft*, sig) vs. RF-5s −0,8 pp / TCN-5s −0,9 pp /
+  harnet-5s −1,0 pp (alle *schadet/null* — Überglättung). Beide Familien kippen
+  helps→hurts allein mit 1s→5s; das HMM hilft nur den *gedächtnislosen*
+  1-s-Modellen. Vereinheitlicht nativen Lang-Fenster-Gewinn mit Post-Hoc-HMM —
+  **eine Decke, mehrere Straßen**: RF-1s+HMM 0.905 ≈ TCN-1s+HMM 0.905 ≈ nativer
+  TCN-5s 0.911; der Zeit-Struktur-Gewinn wird *einmal* eingesammelt (der TCN „hat
+  das HMM schon eingebaut“). Deployment-Konsequenz: HMM auf den 1-s-RF, **nicht**
+  auf 5-s-RF oder TCN. Output: `reports/hmm_context_ladder.md`. Knüpft an den
+  `feature_engineering_ceiling`-Befund an.
+- `src/evaluation/calibration.py` — Kalibrierungs-Primitive (`reliability_curve`,
+  `expected_calibration_error`/ECE), getestet. Geteilt von
+  `plot_reliability_diagram.py` (vorher private Kopien) und dem Decision-Scale-Skript.
+- `scripts/ml/calibration_decision_scale.py` — **Phase-2-Kalibrierung**: ECE +
+  Brier + Reliability-Kurve auf den *Decision-Scale*-Probas (raw/cal @1s, kausaler
+  Burst @5/10/30s, HMM-Filter), leakage-frei auf `loso_oof.csv`. Befunde (N=15):
+  **die 1-s-RF-Proba ist schon ehrlich** (ECE 0.020 < 0.05; isotone `proba_cal`
+  verbessert nichts → keine Nach-Kalibrierung nötig — per-Session-Z-Score +
+  `class_weight=balanced` liefert brauchbare Probas); **Burst verschlechtert die
+  Kalibrierung** (ECE rauf, Brier monoton 0.09 → 0.16 = Auflösungsverlust, aber die
+  *thresholdete* Schreibzeit-Entscheidung bleibt unberührt); **der HMM-Filter hat
+  den besten Brier (0.080), ist aber leicht über-konfident** (ECE 0.057 — sticky
+  Prior treibt zu 0/1; für eine als Prozent angezeigte Pille lohnt eine leichte
+  Posterior-Nach-Kalibrierung). Output: `reports/calibration_decision_scale.md` +
+  `reports/figures/calibration_decision_scale.png`.
 - `src/evaluation/regression.py` — Schreib-Prozent-Regression (Stufe 2).
   Reines Post-Processing über `models/loso_oof.csv`: aggregiert die
   OOF-Vorhersagen auf 60 s / 300 s / ganze-Session-Blöcke und reportet
@@ -1558,7 +1608,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (346 cases, ~10 s) — anything that
+`tests/` holds Tier-1 smoke tests (485 cases, ~25 s) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
@@ -1648,6 +1698,16 @@ could silently poison the training data or the proband-facing flow:
 - `test_label_diagnostics.py` — `class_kinematics_summary`: per-Klassen-
   Mittel + Ratio, fehlende Spalten übersprungen, beide Klassen erforderlich
   (ValueError sonst).
+- `test_hmm.py` — HMM-Kern (`src/evaluation/hmm.py`): Übergangs-Schätzung
+  (per-Session, keine Phantom-Übergänge über Session-Grenzen),
+  `scaled_likelihoods` (Clipping gegen inf bei Proba 0/1), und die tragende
+  **Kausalitäts-Invariante** des `forward_filter` (Störung der Emission bei t
+  lässt jeden Posterior *vor* t unverändert) + der nicht-kausale Kontrast des
+  `forward_backward` (nutzt die Zukunft). 14 Tests.
+- `test_calibration.py` — `reliability_curve` + `expected_calibration_error`
+  (ECE): perfekt kalibriert → 0, Over-Confidence → Gap, Count-Gewichtung der
+  Bins, letzter Bin rechts-inklusiv (`proba == 1.0` fällt nicht durch), leere
+  Eingabe → nan.
 
 Hardware loops (real BLE pen, watchOS app, iPhone bridge) remain
 **manual** smoke tests — there is no XCTest target in the Xcode

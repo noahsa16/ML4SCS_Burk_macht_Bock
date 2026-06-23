@@ -81,6 +81,12 @@ async def _broadcast(msg: dict):
         except Exception:
             dead.add(ws)
     state.ws_clients -= dead
+    # Why: a failed send proves the connection is gone. ws_client_meta is keyed
+    # by id(ws) (see routes/ws.py) and drives _watch_bridge_connected() /
+    # _connected_clients(); dropping it here stops those from reporting a dead
+    # bridge as online when the /ws endpoint's own finally-cleanup hasn't run yet.
+    for ws in dead:
+        state.ws_client_meta.pop(id(ws), None)
 
 
 async def _status_loop():
