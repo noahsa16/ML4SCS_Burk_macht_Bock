@@ -7,8 +7,8 @@ import UIKit
 
 /// Single source of truth for the default server address. The address is
 /// user-overridable via UserDefaults("serverIP"); this is the fallback when none
-/// is set. Was duplicated as a bare "192.168.178.147" literal across PhoneBridge,
-/// ServerCommandListener and iPhoneView.
+/// is set. Was duplicated as a bare "192.168.178.147" literal across PhoneBridge
+/// and ServerCommandListener.
 enum ServerConfig {
     static let defaultIP = "192.168.178.147"
 }
