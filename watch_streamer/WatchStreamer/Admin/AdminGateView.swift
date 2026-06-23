@@ -65,10 +65,12 @@ private struct PinKeypad: View {
     private let rows = [["1", "2", "3"], ["4", "5", "6"], ["7", "8", "9"], ["", "0", "⌫"]]
 
     var body: some View {
-        VStack(spacing: 16) {
-            ForEach(rows, id: \.self) { row in
-                HStack(spacing: 24) {
-                    ForEach(row, id: \.self) { key in keyButton(key) }
+        ScrybeGlassGroup(spacing: 16) {
+            VStack(spacing: 16) {
+                ForEach(rows, id: \.self) { row in
+                    HStack(spacing: 24) {
+                        ForEach(row, id: \.self) { key in keyButton(key) }
+                    }
                 }
             }
         }
@@ -78,17 +80,21 @@ private struct PinKeypad: View {
         if key.isEmpty {
             Color.clear.frame(width: 64, height: 64).accessibilityHidden(true)
         } else if key == "⌫" {
-            Button(action: onDelete) { Image(systemName: "delete.left").font(.title2) }
-                .frame(width: 64, height: 64)
-                .foregroundStyle(theme.ink)
-                .accessibilityLabel("Löschen") // [VERIFY] confirm label matches intent
+            Button(action: onDelete) {
+                Image(systemName: "delete.left")
+                    .font(.title2)
+                    .frame(width: 64, height: 64)
+                    .foregroundStyle(theme.ink)
+            }
+            .accessibilityLabel("Letzte Ziffer löschen")
         } else {
             Button { onDigit(key) } label: {
-                Text(key).font(.system(.title, design: .serif))
+                Text(key)
+                    .font(.system(.title, design: .serif))
+                    .frame(width: 64, height: 64)
+                    .foregroundStyle(theme.ink)
+                    .scrybeCapsuleSurface(interactive: true)
             }
-            .frame(width: 64, height: 64)
-            .background(Circle().fill(theme.track))
-            .foregroundStyle(theme.ink)
         }
     }
 }

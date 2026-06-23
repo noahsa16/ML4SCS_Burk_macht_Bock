@@ -212,3 +212,64 @@ def test_focus_week_unchanged_after_refactor(client, isolated_log):
     assert body["days"][-1]["is_today"] is True
     assert body["days"][0]["is_today"] is False
     assert "max_seconds" in body
+
+
+def test_focus_today_stretch_has_intensity(client, isolated_log):
+    midnight = datetime.now().replace(hour=9, minute=0, second=0, microsecond=0)
+    t0 = int(midnight.timestamp() * 1000)
+    _seed_log(isolated_log, [(t0 + i * 1000, True) for i in range(60)])
+
+    body = client.get("/focus/today").json()
+    assert len(body["stretches"]) == 1
+    intensity = body["stretches"][0]["intensity"]
+    assert isinstance(intensity, list)
+    assert 1 <= len(intensity) <= 24
+    assert all(0.0 <= v <= 1.0 for v in intensity)
+    # Writing ticks are seeded at proba 0.9 -> bins land near 0.9.
+    assert max(intensity) == pytest.approx(0.9, abs=0.05)
+
+
+def test_focus_day_returns_past_day_stretches(client, isolated_log):
+    two_days_ago = datetime.now() - timedelta(days=2)
+    base = two_days_ago.replace(hour=13, minute=0, second=0, microsecond=0)
+    t0 = int(base.timestamp() * 1000)
+    _seed_log(isolated_log, [(t0 + i * 1000, True) for i in range(40)])
+
+    iso = two_days_ago.strftime("%Y-%m-%d")
+    body = client.get(f"/focus/day/{iso}").json()
+    assert body["date"] == iso
+    assert len(body["stretches"]) == 1
+    assert body["stretches"][0]["duration_s"] >= 35
+    assert body["stretches"][0]["intensity"]  # non-empty
+
+
+def test_focus_day_empty_for_day_without_data(client, isolated_log):
+    iso = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
+    body = client.get(f"/focus/day/{iso}").json()
+    assert body["stretches"] == []
+    assert body["total_writing_seconds"] == 0
+
+
+def test_focus_day_rejects_malformed_date(client, isolated_log):
+    assert client.get("/focus/day/not-a-date").status_code == 400
+    assert client.get("/focus/day/2026-13-99").status_code == 400
+
+
+def test_focus_timeofday_buckets_by_hour(client, isolated_log):
+    base = datetime.now().replace(hour=8, minute=0, second=0, microsecond=0)
+    t0 = int(base.timestamp() * 1000)
+    _seed_log(isolated_log, [(t0 + i * 1000, True) for i in range(120)])
+
+    body = client.get("/focus/timeofday?days=7").json()
+    assert len(body["buckets"]) == 24
+    assert [b["hour"] for b in body["buckets"]] == list(range(24))
+    hour8 = next(b for b in body["buckets"] if b["hour"] == 8)
+    assert hour8["seconds"] > 0
+    hour3 = next(b for b in body["buckets"] if b["hour"] == 3)
+    assert hour3["seconds"] == 0
+    assert body["max_seconds"] >= hour8["seconds"]
+
+
+def test_focus_timeofday_clamps_days(client, isolated_log):
+    assert client.get("/focus/timeofday?days=0").json()["days"] == 1
+    assert client.get("/focus/timeofday?days=9999").json()["days"] == 365

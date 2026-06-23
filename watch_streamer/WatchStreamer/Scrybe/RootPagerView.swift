@@ -2,57 +2,55 @@ import SwiftUI
 
 struct RootPagerView: View {
     @State private var selection = 0
-    @State private var adminPresented = false
-    @State private var adminUnlocked = false
+    @State private var showSplash = true
+    @AppStorage(ScrybeSettings.onboardingDoneKey) private var onboardingDone = false
     @Environment(\.scrybe) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let labels = ["Heute", "Trends", "Verlauf"]
+    private let labels = ["Heute", "Trends", "Verlauf", "Profil"]
 
     var body: some View {
         VStack(spacing: 12) {
-            ScrybeHeader(label: labels[selection]) { adminPresented = true }
+            ScrybeHeader(label: labels[selection])
             TabView(selection: $selection) {
-                TodayView().tag(0)
-                TrendsView().tag(1)
-                HistoryView().tag(2)
+                TodayView()
+                    .tabItem { Label("Heute", systemImage: "circle.dashed") }
+                    .tag(0)
+                TrendsView()
+                    .tabItem { Label("Trends", systemImage: "chart.bar.fill") }
+                    .tag(1)
+                HistoryView()
+                    .tabItem { Label("Verlauf", systemImage: "list.bullet") }
+                    .tag(2)
+                ProfileView()
+                    .tabItem { Label("Profil", systemImage: "person.fill") }
+                    .tag(3)
             }
-            .tabViewStyle(.page(indexDisplayMode: .always))
-            .indexViewStyle(.page(backgroundDisplayMode: .interactive))
         }
         .background(theme.paper.ignoresSafeArea())
-        .fullScreenCover(isPresented: $adminPresented, onDismiss: { adminUnlocked = false }) {
-            if adminUnlocked {
-                AdminPanelView(onExit: { adminPresented = false }).scrybeTheme()
-            } else {
-                AdminGateView(onUnlock: { adminUnlocked = true }).scrybeTheme()
-            }
-        }
         .onAppear { FocusStore.shared.start() }
         .onDisappear { FocusStore.shared.stop() }
-    }
-}
-
-private struct ScrybeHeader: View {
-    let label: String
-    var onAdmin: () -> Void
-    @Environment(\.scrybe) private var theme
-
-    var body: some View {
-        VStack(spacing: 4) {
-            Text("Scrybe")
-                .font(.system(.title, design: .serif).weight(.semibold))
-                .foregroundStyle(theme.ink)
-                .onLongPressGesture(minimumDuration: 2.0) { onAdmin() }
-            Rectangle().fill(theme.hairline).frame(width: 40, height: 1)
-            Text(label.uppercased())
-                .font(.caption.weight(.medium))
-                .tracking(1.5)
-                .foregroundStyle(theme.sepia)
+        .fullScreenCover(isPresented: .constant(!onboardingDone)) {
+            ScrybeThemeProvider {
+                OnboardingFlowView(onFinish: { onboardingDone = true })
+            }
         }
-        .padding(.top, 8)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-        .accessibilityHint("Lang drücken öffnet den Admin-Bereich")
+        .overlay {
+            if showSplash {
+                ScrybeSplashView()
+                    .transition(.opacity)
+                    .zIndex(1)
+                    .onAppear(perform: dismissSplash)
+            }
+        }
+    }
+
+    private func dismissSplash() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.45)) {
+                showSplash = false
+            }
+        }
     }
 }
 

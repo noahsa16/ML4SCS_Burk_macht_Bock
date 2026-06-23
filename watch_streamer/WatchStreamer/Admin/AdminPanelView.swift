@@ -6,15 +6,17 @@ struct AdminPanelView: View {
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 16) {
-                header
-                RecordingHealthCard()
-                DataflowCard()
-                ConnectionsCard()
-                SessionCard()
-                RepairCard()
-                LogCard()
-                SettingsCard()
+            ScrybeGlassGroup(spacing: 16) {
+                VStack(spacing: 16) {
+                    header
+                    RecordingHealthCard()
+                    DataflowCard()
+                    ConnectionsCard()
+                    SessionCard()
+                    RepairCard()
+                    LogCard()
+                    SettingsCard()
+                }
             }
             .padding(16)
         }
@@ -53,7 +55,6 @@ struct AdminCard<Content: View>: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: 14).fill(theme.cardFill))
-        .overlay(RoundedRectangle(cornerRadius: 14).stroke(theme.hairline))
+        .scrybeSurface(cornerRadius: 14)
     }
 }

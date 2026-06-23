@@ -8,8 +8,13 @@ final class FocusStore: ObservableObject {
     @Published private(set) var today: FocusTodayDTO?
     @Published private(set) var week: FocusRangeDTO?
     @Published private(set) var history: FocusRangeDTO?
+    @Published private(set) var timeOfDay: FocusTimeOfDayDTO?
     @Published private(set) var isOffline = false
     @Published private(set) var lastUpdated: Date?
+
+    // Per-day stretch payloads for the Verlauf detail (past days are immutable,
+    // so a session-lifetime cache is safe; today is read live from `today`).
+    @Published private(set) var dayCache: [String: FocusTodayDTO] = [:]
 
     private let api = FocusAPI()
     private var pollTask: Task<Void, Never>?
@@ -38,10 +43,12 @@ final class FocusStore: ObservableObject {
             async let t = api.today()
             async let w = api.week()
             async let h = api.history(days: historyDays)
-            let (td, wk, hi) = try await (t, w, h)
+            async let tod = api.timeOfDay(days: 7)
+            let (td, wk, hi, to) = try await (t, w, h, tod)
             today = td
             week = wk
             history = hi
+            timeOfDay = to
             isOffline = false
             lastUpdated = Date()
         } catch is CancellationError {
@@ -49,6 +56,13 @@ final class FocusStore: ObservableObject {
         } catch {
             isOffline = true   // keep last good values
         }
+    }
+
+    /// Fetch + cache a past day's stretch payload for the Verlauf detail. Today
+    /// is served live from `today`, so callers should prefer that for today.
+    func loadDay(_ date: String) async {
+        if dayCache[date] != nil { return }
+        do { dayCache[date] = try await api.day(date) } catch { /* keep absent */ }
     }
 
     // Polled-only today seconds (does not include the live WS counter).
@@ -66,6 +80,13 @@ final class FocusStore: ObservableObject {
         let todayISO = history?.today ?? today?.date ?? ""
         return StreakCalculator.currentStreak(
             days: days, goalSeconds: ScrybeSettings.goalSeconds, todayISO: todayISO)
+    }
+
+    var longestStreak: Int {
+        let days = (history?.days ?? []).map {
+            DayWriting(date: $0.date, writingSeconds: $0.writingSeconds)
+        }
+        return StreakCalculator.longestStreak(days: days, goalSeconds: ScrybeSettings.goalSeconds)
     }
 
     var hasData: Bool { today != nil || history != nil }
