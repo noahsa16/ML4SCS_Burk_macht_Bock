@@ -11,14 +11,15 @@ struct ConnectionsCard: View {
             row("iPhone-Bridge", bridge.isConnected, bridge.isConnected ? "aktiv" : "inaktiv")
             row("Watch", server.watchRunning, server.watchRunning ? "läuft" : "bereit")
 
-            Divider().background(theme.hairline)
             Button { server.reconnectAndRefresh() } label: {
                 Label("Server neu verbinden", systemImage: "arrow.clockwise")
-                    .font(.subheadline)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 4)
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .foregroundStyle(theme.accent)
+                    .scrybeSurface(cornerRadius: 12, tint: theme.accent.opacity(0.10), interactive: true)
             }
-            .foregroundStyle(theme.accent)
+            .padding(.top, 4)
         }
     }
 

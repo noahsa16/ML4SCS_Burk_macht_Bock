@@ -30,8 +30,8 @@ struct SessionCard: View {
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(theme.danger))
                         .foregroundStyle(.white)
+                        .scrybeSurface(cornerRadius: 12, tint: theme.danger, interactive: true)
                 }
             } else {
                 Text("Keine aktive Session")
