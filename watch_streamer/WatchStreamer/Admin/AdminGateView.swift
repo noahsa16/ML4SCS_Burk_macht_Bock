@@ -86,7 +86,7 @@ private struct PinKeypad: View {
                     .frame(width: 64, height: 64)
                     .foregroundStyle(theme.ink)
             }
-            .accessibilityLabel("Löschen") // [VERIFY] confirm label matches intent
+            .accessibilityLabel("Letzte Ziffer löschen")
         } else {
             Button { onDigit(key) } label: {
                 Text(key)

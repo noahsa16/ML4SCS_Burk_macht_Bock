@@ -50,7 +50,7 @@ struct DayDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background { theme.paper.ignoresSafeArea() }
-        .navigationTitle(date)
+        .navigationTitle(DateFormatting.dayMonth(iso: date))
         .navigationBarTitleDisplayMode(.inline)
     }
 }
