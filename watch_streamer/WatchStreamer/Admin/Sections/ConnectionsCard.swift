@@ -12,7 +12,7 @@ struct ConnectionsCard: View {
             row("Watch", server.watchRunning, server.watchRunning ? "läuft" : "bereit")
 
             Button { server.reconnectAndRefresh() } label: {
-                Label("Server neu verbinden", systemImage: "arrow.clockwise")
+                Label("Neu verbinden", systemImage: "arrow.clockwise")
                     .font(.subheadline.weight(.medium))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)

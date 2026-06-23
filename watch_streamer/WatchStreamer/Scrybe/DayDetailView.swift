@@ -42,7 +42,7 @@ struct DayDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .scrybeSurface(cornerRadius: 16)
                 } else if !isToday {
-                    Text("Schreibphasen im Detail sind für den aktuellen Tag verfügbar.")
+                    Text("Nur für heute verfügbar.")
                         .font(.footnote).foregroundStyle(theme.sepia)
                 }
             }
