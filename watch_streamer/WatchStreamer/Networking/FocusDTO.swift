@@ -4,12 +4,19 @@ struct FocusStretchDTO: Decodable, Identifiable, Sendable {
     let startMs: Int
     let endMs: Int
     let durationS: Double
+    // Downsampled mean-proba across the stretch (sparkline). Optional so an
+    // older server without the field can't break decoding of the Heute screen.
+    let intensity: [Double]?
     var id: Int { startMs }
+
+    /// Always-present accessor for the UI (empty when the server omitted it).
+    var intensitySamples: [Double] { intensity ?? [] }
 
     enum CodingKeys: String, CodingKey {
         case startMs = "start_ms"
         case endMs = "end_ms"
         case durationS = "duration_s"
+        case intensity
     }
 }
 
@@ -53,6 +60,23 @@ struct FocusRangeDTO: Decodable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case days, today
+        case maxSeconds = "max_seconds"
+    }
+}
+
+struct FocusHourBucketDTO: Decodable, Identifiable, Sendable {
+    let hour: Int
+    let seconds: Double
+    var id: Int { hour }
+}
+
+struct FocusTimeOfDayDTO: Decodable, Sendable {
+    let buckets: [FocusHourBucketDTO]
+    let days: Int
+    let maxSeconds: Double
+
+    enum CodingKeys: String, CodingKey {
+        case buckets, days
         case maxSeconds = "max_seconds"
     }
 }

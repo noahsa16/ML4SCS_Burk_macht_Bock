@@ -10,6 +10,16 @@ struct ConnectionsCard: View {
             row("Server", server.isConnected, server.isConnected ? "verbunden" : "getrennt")
             row("iPhone-Bridge", bridge.isConnected, bridge.isConnected ? "aktiv" : "inaktiv")
             row("Watch", server.watchRunning, server.watchRunning ? "läuft" : "bereit")
+
+            Button { server.reconnectAndRefresh() } label: {
+                Label("Neu verbinden", systemImage: "arrow.clockwise")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .foregroundStyle(theme.accent)
+                    .scrybeSurface(cornerRadius: 12, tint: theme.accent.opacity(0.10), interactive: true)
+            }
+            .padding(.top, 4)
         }
     }
 

@@ -15,7 +15,7 @@ struct SessionCard: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(sid).font(.headline).foregroundStyle(theme.ink)
-                        Text(server.currentPersonId ?? "Anonymous")
+                        Text(server.currentPersonId ?? "Anonym")
                             .font(.caption).foregroundStyle(theme.sepia)
                     }
                     Spacer()
@@ -30,14 +30,12 @@ struct SessionCard: View {
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(RoundedRectangle(cornerRadius: 12).fill(theme.danger))
                         .foregroundStyle(.white)
+                        .scrybeSurface(cornerRadius: 12, tint: theme.danger, interactive: true)
                 }
             } else {
                 Text("Keine aktive Session")
-                    .font(.subheadline).foregroundStyle(theme.ink)
-                Text("Session im Dashboard starten.")
-                    .font(.caption).foregroundStyle(theme.sepia)
+                    .font(.subheadline).foregroundStyle(theme.sepia)
             }
         }
         .onReceive(timer) { _ in if hasSession { elapsed += 1 } }

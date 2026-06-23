@@ -40,4 +40,18 @@ enum StreakCalculator {
         }
         return streak
     }
+
+    /// Longest run of consecutive goal-met days in the (chronologically ordered,
+    /// gap-free) history. The server backfills missing days with 0, so array
+    /// adjacency equals calendar adjacency.
+    static func longestStreak(days: [DayWriting], goalSeconds: Double) -> Int {
+        guard goalSeconds > 0 else { return 0 }
+        var longest = 0, run = 0
+        for d in days {
+            let met = DailyGoalProgress(writingSeconds: d.writingSeconds, goalSeconds: goalSeconds).isMet
+            run = met ? run + 1 : 0
+            longest = max(longest, run)
+        }
+        return longest
+    }
 }
