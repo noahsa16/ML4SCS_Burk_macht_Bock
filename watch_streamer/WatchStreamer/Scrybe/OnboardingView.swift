@@ -20,6 +20,7 @@ struct OnboardingView: View {
                 .multilineTextAlignment(.center)
         }
         .padding(32)
+        .scrybeSurface(cornerRadius: 20)
         .accessibilityElement(children: .combine)
     }
 }

@@ -20,20 +20,38 @@ struct TrendsView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                if focus.isOffline {
-                    OfflineBanner(lastUpdated: focus.lastUpdated)
+            ScrybeGlassGroup(spacing: 24) {
+                VStack(alignment: .leading, spacing: 24) {
+                    if focus.isOffline {
+                        OfflineBanner(lastUpdated: focus.lastUpdated)
+                    }
+                    weekCard
+                    streakCard
                 }
-                weekHeader
-                if let week = focus.week {
-                    WeekStrip(days: week.days, maxSeconds: week.maxSeconds)
-                }
-                streakSection
             }
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background { theme.paper.ignoresSafeArea() }
+    }
+
+    private var weekCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            weekHeader
+            if let week = focus.week {
+                WeekStrip(days: week.days, maxSeconds: week.maxSeconds)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .scrybeSurface(cornerRadius: 16)
+    }
+
+    private var streakCard: some View {
+        streakSection
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .scrybeSurface(cornerRadius: 16)
     }
 
     private var weekHeader: some View {
@@ -43,6 +61,7 @@ struct TrendsView: View {
                 Text(thisWeekText)
                     .font(.system(.largeTitle, design: .serif).weight(.semibold))
                     .foregroundStyle(theme.ink)
+                    .contentTransition(.numericText())
                 comparison
             }
         }

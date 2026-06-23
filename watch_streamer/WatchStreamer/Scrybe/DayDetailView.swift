@@ -21,6 +21,7 @@ struct DayDetailView: View {
                 Text(totalText)
                     .font(.system(.largeTitle, design: .serif).weight(.semibold))
                     .foregroundStyle(theme.ink)
+                    .contentTransition(.numericText())
 
                 if isMet {
                     Label("Tagesziel erreicht", systemImage: "checkmark.seal")
@@ -28,10 +29,18 @@ struct DayDetailView: View {
                 }
 
                 if !stretches.isEmpty {
-                    Text("Schreibphasen").font(.headline).foregroundStyle(theme.ink)
-                    ForEach(stretches) { s in
-                        StretchRow(stretch: s)
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("Schreibphasen").font(.headline).foregroundStyle(theme.ink)
+                        ForEach(stretches) { s in
+                            StretchRow(stretch: s)
+                            if s.id != stretches.last?.id {
+                                Divider().background(theme.hairline)
+                            }
+                        }
                     }
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .scrybeSurface(cornerRadius: 16)
                 } else if !isToday {
                     Text("Schreibphasen im Detail sind für den aktuellen Tag verfügbar.")
                         .font(.footnote).foregroundStyle(theme.sepia)
