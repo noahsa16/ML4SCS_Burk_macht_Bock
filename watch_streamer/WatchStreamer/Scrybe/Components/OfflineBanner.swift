@@ -21,7 +21,7 @@ struct OfflineBanner: View {
         .foregroundStyle(theme.warning)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Capsule().fill(theme.warning.opacity(0.10)))
+        .scrybeCapsuleSurface(tint: theme.warning.opacity(0.12))
         .accessibilityElement(children: .combine)
     }
 }

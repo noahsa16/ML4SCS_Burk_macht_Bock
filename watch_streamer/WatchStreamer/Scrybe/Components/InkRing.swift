@@ -24,6 +24,8 @@ struct InkRing: View {
                         .font(.system(.largeTitle, design: .serif).weight(.semibold))
                         .foregroundStyle(theme.ink)
                         .monospacedDigit()
+                        .contentTransition(.numericText())
+                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: centerText)
                 }
                 if let subtitle {
                     Text(subtitle)
