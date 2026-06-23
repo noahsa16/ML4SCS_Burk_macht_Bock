@@ -5,6 +5,14 @@ import WatchConnectivity
 import UIKit
 #endif
 
+/// Single source of truth for the default server address. The address is
+/// user-overridable via UserDefaults("serverIP"); this is the fallback when none
+/// is set. Was duplicated as a bare "192.168.178.147" literal across PhoneBridge
+/// and ServerCommandListener.
+enum ServerConfig {
+    static let defaultIP = "192.168.178.147"
+}
+
 class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     static let shared = PhoneBridge()
 
@@ -28,7 +36,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     // MARK: – Server URL helpers
 
     static var serverBaseURL: String {
-        let raw = UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147"
+        let raw = UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP
         let trimmed = raw
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -60,6 +68,13 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     private var uploadQueue: [[String: Any]] = []
     private var isUploading = false
     private var disconnectDebounce: DispatchWorkItem?
+
+    // Why: capped exponential backoff for upload retries — a fixed 2 s cadence
+    // hammers the radio during a longer server outage. Reset to base on the
+    // next successful upload (see dispatchUpload).
+    private static let uploadRetryBaseDelay: TimeInterval = 2.0
+    private static let uploadRetryMaxDelay: TimeInterval = 30.0
+    private var uploadRetryDelay: TimeInterval = 2.0
 
     // Why: WatchConnectivity liefert denselben Batch manchmal zweimal aus
     // (replyHandler-Timeout → Watch queued fallback via transferUserInfo,
@@ -153,7 +168,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             if let error {
                 self.lastError = error.localizedDescription
             }
-            self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
+            self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP)
             ServerCommandListener.shared.sendPhoneStatus()
         }
     }
@@ -193,7 +208,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     func sessionReachabilityDidChange(_ session: WCSession) {
         DispatchQueue.main.async {
             self.applyReachability(session)
-            self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
+            self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP)
             ServerCommandListener.shared.sendPhoneStatus()
         }
     }
@@ -216,12 +231,12 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         WCSession.default.delegate = self
         WCSession.default.activate()
         applyReachability(WCSession.default)
-        syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
+        syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP)
         ServerCommandListener.shared.sendPhoneStatus()
     }
 
     func resyncWatchContext() {
-        syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? "192.168.178.147")
+        syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP)
         ServerCommandListener.shared.refreshWatchContext()
     }
 
@@ -247,18 +262,19 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
     @discardableResult
     private func receivePayload(_ payload: [String: Any], source: String) -> Bool {
-        // Heavy parsing + magnitude calc auf workQueue. Kommt zurück mit
-        // (normalized, accValues, gyroValues) und wird auf main verarbeitet.
+        // Why: validate synchronously so the WatchConnectivity replyHandler can
+        // honestly report whether the batch was accepted — a malformed payload
+        // must not be acked as ok=true. normalizePayload is pure (no shared
+        // state), so running it on the delegate thread is safe; the heavy
+        // magnitude precompute + enqueue still hop off-main below.
+        guard let normalized = normalizePayload(payload, source: source),
+              let samples = normalized["samples"] as? [[String: Any]] else {
+            DispatchQueue.main.async { self.lastError = "Invalid watch payload" }
+            return false
+        }
+
         workQueue.async { [weak self] in
             guard let self else { return }
-
-            guard let normalized = self.normalizePayload(payload, source: source),
-                  let samples = normalized["samples"] as? [[String: Any]] else {
-                DispatchQueue.main.async {
-                    self.lastError = "Invalid watch payload"
-                }
-                return
-            }
 
             // Magnituden für Live-Chart vorberechnen — vermeidet O(N) Arbeit
             // auf dem Main-Thread bei jedem Batch.
@@ -423,6 +439,9 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.httpBody = body
+        // Why: cap the per-request wait so a hung POST on flaky WLAN can't pin
+        // isUploading (and stall the whole queue) for the 60 s URLSession default.
+        req.timeoutInterval = 12
 
         URLSession.shared.dataTask(with: req) { [weak self] _, response, error in
             DispatchQueue.main.async {
@@ -449,6 +468,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
                 if !self.uploadQueue.isEmpty { self.uploadQueue.removeFirst() }
                 self.queuedBatchCount = self.uploadQueue.count
                 self.lastError = ""
+                self.uploadRetryDelay = Self.uploadRetryBaseDelay
                 self.schedulePersist()
                 self.uploadNextIfNeeded()
             }
@@ -457,8 +477,10 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
     private func scheduleRetry() {
         queuedBatchCount = uploadQueue.count
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-            self.uploadNextIfNeeded()
+        let delay = uploadRetryDelay
+        uploadRetryDelay = min(uploadRetryDelay * 2, Self.uploadRetryMaxDelay)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.uploadNextIfNeeded()
         }
     }
 
