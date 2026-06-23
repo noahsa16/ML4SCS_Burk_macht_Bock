@@ -25,7 +25,7 @@ struct LiveChip: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
-        .background(Capsule().fill(theme.ink.opacity(0.05)))
+        .scrybeCapsuleSurface(tint: isWriting ? theme.success.opacity(0.16) : theme.ink.opacity(0.05))
         .onAppear { updatePulse() }
         .onChange(of: animatePulse) { _ in updatePulse() }
         .accessibilityLabel(a11yLabel)
