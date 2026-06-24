@@ -98,13 +98,19 @@ Schnittstelle, benannte Abhängigkeiten.
 ### Python-Fundament (dieses Repo, hier verifizierbar)
 - **N `scripts/ml/export_rf_json.py`** — serialisiert `rf_acc_only_live.joblib` →
   `models/rf_acc_only_live.json` (pro Baum: feature_idx / threshold / children /
-  leaf-class-1-proba; + Feature-Reihenfolge; + pooled µ/σ; + Metadaten).
+  leaf-class-1-proba; + Feature-Reihenfolge; + pooled µ/σ; + Metadaten). **Floats
+  voll round-trip-fähig** serialisieren (`float.hex()` bzw. `repr`/`%.17g`) —
+  gerundete RF-Thresholds oder µ/σ schicken den Swift-Baum an einem Knoten in den
+  *falschen* Ast (Decision-Flip → komplett anderes Ergebnis). Round-Trip-Test im
+  Export selbst.
 - **N `PyReferenceEvaluator` + Paritätstest** — pure-Python-Evaluator, der aus dem
-  JSON sklearns `predict_proba` bit-genau reproduziert (assert max|Δ| ≈ 0). Die
-  Spezifikation, die der Swift-Port treffen muss.
+  JSON sklearns `predict_proba` reproduziert (assert max|Δ| ≈ 0 — bei voller
+  Float-Präzision exakt). Die Spezifikation, die der Swift-Port treffen muss.
 - **N `scripts/ml/dump_golden_vectors.py`** — N bekannte Fenster als Fixture:
-  roh-Accel-Samples → erwartete 47 Features → erwartete `proba_raw` → erwarteter
-  HMM-Posterior. JSON, wandert ins `ScrybeTests`-Target.
+  roh-Accel-Samples → `GravityHighPass` → userAccel → erwartete 47 Features →
+  erwartete `proba_raw` → erwarteter HMM-Posterior. Ebenfalls **volle Float-
+  Präzision** (sonst falsche Parität-Rotfärbung). JSON, wandert ins `ScrybeTests`-
+  Target.
 
 ### Watch (watchOS)
 - **N `PassiveRecorder`** — kapselt `CMSensorRecorder`: Authorization, **rollierendes
@@ -112,16 +118,41 @@ Schnittstelle, benannte Abhängigkeiten.
   (Apple-Limit) → in **Sub-12-h-Chunks** aufnehmen, vor Ablauf neu armen, mit
   *leichter Überlappung an der Naht* (sonst Gap). Re-Armen läuft im
   `WKApplicationRefreshBackgroundTask`-Fenster; die Wake-Kadenz deutlich unter 12 h
-  als Sicherheitsmarge. Batch-Abruf seit `identifier`-Cursor. *Interface:* `start()`
-  / `stop()` / `pullBatches(sinceIdentifier:) -> [AccelSample]` / `rearmIfNeeded()` ·
+  als Sicherheitsmarge. **Pull-Kadenz ~stündlich** (kleine Dateien → kein iPhone-OOM,
+  siehe R-Jetsam). Batch-Abruf seit `identifier`-Cursor. *Interface:* `start()` /
+  `stop()` / `pullBatches(sinceIdentifier:) -> [AccelSample]` / `rearmIfNeeded()` ·
   *Dep:* CoreMotion, WatchKit-Background-Refresh, persistierter Cursor.
+- **N `AxisCanonicalizer`** — `CMSensorRecorder` liefert **rohe Hardware-Achsen**,
+  ohne die Wrist-/Crown-Korrektur, die die Sensor-Fusion in CMDeviceMotion ggf.
+  vornimmt. Trägt der Nutzer „Crown links" statt der Trainings-Konvention, sind die
+  physischen X/Y um 180° gedreht (×−1) → das achsen-spezifische RF-Modell (mean/min/
+  max je Achse) versagt. Fix: `WKInterfaceDevice.current().wristLocation` +
+  `.crownOrientation` abfragen und X/Y *am Source* (vor dem Batch-Write) auf die
+  Trainings-Konvention kanonisieren. **Verifikation (Phase 0/früh):** die Trainings-
+  Orientierungs-Konvention bestimmen *und* on-device prüfen, ob CMDeviceMotion- und
+  `CMSensorRecorder`-Achsen tatsächlich auseinanderlaufen (simultane Kurzaufnahme,
+  Achsen vergleichen) — die „CMDeviceMotion korrigiert automatisch"-Prämisse ist
+  *nicht* gesichert; die Kanonisierung ist die Absicherung unabhängig vom Mechanismus.
 - **M `MotionManager`** — Modus-Branch in `handleCommand` (ca. Zeile 808):
   `.collection` = heutiger aktiver Pfad (unverändert); `.tracker` = aktives
   Streaming aus, `PassiveRecorder` an. Gepullte Batches werden auf der Watch in eine
-  **temporäre Binärdatei** geschrieben und via **`WCSession.transferFile()`** ans
-  iPhone geschickt (getaggt `mode: tracker`) — **nicht** `transferUserInfo` (Payload-
-  Limit sprengt schon Minuten an 50 Hz). `transferFile` ist hintergrund-zuverlässig
-  und weckt die iPhone-App für die Inferenz (siehe `InferenceTrigger`).
+  **temporäre Binärdatei** geschrieben (Array-of-Structs via `Data`, volle
+  Float-Präzision — keine Text-Serialisierung) und via **`WCSession.transferFile()`**
+  ans iPhone geschickt (getaggt `mode: tracker`) — **nicht** `transferUserInfo`
+  (Payload-Limit sprengt schon Minuten an 50 Hz). `transferFile` ist hintergrund-
+  zuverlässig und weckt die iPhone-App für die Inferenz (siehe `InferenceTrigger`).
+  **Temp-File-Cleanup zwingend:** `session(_:didFinish:error:)` löscht die eigene
+  Temp-Datei rigoros nach Abschluss (die Watch hat wenig Speicher; ohne Cleanup
+  Disk-full-Crash in Tagen). Fehlgeschlagene Transfers werden für Retry behalten,
+  aber **gebounded** (harter Cap auf den Temp-Footprint), nicht unbegrenzt akkumuliert.
+- **N `WritingTimeComplication`** — aktive Watch-Face-Complication (minimal, z. B.
+  App-Glyph oder Schreibzeit-Kurzwert). **Betrieblich zwingend für 24/7:** watchOS
+  drosselt das Background-Budget einer App ohne aktive Complication bis auf null →
+  `WKApplicationRefreshBackgroundTask` feuert nicht mehr → 12-h-Aufnahme läuft ohne
+  Re-Arm ab → echte Datenlücken. Mit Complication = „high priority" + garantiertes
+  Budget (~4 Wake-ups/h). Teilnehmer-Onboarding instruiert das Platzieren aufs
+  Zifferblatt; fehlt sie, **erkennt und meldet** die App es (statt still Lücken zu
+  produzieren).
 
 ### iPhone — Inferenz-Kern (paritäts-kritisch, alles neu)
 - **N `GravityHighPass`** — *allererster* Schritt vor der Feature-Extraktion:
@@ -162,16 +193,29 @@ Schnittstelle, benannte Abhängigkeiten.
 - **N `PassiveBatchStore`** — empfängt Watch-Batches, Dedup/Idempotenz über den
   persistierten `lastProcessedIdentifier` (`CMRecordedAccelerometerData.identifier`,
   UInt64, garantiert streng monoton — NTP/DST/Drift-immun; der Timestamp bleibt für
-  Windowing + Gap-Detection, *getrennte* Rolle). *Interface:* `ingest(batch) ->
-  [AccelSample]` (neu, dedupliziert).
+  Windowing + Gap-Detection, *getrennte* Rolle). **Streaming-Read, nie alles in den
+  RAM:** die empfangene Binärdatei wird **chunk-für-chunk** gelesen (memory-mapped
+  `Data`), gefenstert, inferiert und der Chunk-Speicher sofort freigegeben — ein
+  ganzer 12-h-Batch als Array im RAM würde das Jetsam-Background-Limit (~50 MB)
+  sprengen und die App ohne Fehlermeldung killen (siehe R-Jetsam). **Data Protection:**
+  alle im Hintergrund beschriebenen Stores (Cursor, `ResumableState`, `FocusStore`)
+  laufen unter `NSFileProtectionCompleteUntilFirstUserAuthentication` (siehe
+  R-DataProtection). *Interface:* `ingest(fileURL) -> [AccelSample]` (gestreamt, neu,
+  dedupliziert).
 - **N `InferenceTrigger` (WCSession-getrieben)** — der **primäre** Hintergrund-
   Trigger ist der `WCSessionDelegate.session(_:didReceiveFile:)`-Callback: iOS weckt
   die App bei Datenankunft und gibt garantierte (knappe) Hintergrundzeit. Darin:
   Datei → `PassiveBatchStore.ingest` → `InferenceEngine.process` → FocusStore,
-  *chunked* und via `beginBackgroundTask` verlängert. `BGAppRefreshTask` bleibt nur
-  als **Fallback-Catch-up** (falls die Watch lange nichts schickt); `BGProcessing`
-  ist zu selten für den Primärpfad. Foreground: voll aufholen. *Dep:*
-  `InferenceEngine`, `PassiveBatchStore`, WatchConnectivity, BackgroundTasks.
+  *chunked* und via `beginBackgroundTask` verlängert. **Strikt serielle FIFO-Queue**
+  (`DispatchQueue(label:qos:.background)`): bei einem Backlog feuert WCSession die
+  aufgestauten Dateien schnell/parallel — Datei B darf erst inferiert werden, wenn A
+  ihren `ResumableState` (HMM/Cursor) persistiert hat, sonst korrumpieren parallele
+  Callbacks den Zustand (siehe R-Serial). **Activation-Gate:** Transfers/Empfang erst
+  nach `session(_:activationDidCompleteWith:)` == `.activated` (async; sonst landet
+  `transferFile` im Nichts — siehe R-Activation). `BGAppRefreshTask` bleibt nur als
+  **Fallback-Catch-up**; `BGProcessing` ist zu selten für den Primärpfad. Foreground:
+  voll aufholen. *Dep:* `InferenceEngine`, `PassiveBatchStore`, WatchConnectivity,
+  BackgroundTasks.
 - **M `AppModeStore` (in `ScrybeSettings`)** — `AppMode`-Enum + `scrybe.appMode`
   (Default `.collection`, G4), `requestTrackerMode()` (verweigert bei aktiver
   Session, G1), `forceCollection(reason:)` (G2).
@@ -260,14 +304,52 @@ Alle fail-safe, nie stiller Datenverlust:
   iPhone-Catch-up rekonziliert beim nächsten Lauf vollständig.
 - **Modus-Wechsel / Zeitlücke** → anderen Puffer leeren + HMM `reset()`.
 
+### Plattform-Robustheit (Phase 2/3 — je ein Build-Phasen-Ticket)
+
+Die fiesen iOS/watchOS-Edge-Cases, die im Unit-Test grün sind und erst in freier
+Wildbahn crashen. Jeder Punkt wird ein eigenes Ticket der zugehörigen Phase.
+
+- **R-DataProtection (Phase 2).** iOS weckt das iPhone oft *gesperrt* (in der Tasche).
+  Default-`NSFileProtectionComplete` macht Dateien im gesperrten Zustand unbeschreibbar
+  → Schreiben in Cursor/`ResumableState`/`FocusStore` crasht mit IOError. Fix: diese
+  Stores explizit `NSFileProtectionCompleteUntilFirstUserAuthentication`.
+- **R-Activation (Phase 2).** `WCSession.activate()` ist async. `transferFile()` direkt
+  danach landet im Nichts (Status `.activating`). Fix: Transfer/Empfang erst nach
+  `session(_:activationDidCompleteWith:)` == `.activated` (Wrapper mit Completion-Queue),
+  beide Seiten.
+- **R-Serial (Phase 2).** Nach Reconnect feuert WCSession den Backlog schnell/parallel.
+  Parallele `didReceiveFile`-Callbacks korrumpieren HMM-State + Cursor. Fix: strikt
+  serielle FIFO-Queue, Datei B erst nach Persist von A.
+- **R-Jetsam (Phase 2).** Background-RAM-Limit ~50 MB; ein 12-h-Batch komplett in ein
+  Array geladen → stiller OOM-Kill. Fix: ~stündliche kleine Pulls (Watch) + Streaming-
+  Read chunk-für-chunk (iPhone), Speicher sofort freigeben.
+- **R-DiskFull (Phase 2).** `transferFile` braucht Temp-Dateien auf der Watch (wenig
+  Speicher); ohne Cleanup via `session(_:didFinish:error:)` → Disk-full-Crash in Tagen.
+  Fix: rigoroses Löschen nach Abschluss, fehlgeschlagene Transfers gebounded.
+- **R-Axis (Phase 2, Validierung Phase 0).** Rohe Hardware-Achsen ohne Wrist-/Crown-
+  Korrektur → bei „Crown links" X/Y invertiert → achsen-spezifisches RF versagt. Fix:
+  `AxisCanonicalizer` (siehe Komponente).
+- **R-Complication (Phase 2/3).** Ohne aktive Watch-Face-Complication drosselt watchOS
+  das Background-Budget auf null → 12-h-Aufnahme läuft ohne Re-Arm ab → permanente
+  Lücken. Fix: `WritingTimeComplication` + Onboarding-Instruktion + Fehlt-Erkennung.
+- **R-LowPower (Phase 3).** Stromsparmodus (Watch *oder* iPhone) setzt Background-
+  Refresh + WCSession-Wakeups hart aus → Aufnahme läuft ab, permanente Lücken. Kein
+  Code-Fix möglich; `ProcessInfo.processInfo.isLowPowerModeEnabled` abfragen und im
+  Tracker-Modus deutlich warnen („funktioniert nicht zuverlässig im Stromsparmodus").
+
 ## 7. Tests
 
 - **Golden-Vektor-Parität (Kern):** Fixture (roh-Accel → `GravityHighPass` → userAccel
   → 47 Features → proba_raw → HMM-Posterior) im `ScrybeTests`-Target; Swift-Tests
-  asserten **HighPass / Extractor / RF / HMM / Engine** gegen das Fixture mit winzigem
-  ε. Der High-Pass *muss* mitgeprüft werden, sonst driftet der Swift-Komplementärfilter
-  unbemerkt vom Python-Referenzfilter. Fängt die Sort-Stability/Capture-Clock-Bug-Klasse
-  auf der Swift-Seite — der Grund für JSON-Trees + Referenz-Evaluator.
+  asserten **HighPass / Extractor / RF / HMM / Engine** gegen das Fixture. Der
+  High-Pass *muss* mitgeprüft werden, sonst driftet der Swift-Komplementärfilter
+  unbemerkt vom Python-Referenzfilter. **Test-Form (ehrlich statt naiv „bit-identisch"):**
+  volle Float-Präzision im Fixture eliminiert die *vermeidbare* Divergenz; echte
+  Bit-Identität über numpy↔vDSP-FFT ist *nicht* garantiert (ULP-Differenzen durch
+  andere Summationsreihenfolge). Daher: **tight Feature-ε** (fängt echte Bugs) **+
+  exakte Übereinstimmung der binären Schreib-Entscheidung** (kein Decision-Flip — das,
+  was zählt). Fängt die Sort-Stability/Capture-Clock-Bug-Klasse auf der Swift-Seite —
+  der Grund für JSON-Trees + Referenz-Evaluator.
 - **Python-Parität:** `PyReferenceEvaluator` vs. sklearn `predict_proba` (≈0) → in
   der bestehenden `pytest`-Suite.
 - **Dedup/Idempotenz:** überlappende/doppelte Batches → identische Schreibzeit wie
@@ -290,11 +372,14 @@ Alle fail-safe, nie stiller Datenverlust:
   Extractor + RF + HMM + Engine + ResumableState, getrieben nur von den
   Golden-Vektoren (keine Sensoren). Beweist On-Device-Parität + Resume isoliert.
 - **Phase 2 — Passive Erfassung**: PassiveRecorder (Watch, `CMSensorRecorder` +
-  12-h-Re-Arm) + `WCSession.transferFile`-Transport + `didReceiveFile`-Trigger +
-  PassiveBatchStore/Identifier-Dedup + ResumableState-Persistenz (BGAppRefresh-
-  Fallback). Verdrahtet echte Daten in die bewiesene Engine.
+  12-h-Re-Arm) + `AxisCanonicalizer` + `WCSession.transferFile`-Transport +
+  `didReceiveFile`-Trigger + PassiveBatchStore/Identifier-Dedup + ResumableState-
+  Persistenz (BGAppRefresh-Fallback). **Plus Robustheits-Tickets** R-DataProtection,
+  R-Activation, R-Serial, R-Jetsam, R-DiskFull, R-Axis, R-Complication (siehe §6).
+  Verdrahtet echte Daten in die bewiesene Engine.
 - **Phase 3 — Modus & Interlock**: AppModeStore + ModeToggle + ModeIndicator +
-  Wiring + die vier Garantien.
+  Wiring + die vier Garantien. **Plus** R-LowPower-Warnhinweis + R-Complication-
+  Onboarding/Fehlt-Erkennung (siehe §6).
 
 Phase 0 unblockt alles und ist hier abschließbar; Phasen 1–3 werden inkrementell aufs
 Gerät gebaut und verifiziert.
@@ -303,6 +388,14 @@ Gerät gebaut und verifiziert.
 
 - Tracker-Modus ist **vollständig server-unabhängig** (offline-fähig); kein
   hybrider „Server wenn verfügbar"-Pfad (YAGNI).
+- **Betriebliche Voraussetzungen für zuverlässiges 24/7-Tracking:** aktive
+  Watch-Face-Complication (Background-Budget, R-Complication), kein Stromsparmodus
+  (R-LowPower), Motion-Authorization erteilt. Fehlt eine, degradiert der Tracker zu
+  „eventually/lückenhaft" — die App erkennt und meldet das, statt still falsche Zahlen
+  zu zeigen.
+- **Trainings-Orientierungs-Konvention** (Wrist/Crown) ist in Phase 0 zu bestimmen und
+  ist das Ziel der `AxisCanonicalizer`-Normalisierung (R-Axis). Default-Annahme: Left
+  Wrist / Crown Right — vor dem Swift-Port bestätigen.
 - **Roh-Accel → userAccel per High-Pass (gelöst via `GravityHighPass`, Validierung in
   Phase 0).** Der ≈0-Roh-Accel-Befund (`passive_raw_accel_loso.py`) lief unter
   *per-session* Z-Score, der den Schwerkraft-Offset pro Session absorbiert. Das
