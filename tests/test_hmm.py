@@ -18,6 +18,7 @@ from __future__ import annotations
 import numpy as np
 
 from src.evaluation.hmm import (
+    OnlineForwardFilter,
     class_priors,
     estimate_transition_matrix,
     forward_backward,
@@ -158,6 +159,51 @@ def test_forward_filter_carries_state_through_a_short_dip():
     pi0 = np.array([0.5, 0.5])
     post = forward_filter(b, A, pi0)
     assert post[3, 1] > 0.5  # Dip wird vom Schwung überstimmt
+
+
+# --- Online forward filter (live deployment) ------------------------------
+
+def test_online_filter_matches_batch_forward_filter():
+    # DER tragende Test fürs Live-Deployment: Schritt-für-Schritt-Filterung
+    # ist bit-identisch zur Batch-forward_filter über dieselbe Proba-Sequenz.
+    rng = np.random.default_rng(4)
+    proba = rng.uniform(0.0, 1.0, size=30)
+    pri = np.array([0.45, 0.55])
+    A = np.array([[0.97, 0.03], [0.03, 0.97]])
+
+    batch = forward_filter(scaled_likelihoods(proba, pri), A, pri)[:, 1]
+
+    f = OnlineForwardFilter(A, pri)
+    online = np.array([f.step(p) for p in proba])
+
+    assert np.allclose(online, batch)
+
+
+def test_online_filter_reset_restarts_at_prior():
+    # Nach reset() muss der nächste Schritt identisch zum allerersten sein
+    # (Zustand verworfen -> Start am Prior, kein Bleed aus der alten Sequenz).
+    pri = np.array([0.5, 0.5])
+    A = np.array([[0.9, 0.1], [0.1, 0.9]])
+    f = OnlineForwardFilter(A, pri)
+
+    first = f.step(0.8)
+    for p in (0.9, 0.95, 0.99):  # Zustand Richtung writing treiben
+        f.step(p)
+    f.reset()
+    after_reset = f.step(0.8)
+
+    assert np.isclose(first, after_reset)
+
+
+def test_online_filter_holds_state_through_a_dip():
+    # Live-Pendant zum batch carries-state-Test: ein einzelner low-proba-Tick
+    # kippt die klebrige Entscheidung nicht sofort auf idle.
+    pri = np.array([0.5, 0.5])
+    A = np.array([[0.99, 0.01], [0.01, 0.99]])
+    f = OnlineForwardFilter(A, pri)
+    for p in (0.95, 0.95, 0.95):
+        f.step(p)
+    assert f.step(0.2) > 0.5  # Dip vom Schwung überstimmt
 
 
 # --- Viterbi ---------------------------------------------------------------

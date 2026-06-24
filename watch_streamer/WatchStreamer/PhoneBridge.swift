@@ -18,10 +18,13 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
     // MARK: – Tuning constants
 
-    /// Hard limit für die Upload-Queue. Bei 50 Hz und Batches à 5 Samples
-    /// = 200 batches × 5 = 1000 samples = ~20 s Backlog. Reicht für kurze
-    /// Server-Ausfälle, kappt RAM-Wachstum bei längeren.
-    private static let maxQueueSize = 200
+    /// Hard limit für die Upload-Queue (drop-oldest). Bei 50 Hz / Batch 10
+    /// = 5000 batches × 10 = 50 000 samples ≈ 16 min Backlog. Die Watch puffert
+    /// einen Ausfall stundenlang auf Disk; das iPhone hat reichlich RAM, daher
+    /// ein großzügiges Limit, damit ein mehrminütiger Server-Ausfall keine Daten
+    /// verwirft. Die Queue wird debounced als Snapshot persistiert — ein höheres
+    /// Limit verteuert nur diesen (Hintergrund-)Write, kein Live-Pfad-Kosten.
+    private static let maxQueueSize = 5000
 
     /// Disk-Persistierung — überlebt App-Crash / Force-Quit. Datei landet in
     /// Documents/, weil das in iCloud-Backups inkludiert ist UND nach App-
@@ -82,7 +85,10 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     // Bounded LRU verhindert unbegrenztes Wachstum bei langen Sessions.
     private var seenBatchKeys: Set<String> = []
     private var seenBatchOrder: [String] = []
-    private static let seenBatchCapacity = 1024
+    // Why: a stuck transferUserInfo queue can deliver minutes-old batches; the
+    // dedup memory must outlast that delay. 10 000 keys ≈ 16 min @ 50 Hz/Batch 10
+    // (short strings, negligible RAM) so a very late re-delivery is still caught.
+    private static let seenBatchCapacity = 10000
 
     /// Background queue für JSON-Encoding und Magnituden-Berechnung. UserInitiated
     /// QoS, weil's am Live-Datenpfad hängt — aber wir wollen den Main-Thread
