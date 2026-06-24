@@ -87,8 +87,11 @@ Test-Daten symmetrisch betroffen, relative Vergleiche bleiben gültig).
 pip install -r requirements.txt
 ```
 
-Dependencies: `pandas`, `numpy`, `scikit-learn`, `matplotlib`, `bleak`,
-`fastapi`, `uvicorn`, `websockets`, `pytest`, `jupyter`, `notebook`.
+Dependencies: `pandas`, `numpy`, `scikit-learn`, `torch`, `aeon`, `shap`,
+`matplotlib`, `bleak`, `fastapi`, `uvicorn`, `websockets`, `pytest`,
+`jupyter`, `notebook`. (`aeon` = MiniRocket-Baseline, `shap` = Fold-
+Erklärung; beide siehe `scripts/ml/`. `aeon`-Install stuft numpy auf
+2.3.5 ab.)
 
 ## Running
 
@@ -272,6 +275,20 @@ inference.py       LiveInference singleton: rolling watch-sample buffer,
                    counter. Reuses _window_features() from
                    src.features.windows so live + training share the
                    exact same feature extractor.
+                   **Kausaler HMM-Live-Filter (seit 2026-06-24):** die rohe
+                   1-s-Proba bleibt für die instantane Pille + Intensität, der
+                   `OnlineForwardFilter` (src/evaluation/hmm.py) glättet sie zur
+                   Schreibzeit-ENTSCHEIDUNG (`writing`) — dort sitzt der
+                   Genauigkeitsgewinn (offline RF-1s 0.881→0.905, ohne
+                   Retraining). Parameter aus `models/hmm_live.json`
+                   (2×2-Übergangsmatrix + Prior, modell-agnostisch aus
+                   loso_oof.csv via `scripts/ml/export_hmm_live.py`; ~16 s
+                   adaptives Gedächtnis). Stateful → `reset()` bei
+                   Stream-Gap (stale buffer) / Modell-Swap / rate_mismatch /
+                   missing_channels, damit kein abgestandener Prior in eine
+                   frische Phase blutet. Payload trägt zusätzlich `proba_hmm`;
+                   fehlt das File, fällt `writing` graceful auf proba≥0.5
+                   zurück.
 focus_log.py       Append-only CSV writer at data/inference_log.csv
                    (gitignored). One row per 1-Hz predict tick;
                    rate_mismatch ticks skipped. Persists writing
@@ -744,6 +761,32 @@ no longer vibrates continuously when the server is down.
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
   vor-generierte `{session}_windows.csv` aus `data/processed/`.
+- `scripts/ml/minirocket_loso.py` — **MiniRocket-LOSO (viertes Modell-Bein,
+  `aeon`)**: transformiert die rohen `(N,6,seq_len)`-Deep-Fenster mit MiniRocket
+  (zufällige Convolutional-Kernel) + standardisierte LogReg (echte Probas für
+  AUC/Burst; der `MiniRocketClassifier`-Default-Ridge hat keine). Wiederverwendet
+  die Deep-Loader + den kausalen `_burst_metrics`; `--window-sec` / `--n-kernels`
+  (Default 2000 = schnell, ~10k = Paper-Default). **Befund (2026-06-24, N=15
+  legacy, post-fix, gepaarter Wilcoxon auf denselben Folds): MiniRocket-nativ-5s
+  0.886/0.956 ≡ RF-nativ-5s 0.885/0.953 — Δacc −0.004 p=0.93, ΔAUC +0.005 p=0.36,
+  Gleichstand.** 1-s per-window ebenfalls Gleichstand (0.872/0.872 p=0.52). Eine
+  mechanistisch RF-unverwandte Familie trifft dieselbe Decke *und* dieselbe
+  schwächste Fold (P17 0.794) → paradigmen-unabhängige Bestätigung der
+  Signal-Decke (siehe `feature_engineering_ceiling`-Memory). TCN-5s 0.911 bleibt
+  darüber (TCN>RF ⇒ TCN>MiniRocket). **Ehrlicher Negativbefund:** MiniRocket auf
+  **1-s+Burst** ist @10s/@30s signifikant schlechter als der RF (Δacc −0.050
+  p=0.0009 / −0.035 p=0.010) — also nativ-5s nutzen, nicht 1-s+Burst. Output
+  `models/minirocket_win{1,5}_cv.csv` (`significance.py`-kompatibel).
+- `scripts/ml/shap_explain_fold.py` — **SHAP-Erklärung einer LOSO-Fold** (`shap`
+  `TreeExplainer`, leakage-ehrlich: RF auf den Train-Folds, erklärt die
+  Held-out-Person; schwächste Fold datengetrieben aus `loso_oof.csv`). Auf **P17**
+  (RF-acc 0.781): Top-Features nach mean|SHAP| sind **Jerk** (`ay_jerk_*`,
+  `gyro/acc_mag_jerk`) + **3–8-Hz-Spektral** — physikalisch sinnvolle Kinematik
+  selbst auf der schwächsten Fold; die *kleinen* signierten Werte (~±0.005) SIND
+  der Befund: kein Feature trennt P17 sauber → Mehrdeutigkeit im Signal, nicht im
+  Feature-Set. → `reports/figures/shap_P17.png`. Perf: exaktes TreeSHAP ist
+  O(Bäume·Blätter·Tiefe²)/Sample — auf 200 tiefen RF-Bäumen × tausenden Fenstern
+  Minuten; Subsample auf 600 Fenster (Accuracy bleibt auf allen) → Sekunden.
 - `scripts/ml/compare_models_at_gap.py` — gleiches Modell-Panel, aber
   baut die Features on-the-fly bei beliebigem `--gap` neu, ohne die
   Cache-Dateien anzufassen. Nützlich, um Modell-Rangfolge bei
@@ -870,7 +913,13 @@ no longer vibrates continuously when the server is down.
   `scaled_likelihoods`). `forward_filter` ist der **kausale** Headline-Decoder
   (nur Vergangenheit+Gegenwart), `forward_backward` + `viterbi` die
   nicht-kausale Obergrenze. Seq-len-/raten-agnostisch → läuft auf RF- wie
-  Deep-OOF.
+  Deep-OOF. `OnlineForwardFilter` ist die **stateful Ein-Schritt-Variante**
+  des `forward_filter` fürs Live-Deployment (`step()`/`reset()`, bit-identisch
+  zur Batch-Version — Test in `tests/test_hmm.py`); konsumiert von
+  `src/server/inference.py`.
+- `scripts/ml/export_hmm_live.py` — schreibt die deploybaren Live-HMM-Parameter
+  (`models/hmm_live.json`: 2×2-Matrix + Prior, modell-agnostisch aus
+  `loso_oof.csv`) für den `OnlineForwardFilter` in der Inferenz.
 - `scripts/ml/hmm_postprocess_loso.py` — HMM-Treiber auf `models/loso_oof.csv`,
   leakage-frei per-Person-Holdout (Transition + Prior nur aus Train-Personen).
   **Hebt den 1-s-RF acc 0.881 → 0.905 (Δ +2,4 pp, ohne Retraining)** und schlägt
@@ -884,6 +933,9 @@ no longer vibrates continuously when the server is down.
   stateful → Gap/Session-Reset nötig; ~16 s Latenz ideal fürs Schreibzeit-Tracking,
   träge für die instantane Pille). Output: `models/hmm_postprocess_{cv,detail}.csv`
   (cv ist loso_cv-kompatibel → `significance.py`) + `reports/hmm_postprocess.md`.
+  **Seit 2026-06-24 LIVE deployed** (`OnlineForwardFilter` in der Inferenz —
+  siehe inference.py oben; Parameter via `scripts/ml/export_hmm_live.py` →
+  `models/hmm_live.json`).
 - `scripts/ml/hmm_cross_model.py` — **Cross-Model-Kontext-Leiter**: derselbe
   HMM-Filter über die per-window-OOF mehrerer Basismodelle, je gegen den eigenen
   Floor + Negativkontrolle. **2×2-Faktordesign (RF/Deep × 1s/5s): der HMM-Gewinn

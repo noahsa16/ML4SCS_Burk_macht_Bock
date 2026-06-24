@@ -13,6 +13,9 @@ class MotionManager: NSObject, ObservableObject {
         static let commandPollInterval = 1.0
         static let commandPollWatchdog = 3.0
         static let spillDrainInterval = 3.0
+        // Hard cap so an indefinitely-disconnected watch can't fill the disk and
+        // trip the OS. At ~150 B/sample this is roughly hours of 50 Hz capture.
+        static let spillMaxBytes = 25 * 1024 * 1024
     }
 
     private let cm = CMMotionManager()
@@ -61,6 +64,14 @@ class MotionManager: NSObject, ObservableObject {
     // Wenn gesetzt, kettet der Drain-Erfolgs-Handler sofort den nächsten Drain
     // an, statt auf den 3-s-Timer zu warten (Burst-Send via drain_spill).
     private var forceDraining = false
+    // Read cursor into the spill file. During a drain run lines are consumed by
+    // advancing this offset (O(1), no file rewrite); the already-sent prefix is
+    // reclaimed in a single rewrite at the end of the run (compactSpill). At rest
+    // the cursor is 0, so "byte 0 = oldest live line" holds for the launch counter
+    // and discardForeignSpill. Was a full-file rewrite per line (O(n²) on a burst).
+    private var spillReadOffset: UInt64 = 0
+    private var pendingSpillAdvance: UInt64 = 0
+    private static let spillReadChunk = 256 * 1024
     private lazy var spillFileURL: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return docs.appendingPathComponent("watch_spill.jsonl")
@@ -101,6 +112,7 @@ class MotionManager: NSObject, ObservableObject {
     @Published private(set) var backgroundQueuedSampleCount = 0
     @Published private(set) var failedBatchCount = 0
     @Published private(set) var spilledSampleCount = 0
+    @Published private(set) var spillDroppedSampleCount = 0
     // Recent |acc| magnitudes (batch rate, capped) for the on-watch sparkline.
     @Published private(set) var accMagHistory: [Double] = []
     @Published private(set) var queuedSampleCount = 0
@@ -487,7 +499,20 @@ class MotionManager: NSObject, ObservableObject {
         let n = (envelope["samples"] as? [[String: Any]])?.count ?? 0
         spilledSampleCount += n
         let url = spillFileURL
-        spillQueue.async {
+        spillQueue.async { [weak self] in
+            // Fix 4: hard size cap. Past it, drop the newest envelope to protect the
+            // device disk (the existing backlog stays intact) and undo the optimistic
+            // counter. When unreachable — the only time the cap bites — the read
+            // cursor is 0, so file size ≈ live bytes and the cap is accurate.
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+            if size >= Config.spillMaxBytes {
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.spilledSampleCount = max(0, self.spilledSampleCount - n)
+                    self.spillDroppedSampleCount += n
+                }
+                return
+            }
             if !FileManager.default.fileExists(atPath: url.path) {
                 FileManager.default.createFile(atPath: url.path, contents: nil)
             }
@@ -538,40 +563,60 @@ class MotionManager: NSObject, ObservableObject {
     /// Seriell (`spillDrainInFlight`) — Spill passiert nur bei Stau, danach
     /// reicht eine Zeile pro 3-s-Tick.
     private func drainSpill() {
-        guard !spillDrainInFlight,
-              WCSession.default.activationState == .activated,
-              WCSession.default.isReachable else { return }
+        guard !spillDrainInFlight else { return }
+        guard WCSession.default.activationState == .activated,
+              WCSession.default.isReachable else {
+            // Can't drain now (unreachable). Clear the burst latch so the next
+            // reachable tick re-arms it; the in-memory cursor resumes where it was.
+            forceDraining = false
+            return
+        }
         spillDrainInFlight = true
         let url = spillFileURL
+        let offset = spillReadOffset
         spillQueue.async { [weak self] in
             guard let self else { return }
-            let firstEnvelope: [String: Any]? = {
-                guard let data = try? Data(contentsOf: url), !data.isEmpty,
-                      let first = data.split(separator: 0x0A,
-                                             omittingEmptySubsequences: true).first
-                else { return nil }
-                return (try? JSONSerialization.jsonObject(with: Data(first))) as? [String: Any]
+            // Read just the next line at the cursor — one bounded chunk, not the
+            // whole file. Appends only touch the file end, so the bytes at `offset`
+            // are stable while we read them.
+            let next: (env: [String: Any]?, advance: UInt64)? = {
+                guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
+                defer { try? handle.close() }
+                try? handle.seek(toOffset: offset)
+                guard let chunk = try? handle.read(upToCount: Self.spillReadChunk),
+                      !chunk.isEmpty,
+                      let nl = chunk.firstIndex(of: 0x0A) else { return nil }
+                let lineLen = chunk.distance(from: chunk.startIndex, to: nl)
+                let lineData = Data(chunk.prefix(lineLen))
+                let env = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any]
+                return (env: env, advance: UInt64(lineLen) + 1)
             }()
             DispatchQueue.main.async {
-                if let envelope = firstEnvelope {
-                    self.sendSpilled(envelope)
+                guard let next else {
+                    // Cursor at/after EOF (or unreadable tail) → backlog drained.
+                    self.compactSpill()
+                    return
+                }
+                self.pendingSpillAdvance = next.advance
+                if let env = next.env {
+                    self.sendSpilled(env)
                 } else {
-                    // Datei leer/korrupt — wegwerfen, Flag freigeben. Beendet
-                    // auch einen laufenden Burst (nichts mehr zu senden).
-                    self.spillQueue.async { try? FileManager.default.removeItem(at: url) }
-                    self.spilledSampleCount = 0
-                    self.forceDraining = false
+                    // Corrupt line: skip it (advance the cursor) and continue.
+                    self.spillReadOffset += next.advance
+                    self.pendingSpillAdvance = 0
                     self.spillDrainInFlight = false
+                    if self.forceDraining { self.drainSpill() }
                 }
             }
         }
     }
 
-    /// Sendet ein gespilltes Envelope via sendMessage. Erfolg → erste Zeile
-    /// entfernen. Fehler → Zeile bleibt liegen, nächster Tick retryt.
+    /// Sendet ein gespilltes Envelope via sendMessage. Erfolg → Cursor über die
+    /// Zeile vorrücken (kein Rewrite). Fehler → Cursor bleibt, nächster Tick retryt.
     private func sendSpilled(_ envelope: [String: Any]) {
         guard WCSession.default.activationState == .activated,
               let payloadData = try? JSONSerialization.data(withJSONObject: envelope) else {
+            pendingSpillAdvance = 0
             spillDrainInFlight = false
             return
         }
@@ -581,43 +626,60 @@ class MotionManager: NSObject, ObservableObject {
                 guard let self else { return }
                 self.deliveredSampleCount += n
                 self.spilledSampleCount = max(0, self.spilledSampleCount - n)
-                self.dropFirstSpillLine()
-                self.spillDrainInFlight = false
-                // Burst: nicht auf den 3-s-Timer warten, sofort weiter.
-                if self.forceDraining { self.drainSpill() }
+                // Consume the line by advancing the cursor — no file rewrite here.
+                self.spillReadOffset += self.pendingSpillAdvance
+                self.pendingSpillAdvance = 0
+                if self.forceDraining {
+                    // Burst: continue immediately from the new cursor, no rewrite.
+                    self.spillDrainInFlight = false
+                    self.drainSpill()
+                } else {
+                    // Single drain done → reclaim the consumed prefix in one rewrite.
+                    self.compactSpill()
+                }
             }
         }, errorHandler: { [weak self] _ in
-            // Fehler → Burst pausieren; der Timer-Tick retryt die Zeile.
+            // Error → pause the burst and reclaim what was sent so far; the next
+            // timer tick retries the remainder from a clean byte-0 cursor.
             DispatchQueue.main.async {
-                self?.forceDraining = false
-                self?.spillDrainInFlight = false
+                guard let self else { return }
+                self.pendingSpillAdvance = 0
+                self.compactSpill()
             }
         })
     }
 
-    /// Entfernt die erste Zeile der Spill-Datei. Re-liest frisch — Appends
-    /// landen nur am Ende, also geht zwischenzeitlich Gespilltes nicht verloren.
-    private func dropFirstSpillLine() {
+    /// Reclaims the already-sent prefix in a single rewrite (or deletes the file
+    /// when fully drained) and resets the cursor. Called only at the END of a drain
+    /// run — never per line — so a burst costs one rewrite instead of one per sample
+    /// (the old per-line full rewrite was O(n²) on a large post-stall spill). Holds
+    /// spillDrainInFlight across the rewrite so no drain reads a stale cursor; the
+    /// "byte 0 = oldest live line" rest invariant is restored on completion.
+    private func compactSpill() {
         let url = spillFileURL
-        spillQueue.async {
-            guard let data = try? Data(contentsOf: url), !data.isEmpty else { return }
-            var lines = data.split(separator: 0x0A, omittingEmptySubsequences: true)
-                .map { Data($0) }
-            guard !lines.isEmpty else {
+        let consumed = spillReadOffset
+        spillReadOffset = 0
+        guard consumed > 0 else {
+            forceDraining = false
+            spillDrainInFlight = false
+            return
+        }
+        spillQueue.async { [weak self] in
+            var deletedEmpty = false
+            if let data = try? Data(contentsOf: url), !data.isEmpty,
+               consumed < UInt64(data.count) {
+                let remainder = data.subdata(in: Int(consumed)..<data.count)
+                try? remainder.write(to: url, options: [.atomic])
+            } else {
                 try? FileManager.default.removeItem(at: url)
-                return
+                deletedEmpty = true
             }
-            lines.removeFirst()
-            if lines.isEmpty {
-                try? FileManager.default.removeItem(at: url)
-                return
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.forceDraining = false
+                self.spillDrainInFlight = false
+                if deletedEmpty { self.spilledSampleCount = 0 }
             }
-            var blob = Data()
-            for line in lines {
-                blob.append(line)
-                blob.append(0x0A)
-            }
-            try? blob.write(to: url, options: [.atomic])
         }
     }
 
@@ -630,6 +692,7 @@ class MotionManager: NSObject, ObservableObject {
         let url = spillFileURL
         spillQueue.async { try? FileManager.default.removeItem(at: url) }
         spilledSampleCount = 0
+        spillReadOffset = 0
         forceDraining = false
     }
 

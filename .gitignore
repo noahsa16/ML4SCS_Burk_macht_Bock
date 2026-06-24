@@ -23,7 +23,13 @@ build/
 # Data / outputs — regenerierbar (python -m src.merge, plot_alignment.py …)
 data/processed/
 data/raw/
-models/
+# Why: die Joblibs sind zu groß (MB) und regenerierbar, daher models/-Inhalte
+# ignored. hmm_live.json ist dagegen ein winziges, deploybares Live-Artefakt
+# (2x2-Matrix + Prior), das die Inferenz zur Laufzeit braucht -> per Negation
+# mitversioniert. models/* (statt models/) lässt das Re-Include zu — ein
+# komplett ausgeschlossenes Verzeichnis kann git nicht re-includen.
+models/*
+!models/hmm_live.json
 results/plots/*.png
 results/plots/*.jpg
 results/metrics/*.csv

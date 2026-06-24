@@ -214,6 +214,107 @@ def test_clear_buffer_keeps_model():
     assert live._bundle is not None  # model still loaded
 
 
+# --- HMM live post-processing ---------------------------------------------
+
+class _StubHMM:
+    """Deterministic stand-in for OnlineForwardFilter: step() returns a fixed
+    posterior so the writing-decision wiring can be asserted independent of
+    the real RF proba. Counts reset() calls to verify gap/swap handling."""
+
+    def __init__(self, value: float) -> None:
+        self.value = value
+        self.reset_calls = 0
+
+    def step(self, proba: float) -> float:
+        return self.value
+
+    def reset(self) -> None:
+        self.reset_calls += 1
+
+
+def _primed(stub: "_StubHMM") -> inf_module.LiveInference:
+    live = _fresh_inference()
+    live.load_default_model()
+    live._hmm = stub
+    live._hmm_tried = True  # short-circuit _ensure_hmm to the injected stub
+    return live
+
+
+def test_writing_decision_follows_hmm_high_posterior():
+    """writing is derived from the HMM posterior, not the raw proba: a high
+    HMM value forces writing=True regardless of the (random) raw proba."""
+    live = _primed(_StubHMM(0.99))
+    t0 = int(time.time() * 1000)
+    for r in _sim_imu(150, fs=100.0, t0_ms=t0):
+        live.append_sample(*r)
+    out = live.predict()
+    assert out is not None
+    assert out["proba_hmm"] == 0.99
+    assert out["writing"] is True
+    assert 0.0 <= out["proba"] <= 1.0  # raw proba still reported untouched
+
+
+def test_writing_decision_follows_hmm_low_posterior():
+    live = _primed(_StubHMM(0.01))
+    t0 = int(time.time() * 1000)
+    for r in _sim_imu(150, fs=100.0, t0_ms=t0):
+        live.append_sample(*r)
+    out = live.predict()
+    assert out is not None
+    assert out["proba_hmm"] == 0.01
+    assert out["writing"] is False
+
+
+def test_hmm_resets_on_stale_buffer():
+    stub = _StubHMM(0.99)
+    live = _primed(stub)
+    t0 = int(time.time() * 1000) - 5000  # 5 s old -> stale gap
+    for r in _sim_imu(150, fs=100.0, t0_ms=t0):
+        live.append_sample(*r)
+    assert live.predict() is None
+    assert stub.reset_calls >= 1  # gap dropped the accumulated state
+
+
+def test_hmm_resets_on_model_swap():
+    stub = _StubHMM(0.5)
+    live = _primed(stub)
+    live.load_default_model()  # swap reloads the model -> HMM state cleared
+    assert stub.reset_calls >= 1
+
+
+def test_predict_without_hmm_falls_back_to_raw(monkeypatch):
+    """No params file -> no proba_hmm, writing reverts to proba>=0.5."""
+    live = _fresh_inference()
+    live.load_default_model()
+    monkeypatch.setattr(inf_module, "HMM_LIVE_PATH", Path("/nonexistent/hmm.json"))
+    live._hmm = None
+    live._hmm_tried = False
+    t0 = int(time.time() * 1000)
+    for r in _sim_imu(150, fs=100.0, t0_ms=t0):
+        live.append_sample(*r)
+    out = live.predict()
+    assert out is not None
+    assert "proba_hmm" not in out
+    assert out["writing"] == (out["proba"] >= 0.5)
+
+
+def test_hmm_loads_from_real_params_file():
+    """End-to-end with the committed models/hmm_live.json (if present): the
+    payload carries a finite proba_hmm and a bool decision."""
+    if not inf_module.HMM_LIVE_PATH.exists():
+        pytest.skip("hmm_live.json not generated in this checkout")
+    live = _fresh_inference()
+    live.load_default_model()
+    t0 = int(time.time() * 1000)
+    for r in _sim_imu(150, fs=100.0, t0_ms=t0):
+        live.append_sample(*r)
+    out = live.predict()
+    assert out is not None
+    assert "proba_hmm" in out
+    assert 0.0 <= out["proba_hmm"] <= 1.0
+    assert isinstance(out["writing"], bool)
+
+
 # --- Modern-Pool (9-Kanal / 92-Feature) live inference --------------------
 
 def _sim_imu_modern(n: int, fs: float, t0_ms: int, seed: int = 0):
