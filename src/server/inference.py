@@ -23,6 +23,7 @@ bleibt aber generisch fuer kuenftige Modelle.
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from collections import deque
@@ -33,6 +34,7 @@ import joblib
 import numpy as np
 import pandas as pd
 
+from src.evaluation.hmm import OnlineForwardFilter
 from src.features.gravity import GRAVITY_FEATURE_NAMES, _gravity_window_features
 from src.features.windows import _window_features
 
@@ -58,6 +60,13 @@ _DEFAULT_MODEL_PATHS = (
 # wuerden den Picker verschmutzen. rf_all ist bewusst ausgeschlossen (siehe
 # _DEFAULT_MODEL_PATHS: nicht live-tauglich). Diese Liste ist die Whitelist.
 _USER_FACING_MODEL_NAMES = frozenset({"rf_noah", "rf_all_live"})
+
+# Why: kausaler HMM-Post-Processor auf der Live-Proba. Die 2x2-Übergangsmatrix
+# + Prior beschreiben die Label-Dynamik (Klebrigkeit der Schreib-/Idle-Phasen),
+# nicht den RF -> ein File deckt rf_noah wie rf_all_live ab (kein Retraining).
+# Offline hebt das den RF-1s acc 0.881 -> 0.905 (reports/hmm_postprocess.md);
+# live glättet es die Schreibzeit-Entscheidung mit ~16 s adaptivem Gedächtnis.
+HMM_LIVE_PATH = MODELS / "hmm_live.json"
 
 WINDOW_SEC = 1.0
 SPARKLINE_MAXLEN = 60  # 1 min of 1-s-ticks
@@ -86,6 +95,11 @@ class LiveInference:
         # Sandbox-Load (Web-Cockpit): ein Run-Joblib temporär, ohne Whitelist
         # und ohne Headline-Überschreibung. Reines Label-Flag.
         self._sandbox: bool = False
+        # Kausaler HMM-Filter auf der Live-Proba. Lazy aus HMM_LIVE_PATH; None
+        # wenn das File fehlt (graceful fallback auf die rohe Entscheidung).
+        # _hmm_tried verhindert wiederholte Lade-Versuche bei fehlendem File.
+        self._hmm: Optional[OnlineForwardFilter] = None
+        self._hmm_tried: bool = False
 
     def load_default_model(self) -> Optional[Path]:
         for path in _DEFAULT_MODEL_PATHS:
@@ -101,6 +115,9 @@ class LiveInference:
         self._bundle = joblib.load(path)
         self._loaded_from = path
         self._sandbox = False
+        # Modell-Wechsel = neue Proba-Dynamik -> HMM-Zustand verwerfen, damit der
+        # Prior des alten Modells nicht in die Entscheidungen des neuen blutet.
+        self._reset_hmm()
         log.info(
             "live inference: loaded %s person=%s rate=%s n=%s",
             path.name,
@@ -174,6 +191,34 @@ class LiveInference:
     def clear_buffer(self) -> None:
         self._buffer.clear()
 
+    def _ensure_hmm(self) -> Optional[OnlineForwardFilter]:
+        """Lazy-load the live HMM filter from HMM_LIVE_PATH (JSON, safe).
+
+        Returns None when the params file is absent -> the caller falls back to
+        the raw proba decision. _hmm_tried guards against re-reading a missing
+        file on every tick.
+        """
+        if self._hmm is not None or self._hmm_tried:
+            return self._hmm
+        self._hmm_tried = True
+        if not HMM_LIVE_PATH.exists():
+            log.info("live inference: no HMM params at %s -> raw decision", HMM_LIVE_PATH)
+            return None
+        try:
+            params = json.loads(HMM_LIVE_PATH.read_text(encoding="utf-8"))
+            self._hmm = OnlineForwardFilter(params["transition"], params["priors"])
+            log.info("live inference: HMM filter loaded (memory ~%ss)",
+                     params.get("effective_memory_sec"))
+        except (OSError, ValueError, KeyError):
+            log.exception("live inference: failed to load HMM params")
+            self._hmm = None
+        return self._hmm
+
+    def _reset_hmm(self) -> None:
+        """Drop accumulated HMM state at stream gaps / model swaps."""
+        if self._hmm is not None:
+            self._hmm.reset()
+
     @property
     def model_id(self) -> Optional[str]:
         if self._sandbox:
@@ -230,6 +275,9 @@ class LiveInference:
         now_ms = int(time.time() * 1000)
         latest_ts = self._buffer[-1][0]
         if now_ms - latest_ts > STALE_BUFFER_MS:
+            # Stream-Lücke: HMM-Zustand verwerfen, sonst klebt der Prior von vor
+            # der Pause in der nächsten Phase (stateful-Caveat). Dann kalt zurück.
+            self._reset_hmm()
             return None
 
         fs = self._estimate_fs()
@@ -243,6 +291,7 @@ class LiveInference:
         # auf out-of-distribution Daten zurueck. Lieber transparent skippen.
         trained_fs = self._bundle.get("sample_rate_hz")
         if trained_fs and abs(fs - trained_fs) / trained_fs > 0.2:
+            self._reset_hmm()  # kein gültiges Emission-Signal -> Zustand verwerfen
             return {
                 "writing": False,
                 "proba": 0.0,
@@ -269,6 +318,7 @@ class LiveInference:
         if is_modern and np.isnan(
             np.array([row[7:10] for row in recent], dtype=float)
         ).any():
+            self._reset_hmm()  # kein gültiges Emission-Signal -> Zustand verwerfen
             return {
                 "writing": False,
                 "proba": 0.0,
@@ -291,12 +341,24 @@ class LiveInference:
 
         clf = self._bundle["model"]
         proba = float(clf.predict_proba(x.reshape(1, -1))[0, 1])
-        writing = proba >= 0.5
+
+        # Why: die rohe 1-s-Proba bleibt für die instantane Pille + Intensität
+        # (sofort reaktiv). Der kausale HMM-Filter glättet sie zur Schreibzeit-
+        # ENTSCHEIDUNG (writing) — dort liegt der Genauigkeitsgewinn fürs
+        # Zeit-Tracking. Fehlt das Param-File, fällt writing auf proba>=0.5
+        # zurück. proba_hmm wird mitgesendet (UI/Debug), aber nicht geloggt.
+        hmm = self._ensure_hmm()
+        if hmm is not None:
+            proba_hmm = hmm.step(proba)
+            writing = proba_hmm >= 0.5
+        else:
+            proba_hmm = None
+            writing = proba >= 0.5
 
         self._proba_history.append((now_ms, proba))
         self._tick_daily_aggregate(writing)
 
-        return {
+        payload = {
             "writing": writing,
             "proba": round(proba, 3),
             "model_id": self.model_id,
@@ -305,6 +367,9 @@ class LiveInference:
             "window_samples": n_window,
             "today_writing_seconds": round(self._today_writing_seconds, 1),
         }
+        if proba_hmm is not None:
+            payload["proba_hmm"] = round(proba_hmm, 3)
+        return payload
 
     def _tick_daily_aggregate(self, writing: bool) -> None:
         # Why: ein Tick = 1 s Window-Decision. Ueber den Tag aufsummiert ist
