@@ -110,6 +110,27 @@ def test_watch_accepts_envelope_format(client, data_dirs):
     assert all(r["ax"] for r in rows)
 
 
+def test_watch_flushes_to_disk_before_acking(client, data_dirs):
+    """Server-ACK persistence: the 200 the iPhone deletes its copy on must mean
+    the batch is durably handed to the OS. Read the file back WITHOUT closing the
+    writer — the route must have flushed, or an acked batch is lost on a server
+    restart. Fails if /watch returns 200 while the rows sit in a process buffer."""
+    payload = {
+        "samples": [_imu_sample(5000 + i * 20) for i in range(4)],
+        "sequence": 0,
+        "sampleRateHz": 50.0,
+        "source": "watch_phone_bridge",
+        "sessionId": "S099",
+    }
+    resp = client.post("/watch", json=payload)
+    assert resp.status_code == 200
+    # NB: deliberately NO _flush_watch_writers() — the route is responsible for it.
+    csv_path = data_dirs.watch / "unsessioned_watch.csv"
+    with open(csv_path) as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 4
+
+
 def test_watch_accepts_bare_list_format(client, data_dirs):
     """The watch app sometimes posts a raw list — must still parse."""
     payload = [_imu_sample(2000 + i * 20) for i in range(3)]
