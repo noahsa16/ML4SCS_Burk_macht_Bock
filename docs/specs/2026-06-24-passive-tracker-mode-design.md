@@ -107,16 +107,34 @@ Schnittstelle, benannte Abhängigkeiten.
   HMM-Posterior. JSON, wandert ins `ScrybeTests`-Target.
 
 ### Watch (watchOS)
-- **N `PassiveRecorder`** — kapselt `CMSensorRecorder`: Authorization, rollierendes
-  `recordAccelerometer(forDuration:)`, Batch-Abruf seit Cursor.
-  *Interface:* `start()` / `stop()` / `pullBatches(since:) -> [AccelSample]` ·
-  *Dep:* CoreMotion, persistierter Cursor.
+- **N `PassiveRecorder`** — kapselt `CMSensorRecorder`: Authorization, **rollierendes
+  Re-Arming**. `recordAccelerometer(forDuration:)` erlaubt **max. 12 h pro Aufruf**
+  (Apple-Limit) → in **Sub-12-h-Chunks** aufnehmen, vor Ablauf neu armen, mit
+  *leichter Überlappung an der Naht* (sonst Gap). Re-Armen läuft im
+  `WKApplicationRefreshBackgroundTask`-Fenster; die Wake-Kadenz deutlich unter 12 h
+  als Sicherheitsmarge. Batch-Abruf seit `identifier`-Cursor. *Interface:* `start()`
+  / `stop()` / `pullBatches(sinceIdentifier:) -> [AccelSample]` / `rearmIfNeeded()` ·
+  *Dep:* CoreMotion, WatchKit-Background-Refresh, persistierter Cursor.
 - **M `MotionManager`** — Modus-Branch in `handleCommand` (ca. Zeile 808):
   `.collection` = heutiger aktiver Pfad (unverändert); `.tracker` = aktives
-  Streaming aus, `PassiveRecorder` an, Batches via bestehende WatchConnectivity-
-  Bridge ans iPhone (getaggt `mode: tracker`).
+  Streaming aus, `PassiveRecorder` an. Gepullte Batches werden auf der Watch in eine
+  **temporäre Binärdatei** geschrieben und via **`WCSession.transferFile()`** ans
+  iPhone geschickt (getaggt `mode: tracker`) — **nicht** `transferUserInfo` (Payload-
+  Limit sprengt schon Minuten an 50 Hz). `transferFile` ist hintergrund-zuverlässig
+  und weckt die iPhone-App für die Inferenz (siehe `InferenceTrigger`).
 
 ### iPhone — Inferenz-Kern (paritäts-kritisch, alles neu)
+- **N `GravityHighPass`** — *allererster* Schritt vor der Feature-Extraktion:
+  rechnet aus der rohen `CMSensorRecorder`-Gesamtbeschleunigung den Schwerkraft-
+  Vektor per Komplementärfilter dynamisch heraus und approximiert das
+  `userAcceleration`-Signal, auf das das Modell trainiert ist —
+  `gravity = α·gravity + (1-α)·raw; user = raw − gravity`. Damit bleibt
+  `rf_acc_only_live.joblib` *unangetastet* (löst die pooled-Z-Score-vs-Roh-Accel-
+  Frage aus Abschnitt 9). **Stateful** (laufende Gravity-Schätzung) → Teil des
+  Resume-State; **in der Golden-Vektor-Parität** gegen einen Python-Referenzfilter
+  geprüft, sonst driftet er unbemerkt. *Interface:* `process(raw) -> userAccel`,
+  `state` / `restore(state)` · *Dep:* α (getunt auf CoreMotions effektive Grenz-
+  frequenz).
 - **N `AccelFeatureExtractor`** — portiert die 47 acc-only-Features aus
   `src/features/windows.py::_window_features` bit-identisch (per-axis Stats; rFFT
   mit DC-Removal für Centroid/Entropy/Band 3–8 Hz; ZCR; Accel-Jerk; Accel-
@@ -128,19 +146,32 @@ Schnittstelle, benannte Abhängigkeiten.
 - **N `OnlineForwardFilter`** — Port von `src/evaluation/hmm.py::OnlineForwardFilter`
   (~20 Z.): `step(proba) -> Posterior`, `reset()`. *Dep:* `hmm_live.json`
   (2×2-Übergangsmatrix + Prior).
-- **N `InferenceEngine`** — Orchestrator: Accel-Samples → 1-s-Fenster (0.5 s Stride,
-  wie Training) → Extractor → RF → HMM → Schreib-Entscheidung → Schreibzeit-Buckets
-  → `FocusStore`. *Interface:* `process(samples)` (idempotent), `reset()` · *Dep:*
-  die drei oben + Dedup. Kennt weder `CMSensorRecorder` noch den Modus — allein
-  gegen die Golden-Vektoren testbar.
+- **N `InferenceEngine`** — Orchestrator: roh-Accel → `GravityHighPass` →
+  1-s-Fenster (0.5 s Stride, wie Training) → Extractor → RF → HMM →
+  Schreib-Entscheidung → Schreibzeit-Buckets → `FocusStore`. *Interface:*
+  `process(samples)` (idempotent), `reset()` · *Dep:* die vier oben + Dedup. Kennt
+  weder `CMSensorRecorder` noch den Modus — allein gegen die Golden-Vektoren
+  testbar.
+- **N `ResumableState`** — der vollständige, persistierte Resume-Zustand, damit die
+  Engine einen App-Kill zwischen Hintergrund-Läufen übersteht: `{
+  lastProcessedIdentifier, sampleTail (~letzte 1 s), hmmAlpha, gravityState,
+  partialStretch }`. **Notwendig, nicht nur sauber:** die HMM-Memory ist ~16 s und
+  ließe sich aus einem 1-s-Overlap *nicht* rekonstruieren. *Dep:* File/UserDefaults.
 
 ### iPhone — Capture-Plumbing & Modus
-- **N `PassiveBatchStore`** — empfängt Watch-Batches, timestamp-basiertes
-  Dedup/Idempotenz, persistierter `lastProcessedTimestamp`-Cursor. *Interface:*
-  `ingest(batch) -> [AccelSample]` (neu, dedupliziert).
-- **N `BackgroundScheduler`** — registriert `BGAppRefreshTask`/`BGProcessingTask`;
-  bei Wake: Batches verarbeiten → FocusStore → neu planen; bei Foreground: voll
-  aufholen. *Dep:* `InferenceEngine`, `PassiveBatchStore`, BackgroundTasks.
+- **N `PassiveBatchStore`** — empfängt Watch-Batches, Dedup/Idempotenz über den
+  persistierten `lastProcessedIdentifier` (`CMRecordedAccelerometerData.identifier`,
+  UInt64, garantiert streng monoton — NTP/DST/Drift-immun; der Timestamp bleibt für
+  Windowing + Gap-Detection, *getrennte* Rolle). *Interface:* `ingest(batch) ->
+  [AccelSample]` (neu, dedupliziert).
+- **N `InferenceTrigger` (WCSession-getrieben)** — der **primäre** Hintergrund-
+  Trigger ist der `WCSessionDelegate.session(_:didReceiveFile:)`-Callback: iOS weckt
+  die App bei Datenankunft und gibt garantierte (knappe) Hintergrundzeit. Darin:
+  Datei → `PassiveBatchStore.ingest` → `InferenceEngine.process` → FocusStore,
+  *chunked* und via `beginBackgroundTask` verlängert. `BGAppRefreshTask` bleibt nur
+  als **Fallback-Catch-up** (falls die Watch lange nichts schickt); `BGProcessing`
+  ist zu selten für den Primärpfad. Foreground: voll aufholen. *Dep:*
+  `InferenceEngine`, `PassiveBatchStore`, WatchConnectivity, BackgroundTasks.
 - **M `AppModeStore` (in `ScrybeSettings`)** — `AppMode`-Enum + `scrybe.appMode`
   (Default `.collection`, G4), `requestTrackerMode()` (verweigert bei aktiver
   Session, G1), `forceCollection(reason:)` (G2).
@@ -162,41 +193,58 @@ Watch (CMDeviceMotion 50 Hz, Workout-Session) → WatchConnectivity → iPhone P
 
 **Tracker-Modus — neu, server-frei:**
 ```
-Watch: CMSensorRecorder loggt accel passiv (App darf suspendiert/beendet sein)
-  → PassiveRecorder.pullBatches(since: cursor)  [bei Watch-Background-Runtime]
-  → WatchConnectivity (bestehende Bridge, getaggt mode:tracker; NICHT in die Upload-Queue)
-  → iPhone PassiveBatchStore  [Timestamp-Dedup gegen lastProcessed-Cursor]
-  → BackgroundScheduler (BGAppRefresh/BGProcessing) | Foreground-Catch-up
-  → InferenceEngine: kontinuierlicher Sample-Stream → 1-s-Fenster (0.5 s Stride)
-       → 47 Features → RF(JSON) → OnlineForwardFilter → Schreib-Entscheidung
-       → Schreibzeit-Buckets → FocusStore → Ringe füllen sich rückwirkend
+Watch: CMSensorRecorder loggt accel passiv (App darf suspendiert/beendet sein),
+       Re-Arm in Sub-12-h-Chunks via WKApplicationRefreshBackgroundTask
+  → PassiveRecorder.pullBatches(sinceIdentifier:) → temporäre Binärdatei
+  → WCSession.transferFile() (getaggt mode:tracker; NICHT in die Upload-Queue)
+  → iOS weckt iPhone-App: WCSessionDelegate.didReceiveFile  [garantierte BG-Zeit]
+  → iPhone PassiveBatchStore  [Dedup gegen lastProcessedIdentifier]
+  → InferenceEngine (Resume-State restored): roh-Accel → GravityHighPass(→userAccel)
+       → kontinuierl. Stream → 1-s-Fenster (0.5 s Stride) → 47 Features → RF(JSON)
+       → OnlineForwardFilter → Schreib-Entscheidung → Schreibzeit-Buckets
+       → FocusStore → Ringe füllen sich rückwirkend; Resume-State persistiert
 ```
 
 **Dedup / Idempotenz** (mirror der server-seitigen `inference_log`+`/focus`-Semantik):
-- Jedes Sample trägt einen monotonen `CMSensorRecorder`-Timestamp.
-  `PassiveBatchStore` persistiert `lastProcessedTimestamp`.
-- Abruf immer `since: cursor`; beim Ingest werden Samples `≤ lastProcessed`
-  verworfen → überlappende/doppelte Batches zählen nie doppelt.
+- Jedes `CMRecordedAccelerometerData` trägt einen `identifier` (UInt64, garantiert
+  streng monoton). `PassiveBatchStore` persistiert `lastProcessedIdentifier` —
+  drift-/NTP-/DST-immun, anders als ein Date-Timestamp. (Der Timestamp wird separat
+  fürs Windowing + die Gap-Detection genutzt, nicht fürs Dedup.)
+- Abruf immer `sinceIdentifier: cursor`; beim Ingest werden Samples
+  `identifier ≤ lastProcessedIdentifier` verworfen → überlappende/doppelte Batches
+  zählen nie doppelt.
 - Die Engine schreibt **pro Zeit-Bucket** (per-window Schreibzustand, keyed by
   Bucket-Startzeit) per **Upsert** — Gesamt-Schreibzeit = Summe über Buckets.
   Re-Processing überschreibt identisch statt zu addieren → idempotent. Der Cursor
   rückt erst nach erfolgreichem Persist vor; ein Crash mitten drin re-prozessiert
   denselben Bucket folgenlos.
 
-**Zwei Subtilitäten:**
+**Drei Subtilitäten:**
 1. **Keine Batch-Grenzen-Naht.** Gefenstert wird der dedup-rekonstruierte
    *kontinuierliche* Sample-Stream, nicht pro Batch — ein Fenster darf zwei
    übertragene Batches überspannen.
-2. **HMM-Zustand über Batches.** Der `OnlineForwardFilter` läuft über kontinuierliche
-   Samples einfach weiter; nur bei einer echten Zeitlücke (Watch aus, Aufnahme
-   pausiert, Sprung > Schwelle) macht die Engine `reset()` (identisch zur
-   Live-Inferenz-Reset-Regel).
+2. **Prozess-Persistenz über App-Kills.** Der Stream ist nur in den *Daten*
+   kontinuierlich; der *Prozess* wird zwischen Hintergrund-Läufen von iOS beendet und
+   verliert den RAM-Zustand. Deshalb persistiert die Engine den vollen `ResumableState`
+   `{lastProcessedIdentifier, sampleTail, hmmAlpha, gravityState, partialStretch}` und
+   stellt ihn beim nächsten Wake wieder her. Notwendig, nicht nur sauber: die
+   HMM-Memory ist ~16 s und ließe sich aus einem 1-s-Overlap nicht rekonstruieren.
+3. **HMM-Zustand & Reset.** Der `OnlineForwardFilter` läuft über kontinuierliche
+   Samples (resume-restored) einfach weiter; nur bei einer echten Zeitlücke (Watch
+   aus, Aufnahme pausiert, Sprung > Schwelle) macht die Engine `reset()` (identisch
+   zur Live-Inferenz-Reset-Regel). Der `GravityHighPass`-Zustand wird genauso
+   resume-restored, sonst re-konvergiert die Gravity-Schätzung bei jedem Wake (Transient).
 
 ## 6. Fehlerbehandlung & Edge-Cases
 
 Alle fail-safe, nie stiller Datenverlust:
-- **Background feuert nicht** (iOS opportunistisch) → App-Open-Catch-up rekonziliert
-  immer vollständig. Ringe sind „meist aktuell", beim Öffnen exakt.
+- **iPhone-Background.** Primär-Trigger ist der `didReceiveFile`-Wake bei Datenankunft
+  (zuverlässiger als BGTasks). Feuert er mal nicht (App vom Nutzer terminiert o. ä.),
+  rekonziliert der App-Open-Catch-up vollständig. Ringe „meist aktuell", beim Öffnen exakt.
+- **Watch re-armt nicht rechtzeitig (12-h-Limit).** Bekommt die Watch in einem
+  12-h-Fenster keine Background-Runtime, stoppt `CMSensorRecorder` → Gap bis zum
+  nächsten Re-Arm. Mitigation: Sub-12-h-Chunks mit Marge + Überlappung; die Lücke ist
+  als echte Idle-Zeit zu behandeln (HMM-`reset()`), nicht zu interpolieren.
 - **CMSensorRecorder-Auth verweigert** → Tracker kann nicht erfassen; Admin +
   Modus-Indikator zeigen es klar, kein Crash, UI sagt „Bewegung freigeben".
 - **Modell-JSON fehlt/lädt nicht** → Inferenz aus, explizit angezeigt (nicht still
@@ -214,10 +262,12 @@ Alle fail-safe, nie stiller Datenverlust:
 
 ## 7. Tests
 
-- **Golden-Vektor-Parität (Kern):** Fixture (roh-Accel → 47 Features → proba_raw →
-  HMM-Posterior) im `ScrybeTests`-Target; Swift-Tests asserten Extractor / RF / HMM /
-  Engine gegen das Fixture mit winzigem ε. Fängt die Sort-Stability/Capture-Clock-
-  Bug-Klasse auf der Swift-Seite — der Grund für JSON-Trees + Referenz-Evaluator.
+- **Golden-Vektor-Parität (Kern):** Fixture (roh-Accel → `GravityHighPass` → userAccel
+  → 47 Features → proba_raw → HMM-Posterior) im `ScrybeTests`-Target; Swift-Tests
+  asserten **HighPass / Extractor / RF / HMM / Engine** gegen das Fixture mit winzigem
+  ε. Der High-Pass *muss* mitgeprüft werden, sonst driftet der Swift-Komplementärfilter
+  unbemerkt vom Python-Referenzfilter. Fängt die Sort-Stability/Capture-Clock-Bug-Klasse
+  auf der Swift-Seite — der Grund für JSON-Trees + Referenz-Evaluator.
 - **Python-Parität:** `PyReferenceEvaluator` vs. sklearn `predict_proba` (≈0) → in
   der bestehenden `pytest`-Suite.
 - **Dedup/Idempotenz:** überlappende/doppelte Batches → identische Schreibzeit wie
@@ -231,14 +281,18 @@ Alle fail-safe, nie stiller Datenverlust:
 ## 8. Build-Phasen (je ein eigener Implementierungsplan)
 
 - **Phase 0 — Python-Fundament** *(hier voll verifizierbar)*: acc-only-Modell
-  trainiert (✅); + **Deployment-Modell-Validierung** (siehe Annahme unten:
-  pooled-Z-Score gegen Roh-Accel); + JSON-Export + Referenz-Evaluator +
-  Paritätstest + Golden-Vektor-Dump. Landet zuerst, grün, vor jeglichem Swift.
-- **Phase 1 — iPhone-Inferenz-Kern** *(Swift, gerätegeprüft)*: Extractor + RF + HMM +
-  Engine, getrieben nur von den Golden-Vektoren (keine Sensoren). Beweist
-  On-Device-Parität isoliert.
-- **Phase 2 — Passive Erfassung**: PassiveRecorder (Watch) + PassiveBatchStore/Dedup
-  + BackgroundScheduler + WC-Transfer. Verdrahtet echte Daten in die bewiesene Engine.
+  trainiert (✅); + **High-Pass-Validierung** (Komplementärfilter auf rekonstruierter
+  Roh-Accel der Modern-Sessions vs. echte `userAcceleration` — Feature- und
+  Prediction-Übereinstimmung, Failure-Mode anhaltende Rotation prüfen; siehe Annahme
+  unten); + Python-Referenzfilter; + JSON-Export + Referenz-Evaluator + Paritätstest
+  + Golden-Vektor-Dump (inkl. High-Pass-Stufe). Landet zuerst, grün, vor jeglichem Swift.
+- **Phase 1 — iPhone-Inferenz-Kern** *(Swift, gerätegeprüft)*: GravityHighPass +
+  Extractor + RF + HMM + Engine + ResumableState, getrieben nur von den
+  Golden-Vektoren (keine Sensoren). Beweist On-Device-Parität + Resume isoliert.
+- **Phase 2 — Passive Erfassung**: PassiveRecorder (Watch, `CMSensorRecorder` +
+  12-h-Re-Arm) + `WCSession.transferFile`-Transport + `didReceiveFile`-Trigger +
+  PassiveBatchStore/Identifier-Dedup + ResumableState-Persistenz (BGAppRefresh-
+  Fallback). Verdrahtet echte Daten in die bewiesene Engine.
 - **Phase 3 — Modus & Interlock**: AppModeStore + ModeToggle + ModeIndicator +
   Wiring + die vier Garantien.
 
@@ -249,16 +303,22 @@ Gerät gebaut und verifiziert.
 
 - Tracker-Modus ist **vollständig server-unabhängig** (offline-fähig); kein
   hybrider „Server wenn verfügbar"-Pfad (YAGNI).
-- **Pooled-Z-Score gegen Roh-Accel (offene Validierung, Phase 0).** Der ≈0-Befund
-  des Roh-Accel-Abschlags (`passive_raw_accel_loso.py`) lief unter *per-session*
-  Z-Score, der den Schwerkraft-Offset pro Session absorbiert. Das Deployment-Modell
-  nutzt *pooled* (eingebackene) µ/σ; die offset-sensitiven Features (mean/min/max/
-  rms der Accel-Achsen) tragen bei Roh-Accel einen Schwerkraft-Offset, den auf
-  userAcceleration gefittete µ/σ nicht re-zentrieren. Vor dem Swift-Port in Phase 0
-  zu klären: entweder (a) das Deployment-Modell auf rekonstruierter Roh-Accel
-  trainieren (passt µ/σ an das Deploy-Signal an), oder (b) auf die mean-invarianten
-  Features beschränken (std/jerk/FFT/ZCR/corr — unter beiden Signalen äquivalent).
-  Bis dahin gilt `rf_acc_only_live.joblib` (userAccel + pooled) als vorläufig.
+- **Roh-Accel → userAccel per High-Pass (gelöst via `GravityHighPass`, Validierung in
+  Phase 0).** Der ≈0-Roh-Accel-Befund (`passive_raw_accel_loso.py`) lief unter
+  *per-session* Z-Score, der den Schwerkraft-Offset pro Session absorbiert. Das
+  Deployment-Modell nutzt *pooled* µ/σ → die offset-sensitiven Features (mean/min/max/
+  rms) trügen bei Roh-Accel einen Schwerkraft-Offset, den userAccel-µ/σ nicht
+  re-zentrieren. **Lösung:** ein Komplementär-/High-Pass-Filter (`GravityHighPass`)
+  rechnet die Schwerkraft on-device dynamisch heraus und approximiert das
+  `userAcceleration`-Signal → das Modell bleibt *unangetastet*. Das ist den
+  Alternativen überlegen: (a) auf Roh-Accel trainieren würde Watch-*Orientierung*
+  statt Schreibbewegung lernen (unser Gravity-Ablations-Befund: Gravity ist ein
+  Personalisierungs-, kein Generalisierungs-Signal), (b) mean-invariante Feature-
+  Teilmenge wirft Signal weg. **Phase-0-Validierung** (datenfrei, aus Modern-Sessions):
+  High-Pass auf rekonstruierter Roh-Accel vs. echte `userAcceleration` — Feature- +
+  Prediction-Übereinstimmung; Failure-Mode anhaltende Rotation (der 1-Pol-Filter laggt,
+  wo CoreMotions Gyro-Fusion sauber trennt — v. a. Idle-Hard-Negatives gesturing/
+  page-turn). Trägt (c) nicht sauber, Rückfall auf (a)/(b).
 - `CMSensorRecorder` zeichnet ~50 Hz auf → Raten-Match zum 50-Hz-Legacy-Modell.
 - Die HMM-Parameter (`hmm_live.json`) sind modell-agnostisch (Übergangsmatrix =
   Label-Dynamik) und gelten auch für das acc-only-Modell; bei Bedarf später aus
