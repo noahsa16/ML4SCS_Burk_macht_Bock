@@ -4,6 +4,11 @@ struct ProfileView: View {
     @Environment(\.scrybe) private var theme
     @State private var adminPresented = false
     @State private var adminUnlocked = false
+    @State private var secretTaps = 0
+    @State private var lastSecretTapAt = Date.distantPast
+
+    private static let secretTapCount = 5
+    private static let secretTapWindow: TimeInterval = 1.5
 
     var body: some View {
         ScrollView {
@@ -32,14 +37,30 @@ struct ProfileView: View {
         }
     }
 
-    // Hidden admin entry — long-press the version line (invisible affordance).
+    // Hidden admin entry: five deliberate taps on the version line open the
+    // operator panel. A timed long-press proved unreliable; a tap count is robust
+    // and the line still reads as a plain version string to a proband.
     private var footer: some View {
         Text("Scrybe \(appVersion)")
             .font(.caption2)
             .foregroundStyle(theme.mutedInk)
             .padding(.top, 8)
-            .onLongPressGesture(minimumDuration: 2.0) { adminPresented = true }
-            .accessibilityHint("Lang drücken öffnet den Admin-Bereich")
+            .contentShape(Rectangle())
+            .onTapGesture { registerSecretTap() }
+        // Why: intentionally not a button and unhinted — VoiceOver announces only
+        // the version, keeping the operator backdoor hidden from a proband.
+    }
+
+    private func registerSecretTap() {
+        // Why: reset unless taps arrive as a deliberate run (≤ window apart), so the
+        // operator taps at a natural pace instead of nailing five system-fast taps.
+        if Date().timeIntervalSince(lastSecretTapAt) > Self.secretTapWindow { secretTaps = 0 }
+        lastSecretTapAt = Date()
+        secretTaps += 1
+        if secretTaps >= Self.secretTapCount {
+            secretTaps = 0
+            adminPresented = true
+        }
     }
 
     private var appVersion: String {
