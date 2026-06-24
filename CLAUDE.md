@@ -275,6 +275,20 @@ inference.py       LiveInference singleton: rolling watch-sample buffer,
                    counter. Reuses _window_features() from
                    src.features.windows so live + training share the
                    exact same feature extractor.
+                   **Kausaler HMM-Live-Filter (seit 2026-06-24):** die rohe
+                   1-s-Proba bleibt für die instantane Pille + Intensität, der
+                   `OnlineForwardFilter` (src/evaluation/hmm.py) glättet sie zur
+                   Schreibzeit-ENTSCHEIDUNG (`writing`) — dort sitzt der
+                   Genauigkeitsgewinn (offline RF-1s 0.881→0.905, ohne
+                   Retraining). Parameter aus `models/hmm_live.json`
+                   (2×2-Übergangsmatrix + Prior, modell-agnostisch aus
+                   loso_oof.csv via `scripts/ml/export_hmm_live.py`; ~16 s
+                   adaptives Gedächtnis). Stateful → `reset()` bei
+                   Stream-Gap (stale buffer) / Modell-Swap / rate_mismatch /
+                   missing_channels, damit kein abgestandener Prior in eine
+                   frische Phase blutet. Payload trägt zusätzlich `proba_hmm`;
+                   fehlt das File, fällt `writing` graceful auf proba≥0.5
+                   zurück.
 focus_log.py       Append-only CSV writer at data/inference_log.csv
                    (gitignored). One row per 1-Hz predict tick;
                    rate_mismatch ticks skipped. Persists writing
@@ -899,7 +913,13 @@ no longer vibrates continuously when the server is down.
   `scaled_likelihoods`). `forward_filter` ist der **kausale** Headline-Decoder
   (nur Vergangenheit+Gegenwart), `forward_backward` + `viterbi` die
   nicht-kausale Obergrenze. Seq-len-/raten-agnostisch → läuft auf RF- wie
-  Deep-OOF.
+  Deep-OOF. `OnlineForwardFilter` ist die **stateful Ein-Schritt-Variante**
+  des `forward_filter` fürs Live-Deployment (`step()`/`reset()`, bit-identisch
+  zur Batch-Version — Test in `tests/test_hmm.py`); konsumiert von
+  `src/server/inference.py`.
+- `scripts/ml/export_hmm_live.py` — schreibt die deploybaren Live-HMM-Parameter
+  (`models/hmm_live.json`: 2×2-Matrix + Prior, modell-agnostisch aus
+  `loso_oof.csv`) für den `OnlineForwardFilter` in der Inferenz.
 - `scripts/ml/hmm_postprocess_loso.py` — HMM-Treiber auf `models/loso_oof.csv`,
   leakage-frei per-Person-Holdout (Transition + Prior nur aus Train-Personen).
   **Hebt den 1-s-RF acc 0.881 → 0.905 (Δ +2,4 pp, ohne Retraining)** und schlägt
@@ -913,6 +933,9 @@ no longer vibrates continuously when the server is down.
   stateful → Gap/Session-Reset nötig; ~16 s Latenz ideal fürs Schreibzeit-Tracking,
   träge für die instantane Pille). Output: `models/hmm_postprocess_{cv,detail}.csv`
   (cv ist loso_cv-kompatibel → `significance.py`) + `reports/hmm_postprocess.md`.
+  **Seit 2026-06-24 LIVE deployed** (`OnlineForwardFilter` in der Inferenz —
+  siehe inference.py oben; Parameter via `scripts/ml/export_hmm_live.py` →
+  `models/hmm_live.json`).
 - `scripts/ml/hmm_cross_model.py` — **Cross-Model-Kontext-Leiter**: derselbe
   HMM-Filter über die per-window-OOF mehrerer Basismodelle, je gegen den eigenen
   Floor + Negativkontrolle. **2×2-Faktordesign (RF/Deep × 1s/5s): der HMM-Gewinn

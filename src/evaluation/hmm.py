@@ -122,6 +122,45 @@ def forward_backward(
     return gamma / gamma.sum(axis=1, keepdims=True)
 
 
+class OnlineForwardFilter:
+    """Stateful Ein-Schritt-Variante von ``forward_filter`` für Live-Decoding.
+
+    Dieselbe α-Rekursion, aber pro Beobachtung einzeln vorgerückt: der
+    Live-Tracker speist jede RF-Proba per ``step()`` ein und liest sofort den
+    kausalen writing-Posterior zurück. Der Zustand (``alpha``) bleibt zwischen
+    Ticks erhalten; ``reset()`` löscht ihn an Stream-Lücken / Modell-Wechseln,
+    damit ein abgestandener Prior nie in eine frische Session blutet (der
+    stateful-Caveat aus der HMM-Analyse).
+
+    Die durchgereichte Sequenz ``step(p_1), step(p_2), …`` ist **bit-identisch**
+    zu ``forward_filter(scaled_likelihoods([p_1, p_2, …], priors), A, priors)``
+    — verifiziert in ``tests/test_hmm.py``.
+    """
+
+    def __init__(
+        self, transition: np.ndarray, priors: np.ndarray, eps: float = 1e-3
+    ) -> None:
+        self._A = np.asarray(transition, dtype=float)
+        self._priors = np.asarray(priors, dtype=float)
+        self._eps = float(eps)
+        self._alpha: np.ndarray | None = None
+
+    def reset(self) -> None:
+        """Verwerfe den akkumulierten Zustand — nächster ``step`` startet am Prior."""
+        self._alpha = None
+
+    def step(self, proba: float) -> float:
+        """Rücke um eine Beobachtung vor, gib ``P(writing | o_1..t)`` zurück."""
+        b = scaled_likelihoods([proba], self._priors, eps=self._eps)[0]
+        if self._alpha is None:
+            alpha = self._priors * b
+        else:
+            alpha = (self._A.T @ self._alpha) * b
+        alpha = alpha / alpha.sum()
+        self._alpha = alpha
+        return float(alpha[1])
+
+
 def viterbi(
     emissions: np.ndarray, transition: np.ndarray, initial: np.ndarray
 ) -> np.ndarray:
