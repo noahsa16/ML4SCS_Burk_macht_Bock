@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import UIKit
 import WatchConnectivity
 
 /// Maintains a WebSocket connection to the FastAPI server.
@@ -88,6 +89,16 @@ class ServerCommandListener: NSObject, ObservableObject {
         super.init()
         connect()
         startPollAgeTimer()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(appWillEnterForeground),
+            name: UIApplication.willEnterForegroundNotification, object: nil)
+    }
+
+    /// Why: iOS can silently tear down a backgrounded WebSocket without a read/send
+    /// error firing, so the failure-driven reconnect never triggers. Proactively
+    /// reconnect on return to foreground instead of waiting for the next failed I/O.
+    @objc private func appWillEnterForeground() {
+        reconnectAndRefresh()
     }
 
     func connect() {
