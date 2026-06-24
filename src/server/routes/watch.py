@@ -10,7 +10,7 @@ from pydantic import ValidationError
 
 from ..broadcast import _broadcast
 from ..config import DATA_RAW_WATCH
-from ..csv_io import get_watch_writer
+from ..csv_io import flush_watch_writer, get_watch_writer
 from ..inference import live
 from ..models import WatchEnvelope
 from ..state import state
@@ -218,6 +218,12 @@ async def receive_watch(request: Request):
             "server_received_ms": server_received_ms,
         }
         state.append_sample("watch", last_sample)
+
+    # Server-ACK-Persistenz: den Batch auf OS-Ebene durchschreiben, BEVOR die 200
+    # zurückgeht. Das iPhone löscht seine Kopie auf diese ACK hin — ohne Flush
+    # lägen die Zeilen bis zum Buffer-Füllen im Prozess-Puffer und ein
+    # Server-Neustart dazwischen verlöre den bereits bestätigten Batch.
+    flush_watch_writer(csv_path)
 
     # Batch-Samplerate aus internen Watch-Timestamps berechnen
     if first_ts is not None and last_ts is not None and valid_count > 1 and last_ts > first_ts:
