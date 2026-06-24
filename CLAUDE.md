@@ -87,8 +87,11 @@ Test-Daten symmetrisch betroffen, relative Vergleiche bleiben gültig).
 pip install -r requirements.txt
 ```
 
-Dependencies: `pandas`, `numpy`, `scikit-learn`, `matplotlib`, `bleak`,
-`fastapi`, `uvicorn`, `websockets`, `pytest`, `jupyter`, `notebook`.
+Dependencies: `pandas`, `numpy`, `scikit-learn`, `torch`, `aeon`, `shap`,
+`matplotlib`, `bleak`, `fastapi`, `uvicorn`, `websockets`, `pytest`,
+`jupyter`, `notebook`. (`aeon` = MiniRocket-Baseline, `shap` = Fold-
+Erklärung; beide siehe `scripts/ml/`. `aeon`-Install stuft numpy auf
+2.3.5 ab.)
 
 ## Running
 
@@ -744,6 +747,32 @@ no longer vibrates continuously when the server is down.
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
   vor-generierte `{session}_windows.csv` aus `data/processed/`.
+- `scripts/ml/minirocket_loso.py` — **MiniRocket-LOSO (viertes Modell-Bein,
+  `aeon`)**: transformiert die rohen `(N,6,seq_len)`-Deep-Fenster mit MiniRocket
+  (zufällige Convolutional-Kernel) + standardisierte LogReg (echte Probas für
+  AUC/Burst; der `MiniRocketClassifier`-Default-Ridge hat keine). Wiederverwendet
+  die Deep-Loader + den kausalen `_burst_metrics`; `--window-sec` / `--n-kernels`
+  (Default 2000 = schnell, ~10k = Paper-Default). **Befund (2026-06-24, N=15
+  legacy, post-fix, gepaarter Wilcoxon auf denselben Folds): MiniRocket-nativ-5s
+  0.886/0.956 ≡ RF-nativ-5s 0.885/0.953 — Δacc −0.004 p=0.93, ΔAUC +0.005 p=0.36,
+  Gleichstand.** 1-s per-window ebenfalls Gleichstand (0.872/0.872 p=0.52). Eine
+  mechanistisch RF-unverwandte Familie trifft dieselbe Decke *und* dieselbe
+  schwächste Fold (P17 0.794) → paradigmen-unabhängige Bestätigung der
+  Signal-Decke (siehe `feature_engineering_ceiling`-Memory). TCN-5s 0.911 bleibt
+  darüber (TCN>RF ⇒ TCN>MiniRocket). **Ehrlicher Negativbefund:** MiniRocket auf
+  **1-s+Burst** ist @10s/@30s signifikant schlechter als der RF (Δacc −0.050
+  p=0.0009 / −0.035 p=0.010) — also nativ-5s nutzen, nicht 1-s+Burst. Output
+  `models/minirocket_win{1,5}_cv.csv` (`significance.py`-kompatibel).
+- `scripts/ml/shap_explain_fold.py` — **SHAP-Erklärung einer LOSO-Fold** (`shap`
+  `TreeExplainer`, leakage-ehrlich: RF auf den Train-Folds, erklärt die
+  Held-out-Person; schwächste Fold datengetrieben aus `loso_oof.csv`). Auf **P17**
+  (RF-acc 0.781): Top-Features nach mean|SHAP| sind **Jerk** (`ay_jerk_*`,
+  `gyro/acc_mag_jerk`) + **3–8-Hz-Spektral** — physikalisch sinnvolle Kinematik
+  selbst auf der schwächsten Fold; die *kleinen* signierten Werte (~±0.005) SIND
+  der Befund: kein Feature trennt P17 sauber → Mehrdeutigkeit im Signal, nicht im
+  Feature-Set. → `reports/figures/shap_P17.png`. Perf: exaktes TreeSHAP ist
+  O(Bäume·Blätter·Tiefe²)/Sample — auf 200 tiefen RF-Bäumen × tausenden Fenstern
+  Minuten; Subsample auf 600 Fenster (Accuracy bleibt auf allen) → Sekunden.
 - `scripts/ml/compare_models_at_gap.py` — gleiches Modell-Panel, aber
   baut die Features on-the-fly bei beliebigem `--gap` neu, ohne die
   Cache-Dateien anzufassen. Nützlich, um Modell-Rangfolge bei
