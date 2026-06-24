@@ -1,9 +1,24 @@
 # Passiver On-Device-Tracker-Modus (Watch → iPhone)
 
 **Datum:** 2026-06-24
-**Status:** Design abgenommen, Implementierung ausstehend
+**Status:** ⏸️ **GEPARKT (2026-06-24)** — Wiederaufnahme, sobald mehr Modern-Sessions
+aufgenommen sind (Daten-Blocker, siehe Kasten).
 **Vorarbeit:** `reports/acc_only_ablation.md`, `models/rf_acc_only_live.joblib`,
 `models/hmm_live.json`, `src/evaluation/hmm.py` (`OnlineForwardFilter`)
+
+> **⚠️ KORREKTUR seit dieser Spec geschrieben wurde (lies vor Wiederaufnahme):**
+> Diese Spec beschreibt das Deployment-Modell als „auf den 30 invarianten Features
+> trainiert" — *trainiert auf userAcceleration (Legacy)*. Das wurde widerlegt:
+> `CMSensorRecorder` liefert **rohe** Gesamtbeschleunigung; ein auf userAccel
+> trainiertes Modell bricht darauf um **8–20 pp** ein (train/deploy-Mismatch;
+> Within-Window-Schwerkraft-Rotation). **Korrekter Ansatz: das Modell auf
+> rekonstruiertem ROH-Accel trainieren** (`ax/ay/az += gx/gy/gz`, Modern-Pool),
+> 30 invariante Features — dann ist train==deploy und es kostet nichts (N=5 PoC
+> 0.836/0.867, siehe `scripts/ml/passive_raw_poc.py`). **Blocker:** nur
+> Modern-Sessions (Gravity) liefern Roh; aktuell N=5 → mehr Modern-Sessions nötig.
+> Beim Resume: §4/§5/§9 auf „train-on-raw" ziehen; der `GravityHighPass` bleibt
+> entfernt (war ein verworfener Zwischenansatz). Vollständiger Kontext:
+> Memory `passive-tracker-design`.
 
 ## 1. Ziel & Kontext
 
