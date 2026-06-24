@@ -9,6 +9,8 @@ def test_removes_constant_gravity():
     dynamic = 0.05 * rng.standard_normal((n, 3))
     raw = gravity + dynamic
     user = GravityHighPass(alpha=0.9).process(raw)
+    # First output is always zero — gravity is seeded to raw[0] (parity contract).
+    assert np.allclose(user[0], 0.0)
     # after warmup the constant gravity component is gone -> mean ~0
     assert np.allclose(user[100:].mean(axis=0), 0.0, atol=0.02)
 
@@ -26,3 +28,12 @@ def test_state_continuity_matches_whole_pass():
     second = resumed.process(raw[120:])
 
     assert np.allclose(np.vstack([first, second]), whole)
+
+
+def test_reset_clears_state():
+    hp = GravityHighPass(0.9)
+    hp.process(np.ones((50, 3)))   # prime the filter
+    hp.reset()
+    assert hp.state is None         # state cleared
+    out = hp.process(np.ones((1, 3)))
+    assert np.allclose(out, 0.0)    # re-seeded -> first output is 0

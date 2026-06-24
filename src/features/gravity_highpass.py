@@ -7,6 +7,9 @@ von der rohen Gesamtbeschleunigung und approximiert CoreMotions userAcceleration
 Stateful (die laufende Gravity-Schätzung trägt über Aufrufe hinweg), damit der
 Filter zum live-resumierbaren Swift-Port passt. alpha nahe 1 = träge Gravity.
 Referenz für die Golden-Vektor-Parität (R-Axis/High-Pass).
+
+By construction, the first output sample is [0, 0, 0] (gravity is seeded to raw[0],
+so user_0 = raw_0 - raw_0 = 0). This is a parity contract for Swift port.
 """
 from __future__ import annotations
 
