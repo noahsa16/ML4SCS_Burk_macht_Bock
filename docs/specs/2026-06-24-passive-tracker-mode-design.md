@@ -23,8 +23,9 @@ inferiert lokal und füllt die Scrybe-Ringe.
 - Der Roh-Accel-Abschlag (`CMSensorRecorder` liefert *rohe* Gesamtbeschleunigung,
   nicht `userAcceleration`) wurde aus Modern-Sessions rekonstruiert gemessen und
   ist **≈ 0** (`scripts/ml/passive_raw_accel_loso.py`).
-- Das acc-only-Deployment-Modell (47 Features, pooled Z-Score eingebacken) ist
-  trainiert: `models/rf_acc_only_live.joblib`.
+- Das Deployment-Modell (**30 gravity-invariante Features**, pooled Z-Score) ist
+  trainiert: `models/rf_acc_only_live.joblib` — deployt ohne Filter und ohne
+  Roh-vs-userAccel-Diskrepanz (Begründung §9).
 
 **Harte Randbedingung:** Das bestehende **Studiendesign darf nicht beschädigt
 werden**. Die aktive Datenerfassung (full-IMU + Pen-Ground-Truth + Server + Study
@@ -107,10 +108,15 @@ Schnittstelle, benannte Abhängigkeiten.
   JSON sklearns `predict_proba` reproduziert (assert max|Δ| ≈ 0 — bei voller
   Float-Präzision exakt). Die Spezifikation, die der Swift-Port treffen muss.
 - **N `scripts/ml/dump_golden_vectors.py`** — N bekannte Fenster als Fixture:
-  roh-Accel-Samples → `GravityHighPass` → userAccel → erwartete 47 Features →
-  erwartete `proba_raw` → erwarteter HMM-Posterior. Ebenfalls **volle Float-
-  Präzision** (sonst falsche Parität-Rotfärbung). JSON, wandert ins `ScrybeTests`-
-  Target.
+  roh-Accel-Samples → erwartete 30 gravity-invariante Features → erwartete
+  `proba_raw` → erwarteter HMM-Posterior (**kein Filter** — Features sind invariant).
+  Ebenfalls **volle Float-Präzision** (sonst falsche Parität-Rotfärbung). JSON, wandert
+  ins `ScrybeTests`-Target.
+- **N `scripts/ml/validate_invariant_deploy.py`** — verifiziert die (b)-Kernannahme:
+  die 30 Features sind auf roher Gesamtbeschleunigung == userAccel. Baut sie auf den
+  Modern-Sessions beidseitig (userAccel vs. rekonstruierte Roh-Accel) und vergleicht
+  Decision-Scale-Agreement — erwartet ~identisch (Rest = Within-Window-Gravity-Rotation,
+  zweiter Ordnung).
 
 ### Watch (watchOS)
 - **N `PassiveRecorder`** — kapselt `CMSensorRecorder`: Authorization, **rollierendes
@@ -155,39 +161,31 @@ Schnittstelle, benannte Abhängigkeiten.
   produzieren).
 
 ### iPhone — Inferenz-Kern (paritäts-kritisch, alles neu)
-- **N `GravityHighPass`** — *allererster* Schritt vor der Feature-Extraktion:
-  rechnet aus der rohen `CMSensorRecorder`-Gesamtbeschleunigung den Schwerkraft-
-  Vektor per Komplementärfilter dynamisch heraus und approximiert das
-  `userAcceleration`-Signal, auf das das Modell trainiert ist —
-  `gravity = α·gravity + (1-α)·raw; user = raw − gravity`. Damit bleibt
-  `rf_acc_only_live.joblib` *unangetastet* (löst die pooled-Z-Score-vs-Roh-Accel-
-  Frage aus Abschnitt 9). **Stateful** (laufende Gravity-Schätzung) → Teil des
-  Resume-State; **in der Golden-Vektor-Parität** gegen einen Python-Referenzfilter
-  geprüft, sonst driftet er unbemerkt. *Interface:* `process(raw) -> userAccel`,
-  `state` / `restore(state)` · *Dep:* α (getunt auf CoreMotions effektive Grenz-
-  frequenz).
-- **N `AccelFeatureExtractor`** — portiert die 47 acc-only-Features aus
-  `src/features/windows.py::_window_features` bit-identisch (per-axis Stats; rFFT
-  mit DC-Removal für Centroid/Entropy/Band 3–8 Hz; ZCR; Accel-Jerk; Accel-
-  Magnitude; Accel-Korrelationen). *Interface:* `features(window) -> [Double]`
-  (Reihenfolge = `feature_cols` des Modells) · *Dep:* vDSP/Accelerate-FFT.
+- **N `AccelFeatureExtractor`** — portiert die **30 gravity-invarianten Features**
+  aus `src/features/windows.py::_window_features` bit-identisch: per-Achse std/range,
+  rFFT (DC-Removal: dom_freq/centroid/entropy/Band 3–8 Hz), ZCR, Accel-Jerk,
+  Accel-Korrelationen. **Kein High-Pass-Filter nötig** — diese Features sind
+  schwerkraft-offset-*invariant*, also auf roher Gesamtbeschleunigung ==
+  userAcceleration (by construction; gedroppt sind mean/min/max/rms je Achse +
+  acc_mag, weil schwerkraft-dominiert). *Interface:* `features(window) -> [Double]`
+  (Reihenfolge = `feature_cols` des Modells, 30) · *Dep:* vDSP/Accelerate-FFT.
 - **N `RFEvaluator`** — lädt `rf_acc_only_live.json`, pooled-Z-Score, evaluiert alle
   Bäume → Klasse-1-Proba (Mittel der Leaf-Probas). *Interface:* `proba(features) ->
   Double` · *Dep:* JSON-Modell.
 - **N `OnlineForwardFilter`** — Port von `src/evaluation/hmm.py::OnlineForwardFilter`
   (~20 Z.): `step(proba) -> Posterior`, `reset()`. *Dep:* `hmm_live.json`
   (2×2-Übergangsmatrix + Prior).
-- **N `InferenceEngine`** — Orchestrator: roh-Accel → `GravityHighPass` →
-  1-s-Fenster (0.5 s Stride, wie Training) → Extractor → RF → HMM →
-  Schreib-Entscheidung → Schreibzeit-Buckets → `FocusStore`. *Interface:*
-  `process(samples)` (idempotent), `reset()` · *Dep:* die vier oben + Dedup. Kennt
-  weder `CMSensorRecorder` noch den Modus — allein gegen die Golden-Vektoren
-  testbar.
+- **N `InferenceEngine`** — Orchestrator: roh-Accel → 1-s-Fenster (0.5 s Stride, wie
+  Training) → Extractor (30 invariante Features) → RF → HMM → Schreib-Entscheidung →
+  Schreibzeit-Buckets → `FocusStore`. **Kein Filter davor** — die Features sind
+  schwerkraft-invariant. *Interface:* `process(samples)` (idempotent), `reset()` ·
+  *Dep:* die drei oben + Dedup. Kennt weder `CMSensorRecorder` noch den Modus —
+  allein gegen die Golden-Vektoren testbar.
 - **N `ResumableState`** — der vollständige, persistierte Resume-Zustand, damit die
   Engine einen App-Kill zwischen Hintergrund-Läufen übersteht: `{
-  lastProcessedIdentifier, sampleTail (~letzte 1 s), hmmAlpha, gravityState,
-  partialStretch }`. **Notwendig, nicht nur sauber:** die HMM-Memory ist ~16 s und
-  ließe sich aus einem 1-s-Overlap *nicht* rekonstruieren. *Dep:* File/UserDefaults.
+  lastProcessedIdentifier, sampleTail (~letzte 1 s), hmmAlpha, partialStretch }`.
+  **Notwendig, nicht nur sauber:** die HMM-Memory ist ~16 s und ließe sich aus einem
+  1-s-Overlap *nicht* rekonstruieren. *Dep:* File/UserDefaults.
 
 ### iPhone — Capture-Plumbing & Modus
 - **N `PassiveBatchStore`** — empfängt Watch-Batches, Dedup/Idempotenz über den
@@ -243,8 +241,8 @@ Watch: CMSensorRecorder loggt accel passiv (App darf suspendiert/beendet sein),
   → WCSession.transferFile() (getaggt mode:tracker; NICHT in die Upload-Queue)
   → iOS weckt iPhone-App: WCSessionDelegate.didReceiveFile  [garantierte BG-Zeit]
   → iPhone PassiveBatchStore  [Dedup gegen lastProcessedIdentifier]
-  → InferenceEngine (Resume-State restored): roh-Accel → GravityHighPass(→userAccel)
-       → kontinuierl. Stream → 1-s-Fenster (0.5 s Stride) → 47 Features → RF(JSON)
+  → InferenceEngine (Resume-State restored): roh-Accel → kontinuierl. Stream
+       → 1-s-Fenster (0.5 s Stride) → 30 gravity-invariante Features → RF(JSON)
        → OnlineForwardFilter → Schreib-Entscheidung → Schreibzeit-Buckets
        → FocusStore → Ringe füllen sich rückwirkend; Resume-State persistiert
 ```
@@ -270,14 +268,13 @@ Watch: CMSensorRecorder loggt accel passiv (App darf suspendiert/beendet sein),
 2. **Prozess-Persistenz über App-Kills.** Der Stream ist nur in den *Daten*
    kontinuierlich; der *Prozess* wird zwischen Hintergrund-Läufen von iOS beendet und
    verliert den RAM-Zustand. Deshalb persistiert die Engine den vollen `ResumableState`
-   `{lastProcessedIdentifier, sampleTail, hmmAlpha, gravityState, partialStretch}` und
-   stellt ihn beim nächsten Wake wieder her. Notwendig, nicht nur sauber: die
-   HMM-Memory ist ~16 s und ließe sich aus einem 1-s-Overlap nicht rekonstruieren.
+   `{lastProcessedIdentifier, sampleTail, hmmAlpha, partialStretch}` und stellt ihn
+   beim nächsten Wake wieder her. Notwendig, nicht nur sauber: die HMM-Memory ist ~16 s
+   und ließe sich aus einem 1-s-Overlap nicht rekonstruieren.
 3. **HMM-Zustand & Reset.** Der `OnlineForwardFilter` läuft über kontinuierliche
    Samples (resume-restored) einfach weiter; nur bei einer echten Zeitlücke (Watch
    aus, Aufnahme pausiert, Sprung > Schwelle) macht die Engine `reset()` (identisch
-   zur Live-Inferenz-Reset-Regel). Der `GravityHighPass`-Zustand wird genauso
-   resume-restored, sonst re-konvergiert die Gravity-Schätzung bei jedem Wake (Transient).
+   zur Live-Inferenz-Reset-Regel).
 
 ## 6. Fehlerbehandlung & Edge-Cases
 
@@ -339,11 +336,9 @@ Wildbahn crashen. Jeder Punkt wird ein eigenes Ticket der zugehörigen Phase.
 
 ## 7. Tests
 
-- **Golden-Vektor-Parität (Kern):** Fixture (roh-Accel → `GravityHighPass` → userAccel
-  → 47 Features → proba_raw → HMM-Posterior) im `ScrybeTests`-Target; Swift-Tests
-  asserten **HighPass / Extractor / RF / HMM / Engine** gegen das Fixture. Der
-  High-Pass *muss* mitgeprüft werden, sonst driftet der Swift-Komplementärfilter
-  unbemerkt vom Python-Referenzfilter. **Test-Form (ehrlich statt naiv „bit-identisch"):**
+- **Golden-Vektor-Parität (Kern):** Fixture (roh-Accel → 30 gravity-invariante Features
+  → proba_raw → HMM-Posterior) im `ScrybeTests`-Target; Swift-Tests asserten
+  **Extractor / RF / HMM / Engine** gegen das Fixture. **Test-Form (ehrlich statt naiv „bit-identisch"):**
   volle Float-Präzision im Fixture eliminiert die *vermeidbare* Divergenz; echte
   Bit-Identität über numpy↔vDSP-FFT ist *nicht* garantiert (ULP-Differenzen durch
   andere Summationsreihenfolge). Daher: **tight Feature-ε** (fängt echte Bugs) **+
@@ -362,15 +357,14 @@ Wildbahn crashen. Jeder Punkt wird ein eigenes Ticket der zugehörigen Phase.
 
 ## 8. Build-Phasen (je ein eigener Implementierungsplan)
 
-- **Phase 0 — Python-Fundament** *(hier voll verifizierbar)*: acc-only-Modell
-  trainiert (✅); + **High-Pass-Validierung** (Komplementärfilter auf rekonstruierter
-  Roh-Accel der Modern-Sessions vs. echte `userAcceleration` — Feature- und
-  Prediction-Übereinstimmung, Failure-Mode anhaltende Rotation prüfen; siehe Annahme
-  unten); + Python-Referenzfilter; + JSON-Export + Referenz-Evaluator + Paritätstest
-  + Golden-Vektor-Dump (inkl. High-Pass-Stufe). Landet zuerst, grün, vor jeglichem Swift.
-- **Phase 1 — iPhone-Inferenz-Kern** *(Swift, gerätegeprüft)*: GravityHighPass +
-  Extractor + RF + HMM + Engine + ResumableState, getrieben nur von den
-  Golden-Vektoren (keine Sensoren). Beweist On-Device-Parität + Resume isoliert.
+- **Phase 0 — Python-Fundament** *(hier voll verifizierbar)*: Deployment-Modell auf
+  30 gravity-invariante Features trainiert (✅); + **Invarianz-Validierung** (die 30
+  Features sind auf roher Gesamtbeschleunigung == userAccel — auf den Modern-Sessions
+  gegen die echte userAccel decision-scale verifiziert) + JSON-Export + Referenz-
+  Evaluator + Paritätstest + Golden-Vektor-Dump. Landet zuerst, grün, vor jeglichem Swift.
+- **Phase 1 — iPhone-Inferenz-Kern** *(Swift, gerätegeprüft)*: Extractor (30 invariante
+  Features) + RF + HMM + Engine + ResumableState, getrieben nur von den Golden-Vektoren
+  (keine Sensoren, kein Filter). Beweist On-Device-Parität + Resume isoliert.
 - **Phase 2 — Passive Erfassung**: PassiveRecorder (Watch, `CMSensorRecorder` +
   12-h-Re-Arm) + `AxisCanonicalizer` + `WCSession.transferFile`-Transport +
   `didReceiveFile`-Trigger + PassiveBatchStore/Identifier-Dedup + ResumableState-
@@ -396,22 +390,21 @@ Gerät gebaut und verifiziert.
 - **Trainings-Orientierungs-Konvention** (Wrist/Crown) ist in Phase 0 zu bestimmen und
   ist das Ziel der `AxisCanonicalizer`-Normalisierung (R-Axis). Default-Annahme: Left
   Wrist / Crown Right — vor dem Swift-Port bestätigen.
-- **Roh-Accel → userAccel per High-Pass (gelöst via `GravityHighPass`, Validierung in
-  Phase 0).** Der ≈0-Roh-Accel-Befund (`passive_raw_accel_loso.py`) lief unter
-  *per-session* Z-Score, der den Schwerkraft-Offset pro Session absorbiert. Das
-  Deployment-Modell nutzt *pooled* µ/σ → die offset-sensitiven Features (mean/min/max/
-  rms) trügen bei Roh-Accel einen Schwerkraft-Offset, den userAccel-µ/σ nicht
-  re-zentrieren. **Lösung:** ein Komplementär-/High-Pass-Filter (`GravityHighPass`)
-  rechnet die Schwerkraft on-device dynamisch heraus und approximiert das
-  `userAcceleration`-Signal → das Modell bleibt *unangetastet*. Das ist den
-  Alternativen überlegen: (a) auf Roh-Accel trainieren würde Watch-*Orientierung*
-  statt Schreibbewegung lernen (unser Gravity-Ablations-Befund: Gravity ist ein
-  Personalisierungs-, kein Generalisierungs-Signal), (b) mean-invariante Feature-
-  Teilmenge wirft Signal weg. **Phase-0-Validierung** (datenfrei, aus Modern-Sessions):
-  High-Pass auf rekonstruierter Roh-Accel vs. echte `userAcceleration` — Feature- +
-  Prediction-Übereinstimmung; Failure-Mode anhaltende Rotation (der 1-Pol-Filter laggt,
-  wo CoreMotions Gyro-Fusion sauber trennt — v. a. Idle-Hard-Negatives gesturing/
-  page-turn). Trägt (c) nicht sauber, Rückfall auf (a)/(b).
+- **Roh-Accel-Deployment GELÖST via gravity-invariante Features (Pivot weg vom High-Pass).**
+  Der ≈0-Roh-Accel-Befund (`passive_raw_accel_loso.py`) lief unter *per-session* Z-Score;
+  das Deployment-Modell nutzt *pooled* µ/σ → die offset-sensitiven Features (mean/min/max/
+  rms je Achse + acc_mag) trügen bei Roh-Accel einen Schwerkraft-Offset. Der ursprünglich
+  geplante Komplementär-High-Pass (`GravityHighPass`) wurde **verworfen**: die
+  Decision-Scale-Validierung zeigte **4–7 pp systematische Kosten** — der HMM *verstärkt*
+  den Fehler, statt ihn zu glätten (zeitlich korreliert; der 1-Pol-Filter ist eine zu grobe
+  Schwerkraft-Schätzung ggü. CoreMotions Gyro-Fusion). **Stattdessen (b):** das Modell
+  trainiert nur auf den **30 schwerkraft-offset-invarianten Features**
+  (std/range/FFT-DC-removed/zcr/jerk/corr), die auf roher Gesamtbeschleunigung ==
+  userAccel sind (by construction). Kein Filter, null Diskrepanz, volle N=15-Daten.
+  LOSO-Kosten ggü. den vollen 47 acc-only: **+0.4 pp (n.s.)**; per-fold nur P09 −1.6 pp
+  (Soft-Writer-Amplitude, lag in den gedroppten Features), P17 +1.1 pp (Offset-Features
+  sind ein Personalisierungs-, kein Generalisierungs-Signal), kein Kollaps. (a)
+  Roh-Accel-Retraining wäre schlechter: nur N=5 Modern + lernt Orientierung.
 - `CMSensorRecorder` zeichnet ~50 Hz auf → Raten-Match zum 50-Hz-Legacy-Modell.
 - Die HMM-Parameter (`hmm_live.json`) sind modell-agnostisch (Übergangsmatrix =
   Label-Dynamik) und gelten auch für das acc-only-Modell; bei Bedarf später aus
