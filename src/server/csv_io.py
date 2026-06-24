@@ -238,6 +238,26 @@ def get_watch_writer(path: Path) -> csv.DictWriter:
     return _watch_writers[key][1]
 
 
+def flush_watch_writer(path: Path) -> None:
+    """Flush the cached writer's buffer to the OS.
+
+    Why: the watch writer is opened with default block buffering and kept open
+    across requests, so writerow() only fills an in-process buffer. POST /watch
+    returns 200 — the ACK the iPhone deletes its copy of the batch on — so that
+    ACK must mean "durably handed to the OS", or a server-process restart between
+    the 200 and the next buffer flush loses an already-deleted batch. flush()
+    (not fsync) is the right level: it survives a process crash/restart, and at
+    ~5-10 batches/s a per-batch fsync would be needless disk-sync overhead.
+    No-op if the writer isn't open.
+    """
+    entry = _watch_writers.get(str(path))
+    if entry:
+        try:
+            entry[0].flush()
+        except OSError:
+            pass
+
+
 def close_watch_writer(path: Path) -> None:
     """Schließt und entfernt den Writer für diese Datei (beim Session-Stop)."""
     key = str(path)
