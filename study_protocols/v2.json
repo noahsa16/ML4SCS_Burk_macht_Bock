@@ -22,14 +22,14 @@
       "category": "writing",
       "duration_seconds": 210,
       "instances": 1,
-      "instruction": "Rechne jede Aufgabe Schritt für Schritt. Schreibe jeden Zwischenschritt einzeln untereinander auf — auch wenn du es im Kopf könntest.",
+      "instruction": "Arbeite die Aufgaben der Reihe nach ab und schreibe durchgehend — jede Zeile, jede Zwischenrechnung einzeln untereinander. Halt den Stift in Bewegung; bist du mit einer Aufgabe fertig, mach sofort mit der nächsten weiter, bis die Zeit um ist.",
       "content_type": "list",
       "content": [
-        "Ein rechteckiges Zimmer ist 5 m lang und 4 m breit. Berechne (a) die Fläche, (b) den Umfang, (c) wie viel ein Teppich kostet, der den Boden bedeckt, wenn ein Quadratmeter 20 € kostet. Schreibe jede Teilrechnung einzeln auf.",
-        "Im Café: 1 Kaffee 3 €, 1 Tee 2 €, 1 Stück Kuchen 4 €. Ihr seid zu viert und bestellt: 2 Kaffee, 1 Tee, 1 Saft (3 €) und 3 Stück Kuchen. Schreibe jede Position einzeln (Anzahl × Preis), dann die Summe. Wie viel zahlt jeder bei gleicher Aufteilung?",
-        "Eine Strecke von 240 km wird mit verschiedenen Geschwindigkeiten gefahren. Wie lange dauert es bei 60, 80, 120 und 40 km/h? Rechne jede Zeit einzeln (Strecke ÷ Geschwindigkeit) und schreibe sie in ganzen Stunden auf.",
-        "Berechne der Reihe nach und schreibe jede Rechnung einzeln auf: 10 % von 200, 25 % von 200, 50 % von 200, 75 % von 200, 5 % von 200, 1 % von 200.",
-        "Dreisatz: 3 Brötchen kosten 1,50 €. Was kosten 1, 2, 5, 6, 9 und 12 Brötchen? Rechne erst den Preis pro Brötchen aus, dann jeden Wert einzeln."
+        "Eine Schnecke sitzt in einem 15 Meter tiefen Brunnen. Tagsüber kriecht sie 4 Meter nach oben, nachts rutscht sie 2 Meter zurück. Schreibe für jeden Tag eine Zeile, wo sie steht — z. B. so: Tag 1: Start 0 m → abends 4 m → morgens 2 m. Mach das Zeile für Zeile, bis sie oben (15 m) angekommen ist.",
+        "Du hast für einen Wochenend-Trip 250 € Budget. Zugfahrt hin und zurück 40 €, Hostel 35 € pro Nacht (2 Nächte), Essen 20 € pro Tag (3 Tage). Schreibe jeden Kostenpunkt einzeln untereinander auf und ziehe ihn vom Budget ab. Wie viel bleibt am Ende übrig?",
+        "Für ein Uni-Konzert wurden 45 Tickets zu je 14 € verkauft. Rechne die Gesamteinnahmen (45 × 14) schriftlich aus, indem du sie zerlegst (erst 45 × 10, dann 45 × 4) und schreibe die Zwischenergebnisse und die Summe auf.",
+        "Du sparst jede Woche 5 € mehr als die Woche davor: Woche 1: 5 €, Woche 2: 10 €, Woche 3: 15 € … Schreibe für 15 Wochen je eine Zeile mit Woche, Sparbetrag und bisher insgesamt Erspartem (laufende Summe).",
+        "Falls noch Zeit ist: Schreibe die 13er-Reihe vollständig aus — 13 × 1 = 13, 13 × 2 = 26, … bis 13 × 20, jede Zeile komplett."
       ]
     },
     {
@@ -75,7 +75,7 @@
       "category": "idle",
       "duration_seconds": 120,
       "instances": 1,
-      "instruction": "Lege den Stift weg. Tippe auf deinem Handy durchgehend Nachrichten — z. B. eine lange Nachricht an einen Freund entwerfen oder Notizen in die Notiz-App schreiben. Tippe mit der Hand, an der du die Watch trägst, oder halte das Handy damit.",
+      "instruction": "Lege den Stift weg. Tippe auf deinem Handy durchgehend Nachrichten — z. B. eine lange Nachricht an einen Freund entwerfen oder Notizen in die Notiz-App schreiben. Wichtig: Es tippt aktiv die Hand, an der du die Watch trägst — nicht nur das Handy damit halten.",
       "content_type": "text",
       "content": "Durchgehend tippen, nicht nur lesen. Notiz-App reicht, muss nichts abgeschickt werden."
     },
@@ -85,7 +85,7 @@
       "category": "idle",
       "duration_seconds": 90,
       "instances": 1,
-      "instruction": "Lege den Stift weg. Scrolle auf deinem Handy durch einen Feed (Instagram, Reddit, News — egal). Halte oder bediene das Handy mit der Watch-Hand.",
+      "instruction": "Lege den Stift weg. Scrolle auf deinem Handy durch einen Feed (Instagram, Reddit, News — egal). Wichtig: Scrolle und wische aktiv mit der Hand, an der du die Watch trägst — nicht nur halten.",
       "content_type": "text",
       "content": "Normales Scrollen, gelegentliches Antippen. Kein Tippen von Text."
     },
@@ -97,13 +97,13 @@
       "instances": 1,
       "instruction": "Lege den Stift weg. Tippe auf einer Laptop-/Computer-Tastatur einen beliebigen Text (z. B. den Anfang des Abschreibe-Textes oder freies Schreiben). Durchgehend tippen.",
       "content_type": "text",
-      "content": "Falls kein Laptop verfügbar: stattdessen auf dem Handy mit beiden Daumen tippen."
+      "content": "Eine echte Tastatur (Laptop/Computer) ist nötig — die Versuchsleitung stellt sie bereit. Tippe flüssig weiter, auch mit Tippfehlern; es geht nur um die Tippbewegung."
     },
     {
       "id": "pen_fidgeting",
       "label": "Stift in der Hand (ohne Schreiben)",
       "category": "idle",
-      "duration_seconds": 90,
+      "duration_seconds": 120,
       "instances": 1,
       "instruction": "Halte den Stift in der Schreibhand, aber schreibe NICHT: drehe ihn zwischen den Fingern, klicke, tippe mit dem stumpfen Ende leicht auf den Tisch, gestikuliere damit beim Reden. Die Spitze darf das Papier nicht berühren.",
       "content_type": "text",
@@ -113,7 +113,7 @@
       "id": "gesturing",
       "label": "Reden & Gestikulieren",
       "category": "idle",
-      "duration_seconds": 90,
+      "duration_seconds": 60,
       "instances": 1,
       "instruction": "Lege den Stift weg. Erzähle der Versuchsleitung etwas (z. B. deinen gestrigen Tag) und gestikuliere dabei natürlich mit den Händen. Zwischendurch gerne trinken oder am Tisch hantieren.",
       "content_type": "text",
