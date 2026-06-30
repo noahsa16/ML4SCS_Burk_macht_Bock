@@ -23,6 +23,9 @@ build/
 # Data / outputs — regenerierbar (python -m src.merge, plot_alignment.py …)
 data/processed/
 data/raw/
+# Why: gepacktes Daten-Bundle (menschliche Probanden-IMU-Daten) für den CI-Sweep —
+# lokal gepackt, out-of-repo gehostet. Darf NIE in dieses PUBLIC-Repo gelangen.
+sweep_data.zip
 # Why: die Joblibs sind zu groß (MB) und regenerierbar, daher models/-Inhalte
 # ignored. hmm_live.json ist dagegen ein winziges, deploybares Live-Artefakt
 # (2x2-Matrix + Prior), das die Inferenz zur Laufzeit braucht -> per Negation
