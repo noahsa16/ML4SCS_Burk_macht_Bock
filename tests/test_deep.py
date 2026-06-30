@@ -464,3 +464,77 @@ def test_long_input_table_reports_win10(capsys):
     assert "10s" in out
     assert "tcn" in out
     assert "0.825" in out  # RF@10s-Referenz erscheint, nicht RF@5s
+
+
+def test_train_one_model_applies_augmenter_in_training_only():
+    """Augmenter wird im Train-Loop aufgerufen, im eval()-Pfad (predict_proba) nicht."""
+    rng = np.random.default_rng(11)
+    def _make(n, scale):
+        return rng.normal(scale=scale, size=(n, 50, 6)).astype(np.float32)
+    X = np.concatenate([_make(16, 0.2), _make(16, 2.0)])
+    y = np.concatenate([np.zeros(16), np.ones(16)]).astype(np.int64)
+    Xv = np.concatenate([_make(8, 0.2), _make(8, 2.0)])
+    yv = np.concatenate([np.zeros(8), np.ones(8)]).astype(np.int64)
+
+    calls = {"n": 0}
+    def spy(xb):
+        calls["n"] += 1
+        return xb
+
+    model, _ = train_one_model(
+        CNN1D(), X, y, Xv, yv, max_epochs=2, patience=2, batch_size=16, augmenter=spy
+    )
+    assert calls["n"] > 0           # im Training angewandt
+    before = calls["n"]
+    predict_proba(model, Xv)        # eval-Pfad
+    assert calls["n"] == before     # NICHT im eval angewandt
+
+
+def test_train_deep_loso_passes_augmenter_per_flag(monkeypatch):
+    """augment=True -> train_one_model bekommt einen Augmenter; False -> None."""
+    from src.training.deep import train_loso as DL
+
+    sessions = pd.DataFrame({
+        "session_id": ["S1", "S2", "S3"],
+        "person_id": ["P1", "P2", "P3"],
+        "watch_profile": ["50hz", "50hz", "50hz"],
+    })
+    monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
+
+    def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
+                      exclude_boundary=None, zscore=False):
+        out = {}
+        for sid, pid in zip(sessions.session_id, sessions.person_id):
+            n = 40
+            out[sid] = {
+                "X": np.zeros((n, seq_len, 6), dtype=np.float32),
+                "y": np.tile([0, 1], n // 2).astype(np.int64),
+                "t": (np.arange(n) * 500).astype(float),
+                "person_id": pid,
+            }
+        return out
+    monkeypatch.setattr(DL, "_load_all_sessions", fake_load_all)
+
+    captured = []
+    def fake_train(m, *a, augmenter=None, **k):
+        captured.append(augmenter)
+        return (m, 0)
+    monkeypatch.setattr(DL, "train_one_model", fake_train)
+    rng = np.random.default_rng(0)
+    monkeypatch.setattr(DL, "predict_proba", lambda m, X: rng.random(len(X)))
+
+    DL.train_deep_loso("cnn", 1, pool="legacy", include_all=True, augment=True)
+    assert captured and all(a is not None for a in captured)
+
+    captured.clear()
+    DL.train_deep_loso("cnn", 1, pool="legacy", include_all=True, augment=False)
+    assert captured and all(a is None for a in captured)
+
+
+def test_out_suffix_composition():
+    """_out_suffix(zscore, augment) komponiert Dateinamen-Suffixe richtig."""
+    from src.training.deep import __main__ as deep_main
+    assert deep_main._out_suffix(False, False) == ""
+    assert deep_main._out_suffix(True, False) == "_zscore"
+    assert deep_main._out_suffix(False, True) == "_aug"
+    assert deep_main._out_suffix(True, True) == "_zscore_aug"
