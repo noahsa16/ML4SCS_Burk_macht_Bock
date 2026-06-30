@@ -1,0 +1,82 @@
+# Augmentation-A/B — fährt das ehrliche Augmentation-Experiment auf GitHubs
+# Runnern (CPU) statt lokal. Selbst-enthaltener Treiber scripts/ml/augment_ab.py
+# (mehrere Seeds × {aug, no-aug}, seed-gemittelt, gepaarter Wilcoxon) schreibt
+# models/augment_ab_{pool}.csv + reports/augment_ab.md. Dispatch-only — kein
+# Cron, weil das ein Experiment ist, keine nächtliche Regression.
+#
+# Daten: dasselbe Bundle wie der LOSO-Sweep (Repo-Secret SWEEP_DATA_URL). Das
+# Bundle MUSS die aktuellen Modern-Sessions enthalten — `pool=modern` lädt
+# native 100hz_grav-Sessions. Falls die Kohorte seit dem letzten Pack gewachsen
+# ist: scripts/ops/pack_sweep_data.sh neu laufen lassen, neu hosten, Secret
+# aktualisieren.
+name: Augmentation-A/B
+
+on:
+  workflow_dispatch:        # Knopf im Actions-Tab — Felder anpassen, "Run workflow"
+    inputs:
+      model:
+        description: "Deep-Modell (tcn6 = 5-s-Headline-Architektur)"
+        default: "tcn6"
+      pool:
+        description: "Pool: modern (Deploy-Ziel, N klein, breites Seed-Band) oder legacy (N=15, engeres Band)"
+        type: choice
+        options: [modern, legacy]
+        default: modern
+      win:
+        description: "Input-Fenster in s"
+        default: "5"
+      seeds:
+        description: "Seeds (Leerzeichen-getrennt) — Mehr-Seed schlägt den Seed-Rausch-Floor (±1.7 pp)"
+        default: "42 43 44"
+
+permissions:
+  contents: read
+
+jobs:
+  augment-ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300      # tcn6 @5s über mehrere Seeds × Folds auf CPU ist lang. GitHub-Hardcap 6 h
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+      - name: Abhängigkeiten
+        run: pip install -r requirements.txt
+      - name: Daten holen (gitignored → aus Secret SWEEP_DATA_URL)
+        env:
+          DATA_URL: ${{ secrets.SWEEP_DATA_URL }}
+        run: |
+          if [ -z "$DATA_URL" ]; then
+            echo "::error::Secret SWEEP_DATA_URL fehlt — siehe scripts/ops/pack_sweep_data.sh"
+            exit 1
+          fi
+          curl -fsSL "$DATA_URL" -o sweep_data.zip
+          unzip -q sweep_data.zip          # entpackt nach data/
+      # Why: Inputs über env statt direkt in die Shell interpoliert (kein
+      # ${{ }}-in-run) — Standard-Härtung gegen Script-Injection. SEEDS bleibt
+      # unquoted, damit nargs='+' die einzelnen Seeds als Argumente sieht.
+      - name: "Augmentation-A/B · ${{ inputs.model }} @${{ inputs.win }}s · pool=${{ inputs.pool }}"
+        env:
+          MODEL: ${{ inputs.model }}
+          POOL: ${{ inputs.pool }}
+          WIN: ${{ inputs.win }}
+          SEEDS: ${{ inputs.seeds }}
+        run: |
+          python scripts/ml/augment_ab.py --model "$MODEL" --pool "$POOL" --win "$WIN" --seeds $SEEDS
+      - name: Verdikt in die Job-Summary
+        if: always()
+        run: |
+          if [ -f reports/augment_ab.md ]; then
+            cat reports/augment_ab.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Artefakte hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: "augment-ab-${{ inputs.pool }}"
+          path: |
+            models/augment_ab_*.csv
+            reports/augment_ab.md
+          if-no-files-found: warn
