@@ -152,9 +152,11 @@ def _out_suffix(zscore: bool, augment: bool) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m src.training.deep")
     parser.add_argument(
-        "--model", choices=["cnn", "lstm", "gru", "tcn", "tcn6"], required=True,
+        "--model", choices=["cnn", "lstm", "gru", "tcn", "tcn6", "transformer"],
+        required=True,
         help="Genau ein Sequenz-Modell pro Lauf. tcn6 = TCN mit rezeptivem Feld "
-             "~5 s (6 Ebenen) fuer den 5-s-Input-Vergleich.",
+             "~5 s (6 Ebenen) fuer den 5-s-Input-Vergleich. transformer = "
+             "kleiner Encoder-Benchmark (Dispatch-only, nicht im Nightly-Default).",
     )
     parser.add_argument(
         "--pool", choices=["legacy", "modern"], default="legacy",

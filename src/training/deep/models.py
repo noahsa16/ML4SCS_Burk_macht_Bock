@@ -6,6 +6,8 @@ bei N=10 Probanden ist Parameter-Sparsamkeit wichtiger als Kapazitaet.
 """
 from __future__ import annotations
 
+import math
+
 import torch
 import torch.nn as nn
 
@@ -189,10 +191,72 @@ class GRUClassifier(_RNNClassifier):
         super().__init__(nn.GRU, n_channels, hidden)
 
 
+class _PositionalEncoding(nn.Module):
+    """Sinusoidales Positional-Encoding (Vaswani et al. 2017), forward-only.
+
+    Wird auf die tatsaechliche Sequenzlaenge zugeschnitten -> seq-len-agnostisch
+    wie der Rest des Pakets. ``max_len`` deckt das laengste Fenster ab
+    (500 Samples = 5 s @ 100 Hz).
+    """
+
+    def __init__(self, d_model: int, max_len: int = 600) -> None:
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        pos = torch.arange(max_len).unsqueeze(1).float()
+        div = torch.exp(
+            torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model)
+        )
+        pe[:, 0::2] = torch.sin(pos * div)
+        pe[:, 1::2] = torch.cos(pos * div)
+        self.register_buffer("pe", pe.unsqueeze(0))  # (1, max_len, d_model)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq, d_model)
+        return x + self.pe[:, : x.size(1)]
+
+
+class TransformerClassifier(nn.Module):
+    """Kleiner Transformer-Encoder: Input-Projektion + Positional-Encoding +
+    2 Encoder-Layer + Mean-Pool ueber die Zeit + Head. Seq-len-agnostisch.
+
+    Bewusst klein gehalten (~18k Params): bei N<=15 ist Parameter-Sparsamkeit
+    wichtiger als Kapazitaet, und ein Transformer ist das daten-hungrigste
+    Modell des Pakets. Bewusst NICHT in der Nightly-Default-Matrix -- nur als
+    Dispatch-Benchmark (siehe scripts/ml/sweep_matrix.py).
+    """
+
+    def __init__(
+        self,
+        n_channels: int = 6,
+        d_model: int = 32,
+        nhead: int = 4,
+        num_layers: int = 2,
+        dim_ff: int = 64,
+        dropout: float = 0.2,
+    ) -> None:
+        super().__init__()
+        self.proj = nn.Linear(n_channels, d_model)
+        self.posenc = _PositionalEncoding(d_model)
+        layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
+            dropout=dropout, batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(layer, num_layers=num_layers)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(d_model, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq, 6) -- batch_first, kein Transpose noetig.
+        x = self.posenc(self.proj(x))
+        x = self.encoder(x)          # (batch, seq, d_model)
+        x = x.mean(dim=1)            # Mean-Pool ueber die Zeit, (batch, d_model)
+        return self.head(x).squeeze(-1)  # (batch,)
+
+
 MODELS: dict[str, type[nn.Module]] = {
     "cnn": CNN1D,
     "lstm": LSTMClassifier,
     "gru": GRUClassifier,
     "tcn": TCN,
     "tcn6": TCN6,
+    "transformer": TransformerClassifier,
 }

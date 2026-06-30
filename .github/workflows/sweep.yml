@@ -12,26 +12,43 @@ name: LOSO-Sweep
 on:
   workflow_dispatch:        # Knopf im Actions-Tab — Felder anpassen, "Run workflow"
     inputs:
+      # --- Headline-Familien (Default = was der Cron faehrt) ---
+      pools:
+        description: "Headline-Pools (Komma) — legacy,modern"
+        default: "legacy,modern"
+      deep_models:
+        description: "Override der Nightly-Deep-Liste als model:win (z.B. 'transformer:5'); leer = Default"
+        default: ""
+      augment:
+        description: "Deep-Configs zusaetzlich mit Augmentation"
+        type: choice
+        options: [off, on]
+        default: "off"
+      # --- Alter breiter Explorations-Sweep (Dispatch-only) ---
+      broad:
+        description: "Statt Headline den alten breiten Sweep fahren (nutzt die models/gaps/windows/-Felder unten)"
+        type: boolean
+        default: false
       models:
-        description: "Modelle (Komma) — rf,extratrees,histgb,logreg,svm_rbf,mlp,cnn,lstm,gru,tcn"
+        description: "[broad] Modelle (Komma) — rf,extratrees,histgb,logreg,svm_rbf,mlp,cnn,lstm,gru,tcn"
         default: "rf,extratrees,histgb,logreg,svm_rbf,mlp,cnn,lstm,gru,tcn"
       gaps:
-        description: "RF Label-Gap-Sweep in ms (Komma; 'none' = aus)"
+        description: "[broad] RF Label-Gap-Sweep in ms (Komma; 'none' = aus)"
         default: "300,1000,2000,3000"
       windows:
-        description: "RF Feature-Fenster in s, 50% Overlap (Komma; 'none' = aus)"
+        description: "[broad] RF Feature-Fenster in s, 50% Overlap (Komma; 'none' = aus)"
         default: "3,5"
       extras:
-        description: "Kuratierte Extras (Overlap-Sweep + SVM/ExtraTrees-Hyperparameter)"
+        description: "[broad] Kuratierte Extras (Overlap-Sweep + SVM/ExtraTrees-HP)"
         type: boolean
         default: true
       deep_wins:
-        description: "Deep-Input-Fenster in s (Komma; cnn/tcn, tcn6 nur @5s; 'none' = aus). CPU-Runner: langsam"
+        description: "[broad] Deep-Input-Fenster in s (Komma; 'none' = aus). CPU-Runner: langsam"
         default: "5,10"
   schedule:
-    # Jede Nacht 02:00 UTC, volle Default-Matrix. deep_wins ist hier AUS
-    # (leerer inputs-Kontext → sweep_matrix-Default 'none'), damit der Cron
-    # nicht an langsamen Lang-Fenster-Deep-Jobs hängt; per Dispatch einschaltbar.
+    # Jede Nacht 02:00 UTC. Leerer inputs-Kontext → sweep_matrix-Default = die
+    # drei HEADLINE-Familien (deep-Grossfenster + MLP-HP + RF+HMM) auf BEIDEN
+    # Pools, ohne Augment, ohne breiten Sweep. Breit/Augment per Dispatch.
     - cron: "0 2 * * *"
 
 permissions:
@@ -50,6 +67,10 @@ jobs:
           python-version: "3.13"
       - id: gen
         env:
+          POOLS: ${{ inputs.pools }}
+          DEEP_MODELS: ${{ inputs.deep_models }}
+          AUGMENT: ${{ inputs.augment }}
+          BROAD: ${{ inputs.broad }}
           MODELS: ${{ inputs.models }}
           GAPS: ${{ inputs.gaps }}
           WINDOWS: ${{ inputs.windows }}

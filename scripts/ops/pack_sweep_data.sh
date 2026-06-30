@@ -14,6 +14,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
+# Why: beide Window-Profile je trainable Subject sicherstellen, bevor gepackt
+# wird — sonst droppt ein both-Pool-Sweep (legacy+modern) Subjects still, denen
+# ein Profil fehlt. Idempotent; harter Fail bei nicht baubarer Luecke.
+python scripts/ops/ensure_views.py
+
 out="sweep_data.zip"
 rm -f "$out"
 
