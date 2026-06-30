@@ -529,3 +529,12 @@ def test_train_deep_loso_passes_augmenter_per_flag(monkeypatch):
     captured.clear()
     DL.train_deep_loso("cnn", 1, pool="legacy", include_all=True, augment=False)
     assert captured and all(a is None for a in captured)
+
+
+def test_out_suffix_composition():
+    """_out_suffix(zscore, augment) komponiert Dateinamen-Suffixe richtig."""
+    from src.training.deep import __main__ as deep_main
+    assert deep_main._out_suffix(False, False) == ""
+    assert deep_main._out_suffix(True, False) == "_zscore"
+    assert deep_main._out_suffix(False, True) == "_aug"
+    assert deep_main._out_suffix(True, True) == "_zscore_aug"

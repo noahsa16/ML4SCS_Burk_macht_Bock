@@ -144,6 +144,11 @@ def _print_gap_table(by_group: dict[tuple[str, int], pd.DataFrame]) -> None:
               f"{tr - te:>12.3f}{df['best_epoch'].mean():>9.1f}")
 
 
+def _out_suffix(zscore: bool, augment: bool) -> str:
+    """Dateinamen-Suffix fuer deep_loso_{pool}{suffix}.csv."""
+    return ("_zscore" if zscore else "") + ("_aug" if augment else "")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(prog="python -m src.training.deep")
     parser.add_argument(
@@ -170,6 +175,12 @@ def main() -> None:
         help="Per-Session-Z-Score einschalten (Default aus -- fuers CNN "
              "empirisch neutral, ohne ist direkt deploybar ohne "
              "Kalibrierphase). Schreibt nach deep_loso_{pool}_zscore.csv.",
+    )
+    parser.add_argument(
+        "--augment", action="store_true",
+        help="Train-only Daten-Augmentation (scale 0.8-1.2 + rotate +/-10 deg) "
+             "einschalten. Default aus -- ohne Flag bit-identisch. Schreibt "
+             "nach deep_loso_{pool}_aug.csv.",
     )
     parser.add_argument(
         "--exclude-boundary", action="store_true",
@@ -207,6 +218,7 @@ def main() -> None:
             seed=args.seed,
             exclude_boundary=exclude_boundary,
             zscore=zscore,
+            augment=args.augment,
             on_event=on_event,
             run_dir=run_dir,
         )
@@ -220,8 +232,8 @@ def main() -> None:
         raise SystemExit("Keine Ergebnisse -- Daten / Filter pruefen.")
 
     folds_table = pd.concat(all_folds, ignore_index=True)
-    norm_suffix = "_zscore" if zscore else ""
-    out_csv = MODEL_DIR / f"deep_loso_{args.pool}{norm_suffix}.csv"
+    suffix = _out_suffix(zscore, args.augment)
+    out_csv = MODEL_DIR / f"deep_loso_{args.pool}{suffix}.csv"
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     folds_table.to_csv(out_csv, index=False)
     print(f"\n-> {out_csv}  ({len(folds_table)} fold-Zeilen)")
