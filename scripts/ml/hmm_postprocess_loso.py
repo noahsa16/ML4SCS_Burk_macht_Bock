@@ -235,13 +235,22 @@ def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--smoothing", type=float, default=1.0,
                     help="Laplace-Glättung der Übergangs-Counts (default 1.0)")
+    ap.add_argument("--oof", default=None,
+                    help="OOF-CSV (Default models/loso_oof.csv) — pro Pool z.B. "
+                         "loso_oof_modern.csv, damit modern-RF+HMM nicht die "
+                         "legacy-OOF liest.")
+    ap.add_argument("--out", default=None,
+                    help="cv-Output (Default models/hmm_postprocess_cv.csv) — pro "
+                         "Pool z.B. hmm_postprocess_modern_cv.csv.")
     args = ap.parse_args()
 
-    if not OOF_PATH.exists():
+    oof_path = Path(args.oof) if args.oof else OOF_PATH
+    cv_out = Path(args.out) if args.out else CV_OUT
+    if not oof_path.exists():
         raise SystemExit(
-            f"OOF fehlt: {OOF_PATH} — erst `python -m src.training.train_loso "
+            f"OOF fehlt: {oof_path} — erst `python -m src.training.train_loso "
             f"--save-oof` laufen lassen.")
-    oof = pd.read_csv(OOF_PATH)
+    oof = pd.read_csv(oof_path)
     persons = list(dict.fromkeys(oof["person_id"]))  # OOF-Reihenfolge stabil
     print(f"Folds: {len(persons)}   Windows: {len(oof):,}   smoothing={args.smoothing:g}")
 
@@ -306,8 +315,8 @@ def main() -> None:
     cv["accuracy"] = detail["hmm_filter_acc"]
     cv["f1_writing"] = detail["hmm_filter_f1"]
     cv["roc_auc"] = detail["hmm_filter_auc"]
-    CV_OUT.parent.mkdir(parents=True, exist_ok=True)
-    cv.to_csv(CV_OUT, index=False)
+    cv_out.parent.mkdir(parents=True, exist_ok=True)
+    cv.to_csv(cv_out, index=False)
     detail.to_csv(DETAIL_OUT, index=False)
 
     t_acc = paired_fold_test(detail["hmm_filter_acc"].to_numpy(), detail["burst5cal_acc"].to_numpy())
@@ -322,7 +331,7 @@ def main() -> None:
     print(f"Negativkontrolle (shuffle): acc {_ms(detail['nc_shuffle_acc'])}  → muss ~Zufall sein")
     print(f"Primär acc: Δ={t_acc['mean_diff']:+.4f} p={t_acc['p_value']:.4f} sig={t_acc['significant']}")
     print(f"Primär AUC: Δ={t_auc['mean_diff']:+.4f} p={t_auc['p_value']:.4f} sig={t_auc['significant']}")
-    print(f"→ {CV_OUT.relative_to(ROOT)}")
+    print(f"→ {cv_out}")
     print(f"→ {DETAIL_OUT.relative_to(ROOT)}")
     print(f"→ {REPORT_OUT.relative_to(ROOT)}")
 

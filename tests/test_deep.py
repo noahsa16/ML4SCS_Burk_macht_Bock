@@ -142,7 +142,7 @@ def test_model_registry_forward(name, seq_len):
 
 
 def test_models_registry_keys():
-    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn", "tcn6"}
+    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn", "tcn6", "transformer"}
 
 
 @pytest.mark.parametrize("seq_len", [50, 250])
@@ -538,3 +538,42 @@ def test_out_suffix_composition():
     assert deep_main._out_suffix(True, False) == "_zscore"
     assert deep_main._out_suffix(False, True) == "_aug"
     assert deep_main._out_suffix(True, True) == "_zscore_aug"
+
+
+# --- Transformer (Dispatch-only Benchmark) -----------------------------------
+
+
+def test_transformer_in_registry():
+    assert "transformer" in MODELS
+
+
+@pytest.mark.parametrize("seq_len", [50, 250, 500])
+def test_transformer_forward_shape(seq_len):
+    """Seq-len-agnostisch (1-s-legacy bis 5-s-modern), ein Logit pro Sample."""
+    out = MODELS["transformer"]()(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_transformer_forward_batch_one():
+    model = MODELS["transformer"]()
+    model.eval()
+    out = model(torch.randn(1, 50, 6))
+    assert out.shape == (1,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_transformer_param_budget():
+    """Kleiner Benchmark-Encoder — darf groesser als die Convs sein, aber nicht
+    ausufern (N<=15 -> Parameter-Sparsamkeit)."""
+    n = sum(p.numel() for p in MODELS["transformer"]().parameters())
+    assert n < 50_000
+
+
+def test_transformer_handles_varying_seq_len():
+    """Positional-Encoding ist additiv + laengen-zugeschnitten -> dasselbe
+    Modell laeuft fuer 60- und 240-Sample-Fenster ohne Crash."""
+    model = MODELS["transformer"]()
+    model.eval()
+    assert model(torch.randn(2, 60, 6)).shape == (2,)
+    assert model(torch.randn(2, 240, 6)).shape == (2,)
