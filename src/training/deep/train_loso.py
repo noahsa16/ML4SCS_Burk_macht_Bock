@@ -16,6 +16,7 @@ from sklearn.metrics import confusion_matrix, f1_score, roc_auc_score
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.training import events as _events
+from src.training.deep.augment import Augmenter
 from src.training.deep.data import load_session_raw
 from src.training.deep.models import MODELS
 from src.training.train_loso import _burst_metrics, _select_sessions
@@ -74,6 +75,7 @@ def train_one_model(
     patience: int = 8,
     batch_size: int = 64,
     lr: float = 1e-3,
+    augmenter=None,
     on_epoch=None,
 ) -> tuple[torch.nn.Module, int]:
     """Trainiere ein Modell mit Early Stopping auf Val-ROC-AUC.
@@ -112,6 +114,8 @@ def train_one_model(
         loss_sum, n_batches = 0.0, 0
         for xb, yb in loader:
             xb, yb = xb.to(DEVICE), yb.to(DEVICE)
+            if augmenter is not None:
+                xb = augmenter(xb)
             opt.zero_grad()
             loss = loss_fn(model(xb), yb)
             loss.backward()
@@ -259,6 +263,7 @@ def train_deep_loso(
     seed: int = 42,
     exclude_boundary: tuple[float, float] | None = None,
     zscore: bool = False,
+    augment: bool = False,
     on_event=None,
     run_dir: Path | None = None,
 ) -> pd.DataFrame:
@@ -370,8 +375,16 @@ def train_deep_loso(
         # Folds finalisieren statt hart abbrechen, wie der RF-Runner.
         try:
             model = MODELS[model_name]()
+            # Why: eigener Aug-RNG pro Fold (seed-abgeleitet, order-unabhaengig);
+            # getrennt vom globalen RNG, damit Init+Shuffle bei gleichem Seed
+            # zwischen aug/no-aug identisch bleiben -> sauber gepaart.
+            augmenter = (
+                Augmenter(seed=seed * 1000 + i, scale_range=(0.8, 1.2), max_deg=10.0)
+                if augment else None
+            )
             model, best_epoch = train_one_model(
                 model, train_X, train_y, val_X, val_y,
+                augmenter=augmenter,
                 on_epoch=lambda e, l, a, _i=i: emit(
                     {"type": _events.EPOCH, "fold": _i, "epoch": e,
                      "loss": l, "val_auc": a}))
