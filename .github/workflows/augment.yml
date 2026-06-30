@@ -1,24 +1,28 @@
-# Augmentation-A/B — fährt das ehrliche Augmentation-Experiment auf GitHubs
-# Runnern (CPU) statt lokal. Selbst-enthaltener Treiber scripts/ml/augment_ab.py
-# (mehrere Seeds × {aug, no-aug}, seed-gemittelt, gepaarter Wilcoxon) schreibt
-# models/augment_ab_{pool}.csv + reports/augment_ab.md. Dispatch-only — kein
-# Cron, weil das ein Experiment ist, keine nächtliche Regression.
+# Augmentation-A/B (PARALLEL) — fährt das ehrliche aug-vs-no-aug-Experiment auf
+# GitHubs CPU-Runnern. Jede (Seed, Bedingung)-Kombination ist EIN paralleler Job
+# (scripts/ml/augment_matrix.py baut die Matrix), statt alle 6 sequentiell in
+# einem Job (das lief in den 6-h-Bereich). Der collect-Job mittelt die Seeds und
+# rechnet den gepaarten Wilcoxon (scripts/ml/augment_ab_collect.py).
 #
-# Daten: dasselbe Bundle wie der LOSO-Sweep (Repo-Secret SWEEP_DATA_URL). Das
-# Bundle MUSS die aktuellen Modern-Sessions enthalten — `pool=modern` lädt
-# native 100hz_grav-Sessions. Falls die Kohorte seit dem letzten Pack gewachsen
-# ist: scripts/ops/pack_sweep_data.sh neu laufen lassen, neu hosten, Secret
-# aktualisieren.
+# FORTSCHRITT ist auf drei Ebenen sichtbar:
+#   1. Matrix      — 6 Jobs im Actions-Tab, du siehst "X/6 fertig".
+#   2. Live-Log    — `python -u` (unbuffered) streamt die Per-Fold-Zeilen sofort
+#                    ins Job-Log statt sie bis Job-Ende zu puffern.
+#   3. Step-Summary — jede fertige Fold wird live an die Job-Summary angehängt
+#                    (sichtbar ohne ins Roh-Log zu klicken).
+#
+# Daten: dasselbe Bundle wie der LOSO-Sweep (Repo-Secret SWEEP_DATA_URL). Für
+# pool=modern muss das Bundle die trainable Modern-Sessions enthalten.
 name: Augmentation-A/B
 
 on:
-  workflow_dispatch:        # Knopf im Actions-Tab — Felder anpassen, "Run workflow"
+  workflow_dispatch:
     inputs:
       model:
         description: "Deep-Modell (tcn6 = 5-s-Headline-Architektur)"
         default: "tcn6"
       pool:
-        description: "Pool: modern (Deploy-Ziel, N klein, breites Seed-Band) oder legacy (N=15, engeres Band)"
+        description: "Pool: modern (Deploy-Ziel) oder legacy (N=15, engeres Band)"
         type: choice
         options: [modern, legacy]
         default: modern
@@ -33,9 +37,33 @@ permissions:
   contents: read
 
 jobs:
-  augment-ab:
+  # Baut die Seed x {aug,no-aug}-Matrix aus den Eingaben.
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 300      # tcn6 @5s über mehrere Seeds × Folds auf CPU ist lang. GitHub-Hardcap 6 h
+    outputs:
+      matrix: ${{ steps.gen.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - id: gen
+        env:
+          MODEL: ${{ inputs.model }}
+          POOL: ${{ inputs.pool }}
+          WIN: ${{ inputs.win }}
+          SEEDS: ${{ inputs.seeds }}
+        run: |
+          echo "matrix=$(python scripts/ml/augment_matrix.py)" >> "$GITHUB_OUTPUT"
+
+  # Ein Job je (Seed, Bedingung), alle parallel.
+  run:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 180      # je Job EIN LOSO-Lauf; CPU-Runner sind langsam, aber nicht 6x
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.prepare.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -53,30 +81,53 @@ jobs:
             exit 1
           fi
           curl -fsSL "$DATA_URL" -o sweep_data.zip
-          unzip -q sweep_data.zip          # entpackt nach data/
-      # Why: Inputs über env statt direkt in die Shell interpoliert (kein
-      # ${{ }}-in-run) — Standard-Härtung gegen Script-Injection. SEEDS bleibt
-      # unquoted, damit nargs='+' die einzelnen Seeds als Argumente sieht.
-      - name: "Augmentation-A/B · ${{ inputs.model }} @${{ inputs.win }}s · pool=${{ inputs.pool }}"
-        env:
-          MODEL: ${{ inputs.model }}
-          POOL: ${{ inputs.pool }}
-          WIN: ${{ inputs.win }}
-          SEEDS: ${{ inputs.seeds }}
+          unzip -q sweep_data.zip
+      # Why: stdout per `python -u` (im cmd) unbuffered + jede "Fold "-Zeile live
+      # an die Job-Summary -> Fortschritt sichtbar ohne ins Roh-Log zu klicken.
+      # GitHubs Default-Shell hat `-eo pipefail`, ein Trainingsfehler bricht ab.
+      - name: "Lauf · ${{ matrix.name }}"
         run: |
-          python scripts/ml/augment_ab.py --model "$MODEL" --pool "$POOL" --win "$WIN" --seeds $SEEDS
-      - name: Verdikt in die Job-Summary
-        if: always()
-        run: |
-          if [ -f reports/augment_ab.md ]; then
-            cat reports/augment_ab.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Artefakte hochladen
+          echo "### ${{ matrix.name }} — Fold-Fortschritt (live)" >> "$GITHUB_STEP_SUMMARY"
+          ${{ matrix.cmd }} 2>&1 | while IFS= read -r line; do
+            printf '%s\n' "$line"
+            case "$line" in
+              *"Fold "*) printf -- '- %s\n' "$line" >> "$GITHUB_STEP_SUMMARY" ;;
+            esac
+          done
+      - name: cv hochladen
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "augment-ab-${{ inputs.pool }}"
-          path: |
-            models/augment_ab_*.csv
-            reports/augment_ab.md
+          name: "cv-${{ matrix.name }}"
+          path: models/deep_loso_*.csv
+          if-no-files-found: warn
+
+  # Seed-Mittel + gepaarter Wilcoxon über alle Jobs.
+  collect:
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install pandas scipy numpy tabulate
+      - name: cv-Artefakte einsammeln
+        uses: actions/download-artifact@v4
+        with:
+          path: cvs
+          pattern: cv-*
+      - name: Seed-Mittel + Wilcoxon
+        run: python scripts/ml/augment_ab_collect.py cvs -o augment_ab_summary.md
+      - name: Verdikt in die Job-Summary
+        if: always()
+        run: |
+          if [ -f augment_ab_summary.md ]; then
+            cat augment_ab_summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AUGMENT-AB-SUMMARY
+          path: augment_ab_summary.md
           if-no-files-found: warn
