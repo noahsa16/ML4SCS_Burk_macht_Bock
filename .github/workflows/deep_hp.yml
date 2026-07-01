@@ -1,0 +1,93 @@
+name: Deep-HP-Studie
+on:
+  workflow_dispatch:
+    inputs:
+      models: { description: "Architekturen (Komma)", default: "cnn,tcn,tcn6,lstm,gru,transformer" }
+      pool:   { description: "Pool", type: choice, options: [legacy, modern], default: legacy }
+      win:    { description: "Fenster in s", default: "5" }
+      n_trials: { description: "Sobol-Trials/Arch", default: "16" }
+      seeds:  { description: "Varianz-Seeds (Space)", default: "42 43 44" }
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs: { matrix: "${{ steps.gen.outputs.matrix }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install scipy numpy
+      - id: gen
+        env:
+          MODELS: ${{ inputs.models }}
+          POOL: ${{ inputs.pool }}
+          WIN: ${{ inputs.win }}
+          N_TRIALS: ${{ inputs.n_trials }}
+        run: echo "matrix=$(python scripts/ml/deep_hp_matrix.py)" >> "$GITHUB_OUTPUT"
+
+  search:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy: { fail-fast: false, matrix: "${{ fromJSON(needs.prepare.outputs.matrix) }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Daten
+        env: { DATA_URL: "${{ secrets.SWEEP_DATA_URL }}" }
+        run: |
+          if [ -z "$DATA_URL" ]; then echo "::error::SWEEP_DATA_URL fehlt"; exit 1; fi
+          curl -fsSL "$DATA_URL" -o sweep_data.zip && unzip -q sweep_data.zip
+      - name: "Trial ${{ matrix.name }}"
+        run: |
+          echo "### ${{ matrix.name }}" >> "$GITHUB_STEP_SUMMARY"
+          ${{ matrix.cmd }} 2>&1 | while IFS= read -r l; do printf '%s\n' "$l"; \
+            case "$l" in *"Fold "*) printf -- '- %s\n' "$l" >> "$GITHUB_STEP_SUMMARY";; esac; done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "hp-trial-${{ matrix.name }}"
+          path: "models/hp/${{ inputs.pool }}/trial_*.csv"
+          if-no-files-found: warn
+
+  collect:
+    needs: search
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Daten
+        env: { DATA_URL: "${{ secrets.SWEEP_DATA_URL }}" }
+        run: |
+          if [ -z "$DATA_URL" ]; then echo "::error::SWEEP_DATA_URL fehlt"; exit 1; fi
+          curl -fsSL "$DATA_URL" -o sweep_data.zip && unzip -q sweep_data.zip
+      - name: Trial-Summaries einsammeln
+        uses: actions/download-artifact@v4
+        with:
+          pattern: "hp-trial-*"
+          merge-multiple: true
+          path: "models/hp/${{ inputs.pool }}"
+      - name: Collect (Sieger + Varianz + Report)
+        run: |
+          python -u scripts/ml/deep_hp_study.py --mode collect \
+            --pool ${{ inputs.pool }} --win ${{ inputs.win }} \
+            --seeds ${{ inputs.seeds }} --hp-dir "models/hp/${{ inputs.pool }}"
+      - name: Report in Summary
+        if: always()
+        run: cat reports/deep_hp_study.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "hp-study-result"
+          path: |
+            models/deep_hp_study_${{ inputs.pool }}.csv
+            models/deep_hp_winners_${{ inputs.pool }}.csv
+            models/deep_hp_winner_*_${{ inputs.pool }}_cv.csv
+            reports/deep_hp_study.md
+          if-no-files-found: warn
