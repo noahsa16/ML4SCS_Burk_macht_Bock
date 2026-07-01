@@ -99,6 +99,9 @@ def _finish(trials: pd.DataFrame, pool: str, win_sec: int,
             n_trials: int, seeds: list) -> None:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     win = winners(trials)
+    # Sieger @ weitere Seeds (Varianz) — ein Trainingslauf, zwei Outputs:
+    # per-seed MEAN fuer die win_var-Zusammenfassung + seed-gemittelte
+    # per-fold CV (significance.py-kompatibel) je Sieger.
     var_rows = []
     for w in win.itertuples():
         cfg = {"lr": w.lr, "dropout": w.dropout, "batch_size": w.batch_size,
@@ -186,6 +189,9 @@ def main() -> None:
     ap.add_argument("--max-epochs", type=int, default=MAX_EPOCHS)
     args = ap.parse_args()
     if args.mode == "trial":
+        if args.max_epochs != MAX_EPOCHS:
+            raise SystemExit(
+                f"--max-epochs must equal the fixed fairness cap {MAX_EPOCHS}")
         cfg = {"lr": args.lr, "dropout": args.dropout,
                "batch_size": args.batch_size, "weight_decay": args.weight_decay}
         run_trial(args.model, cfg, args.seed, args.pool, args.win,
