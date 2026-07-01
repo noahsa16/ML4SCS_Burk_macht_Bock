@@ -1,0 +1,74 @@
+name: tsai-LOSO
+on:
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  trial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [InceptionTime, XceptionTime, ResNet, TSiTPlus]
+        win: [5]
+        seed: [42, 123, 7]
+        include:
+          # @1s nur InceptionTime (HMM-Unterbau-Kandidat); die anderen @1s
+          # waeren reine Vollstaendigkeit bei hoechstem Timeout-Risiko.
+          - { model: InceptionTime, win: 1, seed: 42 }
+          - { model: InceptionTime, win: 1, seed: 123 }
+          - { model: InceptionTime, win: 1, seed: 7 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -r requirements.txt && pip install "tsai==1.0.1"
+      - name: Daten
+        env: { DATA_URL: "${{ secrets.SWEEP_DATA_URL }}" }
+        run: |
+          if [ -z "$DATA_URL" ]; then echo "::error::SWEEP_DATA_URL fehlt"; exit 1; fi
+          curl -fsSL "$DATA_URL" -o sweep_data.zip && unzip -q sweep_data.zip
+      - name: "Trial ${{ matrix.model }} win${{ matrix.win }} seed${{ matrix.seed }}"
+        run: |
+          echo "### ${{ matrix.model }} @${{ matrix.win }}s seed=${{ matrix.seed }}" >> "$GITHUB_STEP_SUMMARY"
+          python -u scripts/ml/tsai_loso.py \
+            --model ${{ matrix.model }} --win ${{ matrix.win }} --seed ${{ matrix.seed }} \
+            2>&1 | while IFS= read -r l; do printf '%s\n' "$l"; \
+            case "$l" in *"acc="*) printf -- '- %s\n' "$l" >> "$GITHUB_STEP_SUMMARY";; esac; done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "tsai-oof-${{ matrix.model }}-win${{ matrix.win }}-seed${{ matrix.seed }}"
+          path: "models/tsai/tsai_oof_*.csv"
+          if-no-files-found: warn
+
+  collect:
+    needs: trial
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install pandas numpy scikit-learn
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: "tsai-oof-*"
+          merge-multiple: true
+          path: "models/tsai"
+      - name: Collect (Seed-Ensembles + Report)
+        run: python -u scripts/ml/tsai_loso.py --collect --dir models/tsai
+      - name: Report in Summary
+        if: always()
+        run: cat reports/tsai_loso.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "tsai-result"
+          path: |
+            models/tsai_*_cv.csv
+            models/tsai_*_ensemble_oof.csv
+            reports/tsai_loso.md
+          if-no-files-found: warn
