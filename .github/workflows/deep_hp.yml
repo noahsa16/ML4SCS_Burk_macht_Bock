@@ -1,0 +1,49 @@
+name: Deep-HP-Studie
+on:
+  workflow_dispatch:
+    inputs:
+      models: { description: "Architekturen (Komma)", default: "cnn,tcn,tcn6,lstm,gru,transformer" }
+      pool:   { description: "Pool", type: choice, options: [legacy, modern], default: legacy }
+      win:    { description: "Fenster in s", default: "5" }
+      n_trials: { description: "Sobol-Trials/Arch", default: "16" }
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs: { matrix: "${{ steps.gen.outputs.matrix }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13" }
+      - run: pip install scipy numpy
+      - id: gen
+        env:
+          MODELS: ${{ inputs.models }}
+          POOL: ${{ inputs.pool }}
+          WIN: ${{ inputs.win }}
+          N_TRIALS: ${{ inputs.n_trials }}
+        run: echo "matrix=$(python scripts/ml/deep_hp_matrix.py)" >> "$GITHUB_OUTPUT"
+  run:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy: { fail-fast: false, matrix: "${{ fromJSON(needs.prepare.outputs.matrix) }}" }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip }
+      - run: pip install -r requirements.txt
+      - name: Daten
+        env: { DATA_URL: "${{ secrets.SWEEP_DATA_URL }}" }
+        run: |
+          if [ -z "$DATA_URL" ]; then echo "::error::SWEEP_DATA_URL fehlt"; exit 1; fi
+          curl -fsSL "$DATA_URL" -o sweep_data.zip && unzip -q sweep_data.zip
+      - name: "Trial ${{ matrix.name }}"
+        run: |
+          echo "### ${{ matrix.name }}" >> "$GITHUB_STEP_SUMMARY"
+          ${{ matrix.cmd }} 2>&1 | while IFS= read -r l; do printf '%s\n' "$l"; \
+            case "$l" in *"Fold "*) printf -- '- %s\n' "$l" >> "$GITHUB_STEP_SUMMARY";; esac; done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: "hp-${{ matrix.name }}", path: models/deep_loso_*.csv, if-no-files-found: warn }
