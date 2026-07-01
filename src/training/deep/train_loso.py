@@ -15,6 +15,12 @@ import torch
 from sklearn.metrics import confusion_matrix, f1_score, roc_auc_score
 from torch.utils.data import DataLoader, TensorDataset
 
+try:
+    from tqdm import tqdm
+except ImportError:  # tqdm optional -> Fallback = Identitaet (kein Balken)
+    def tqdm(iterable=None, **_kw):
+        return iterable
+
 from src.training import events as _events
 from src.training.deep.augment import Augmenter
 from src.training.deep.data import load_session_raw
@@ -341,7 +347,9 @@ def train_deep_loso(
     rows: list[dict] = []
     oof_frames: list[pd.DataFrame] = []
     interrupted = False
-    for i, test_p in enumerate(person_ids):
+    for i, test_p in enumerate(
+        tqdm(person_ids, desc=f"{model_name}/{pool} folds", unit="fold")
+    ):
         emit({"type": _events.FOLD_START, "idx": i, "person": str(test_p)})
         # Val: naechste Person in sortierter Reihenfolge, wrap-around --
         # jede Person ist genau einmal Test und genau einmal Val.
@@ -378,8 +386,15 @@ def train_deep_loso(
             # Why: eigener Aug-RNG pro Fold (seed-abgeleitet, order-unabhaengig);
             # getrennt vom globalen RNG, damit Init+Shuffle bei gleichem Seed
             # zwischen aug/no-aug identisch bleiben -> sauber gepaart.
+            # Richerer Augment-Satz: scale+rotate (staerker) + jitter + magnitude
+            # + time_warp. time_warp greift die Schreibgeschwindigkeit (Soft-Writer)
+            # an, die scale/rotate nicht beruehren.
             augmenter = (
-                Augmenter(seed=seed * 1000 + i, scale_range=(0.8, 1.2), max_deg=10.0)
+                Augmenter(
+                    seed=seed * 1000 + i,
+                    scale=True, rotate=True, jitter=True, magnitude=True, time_warp=True,
+                    scale_range=(0.7, 1.3), max_deg=20.0,
+                )
                 if augment else None
             )
             model, best_epoch = train_one_model(

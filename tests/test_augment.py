@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import torch
 
-from src.training.deep.augment import Augmenter, rotate_batch, scale_batch
+from src.training.deep.augment import (
+    Augmenter,
+    jitter_batch,
+    magnitude_warp_batch,
+    rotate_batch,
+    scale_batch,
+    time_warp_batch,
+)
 
 
 def test_scale_batch_preserves_shape():
@@ -85,6 +92,52 @@ def test_augmenter_deterministic_per_seed():
 
 def test_augmenter_toggle_transforms():
     x = torch.randn(4, 40, 6)
-    # rotate aus + scale aus -> Identitaet.
+    # alle aus -> Identitaet (jitter/magnitude/time_warp default aus).
     out = Augmenter(seed=1, scale=False, rotate=False)(x.clone())
     assert torch.allclose(out, x, atol=1e-6)
+
+
+# --- Richerer Satz: jitter / magnitude / time_warp --------------------------
+
+
+def test_jitter_preserves_shape_and_perturbs():
+    x = torch.randn(4, 50, 6)
+    gen = torch.Generator().manual_seed(0)
+    out = jitter_batch(x, gen, sigma=0.05)
+    assert out.shape == x.shape
+    assert not torch.allclose(out, x)          # veraendert
+    assert (out - x).abs().mean() < 0.2        # aber mild
+
+
+def test_magnitude_warp_shape_and_zero_sigma_identity():
+    x = torch.randn(3, 60, 6)
+    gen = torch.Generator().manual_seed(1)
+    assert magnitude_warp_batch(x, gen).shape == x.shape
+    # sigma=0 -> Kurve konstant 1.0 -> Identitaet.
+    assert torch.allclose(magnitude_warp_batch(x, gen, sigma=0.0), x, atol=1e-5)
+
+
+def test_time_warp_shape_and_zero_sigma_identity():
+    x = torch.randn(3, 60, 6)
+    gen = torch.Generator().manual_seed(2)
+    assert time_warp_batch(x, gen).shape == x.shape
+    # sigma=0 -> gleichmaessige Geschwindigkeit -> Integer-Zeitraster -> Identitaet.
+    assert torch.allclose(time_warp_batch(x, gen, sigma=0.0), x, atol=1e-4)
+
+
+def test_time_warp_preserves_length_various():
+    gen = torch.Generator().manual_seed(3)
+    for length in (50, 250, 500):
+        assert time_warp_batch(torch.randn(2, length, 6), gen).shape == (2, length, 6)
+
+
+def test_rich_augmenter_all_on_deterministic_and_distinct():
+    x = torch.randn(4, 250, 6)
+    cfg = dict(jitter=True, magnitude=True, time_warp=True,
+               scale_range=(0.7, 1.3), max_deg=20.0)
+    a1 = Augmenter(seed=5, **cfg)(x.clone())
+    a2 = Augmenter(seed=5, **cfg)(x.clone())
+    assert a1.shape == x.shape
+    assert torch.allclose(a1, a2)              # deterministisch pro Seed
+    # richer unterscheidet sich vom reinen scale+rotate.
+    assert not torch.allclose(a1, Augmenter(seed=5)(x.clone()))

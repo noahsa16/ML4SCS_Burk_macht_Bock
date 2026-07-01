@@ -16,6 +16,7 @@ from __future__ import annotations
 import math
 
 import torch
+import torch.nn.functional as F
 
 
 def scale_batch(
@@ -69,11 +70,71 @@ def rotate_batch(
     return torch.cat([acc, gyr], dim=-1)
 
 
+def jitter_batch(
+    x: torch.Tensor, gen: torch.Generator, sigma: float = 0.03
+) -> torch.Tensor:
+    """Additives gaussisches Rauschen pro Sample (Sensor-Rausch-Robustheit).
+
+    Mild: die Watch-Sensoren sind ohnehin rauscharm — dient nur der Regularisierung.
+    """
+    noise = (torch.randn(x.shape, generator=gen) * sigma).to(device=x.device, dtype=x.dtype)
+    return x + noise
+
+
+def _smooth_curve(
+    b: int, length: int, gen: torch.Generator, center: float, sigma: float, n_knots: int = 4
+) -> torch.Tensor:
+    """``(B, length)`` glatte Zufallskurve je Fenster: ``n_knots`` Knoten
+    ``~ N(center, sigma)`` linear auf ``length`` interpoliert. CPU."""
+    knots = center + sigma * torch.randn(b, n_knots, generator=gen)  # (B, n_knots)
+    return F.interpolate(
+        knots.unsqueeze(1), size=length, mode="linear", align_corners=True
+    ).squeeze(1)
+
+
+def magnitude_warp_batch(
+    x: torch.Tensor, gen: torch.Generator, sigma: float = 0.2, n_knots: int = 4
+) -> torch.Tensor:
+    """Glatte ZEITVARIANTE Skalierung je Fenster (Um et al. 2017), auf alle Kanaele.
+
+    Anders als ``scale_batch`` (ein Skalar je Fenster) moduliert eine glatte Kurve
+    ueber die Zeit -> reichere Amplituden-Variation, weiterhin label-safe.
+    """
+    b, length, _ = x.shape
+    curve = _smooth_curve(b, length, gen, 1.0, sigma, n_knots).to(device=x.device, dtype=x.dtype)
+    return x * curve.unsqueeze(-1)
+
+
+def time_warp_batch(
+    x: torch.Tensor, gen: torch.Generator, sigma: float = 0.2, n_knots: int = 4
+) -> torch.Tensor:
+    """Glatte zeitliche Verzerrung je Fenster + Resample auf gleiche Laenge.
+
+    Modelliert wechselnde Schreibgeschwindigkeit (Soft-Writer / P09) — die Achse,
+    die scale/rotate nicht beruehren. Eine glatte positive Geschwindigkeits-Kurve
+    wird kumuliert zu einer Zeit-Abbildung; ``x`` wird an den verzerrten Positionen
+    linear interpoliert. Erhaelt Shape ``(B, seq_len, C)``; label-safe fuer
+    mehrheitlich-eine-Klasse-Fenster.
+    """
+    b, length, c = x.shape
+    speed = _smooth_curve(b, length, gen, 1.0, sigma, n_knots).clamp(min=0.1)  # (B,L) CPU
+    cum = torch.cumsum(speed, dim=1)
+    cum = cum - cum[:, :1]
+    warped = ((cum / cum[:, -1:].clamp(min=1e-8)) * (length - 1)).to(device=x.device)
+    idx0 = warped.floor().long().clamp(0, length - 1)
+    idx1 = (idx0 + 1).clamp(0, length - 1)
+    frac = (warped - idx0.to(warped.dtype)).unsqueeze(-1)         # (B, L, 1)
+    g0 = idx0.unsqueeze(-1).expand(-1, -1, c)
+    g1 = idx1.unsqueeze(-1).expand(-1, -1, c)
+    return torch.gather(x, 1, g0) * (1 - frac) + torch.gather(x, 1, g1) * frac
+
+
 class Augmenter:
     """Komponiert aktive Transforms; Callable ``(B,seq_len,6) -> (B,seq_len,6)``.
 
     Haelt einen eigenen CPU-``torch.Generator`` (seed-abgeleitet), getrennt vom
-    globalen RNG. Ruehrt ``y`` nie an.
+    globalen RNG. Ruehrt ``y`` nie an. Defaults = scale+rotate (der urspruengliche
+    Satz); jitter/magnitude/time_warp per Flag zuschaltbar (richerer Satz).
     """
 
     def __init__(
@@ -81,20 +142,39 @@ class Augmenter:
         seed: int,
         scale: bool = True,
         rotate: bool = True,
+        jitter: bool = False,
+        magnitude: bool = False,
+        time_warp: bool = False,
         scale_range: tuple[float, float] = (0.8, 1.2),
         max_deg: float = 10.0,
+        jitter_sigma: float = 0.03,
+        mag_sigma: float = 0.2,
+        warp_sigma: float = 0.2,
     ) -> None:
         self.scale = scale
         self.rotate = rotate
+        self.jitter = jitter
+        self.magnitude = magnitude
+        self.time_warp = time_warp
         self.scale_range = scale_range
         self.max_deg = max_deg
+        self.jitter_sigma = jitter_sigma
+        self.mag_sigma = mag_sigma
+        self.warp_sigma = warp_sigma
         self.gen = torch.Generator()
         self.gen.manual_seed(int(seed))
 
     def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        # Reihenfolge: erst die Zeit-/Formverzerrer, dann Amplitude, Rauschen zuletzt.
+        if self.time_warp:
+            x = time_warp_batch(x, self.gen, self.warp_sigma)
         if self.rotate:
             x = rotate_batch(x, self.gen, self.max_deg)
+        if self.magnitude:
+            x = magnitude_warp_batch(x, self.gen, self.mag_sigma)
         if self.scale:
             lo, hi = self.scale_range
             x = scale_batch(x, self.gen, lo, hi)
+        if self.jitter:
+            x = jitter_batch(x, self.gen, self.jitter_sigma)
         return x
