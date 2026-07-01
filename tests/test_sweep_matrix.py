@@ -86,6 +86,15 @@ def test_rf_hmm_modern_uses_pool_suffixed_paths(monkeypatch):
     assert "hmm_postprocess_modern_cv.csv" in cmd
 
 
+def test_rf_hmm_legacy_uses_pool_suffixed_oof(monkeypatch):
+    # `train_loso --pool legacy --save-oof` suffixt zu loso_oof_legacy.csv —
+    # der HMM-Aufruf MUSS denselben Suffix lesen (sonst 'OOF fehlt').
+    cmd = _build_with(monkeypatch, POOLS="legacy")["rf-hmm-legacy"]
+    assert "loso_oof_legacy.csv" in cmd
+    assert "hmm_postprocess_legacy_cv.csv" in cmd
+    assert "loso_oof.csv --" not in cmd  # nicht der suffix-lose Pfad
+
+
 def test_mlp_grid_carries_model_params(monkeypatch):
     by = _build_with(monkeypatch, POOLS="legacy")
     mlp = next(c for n, c in by.items() if n.startswith("mlp-"))

@@ -35,11 +35,15 @@ def collect(root: str) -> pd.DataFrame:
     for d in sorted(glob.glob(os.path.join(root, "cv-*"))):
         base = os.path.basename(d)[len("cv-"):]
         csvs = sorted(glob.glob(os.path.join(d, "*.csv")))
-        if not csvs:
-            rows.append({"config": base, "n_folds": 0, "acc": None, "auc": None})
-            continue
-        df = pd.read_csv(csvs[0])
-        if "accuracy" not in df.columns:
+        # Why: NICHT blind csvs[0] — ein Artefakt kann mehrere CSVs enthalten
+        # (rf-hmm laedt loso_oof + hmm_detail + hmm_cv; hmm_detail sortiert
+        # alphabetisch VOR dem cv und hat keine 'accuracy'-Spalte). Nimm die
+        # erste CSV, die eine 'accuracy'-Spalte traegt.
+        df = next(
+            (c for c in (pd.read_csv(p) for p in csvs) if "accuracy" in c.columns),
+            None,
+        )
+        if df is None:
             rows.append({"config": base, "n_folds": 0, "acc": None, "auc": None})
             continue
         # Multi-Config-Dateien (Window-Sweep) nach config/model aufschlüsseln.

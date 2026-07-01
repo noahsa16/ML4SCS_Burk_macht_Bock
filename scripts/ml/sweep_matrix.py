@@ -100,8 +100,10 @@ def _headline(pools: list[str], augment: bool) -> list[dict]:
         for label, params in MLP_GRID:
             inc.append({"name": f"mlp-{label}-{pool}",
                         "cmd": _classical("mlp", pool, f"--model-params '{params}' ")})
-        # 3. RF + HMM (pro Pool eigene OOF/cv, sonst kollidiert/fehlt modern)
-        suff = "" if pool == "legacy" else f"_{pool}"
+        # 3. RF + HMM (pro Pool eigene OOF/cv). suff = _{pool} fuer BEIDE Pools:
+        # `train_loso --pool X --save-oof` suffixt den OOF automatisch zu
+        # loso_oof_X.csv, also muss der HMM-Aufruf denselben Suffix lesen.
+        suff = f"_{pool}"
         cmd = (f"python -m src.training.train_loso --pool {pool} --save-oof && "
                f"python scripts/ml/hmm_postprocess_loso.py "
                f"--oof models/loso_oof{suff}.csv "
