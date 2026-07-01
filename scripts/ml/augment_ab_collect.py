@@ -87,7 +87,8 @@ def build_report(base_runs, aug_runs) -> str:
         "# Augmentation-A/B (parallel) — Ergebnis",
         "",
         f"no-aug-Laeufe: {len(base_runs)} | aug-Laeufe: {len(aug_runs)} | "
-        f"Folds: {len(aug)} | Transforms: scale(0.8-1.2) + rotate(+/-10 deg)",
+        f"Folds: {len(aug)} | Transforms: siehe train_deep_loso `--augment` "
+        f"(train-only; Satz wird dort konfiguriert, nicht hier)",
         "",
         "## Kohorten-Mean-Accuracy (Seed-Spread)",
         f"- no-aug: {base_mu:.4f} +/- {base_sd:.4f} (Seed-sigma)",
