@@ -95,62 +95,105 @@ def _run_trial(model: str, cfg: dict, seed: int, pool: str, win: int) -> dict:
     return _mean_row(model, cfg, seed, _train_trial(model, cfg, seed, pool, win))
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--pool", default="legacy", choices=["legacy", "modern"])
-    ap.add_argument("--win", type=int, default=5)
-    ap.add_argument("--n-trials", type=int, default=16)
-    ap.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
-    ap.add_argument("--models", nargs="+", default=list(MODELS))
-    args = ap.parse_args()
-
-    rows = []
-    for model in args.models:
-        for cfg in sobol_configs(args.n_trials, seed=0):
-            rows.append(_run_trial(model, cfg, args.seeds[0], args.pool, args.win))
-    trials = pd.DataFrame(rows)
-    win = winners(trials)
-
-    # Sieger @ weitere Seeds (Varianz) — ein Trainingslauf, zwei Outputs:
-    # per-seed MEAN fuer die win_var-Zusammenfassung + seed-gemittelte
-    # per-fold CV (significance.py-kompatibel) je Sieger.
+def _finish(trials: pd.DataFrame, pool: str, win_sec: int,
+            n_trials: int, seeds: list) -> None:
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    win = winners(trials)
     var_rows = []
     for w in win.itertuples():
         cfg = {"lr": w.lr, "dropout": w.dropout, "batch_size": w.batch_size,
                "weight_decay": w.weight_decay}
         seed_dfs = []
-        for seed in args.seeds:
-            df = _train_trial(w.model, cfg, seed, args.pool, args.win)
+        for seed in seeds:
+            df = _train_trial(w.model, cfg, seed, pool, win_sec)
             seed_dfs.append(df)
             var_rows.append(_mean_row(w.model, cfg, seed, df))
         winner_cv = winner_fold_cv(seed_dfs)
         winner_cv.to_csv(
-            MODEL_DIR / f"deep_hp_winner_{w.model}_{args.pool}_cv.csv", index=False)
+            MODEL_DIR / f"deep_hp_winner_{w.model}_{pool}_cv.csv", index=False)
     var = pd.DataFrame(var_rows)
     win_var = (var.groupby("model")[["accuracy", "roc_auc"]]
                .agg(["mean", "std"]).reset_index())
-
-    trials.to_csv(MODEL_DIR / f"deep_hp_study_{args.pool}.csv", index=False)
-    win.to_csv(MODEL_DIR / f"deep_hp_winners_{args.pool}.csv", index=False)
-
+    trials.to_csv(MODEL_DIR / f"deep_hp_study_{pool}.csv", index=False)
+    win.to_csv(MODEL_DIR / f"deep_hp_winners_{pool}.csv", index=False)
     lines = ["# Deep-HP-Studie — playbook-fairer Architektur-Vergleich", "",
-             f"Pool={args.pool} @ {args.win}s | n_trials={args.n_trials} | "
-             f"Seeds={args.seeds} | infeasible={infeasible_count(trials)}", "",
+             f"Pool={pool} @ {win_sec}s | n_trials={n_trials} | "
+             f"Seeds={seeds} | infeasible={infeasible_count(trials)}", "",
              "## Sieger je Architektur (@1 Seed Suche)",
              win.to_markdown(index=False), "",
              "## Sieger @ Seeds (Varianz)", win_var.to_markdown(index=False), "",
              "## Best-vs-best (significance.py-kompatibel)",
              "Winner-CVs sind significance.py-kompatibel — Top-Architekturen "
              "vergleichen mit: python -m src.evaluation.significance "
-             f"models/deep_hp_winner_<A>_{args.pool}_cv.csv "
-             f"models/deep_hp_winner_<B>_{args.pool}_cv.csv", "",
+             f"models/deep_hp_winner_<A>_{pool}_cv.csv "
+             f"models/deep_hp_winner_<B>_{pool}_cv.csv", "",
              "## Suchraum-Rand-Warnungen"]
     _warn = boundary_warnings(win)
     lines += [f"- {m}" for m in _warn] if _warn else ["- keine"]
     REPORT.parent.mkdir(parents=True, exist_ok=True)
     REPORT.write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
+
+
+def run_full(pool: str, win_sec: int, n_trials: int,
+             seeds: list, models: list) -> None:
+    rows = []
+    for model in models:
+        for cfg in sobol_configs(n_trials, seed=0):
+            rows.append(_run_trial(model, cfg, seeds[0], pool, win_sec))
+    _finish(pd.DataFrame(rows), pool, win_sec, n_trials, seeds)
+
+
+def run_trial(model: str, cfg: dict, seed: int, pool: str,
+              win_sec: int, name: str, out_dir: str) -> None:
+    df = _train_trial(model, cfg, seed, pool, win_sec)
+    out = Path(out_dir); out.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame([_mean_row(model, cfg, seed, df)]).to_csv(
+        out / f"trial_{name}.csv", index=False)
+    print(f"trial {name}: written to {out / f'trial_{name}.csv'}")
+
+
+def run_collect(hp_dir: str, pool: str, win_sec: int, seeds: list) -> None:
+    files = sorted(Path(hp_dir).glob("trial_*.csv"))
+    if not files:
+        raise SystemExit(f"keine trial_*.csv in {hp_dir}")
+    trials = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+    n_trials = int(trials.groupby("model").size().max())
+    _finish(trials, pool, win_sec, n_trials, seeds)
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--mode", default="full", choices=["full", "trial", "collect"])
+    ap.add_argument("--pool", default="legacy", choices=["legacy", "modern"])
+    ap.add_argument("--win", type=int, default=5)
+    ap.add_argument("--n-trials", type=int, default=16)
+    ap.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
+    ap.add_argument("--models", nargs="+", default=list(MODELS))
+    ap.add_argument("--hp-dir", default=str(MODEL_DIR / "hp"))
+    # trial-Modus
+    ap.add_argument("--model")
+    ap.add_argument("--name")
+    ap.add_argument("--lr", type=float)
+    ap.add_argument("--dropout", type=float)
+    ap.add_argument("--batch-size", type=int)
+    ap.add_argument("--weight-decay", type=float)
+    ap.add_argument("--seed", type=int, default=42)
+    # Why: der Matrix-Trial-Runner-Befehl traegt --max-epochs 120 explizit
+    # (batch<->updates-Fairness-Dokumentation im Kommando); MAX_EPOCHS bleibt
+    # die tatsaechlich wirksame Konstante in _train_trial, dieses Flag wird nur
+    # entgegengenommen damit argparse den generierten Befehl nicht ablehnt.
+    ap.add_argument("--max-epochs", type=int, default=MAX_EPOCHS)
+    args = ap.parse_args()
+    if args.mode == "trial":
+        cfg = {"lr": args.lr, "dropout": args.dropout,
+               "batch_size": args.batch_size, "weight_decay": args.weight_decay}
+        run_trial(args.model, cfg, args.seed, args.pool, args.win,
+                  args.name, args.hp_dir)
+    elif args.mode == "collect":
+        run_collect(args.hp_dir, args.pool, args.win, args.seeds)
+    else:
+        run_full(args.pool, args.win, args.n_trials, args.seeds, args.models)
 
 
 if __name__ == "__main__":

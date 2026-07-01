@@ -16,10 +16,12 @@ def build() -> dict:
     inc = []
     for model in models:
         for t, c in enumerate(sobol_configs(n, seed=0)):
-            cmd = (f"python -u -m src.training.deep --model {model} --pool {pool} "
-                   f"--win {win} --seed {seed} --max-epochs 120 "
+            cmd = (f"python -u scripts/ml/deep_hp_study.py --mode trial "
+                   f"--model {model} --name {model}-t{t} "
+                   f"--pool {pool} --win {win} --seed {seed} --max-epochs 120 "
                    f"--lr {c['lr']} --dropout {c['dropout']} "
-                   f"--batch-size {c['batch_size']} --weight-decay {c['weight_decay']}")
+                   f"--batch-size {c['batch_size']} --weight-decay {c['weight_decay']} "
+                   f"--hp-dir models/hp/{pool}")
             inc.append({"name": f"{model}-t{t}", "cmd": " ".join(cmd.split())})
     return {"include": inc}
 

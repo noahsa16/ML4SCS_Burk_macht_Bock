@@ -30,3 +30,15 @@ def test_matrix_expands_models_x_trials(monkeypatch):
 def test_matrix_names_unique(monkeypatch):
     inc = _build(monkeypatch, MODELS="cnn", N_TRIALS="4")
     assert len({e["name"] for e in inc}) == 4
+
+
+def test_matrix_emits_trial_runner(monkeypatch):
+    inc = _build(monkeypatch, MODELS="cnn", N_TRIALS="2", POOL="legacy", WIN="5")
+    assert all("--mode trial" in e["cmd"] for e in inc)
+    assert all("deep_hp_study.py" in e["cmd"] for e in inc)
+    # --name traegt model+trial, --hp-dir zeigt in den pool-Ordner
+    assert any("--name cnn-t0" in e["cmd"] for e in inc)
+    assert all("--hp-dir models/hp/legacy" in e["cmd"] for e in inc)
+    assert all(f in e["cmd"] for e in inc
+               for f in ("--lr", "--dropout", "--batch-size", "--weight-decay",
+                         "--max-epochs 120"))
