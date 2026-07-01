@@ -19,7 +19,7 @@ class CNN1D(nn.Module):
     dieselbe Klasse laeuft fuer 50- und 250-Sample-Fenster.
     """
 
-    def __init__(self, n_channels: int = 6) -> None:
+    def __init__(self, n_channels: int = 6, dropout: float = 0.3) -> None:
         super().__init__()
         self.features = nn.Sequential(
             nn.Conv1d(n_channels, 16, kernel_size=5, padding=2),
@@ -32,7 +32,7 @@ class CNN1D(nn.Module):
             nn.MaxPool1d(2),
         )
         self.pool = nn.AdaptiveAvgPool1d(1)
-        self.head = nn.Sequential(nn.Dropout(0.3), nn.Linear(32, 1))
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(32, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (batch, seq, 6) -> Conv1d erwartet (batch, channels, seq)
@@ -162,13 +162,13 @@ class _RNNClassifier(nn.Module):
     """Gemeinsame Basis fuer LSTM/GRU -- ein RNN-Layer, letzter Hidden-State -> FC."""
 
     def __init__(
-        self, rnn_cls: type[nn.RNNBase], n_channels: int = 6, hidden: int = 32
+        self, rnn_cls: type[nn.RNNBase], n_channels: int = 6, hidden: int = 32, dropout: float = 0.3
     ) -> None:
         super().__init__()
         self.rnn = rnn_cls(
             input_size=n_channels, hidden_size=hidden, batch_first=True
         )
-        self.head = nn.Sequential(nn.Dropout(0.3), nn.Linear(hidden, 1))
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(hidden, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # x: (batch, seq, 6) -- batch_first, kein Transpose noetig.
@@ -180,15 +180,15 @@ class _RNNClassifier(nn.Module):
 class LSTMClassifier(_RNNClassifier):
     """1-Layer-LSTM, hidden=32. ~5k Parameter."""
 
-    def __init__(self, n_channels: int = 6, hidden: int = 32) -> None:
-        super().__init__(nn.LSTM, n_channels, hidden)
+    def __init__(self, n_channels: int = 6, hidden: int = 32, dropout: float = 0.3) -> None:
+        super().__init__(nn.LSTM, n_channels, hidden, dropout)
 
 
 class GRUClassifier(_RNNClassifier):
     """1-Layer-GRU, hidden=32. ~4k Parameter. Leichteres RNN-Pendant."""
 
-    def __init__(self, n_channels: int = 6, hidden: int = 32) -> None:
-        super().__init__(nn.GRU, n_channels, hidden)
+    def __init__(self, n_channels: int = 6, hidden: int = 32, dropout: float = 0.3) -> None:
+        super().__init__(nn.GRU, n_channels, hidden, dropout)
 
 
 class _PositionalEncoding(nn.Module):
