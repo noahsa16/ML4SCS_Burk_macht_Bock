@@ -577,3 +577,11 @@ def test_transformer_handles_varying_seq_len():
     model.eval()
     assert model(torch.randn(2, 60, 6)).shape == (2,)
     assert model(torch.randn(2, 240, 6)).shape == (2,)
+
+
+def test_dropout_param_on_all_models():
+    """Jedes Modell nimmt dropout-Param und liefert weiter (B,) Logits."""
+    for name in MODELS:
+        m = MODELS[name](dropout=0.5)
+        out = m(torch.randn(4, 50, 6))
+        assert out.shape == (4,)
