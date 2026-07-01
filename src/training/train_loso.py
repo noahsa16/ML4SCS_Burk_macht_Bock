@@ -491,8 +491,26 @@ def _train_final_model(
     print(f"→ {save_to}")
 
 
+def _make_fold_sets(
+    groups: list, folds: int | None, random_state: int
+) -> list[list]:
+    """Fold-Zuteilung der Subjects. ``folds=None`` (oder >= #Groups) = LOSO:
+    ein Group je Fold. Sonst grouped-K-fold: die Groups werden in ``folds``
+    Chunks partitioniert -- **leakage-frei**, weil ein Subject nie ueber
+    Train/Test kreuzt (das waere Random-K-fold ueber Fenster -> Inflation).
+    Round-robin-Zuteilung fuer balancierte Fold-Groessen, deterministisch
+    ueber ``random_state``. Leere Chunks (K > #Groups) werden verworfen.
+    """
+    if folds is None or folds >= len(groups):
+        return [[g] for g in groups]
+    shuffled = list(groups)
+    np.random.RandomState(random_state).shuffle(shuffled)
+    return [chunk for i in range(folds) if (chunk := shuffled[i::folds])]
+
+
 def train_loso(
     by: str = "person",
+    folds: int | None = None,
     include_all: bool = False,
     min_windows: int = 0,
     n_estimators: int = 200,
@@ -539,9 +557,13 @@ def train_loso(
         )
         return {"folds": [], "summary": {}}
 
+    fold_sets = _make_fold_sets(groups, folds, random_state)
+    cv_name = (f"LOSO-by-{by}" if len(fold_sets) == len(groups)
+               else f"grouped-{len(fold_sets)}fold-by-{by}")
+
     print(
-        f"LOSO-by-{by}: {len(groups)} folds over "
-        f"{len(sessions)} session(s) — groups: {groups}"
+        f"{cv_name}: {len(fold_sets)} folds over "
+        f"{len(groups)} {by}(s), {len(sessions)} session(s)"
     )
 
     sids = sessions["session_id"].tolist()
@@ -604,22 +626,25 @@ def train_loso(
     )
 
     emit({"type": _events.RUN_START, "model": model, "by": by, "pool": pool,
-          "n_folds": len(groups), "features": len(feature_cols),
+          "n_folds": len(fold_sets), "features": len(feature_cols),
           "zscore": zscore_per_session})
     interrupted = False
     fold_results: list[dict] = []
-    for fold_idx, held_out in enumerate(groups, start=1):
+    for fold_idx, held_group in enumerate(fold_sets, start=1):
+        held_label = (str(held_group[0]) if len(held_group) == 1
+                      else "+".join(map(str, held_group)))
         emit({"type": _events.FOLD_START, "idx": fold_idx,
-              "person": str(held_out), "n": len(groups)})
-        test_mask = all_windows[group_col] == held_out
+              "person": held_label, "n": len(fold_sets)})
+        test_mask = all_windows[group_col].isin(held_group)
         train_df = all_windows[~test_mask]
         test_df = all_windows[test_mask]
 
         held_out_sessions = sessions.loc[
-            sessions[group_col] == held_out, "session_id"
+            sessions[group_col].isin(held_group), "session_id"
         ].tolist()
 
-        print(f"\n--- Fold: held-out {by}={held_out} (sessions={held_out_sessions}) ---")
+        print(f"\n--- Fold {fold_idx}: held-out {by}={held_label} "
+              f"({len(held_group)} {by}(s), sessions={held_out_sessions}) ---")
         try:
             res = _fit_eval_fold(
                 train_df, test_df, feature_cols, n_estimators, random_state,
@@ -633,7 +658,7 @@ def train_loso(
             print(f"  skipped — test fold has only one class")
             continue
 
-        res["held_out"] = held_out
+        res["held_out"] = held_label
         res["held_out_sessions"] = held_out_sessions
 
         print(
@@ -656,8 +681,8 @@ def train_loso(
         )
         print(f"Burst-aggregated:  1s acc={res['accuracy']:.3f} f1={res['f1_writing']:.3f} auc={res['roc_auc']:.3f}  {burst_line}")
         cm = res["confusion_matrix"]
-        emit({"type": _events.FOLD_END, "idx": fold_idx, "person": str(held_out),
-              "n": len(groups), "acc": res["accuracy"], "auc": res["roc_auc"],
+        emit({"type": _events.FOLD_END, "idx": fold_idx, "person": held_label,
+              "n": len(fold_sets), "acc": res["accuracy"], "auc": res["roc_auc"],
               "f1": res["f1_writing"],
               "burst": {k: v["accuracy"] for k, v in res["bursts"].items()},
               "confusion": {"tn": int(cm[0, 0]), "fp": int(cm[0, 1]),
@@ -702,7 +727,7 @@ def train_loso(
         }
     summary["bursts"] = burst_summary
 
-    print("\n=== LOSO summary ===")
+    print(f"\n=== {cv_name} summary ===")
     print(
         f"Folds: {summary['n_folds']}\n"
         f"Accuracy: {summary['mean_accuracy']:.3f} ± {summary['std_accuracy']:.3f}   "
@@ -790,6 +815,14 @@ def _parse_args() -> argparse.Namespace:
         choices=["person", "session"],
         default="person",
         help="Hold-out unit (default: person)",
+    )
+    p.add_argument(
+        "--folds",
+        type=int,
+        default=None,
+        help="Grouped-K-fold statt LOSO: die Subjects in K Chunks partitionieren "
+        "(leakage-frei — Subjects kreuzen nie Train/Test, KEIN Random-K-fold "
+        "ueber Fenster). Default: None = LOSO (ein Subject je Fold). Z.B. --folds 5.",
     )
     p.add_argument(
         "--include-all",
@@ -950,6 +983,7 @@ if __name__ == "__main__":
     )
     train_loso(
         by=args.by,
+        folds=args.folds,
         include_all=args.include_all,
         min_windows=args.min_windows,
         n_estimators=args.n_estimators,
