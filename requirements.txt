@@ -19,5 +19,6 @@ fastapi
 uvicorn
 websockets
 psutil
+tqdm
 pytest
 
