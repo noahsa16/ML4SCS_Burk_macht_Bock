@@ -81,6 +81,7 @@ def train_one_model(
     patience: int = 8,
     batch_size: int = 64,
     lr: float = 1e-3,
+    weight_decay: float = 0.0,
     augmenter=None,
     on_epoch=None,
 ) -> tuple[torch.nn.Module, int]:
@@ -100,7 +101,7 @@ def train_one_model(
     n_neg = float((train_y == 0).sum())
     pos_weight = torch.tensor([n_neg / max(n_pos, 1.0)], device=DEVICE)
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    opt = torch.optim.Adam(model.parameters(), lr=lr)
+    opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     ds = TensorDataset(
         torch.from_numpy(train_X),
@@ -267,6 +268,12 @@ def train_deep_loso(
     include_all: bool = False,
     max_gap_ms: float = 2500.0,
     seed: int = 42,
+    lr: float = 1e-3,
+    dropout: float | None = None,
+    batch_size: int = 64,
+    weight_decay: float = 0.0,
+    patience: int = 8,
+    max_epochs: int = 60,
     exclude_boundary: tuple[float, float] | None = None,
     zscore: bool = False,
     augment: bool = False,
@@ -382,7 +389,8 @@ def train_deep_loso(
         # Why: SIGINT (Stop-Knopf) faengt im torch-Trainingsloop -- fertige
         # Folds finalisieren statt hart abbrechen, wie der RF-Runner.
         try:
-            model = MODELS[model_name]()
+            model = (MODELS[model_name]() if dropout is None
+                     else MODELS[model_name](dropout=dropout))
             # Why: eigener Aug-RNG pro Fold (seed-abgeleitet, order-unabhaengig);
             # getrennt vom globalen RNG, damit Init+Shuffle bei gleichem Seed
             # zwischen aug/no-aug identisch bleiben -> sauber gepaart.
@@ -399,6 +407,8 @@ def train_deep_loso(
             )
             model, best_epoch = train_one_model(
                 model, train_X, train_y, val_X, val_y,
+                lr=lr, batch_size=batch_size, weight_decay=weight_decay,
+                patience=patience, max_epochs=max_epochs,
                 augmenter=augmenter,
                 on_epoch=lambda e, l, a, _i=i: emit(
                     {"type": _events.EPOCH, "fold": _i, "epoch": e,

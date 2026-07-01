@@ -172,6 +172,12 @@ def main() -> None:
     parser.add_argument("--include-all", action="store_true")
     parser.add_argument("--max-gap-ms", type=float, default=2500.0)
     parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--lr", type=float, default=1e-3)
+    parser.add_argument("--dropout", type=float, default=None)
+    parser.add_argument("--batch-size", type=int, default=64)
+    parser.add_argument("--weight-decay", type=float, default=0.0)
+    parser.add_argument("--patience", type=int, default=8)
+    parser.add_argument("--max-epochs", type=int, default=60)
     parser.add_argument(
         "--zscore", action="store_true",
         help="Per-Session-Z-Score einschalten (Default aus -- fuers CNN "
@@ -218,6 +224,9 @@ def main() -> None:
             include_all=args.include_all,
             max_gap_ms=args.max_gap_ms,
             seed=args.seed,
+            lr=args.lr, dropout=args.dropout, batch_size=args.batch_size,
+            weight_decay=args.weight_decay, patience=args.patience,
+            max_epochs=args.max_epochs,
             exclude_boundary=exclude_boundary,
             zscore=zscore,
             augment=args.augment,

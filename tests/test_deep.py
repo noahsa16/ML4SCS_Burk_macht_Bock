@@ -585,3 +585,56 @@ def test_dropout_param_on_all_models():
         m = MODELS[name](dropout=0.5)
         out = m(torch.randn(4, 50, 6))
         assert out.shape == (4,)
+
+
+# ---------------------------------------------------------------------------
+# Task 2: HP-Params (weight_decay, lr, dropout, batch_size, patience,
+#         max_epochs) durch train_one_model / train_deep_loso / CLI.
+# ---------------------------------------------------------------------------
+
+def test_train_one_model_accepts_weight_decay():
+    rng = np.random.default_rng(4)
+    def _m(n, s): return rng.normal(scale=s, size=(n, 50, 6)).astype(np.float32)
+    X = np.concatenate([_m(16, .2), _m(16, 2.)]); y = np.concatenate([np.zeros(16), np.ones(16)]).astype(np.int64)
+    Xv = np.concatenate([_m(8, .2), _m(8, 2.)]); yv = np.concatenate([np.zeros(8), np.ones(8)]).astype(np.int64)
+    from src.training.deep.train_loso import train_one_model
+    from src.training.deep.models import CNN1D
+    model, _ = train_one_model(CNN1D(), X, y, Xv, yv, max_epochs=2, patience=2,
+                               batch_size=16, weight_decay=1e-4)
+    assert model is not None
+
+
+def test_train_deep_loso_threads_hp(monkeypatch):
+    from src.training.deep import train_loso as DL
+    import pandas as pd
+    sessions = pd.DataFrame({"session_id": ["S1","S2","S3"], "person_id": ["P1","P2","P3"],
+                             "watch_profile": ["50hz","50hz","50hz"]})
+    monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
+    def fake_load(sess, seq_len, stride, plan, max_gap_ms, exclude_boundary=None, zscore=False):
+        return {s: {"X": np.zeros((40, seq_len, 6), np.float32),
+                    "y": np.tile([0,1],20).astype(np.int64),
+                    "t": (np.arange(40)*500.).astype(float), "person_id": p}
+                for s, p in zip(sessions.session_id, sessions.person_id)}
+    monkeypatch.setattr(DL, "_load_all_sessions", fake_load)
+    captured = {}
+    def fake_train(m, *a, lr=1e-3, batch_size=64, weight_decay=0.0, patience=8,
+                   max_epochs=60, augmenter=None, on_epoch=None):
+        captured.update(lr=lr, batch_size=batch_size, weight_decay=weight_decay,
+                        max_epochs=max_epochs); return (m, 0)
+    monkeypatch.setattr(DL, "train_one_model", fake_train)
+    rng = np.random.default_rng(0)
+    monkeypatch.setattr(DL, "predict_proba", lambda m, X: rng.random(len(X)))
+    DL.train_deep_loso("cnn", 1, pool="legacy", include_all=True,
+                       lr=3e-4, batch_size=32, weight_decay=1e-4, max_epochs=120)
+    assert captured == {"lr": 3e-4, "batch_size": 32, "weight_decay": 1e-4, "max_epochs": 120}
+
+
+def test_deep_cli_has_hp_flags():
+    import subprocess, sys
+    from pathlib import Path
+    root = Path(__file__).parents[1]
+    r = subprocess.run([sys.executable, "-m", "src.training.deep", "--help"],
+                       cwd=root, capture_output=True, text=True)
+    for flag in ("--lr", "--dropout", "--batch-size", "--weight-decay",
+                 "--patience", "--max-epochs"):
+        assert flag in r.stdout
