@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import math
 
-import numpy as np
 from scipy.stats import qmc
 
 _BATCH = (32, 64, 128)
