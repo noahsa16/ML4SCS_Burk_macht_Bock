@@ -1,7 +1,7 @@
 # tests/test_deep_hp_study.py
 import importlib.util
 from pathlib import Path
-import numpy as np, pandas as pd
+import numpy as np, pandas as pd, pytest
 
 _S = Path(__file__).parents[1] / "scripts" / "ml" / "deep_hp_study.py"
 _spec = importlib.util.spec_from_file_location("deep_hp_study", _S)
@@ -31,3 +31,12 @@ def test_infeasible_count():
     df = pd.DataFrame([_trial("cnn", 1e-3, 0.3, 64, 1e-5, np.nan),
                        _trial("cnn", 1e-3, 0.3, 64, 1e-5, 0.8)])
     assert study.infeasible_count(df) == 1
+
+def test_winner_fold_cv_seed_averages():
+    import pandas as pd
+    s1 = pd.DataFrame({"held_out": ["P1", "P2"], "accuracy": [0.8, 0.6], "roc_auc": [0.9, 0.7]})
+    s2 = pd.DataFrame({"held_out": ["P1", "P2"], "accuracy": [0.9, 0.7], "roc_auc": [0.95, 0.75]})
+    out = study.winner_fold_cv([s1, s2])
+    assert set(out["held_out"]) == {"P1", "P2"}
+    p1 = out[out.held_out == "P1"].iloc[0]
+    assert p1.accuracy == pytest.approx(0.85) and p1.roc_auc == pytest.approx(0.925)   # (0.8+0.9)/2, (0.9+0.95)/2
