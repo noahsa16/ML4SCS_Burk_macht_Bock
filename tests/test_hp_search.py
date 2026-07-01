@@ -21,3 +21,9 @@ def test_is_at_boundary():
     assert is_at_boundary(1e-4, 1e-4, 1e-2, log=True)      # unten am Rand
     assert is_at_boundary(1e-2, 1e-4, 1e-2, log=True)      # oben am Rand
     assert not is_at_boundary(1e-3, 1e-4, 1e-2, log=True)  # Mitte
+
+
+def test_is_at_boundary_linear():
+    assert is_at_boundary(0.0, 0.0, 1.0)          # low edge
+    assert is_at_boundary(1.0, 0.0, 1.0)          # high edge
+    assert not is_at_boundary(0.5, 0.0, 1.0)      # center
