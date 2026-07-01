@@ -84,3 +84,13 @@ def test_run_collect_empty_dir_raises(tmp_path):
     import pytest
     with pytest.raises(SystemExit):
         study.run_collect(str(tmp_path), "legacy", 5, [42])
+
+
+def test_trial_mode_rejects_wrong_max_epochs(monkeypatch):
+    import pytest, sys
+    monkeypatch.setattr(sys, "argv", [
+        "deep_hp_study.py", "--mode", "trial", "--model", "cnn", "--name", "x",
+        "--lr", "1e-3", "--dropout", "0.2", "--batch-size", "64",
+        "--weight-decay", "1e-5", "--max-epochs", "60"])
+    with pytest.raises(SystemExit):
+        study.main()
