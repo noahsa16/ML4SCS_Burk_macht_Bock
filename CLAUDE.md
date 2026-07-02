@@ -30,15 +30,23 @@ cross-validation + Study Mode (counterbalanced protocol runner with
 fullscreen proband UI and VL admin monitor) + Live-Inference im
 Dashboard (Topbar-Pill, Recording-Page-Card, eigener `#focus`-Tab
 mit persistenter Schreibzeit-Aggregation) + Modell-Switcher
-(Personal ↔ Generic) are operational. **Current headline (15-person
-cross-subject LOSO seit 2026-06-13 — 10 Legacy-Probanden + P12–P15 +
-P17 als 50hz-Views via Downsample-Bridge; RF + per-session z-score +
-`max_gap_ms=2500` label closing; **Capture-Clock-Fix** angewandt):
-accuracy 0.872 ± 0.037, ROC-AUC 0.947 ± 0.026, F1(writing) 0.873.
-Burst-aggregiert **kausal** (trailing / `center=False` —
-live-tracker-ehrlich, seit 2026-06-11): @5s acc 0.860 ± 0.044,
-AUC 0.933 ± 0.032; @10s acc 0.825 ± 0.049, AUC 0.906 ± 0.040;
-@30s acc 0.771 ± 0.051, AUC 0.856 ± 0.049.**
+(Personal ↔ Generic) are operational. **Current headline (20-person
+cross-subject LOSO seit 2026-07-01 — die 15-Probanden-Kohorte (siehe
+Vorgänger-Headlines unten) + P26/P27/P29/P31/P32 als v2-Hard-Negative-
+Kohorte; RF + per-session z-score + `max_gap_ms=2500` label closing;
+Capture-Clock-Fix angewandt): 1s-window accuracy 0.869 ± 0.032,
+ROC-AUC 0.946 ± 0.021. Burst-aggregiert **kausal**: @5s acc 0.856 ± 0.039,
+AUC 0.932 ± 0.026; @10s acc 0.825 ± 0.046, AUC 0.907 ± 0.032;
+@30s acc 0.771 ± 0.046, AUC 0.855 ± 0.041.** Praktisch **unverändert**
+ggü. der N=15-Headline (0.872/0.947) trotz 5 zusätzlicher, im Schnitt
+härterer v2-Probanden — die neuen Folds sind eine Mischung aus sehr
+schwach (P31 acc 0.784, P17 0.802) und sehr stark (P13 0.908, P26 0.907),
+kein systematischer Abfall (siehe *Marker-FPR-Hard-Negative-Gap* unten:
+die Schwäche ist task-/subjekt-spezifisch — keyboard/phone-Tippen-
+Verwechslung —, nicht kohorten-weit). **Nachgerechnet direkt aus
+`models/loso_oof_legacy.csv` (Stand 2026-07-01, N=20); die kanonischen
+Artefakte `loso_cv_legacy.csv` / `rf_all.joblib` sind noch auf N=15
+(2026-06-20) und regenerations-pflichtig.**
 **Capture-Clock-Fix (2026-06-13):** Merge-/Window-Zeitachse läuft jetzt
 auf der per-Sample-Watch-Uhr `ts` statt der Batch-Ankunftszeit
 `local_ts_ms`. Letztere ist batch-quantisiert (alle Samples eines POSTs
@@ -67,6 +75,9 @@ Artefakte (`rf_all.joblib`, `loso_cv.csv`, `loso_oof.csv`) sind auf
 N=15 + Capture-Clock-Fix retrainiert (Promotion via
 `--pool legacy --no-pool-suffix`); `rf_all_live.joblib` ist noch auf
 N=14 pre-fix und retraining-pflichtig. Vorgänger-Headlines:
+**15-Probanden (post Capture-Clock-Fix, vor N=20-Erweiterung, seit
+2026-06-13): acc 0.872 ± 0.037 / AUC 0.947 ± 0.026 / F1(w) 0.873;
+@5s 0.860/0.933, @10s 0.825/0.906, @30s 0.771/0.856.**
 **14-Probanden (pre Capture-Clock-Fix): acc 0.855 ± 0.034 /
 AUC 0.929 ± 0.034 / F1(w) 0.862.**
 **10-Probanden (post Sort-Stability-Fix): acc 0.863 ± 0.032 /
@@ -141,7 +152,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 485 tests, ~25 s
+pytest tests/         # 605 tests
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -696,6 +707,46 @@ no longer vibrates continuously when the server is down.
   Tooling neu (2026-06-20): `tcn6` in `MODELS` + CLI, `--win 10`, Tabelle 2
   skalen-bewusst (RF-Ref auf passender Decision-Skala statt hart @5s);
   GitHub-Sweep-Dimension `DEEP_WIN5` (cnn/tcn/tcn6 @5s, Cron aus / Dispatch an).
+- `scripts/ml/deep_hp_study.py` + `src/training/deep/hp_search.py` —
+  **faire Per-Architektur-Hyperparameter-Studie** (Sobol-Quasi-Zufall über
+  lr/dropout/batch/weight-decay, `sobol_configs(n, seed=0)`). Motivation:
+  die Deep-Modell-Vergleiche oben (CNN/LSTM/GRU/TCN/tcn6) liefen bislang
+  mit denselben Default-Hyperparametern für alle Architekturen — ein
+  Modell könnte einfach besser default-getuned sein, nicht strukturell
+  überlegen. `--mode {full,trial,collect}`: `trial` fährt eine einzelne
+  Sobol-Konfiguration (CI-Matrix-Job), `collect` liest alle `trial_*.csv`
+  eines Architektur-Ordners und meldet den Winner + Boundary-Warnungen
+  (`winners()`, `boundary_warnings()`, `infeasible_count()` — reine
+  Funktionen, getestet). `.github/workflows/deep_hp.yml`: 3-Job-Pipeline
+  (prepare → search-Matrix → collect), dispatch-only, `SWEEP_DATA_URL`-
+  gated (Probandendaten nie im Repo). Via Subagent-Driven-Development
+  gebaut, **PR #57 auf main gemergt (2026-07-01)**. Ein echter Studienlauf
+  braucht das ~307 MB-Proband-Bundle als `SWEEP_DATA_URL`-Secret;
+  `timeout-minutes: 300` pro Matrix-Job — die teuersten Trials (`tcn6`)
+  können das reißen, `run_collect` liest per Glob nur die tatsächlich
+  vorhandenen `trial_*.csv` (kein Crash bei fehlenden Trials, Sobol
+  verträgt weniger Punkte). **Suchphase gelaufen (Run 28527728688,
+  2026-07-01→02, N=20 legacy @5s, 64/96 Trials, nach 16,5 h
+  abgebrochen; ausgewertet in `reports/deep_hp_study.md` +
+  `models/deep_hp_{study,winners}_legacy.csv`).** Sieger @1 Seed:
+  **tcn6 0.9194/0.9755 — bestes UND robustestes** (min über 9
+  Sobol-Punkte 0.893); **GRU-Überraschung 0.9185 gleichauf** (lr~0.005,
+  dropout~0.47 — der Default-HP-Vergleich hatte rekurrente Netze zu
+  früh abgeschrieben), aber HP-fragil (einzelne Configs kollabieren auf
+  Chance); LSTM extrem fragil (Median 0.64, best 0.908); tcn 0.905,
+  cnn 0.897 (insensitiv, gedeckelt). Referenz N=20 nativ-5s: RF 0.879,
+  tcn6-Default 0.898. tcn6-vs-gru (Δ 0,1 pp) liegt weit unter dem
+  Seed-Floor ±1,7 pp — erst die **noch offene Sieger-@3-Seed-
+  Varianzstufe** macht das belastbar. **Transformer 0/16: OOM in
+  `predict_proba`** (voller Train-Split in einem Forward → 40,4 GB
+  Attention auf dem 16-GB-Runner), maskiert durch fehlendes `pipefail`
+  in der while-Pipe des Trial-Steps (Jobs grün ohne Artefakt). Beide
+  gefixt (2026-07-02): `predict_proba` chunked (batch_size=512,
+  Äquivalenz-Test in `test_deep.py`), Trial-Step mit `shell: bash`.
+  Fehlende Trials (Run-Abbruch): gru t2,4,5,7,9,10,12,13,14 + tcn6
+  t2,4,5,6,10,12,13. Achtung Nachzügler-Runs: der collect-Job lädt nur
+  Artefakte des **eigenen** Runs — Teil-Redispatch erfordert lokales
+  Zusammenführen der Trial-CSVs (wie hier geschehen) oder Voll-Redispatch.
 - `src/training/deep/harnet*.py` — **Transfer-Learning-Vergleich mit dem
   Oxford `ssl-wearables`-Foundation-Model (harnet)**, im identischen
   LOSO-by-person-Protokoll wie `train_loso.py` (importiert nur
@@ -757,6 +808,26 @@ no longer vibrates continuously when the server is down.
   macOS-Framework-Python braucht ein CA-Bundle für `torch.hub`
   (`_ensure_ca_bundle()` setzt `SSL_CERT_FILE` via certifi). Modell-Download
   lazy beim ersten Lauf (~40 s, dann `~/.cache/torch/hub`).
+- `scripts/ml/tcn_rf_fusion.py` — **TCN6↔RF-Ensemble** (2026-07-01/02,
+  N=20 legacy, nativ-5s, 9093 aligned Fenster) — mirror von
+  `harnet_rf_fusion.py`, aber gegen `tcn6` statt harnet5 gekoppelt.
+  **Anders als die harnet-Fusion (Null-Befund oben) hebt das Ensemble
+  (Proba-Mittel) hier BEIDE Solo-Modelle signifikant:** RF-nativ-5s-solo
+  0.879 ± 0.027 / AUC 0.953, TCN6-nativ-5s-solo 0.898 ± 0.045 / AUC 0.969,
+  **Ensemble 0.909 ± 0.036 / AUC 0.978**. Gepaarter Wilcoxon: Ensemble >
+  TCN6-solo (Δacc +0.0076 p=0.036, ΔAUC n.s. p=0.43), Ensemble > RF-solo
+  (Δacc +0.0327 p=0.0032, ΔAUC +0.0229 p<0.0001). Residuen-Korrelation
+  r=0.599 — fast identisch zur harnet-Fusion (r=0.574), aber diesmal ein
+  echter Gewinn statt Null; plausibelster Grund ist die höhere Power bei
+  N=20 (vs. N=14 bei der harnet-Fusion), einen realen ~1-pp-Effekt von
+  Rauschen zu trennen, nicht notwendigerweise ein Unterschied zwischen
+  TCN6 und harnet5 als Fusionspartner. **Wichtiger Vorbehalt:** TCN6-solo
+  liegt hier bei 0.898 ± 0.045, die tcn6-Headline oben nennt 0.922 —
+  Differenz konsistent mit dem dokumentierten Seed-Rauschen-Floor
+  (±1.7 pp, siehe *Modern-TCN6-Seed-Floor* unten); ein Mehrfach-Seed-
+  Replay des Ensemble-Gewinns steht noch aus. **Forschungsbefund, NICHT
+  deployed** — live läuft weiter 1s-RF+HMM. Output: `reports/tcn_rf_fusion.md`
+  + `models/tcn_rf_fusion_cv.csv`.
 - `scripts/ml/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
@@ -787,6 +858,120 @@ no longer vibrates continuously when the server is down.
   Feature-Set. → `reports/figures/shap_P17.png`. Perf: exaktes TreeSHAP ist
   O(Bäume·Blätter·Tiefe²)/Sample — auf 200 tiefen RF-Bäumen × tausenden Fenstern
   Minuten; Subsample auf 600 Fenster (Accuracy bleibt auf allen) → Sekunden.
+- `scripts/ml/marker_fpr.py` — **Marker-Per-Task-FPR: Hard-Negative-Lücke**
+  (2026-07-01, N=20 legacy 1s-OOF). Ordnet jedes False-Positive-Fenster über
+  `t_center_ms` seiner Marker-Task zu (`parse_task_blocks`/`assign_task`,
+  IntervalIndex) und aggregiert die FPR pro Task. **Befund: die LOSO-FPR
+  clustert task-spezifisch auf Tipp-Bewegungen, nicht flach** — pooled
+  `keyboard_typing` FPR 0.360, `phone_typing` 0.251 vs. `pause` 0.036
+  (4.7×, alle anderen Idle-Tasks ~3–5 %). **P17: keyboard 0.63, phone
+  0.68** — verwechselt beide Tipp-Arten in ~2/3 der Fenster mit Schreiben,
+  trotz 5 anderer v2-Probanden mit Tipp-Beispielen im Training (subjekt-
+  spezifisch: P26/P27 lehnen Tastatur nahezu perfekt ab). **Revidiert die
+  „Decke ist reine Signal-Ambiguität"-Erzählung teilweise**: ein
+  substanzieller Teil von P17s Schwäche ist eine **adressierbare
+  Trainingslücke** (Tipp-Verwechslung), nicht irreduzible Mehrdeutigkeit —
+  die frühere Multi-Modell-Decken-Bestätigung (RF/TCN/harnet/MiniRocket,
+  `feature_engineering_ceiling`-Memory) teilte alle dieselbe Trainings-
+  verteilung und konnte das nicht unterscheiden. Bestätigt + quantifiziert
+  den dokumentierten Phone-Typing-Confound (Pause-Analyse P07 oben).
+  Output: `reports/marker_fpr.md` + `models/marker_fpr.csv`. Getestet
+  (`tests/test_marker_fpr.py`, 4 Tests, pure Funktionen).
+- `src/features/rhythm.py` + `scripts/ml/rhythm_feature_test.py` —
+  **Rhythmus-Feature-Negativbefund** (2026-07-01): Hypothese aus dem
+  Marker-FPR-Befund — Tippen ist regelmäßiger als Schreiben — getestet
+  mit 4 neuen Opt-in-Features (`build_windows(rhythm=True)`):
+  Autokorrelations-Peak-Höhe (Zeit-Domäne, Rhythmus-Band) + spektrale
+  Flatness (Wiener-Entropie) je auf accel-mag/gyro-mag. Kontrollierter
+  88-vs-92-Test (N=20 legacy, dieselben Fenster, gepaarter Wilcoxon):
+  **keyboard-FPR 0.343 → 0.336 (−0.7 pp, marginal), phone-FPR 0.243 →
+  0.247 (leicht schlechter), LOSO-acc n.s. (p=0.54 window, p=0.89 @5s).**
+  Handschrift ist am Wrist-IMU selbst rhythmisch genug (Buchstabe-für-
+  Buchstabe-Wiederholung) — Autokorrelation/Flatness trennen Tippen nicht
+  von Schreiben. Opt-in bit-identisch im Default (`rhythm=False`), getestet
+  (`tests/test_rhythm.py`). Output: `reports/rhythm_feature.md` +
+  `models/rhythm_oof_{base,rhythm}.csv`.
+- `scripts/ml/tsfresh_loso.py` + `src/features/tsfresh_winners.py` +
+  `scripts/ml/tsfresh_winners_test.py` — **ERSTER übertragbarer
+  Feature-Gewinn des Projekts (2026-07-02)**, nach drei Falsifikationen
+  (Rhythmus, verschärfte Hard-Negative-Features, Weighting). Dreistufige
+  Beweiskette:
+  (1) *Volle tsfresh-Bank* (EfficientFCParameters, ~4700 Features, 1-s-
+  Fenster, klassen-balanciertes 1000er-Subsample/Session): schlägt die 88
+  **auf identischen Fenstern gematcht** (merge_asof auf t_center_ms,
+  19168/20000 matched, 0 Label-Mismatch) gepaart signifikant — **+0.85 pp
+  acc (0.8821 vs 0.8736, p=0.0015), +0.52 pp AUC (p=0.0005)**, 16/20 Folds,
+  trotz weniger Trainingsfenstern. Roher Headline-Vergleich wäre wegen des
+  balancierten Subsamples unfair gewesen — matched ist Pflicht.
+  (2) *Destillat*: die Top-Importances konzentrieren sich auf vier Familien,
+  die den 88 fehlen — **per-Achse-Autokorrelation bei festen kurzen Lags**
+  (Gyro lag 2–5 = 40–100 ms; NICHT dasselbe wie der Rhythmus-Negativbefund:
+  dort Autokorr-PEAK über ein Lag-Band auf Magnituden), **Quantile**
+  (q70/q90), **change_quantiles** (mittlere |Änderung| im Quantil-Korridor),
+  **CID**. Daraus 42 lean numpy-Features (`src/features/tsfresh_winners.py`,
+  kein tsfresh-Dependency, tsfresh-Semantik; Opt-in
+  `build_windows(tsfresh_winners=True)`, Default bit-identisch,
+  `tests/test_tsfresh_winners.py`).
+  (3) *Transfer-Test auf ALLEN ~45.5k Fenstern* (natürliche Verteilung,
+  gleiche Fenster, gepaart): **window-acc 0.869 → 0.874 (p=0.0073), AUC
+  p=0.0002 — Transfer hält.** @5s-Burst-acc n.s. (Burst schluckt den
+  1-s-Gewinn — der Wert liegt auf der 1-s-Skala, wo die Live-Pipeline
+  läuft). **Live-Stack-Kompound: HMM auf beiden OOFs → 1s+HMM acc 0.8954 →
+  0.8993 (p=0.0027), F1 p=0.0007, AUC p<0.0001** — der Gewinn komponiert
+  mit dem HMM statt geschluckt zu werden. keyboard/phone-FPR mild besser
+  (0.343→0.336 / 0.243→0.225), P17 unberührt (Tipp-Confound bleibt
+  Datenproblem). **Adoptions-Kandidat, noch NICHT adoptiert:** Übernahme
+  hieße Flag in kanonischer Window-Generierung + Live-Inference +
+  Retraining von rf_all/rf_all_live/hmm_live.json (+ ggf. Pruning der 42
+  per Importance). Artefakte: `reports/tsfresh_transfer.md`,
+  `models/tsfresh_{cv,oof,importances}.csv`,
+  `models/tsfresh_winners_oof_{base,winners}.csv`,
+  `data/processed/tsfresh_features.parquet` (253-MB-Cache, gitignored).
+  Gotchas des Laufs: pyarrow war nicht installiert (Parquet-Write crashte
+  nach 40-min-Extraktion → Pickle-Fallback jetzt im Code); Ur-Skript hatte
+  einen Window-ID-Scramble-Bug (IDs vor dem Subsampling vergeben →
+  Feature/Label-Mismatch + ID-Kollisionen zwischen Sessions) und einen
+  Z-Score-Mismatch (Train per-Session, Test faktisch roh) — beide vor dem
+  Lauf gefixt.
+- **SHAP-Diff P17-Schreiben vs. P17-Tippen** (2026-07-01/02,
+  `reports/shap_hard_negative_diff.md` + `reports/figures/
+  raw_compare_p17_p26.png`): mechanistische Vertiefung des Marker-FPR-
+  Befunds für P17. Ein Rohdaten-Vergleich (10s P17-Tippen vs. P17-
+  Schreiben vs. P26-Tippen als Kontrolle) zeigt P17s Tippen als
+  **diskrete, scharfe Gyro-Bursts** in **derselben Größenordnung wie P17s
+  eigenes Schreiben** (Gyro-RMS 0.965 vs. 0.589) — P26 (Kontrolle) bleibt
+  beim Tippen durchgehend leise (0.140). Kein Hinweis auf ein lockeres
+  Wearable (P17s Pause/Gesturing-FPR ist normal ~0.07); P17 tippt vermutlich
+  aggressiv (Hunt-and-Peck mit kräftigem Handgelenk-Wippen). Ein gezielter
+  SHAP-Vergleich (P17-Schreib-TP vs. P17-Tipp-FP, RF trainiert auf den
+  anderen 19 Personen, gleiche 88 Features) zeigt **Korrelation r=0.633**
+  über alle Features: die meisten Top-Treiber (`ay_jerk_mean_abs`, `rz_zcr`,
+  `rz_band_3_8`, `rz_spec_centroid`) stimmen in Richtung UND Stärke
+  überein — echte Merkmalsgleichheit. **Aber zwei Features widersprechen
+  korrekt und kippen das Vorzeichen:** `rx_band_3_8` (+0.0175 Schreiben vs.
+  −0.0062 Tippen) und `gyro_mag_jerk_mean_abs` (+0.0127 vs. −0.0159) —
+  plausibel die Pronation/Supination-Achse (Pen-Drehen), die reines
+  Tippen nicht reproduziert, werden aber von der Mehrheit überstimmt.
+  Implikation: weder reine Stil-Ambiguität noch reines Boundary-Problem —
+  die Trenn-Information existiert bereits im Feature-Satz, ist aber eine
+  Minderheitsstimme; der Hebel ist mehr Trainingsdaten mit diesem Tippstil,
+  kein neues Feature (deckt sich mit dem Rhythmus-Negativbefund).
+  **Empirisch bestätigt (2026-07-02, `scripts/ml/hard_negative_feature_test.py`
+  + `reports/hard_negative_feature.md`):** 10 gezielte Verschärfungen der
+  Minderheits-Signale (per-Achse-Gyro-Jerk, Accel↔rx-Korrelationen,
+  rx/ay-Ratio; opt-in `build_windows(hard_negative_feats=True)`, bit-identisch
+  im Default, `tests/test_hard_negative_feats.py`) **senken die Tipp-FPR
+  nicht** — keyboard 0.343→0.358 (leicht schlechter), phone unverändert; ein
+  3×-Sample-Weight auf keyboard/phone-Trainingsfenstern treibt die phone-FPR
+  0.243→0.286 hoch und regrediert die korrekt ablehnenden Probanden (P26/P27
+  ~−1 pp). LOSO überall flach (p>0.29). Mechanik: korrelierte Kopien eines
+  vorhandenen Signals ändern die Mehrheitsverhältnisse im Wald nicht;
+  Cost-Sensitive-Weighting verzerrt die global kalibrierte Grenze für alle.
+  Damit ist die Feature-Achse für den Tipp-Confound **dreifach falsifiziert**
+  (Rhythmus, verschärfte Features, Weighting) — verbleibende Hebel: mehr
+  Probanden mit aggressivem Tippstil (Lernkurven-Experiment), oder der
+  Confound ist am 50-Hz-Wrist-IMU intrinsisch (dann Kontext-Sensor / höhere
+  Abtastrate).
 - `scripts/ml/compare_models_at_gap.py` — gleiches Modell-Panel, aber
   baut die Features on-the-fly bei beliebigem `--gap` neu, ohne die
   Cache-Dateien anzufassen. Nützlich, um Modell-Rangfolge bei
@@ -843,6 +1028,33 @@ no longer vibrates continuously when the server is down.
   kriterium. Die gemessenen Effekte (gap 2000→2500: +0.4 pp acc) liegen
   ohnehin innerhalb der Fold-σ (~3.4 pp) und sind ohne gepaarten Test
   (`src/evaluation/significance.py`) nicht als Gewinn zu lesen.
+  **Nachtest (2026-07-01, N=14 legacy): gap 2500 vs. 3000 — 2500 acc
+  0.871 ± 0.030 vs. 3000 0.867 ± 0.039, marginal besser UND stabiler,
+  Δ n.s. (p=0.24) → 2500 bleibt.** Derselbe Lauf: **grouped-5-fold**
+  (`train_loso --folds 5`, `GroupKFold` nach Subject statt echtem LOSO,
+  leakage-frei) acc 0.867 ± 0.026 — praktisch identisch zur LOSO-Headline
+  (0.871), sogar engere σ. **Korroboriert die LOSO-Headline** (kein
+  Fold-Struktur-Artefakt; ein random-5-fold hätte sie durch Leakage
+  aufgebläht, GroupKFold nicht).
+- `src/training/deep/augment.py` + `scripts/ml/augment_matrix.py` +
+  `scripts/ml/augment_ab_collect.py` — **Daten-Augmentation-Negativbefund**
+  (2026-07-01, `reports/augment_ab.md`). On-the-fly-Augmentation der
+  rohen IMU-Fenster (train-only, label-safe, eigener RNG pro Fold) in
+  zwei Stärken: **basic** (scale 0.8–1.2, rotate ±10°) und **rich**
+  (+ time-warp/jitter/magnitude, scale 0.7–1.3, rotate ±20°), getestet
+  via paralleler GitHub-Actions-A/B (`.github/workflows/augment.yml`,
+  tcn6 @5s, 3 Seeds × {aug, no-aug}, gepaarter Wilcoxon). **Claim-Gate:
+  Δ außerhalb Seed-σ-Band UND p < 0.05 auf acc UND AUC.** Ergebnis: **kein
+  Gewinn auf keinem Pool, mit keinem Satz** — modern/basic Δacc +1.55 pp
+  p=0.078, legacy/basic +0.52 pp p=0.27, modern/rich +1.28 pp p=0.31
+  (rich half sogar *weniger* als basic), legacy/rich unvollständig (CI-
+  Concurrency-Cancel). **AUC durchweg flach (alle Δ ≤ +0.5 pp)** — der
+  entscheidende Tell: Augmentation bewegt Accuracy auf einzelnen
+  Folds (P14/P17/P26), aber keine Trennbarkeit. Reiht sich in die
+  Feature-Engineering-Nullbefunde ein (`feature_engineering_ceiling`-
+  Memory) — Input-Raum-Erweiterung erfindet kein Signal, das nicht im
+  Signal ist. `AUGMENT`-Default bleibt OFF; Tooling nutzbar für
+  zukünftige Sweeps.
 - `scripts/ml/label_kinematics_check.py` — falsifiziert den Varianz-
   Alignment-Bias-Verdacht: pooled writing-vs-idle Jerk/Varianz (Kern
   `src/evaluation/label_diagnostics.py::class_kinematics_summary`). Befund:
@@ -1244,6 +1456,24 @@ Pose-Idiosynkrasie), within-subject bleibt der Befund positiv —
 Gravity ist ein Personalisierungs-Signal, kein Generalisierungs-
 Signal. Details `reports/feature_ablation.md`. Capture läuft
 unverändert weiter (nicht retro-imputierbar, revidierbar ab N≥6).
+
+**Modern-TCN6-Seed-Floor (2026-06-25, Modern-Pool N=7 — S055/P26 +
+S050/Noah aktiviert seit N=6).** Ehrliche 3-Seed-Headline für `tcn6` auf
+dem Modern-Pool (100 Hz + Gravity, nativ-5s): **acc 0.889 ± 0.017 /
+AUC 0.968 ± 0.001.** Kernbefund: **Seed-Rauschen-Floor ±1.7 pp**
+(per-Fold bis ±5 pp, P26 12 pp Spannweite bei identischen Daten und
+Config) — bei N=7 sind Architektur-Tweaks (SE-Block, ConvGRU, LayerNorm)
+gegen dieses Rauschen **unmessbar**; nur mehr Daten bewegen die Zahl
+verlässlich. Ein zuvor gemessenes „+4.9 pp durch Z-Score" (N=6) und
+„+2.8 pp durch Val-basierte Early-Stopping-Wahl" waren **Rausch-
+Artefakte**, keine echten Effekte. AUC ist seed-stabil (Ranking robust),
+nur die Accuracy-Schwelle wackelt. **Deploy-Entscheidung: no-zscore**
+(konsistent mit dem Legacy-Pool-Befund, dass BatchNorm die Normalisierung
+schon übernimmt). Nebenbei die Deep-Pipeline gehärtet: `drawing`-Task
+korrekt aus allen Pools ausgeschlossen (vorher ein Bug, der P17 künstlich
+drückte — P17 stieg von 0.728 auf 0.843 durch Fix + N=7, nicht durch
+reine Decken-Überwindung), Per-Fold-Seeding, datengetriebene v2-Coverage-
+Erkennung. 519 Tests grün zum Zeitpunkt dieses Fixes.
 
 **Was wo lebt:**
 - `src/profiles.py` (+ `tests/test_profiles.py`): watch_profile-
@@ -1660,7 +1890,7 @@ Worth re-trying at N≥5.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (485 cases, ~25 s) — anything that
+`tests/` holds Tier-1 smoke tests (605 cases) — anything that
 could silently poison the training data or the proband-facing flow:
 
 - `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
