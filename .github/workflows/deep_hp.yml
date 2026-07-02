@@ -2,11 +2,15 @@ name: Deep-HP-Studie
 on:
   workflow_dispatch:
     inputs:
-      models: { description: "Architekturen (Komma)", default: "cnn,tcn,tcn6,lstm,gru,transformer" }
+      models: { description: "Architekturen (Komma; 'none' = nur custom)", default: "cnn,tcn,tcn6,lstm,gru,transformer" }
       pool:   { description: "Pool", type: choice, options: [legacy, modern], default: legacy }
       win:    { description: "Fenster in s", default: "5" }
       n_trials: { description: "Sobol-Trials/Arch", default: "16" }
       seeds:  { description: "Varianz-Seeds (Space)", default: "42 43 44" }
+      trials: { description: "Sobol-Indizes (Komma; leer = alle)", default: "" }
+      seed:   { description: "Trial-Seed (!=42 suffixt Namen mit -s{seed})", default: "42" }
+      custom: { description: "Extra-Configs als JSON-Liste (model/name/lr/dropout/batch_size/weight_decay/seed)", default: "" }
+      skip_collect: { description: "Collect-Job ueberspringen (Teil-Runs: Aggregation lokal)", type: boolean, default: false }
 permissions:
   contents: read
 jobs:
@@ -24,6 +28,9 @@ jobs:
           POOL: ${{ inputs.pool }}
           WIN: ${{ inputs.win }}
           N_TRIALS: ${{ inputs.n_trials }}
+          TRIALS: ${{ inputs.trials }}
+          SEED: ${{ inputs.seed }}
+          CUSTOM: ${{ inputs.custom }}
         run: echo "matrix=$(python scripts/ml/deep_hp_matrix.py)" >> "$GITHUB_OUTPUT"
 
   search:
@@ -42,6 +49,10 @@ jobs:
           if [ -z "$DATA_URL" ]; then echo "::error::SWEEP_DATA_URL fehlt"; exit 1; fi
           curl -fsSL "$DATA_URL" -o sweep_data.zip && unzip -q sweep_data.zip
       - name: "Trial ${{ matrix.name }}"
+        # Why: explizites `shell: bash` aktiviert -o pipefail — sonst
+        # verschluckt die while-Pipe den Exit-Code eines Trial-Crashs
+        # (Transformer-OOM-Jobs meldeten "success" ohne Artefakt).
+        shell: bash
         run: |
           echo "### ${{ matrix.name }}" >> "$GITHUB_STEP_SUMMARY"
           ${{ matrix.cmd }} 2>&1 | while IFS= read -r l; do printf '%s\n' "$l"; \
@@ -55,6 +66,10 @@ jobs:
 
   collect:
     needs: search
+    # Why: Teil-Runs (Nachzuegler-Trials, Varianz-Seeds) sehen nur die
+    # eigenen Artefakte — collect wuerde auf Teildaten "Sieger" retrainieren
+    # und bei teuren Archs das 300-min-Timeout reissen. Aggregation lokal.
+    if: ${{ !inputs.skip_collect }}
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
