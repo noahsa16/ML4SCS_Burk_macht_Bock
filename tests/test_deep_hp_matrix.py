@@ -13,7 +13,7 @@ _spec.loader.exec_module(m)
 
 
 def _build(monkeypatch, **env):
-    for k in ("MODELS", "POOL", "WIN", "N_TRIALS", "SEED"):
+    for k in ("MODELS", "POOL", "WIN", "N_TRIALS", "SEED", "TRIALS", "CUSTOM"):
         monkeypatch.delenv(k, raising=False)
     for k, v in env.items():
         monkeypatch.setenv(k, v)
@@ -30,6 +30,62 @@ def test_matrix_expands_models_x_trials(monkeypatch):
 def test_matrix_names_unique(monkeypatch):
     inc = _build(monkeypatch, MODELS="cnn", N_TRIALS="4")
     assert len({e["name"] for e in inc}) == 4
+
+
+def test_matrix_trials_filter(monkeypatch):
+    """TRIALS-Indizes begrenzen die Sobol-Punkte -- fuer Nachzuegler-Runs
+    (Run-Abbruch) ohne Voll-Redispatch."""
+    inc = _build(monkeypatch, MODELS="cnn", N_TRIALS="4", TRIALS="1,3")
+    assert {e["name"] for e in inc} == {"cnn-t1", "cnn-t3"}
+
+
+def test_matrix_seed_suffix_keeps_artifact_names_unique(monkeypatch):
+    """SEED != 42 haengt -s{seed} an den Namen (Artefakt-Kollision zwischen
+    Varianz-Runs) und traegt --seed im Kommando; Default 42 bleibt bit-identisch."""
+    inc = _build(monkeypatch, MODELS="cnn", N_TRIALS="2", SEED="43")
+    assert {e["name"] for e in inc} == {"cnn-t0-s43", "cnn-t1-s43"}
+    assert all("--seed 43" in e["cmd"] for e in inc)
+    inc42 = _build(monkeypatch, MODELS="cnn", N_TRIALS="2")
+    assert {e["name"] for e in inc42} == {"cnn-t0", "cnn-t1"}
+
+
+def test_matrix_custom_entries(monkeypatch):
+    """CUSTOM-JSON haengt gezielte Configs an (z. B. Boundary-Probe
+    tcn6@256) -- gleiche Trial-Runner-Form inkl. Fairness-Cap."""
+    custom = ('[{"model": "tcn6", "name": "tcn6-b256-s43", "lr": 0.002107, '
+              '"dropout": 0.049, "batch_size": 256, "weight_decay": 0.00013926, '
+              '"seed": 43}]')
+    inc = _build(monkeypatch, MODELS="none", CUSTOM=custom)
+    assert len(inc) == 1
+    e = inc[0]
+    assert e["name"] == "tcn6-b256-s43"
+    assert "--model tcn6" in e["cmd"]
+    assert "--batch-size 256" in e["cmd"]
+    assert "--seed 43" in e["cmd"]
+    assert "--max-epochs 120" in e["cmd"]
+
+
+def test_matrix_custom_schedule_and_zscore_flags(monkeypatch):
+    """CUSTOM-Eintraege koennen lr_schedule/zscore setzen -- nur dann
+    erscheinen die Flags im Kommando (Default bleibt flag-frei)."""
+    custom = ('[{"model": "tcn6", "name": "tcn6-cos-s43", "lr": 0.002, '
+              '"dropout": 0.05, "batch_size": 128, "weight_decay": 1e-4, '
+              '"seed": 43, "lr_schedule": "cosine"}, '
+              '{"model": "tcn6wn", "name": "tcn6wn-z-s42", "lr": 0.002, '
+              '"dropout": 0.05, "batch_size": 128, "weight_decay": 1e-4, '
+              '"zscore": true}]')
+    inc = _build(monkeypatch, MODELS="none", CUSTOM=custom)
+    cos, zsc = inc[0]["cmd"], inc[1]["cmd"]
+    assert "--lr-schedule cosine" in cos and "--zscore" not in cos
+    assert "--zscore" in zsc and "--lr-schedule" not in zsc
+
+
+def test_matrix_models_none_without_custom_fails(monkeypatch):
+    """Leere Matrix wuerde den Workflow kryptisch scheitern lassen --
+    lieber klare Fehlermeldung im prepare-Job."""
+    import pytest
+    with pytest.raises(SystemExit):
+        _build(monkeypatch, MODELS="none")
 
 
 def test_matrix_emits_trial_runner(monkeypatch):

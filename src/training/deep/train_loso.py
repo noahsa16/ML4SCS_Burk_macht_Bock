@@ -7,6 +7,7 @@ Stopping auf einem Person-Holdout trainiert.
 """
 from __future__ import annotations
 
+import math
 from pathlib import Path
 
 import numpy as np
@@ -71,6 +72,22 @@ def _pool_plan(sessions: pd.DataFrame, pool: str) -> dict[str, str | None]:
     return plan
 
 
+def _lr_factor(epoch: int, warmup: int = 3, horizon: int = 40,
+               floor: float = 0.05) -> float:
+    """LambdaLR-Faktor: linearer Warmup -> Cosine-Decay -> Floor.
+
+    Why: Horizont 40 statt max_epochs=120 -- Early Stopping greift bei
+    best_epoch ~6-18; eine Cosine ueber die volle Kappe waere bis dahin
+    praktisch konstant und die Schedule-Probe damit wirkungslos.
+    """
+    if epoch < warmup:
+        return (epoch + 1) / (warmup + 1)
+    if epoch >= horizon:
+        return floor
+    t = (epoch - warmup) / (horizon - warmup)
+    return floor + (1.0 - floor) * 0.5 * (1.0 + math.cos(math.pi * t))
+
+
 def train_one_model(
     model: torch.nn.Module,
     train_X: np.ndarray,
@@ -84,6 +101,7 @@ def train_one_model(
     weight_decay: float = 0.0,
     augmenter=None,
     on_epoch=None,
+    lr_schedule: str = "constant",
 ) -> tuple[torch.nn.Module, int]:
     """Trainiere ein Modell mit Early Stopping auf Val-ROC-AUC.
 
@@ -102,6 +120,8 @@ def train_one_model(
     pos_weight = torch.tensor([n_neg / max(n_pos, 1.0)], device=DEVICE)
     loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    sched = (torch.optim.lr_scheduler.LambdaLR(opt, _lr_factor)
+             if lr_schedule == "cosine" else None)
 
     ds = TensorDataset(
         torch.from_numpy(train_X),
@@ -158,6 +178,8 @@ def train_one_model(
             epochs_since_best += 1
             if epochs_since_best >= patience:
                 break
+        if sched is not None:
+            sched.step()
 
     if best_state is not None:
         model.load_state_dict(best_state)
@@ -180,12 +202,22 @@ def _acc_auc(proba: np.ndarray, y_true: np.ndarray) -> tuple[float, float]:
     return acc, auc
 
 
-def predict_proba(model: torch.nn.Module, X: np.ndarray) -> np.ndarray:
-    """Sigmoid-Wahrscheinlichkeiten fuer die positive Klasse (writing)."""
+def predict_proba(
+    model: torch.nn.Module, X: np.ndarray, batch_size: int = 512
+) -> np.ndarray:
+    """Sigmoid-Wahrscheinlichkeiten fuer die positive Klasse (writing).
+
+    Why: gebatcht statt Single-Shot — der volle Train-Split in einem
+    Forward materialisiert beim Transformer Batch x Heads x L x L
+    Attention (~40 GB bei ~20k 5-s-Fenstern) und OOMt den CI-Runner.
+    """
     model.eval()
+    out: list[np.ndarray] = []
     with torch.no_grad():
-        logits = model(torch.from_numpy(X).to(DEVICE))
-        return torch.sigmoid(logits).cpu().numpy()
+        for i in range(0, len(X), batch_size):
+            xb = torch.from_numpy(X[i:i + batch_size]).to(DEVICE)
+            out.append(torch.sigmoid(model(xb)).cpu().numpy())
+    return np.concatenate(out) if out else np.empty(0, dtype=np.float32)
 
 
 def fold_metrics(
@@ -279,6 +311,7 @@ def train_deep_loso(
     augment: bool = False,
     on_event=None,
     run_dir: Path | None = None,
+    lr_schedule: str = "constant",
 ) -> pd.DataFrame:
     """LOSO-by-person fuer ein Deep-Modell. Returns per-fold Metrik-Tabelle.
 
@@ -409,7 +442,7 @@ def train_deep_loso(
                 model, train_X, train_y, val_X, val_y,
                 lr=lr, batch_size=batch_size, weight_decay=weight_decay,
                 patience=patience, max_epochs=max_epochs,
-                augmenter=augmenter,
+                augmenter=augmenter, lr_schedule=lr_schedule,
                 on_epoch=lambda e, l, a, _i=i: emit(
                     {"type": _events.EPOCH, "fold": _i, "epoch": e,
                      "loss": l, "val_auc": a}))

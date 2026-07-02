@@ -287,3 +287,5 @@ The full pipeline is operational end-to-end: capture → alignment → merge →
 - [Week 9](reports/week_09_report.md) — two-pool gravity architecture + first Modern proband
 - [Week 10](reports/week_10_report.md) — gravity verdict, N=14 headline, profile-sorted windows
 - [Week 11](reports/week_11_report.md) — methodological audit, capture-clock fix (N=15 headline 0.872), stream-integrity hardening
+- [Week 12](reports/week_12_report.md) — native long-window deep models break the decision-window ceiling, causal HMM post-processing, Scrybe live deployment
+- [Week 13](reports/week_13_report.md) — marker-driven ceiling diagnosis (training gap vs. ambiguity), TCN6↔RF fusion, N=20 cohort, first transferable feature gain (distilled tsfresh winners)
