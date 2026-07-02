@@ -45,9 +45,20 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Daten
         env: { DATA_URL: "${{ secrets.SWEEP_DATA_URL }}" }
+        # Why: der Hoster drosselt parallele Downloads teils mit einer
+        # HTTP-200-Fehlerseite — curl -f greift nicht, erst der
+        # Zip-Integritaetscheck erkennt das; daher Retry-Schleife.
         run: |
           if [ -z "$DATA_URL" ]; then echo "::error::SWEEP_DATA_URL fehlt"; exit 1; fi
-          curl -fsSL "$DATA_URL" -o sweep_data.zip && unzip -q sweep_data.zip
+          for i in 1 2 3 4 5; do
+            curl -fsSL --retry 5 --retry-all-errors "$DATA_URL" -o sweep_data.zip \
+              && unzip -tq sweep_data.zip >/dev/null 2>&1 && break
+            echo "Download-Versuch $i defekt (Hoster-Throttle?) — warte $((i*20))s"
+            rm -f sweep_data.zip
+            if [ "$i" = 5 ]; then echo "::error::Daten-Download nach 5 Versuchen defekt"; exit 1; fi
+            sleep $((i*20))
+          done
+          unzip -q sweep_data.zip
       - name: "Trial ${{ matrix.name }}"
         # Why: explizites `shell: bash` aktiviert -o pipefail — sonst
         # verschluckt die while-Pipe den Exit-Code eines Trial-Crashs
@@ -79,9 +90,20 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Daten
         env: { DATA_URL: "${{ secrets.SWEEP_DATA_URL }}" }
+        # Why: der Hoster drosselt parallele Downloads teils mit einer
+        # HTTP-200-Fehlerseite — curl -f greift nicht, erst der
+        # Zip-Integritaetscheck erkennt das; daher Retry-Schleife.
         run: |
           if [ -z "$DATA_URL" ]; then echo "::error::SWEEP_DATA_URL fehlt"; exit 1; fi
-          curl -fsSL "$DATA_URL" -o sweep_data.zip && unzip -q sweep_data.zip
+          for i in 1 2 3 4 5; do
+            curl -fsSL --retry 5 --retry-all-errors "$DATA_URL" -o sweep_data.zip \
+              && unzip -tq sweep_data.zip >/dev/null 2>&1 && break
+            echo "Download-Versuch $i defekt (Hoster-Throttle?) — warte $((i*20))s"
+            rm -f sweep_data.zip
+            if [ "$i" = 5 ]; then echo "::error::Daten-Download nach 5 Versuchen defekt"; exit 1; fi
+            sleep $((i*20))
+          done
+          unzip -q sweep_data.zip
       - name: Trial-Summaries einsammeln
         uses: actions/download-artifact@v4
         with:
