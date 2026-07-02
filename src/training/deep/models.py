@@ -158,6 +158,33 @@ class TCN6(TCN):
         super().__init__(n_channels=n_channels, levels=6, dropout=dropout)
 
 
+class TCN6Wide(TCN):
+    """Breiten-Probe zur HP-Studie: hidden 16 -> 32 (~4x Parameter).
+
+    tcn6 ist mit ~9k Params bei ~19k Trainingsfenstern und Train/Test-Gap
+    0.012 data-limited, nicht ueberangepasst -- diese Variante testet, ob
+    Kapazitaet die Decke hebt. Gleiche Signatur wie TCN6 (dropout-kwarg
+    via ``train_deep_loso``).
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels=n_channels, hidden=32, levels=6,
+                         dropout=dropout)
+
+
+class TCN6K5(TCN):
+    """Kernel-Probe zur HP-Studie: kernel 3 -> 5.
+
+    Rezeptives Feld ``1 + 2*(k-1)*sum(dilations) = 505`` Samples --
+    saturiert das 250er-5-s-Fenster; testet breiteren Kontext pro
+    Faltung bei nahezu unveraendertem Parameter-Budget.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels=n_channels, levels=6, kernel_size=5,
+                         dropout=dropout)
+
+
 class _RNNClassifier(nn.Module):
     """Gemeinsame Basis fuer LSTM/GRU -- ein RNN-Layer, letzter Hidden-State -> FC."""
 
@@ -258,5 +285,7 @@ MODELS: dict[str, type[nn.Module]] = {
     "gru": GRUClassifier,
     "tcn": TCN,
     "tcn6": TCN6,
+    "tcn6w32": TCN6Wide,
+    "tcn6k5": TCN6K5,
     "transformer": TransformerClassifier,
 }

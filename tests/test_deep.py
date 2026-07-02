@@ -143,7 +143,33 @@ def test_model_registry_forward(name, seq_len):
 
 
 def test_models_registry_keys():
-    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn", "tcn6", "transformer"}
+    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn", "tcn6",
+                                  "tcn6w32", "tcn6k5", "transformer"}
+
+
+@pytest.mark.parametrize("name", ["tcn6w32", "tcn6k5"])
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_tcn6_variant_forward(name, seq_len):
+    """Architektur-Proben der HP-Studie: Breite (w32) + Kernel (k5) --
+    gleiche Konstruktor-Signatur wie tcn6 (dropout-kwarg via train_deep_loso)."""
+    out = MODELS[name](dropout=0.1)(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn6_variant_param_budgets():
+    """w32 = echte Kapazitaets-Probe (~4x tcn6), k5 bleibt in tcn6-Naehe --
+    beide weit unter Overfit-Territorium bei ~19k Trainingsfenstern."""
+    n_w32 = sum(p.numel() for p in MODELS["tcn6w32"]().parameters())
+    n_k5 = sum(p.numel() for p in MODELS["tcn6k5"]().parameters())
+    n_tcn6 = sum(p.numel() for p in MODELS["tcn6"]().parameters())
+    assert 2 * n_tcn6 < n_w32 < 80_000
+    assert n_tcn6 < n_k5 < 30_000
+
+
+def test_tcn6_variants_receptive_field_covers_5s_window():
+    assert _last_pos_depends_on_window_start(MODELS["tcn6w32"]().tcn, 250)
+    assert _last_pos_depends_on_window_start(MODELS["tcn6k5"]().tcn, 250)
 
 
 @pytest.mark.parametrize("seq_len", [50, 250])
