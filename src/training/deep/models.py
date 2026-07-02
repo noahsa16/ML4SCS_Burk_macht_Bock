@@ -376,6 +376,47 @@ class TransformerClassifier(nn.Module):
         return self.head(x).squeeze(-1)  # (batch,)
 
 
+class TransformerP5(nn.Module):
+    """Patch-Transformer: Conv1d-Patch-Embedding statt per-Sample-Projektion.
+
+    Why: der rohe Transformer rechnet Attention ueber alle 250 Samples des
+    5-s-Fensters -- O(250²) pro Layer, gemessen ~3.5 h pro LOSO-Fold auf
+    CI-CPU-Runnern (Runs 28527728688 + 28576694968), jenseits jedes
+    Job-Timeouts. 100-ms-Patches (kernel=stride=5 @ 50 Hz) sind das
+    Standard-Rezept fuer lange Sensor-Sequenzen (PatchTST): 250 Samples ->
+    50 Tokens, Attention 25x billiger, Positional-Encoding zaehlt Patches.
+    """
+
+    def __init__(
+        self,
+        n_channels: int = 6,
+        d_model: int = 32,
+        nhead: int = 4,
+        num_layers: int = 2,
+        dim_ff: int = 64,
+        dropout: float = 0.2,
+        patch: int = 5,
+    ) -> None:
+        super().__init__()
+        self.embed = nn.Conv1d(n_channels, d_model, kernel_size=patch,
+                               stride=patch)
+        self.posenc = _PositionalEncoding(d_model)
+        layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
+            dropout=dropout, batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(layer, num_layers=num_layers)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(d_model, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # (batch, seq, ch) -> Conv1d erwartet (batch, ch, seq); zurueck als
+        # (batch, seq/patch, d_model) fuer den batch_first-Encoder.
+        x = self.embed(x.transpose(1, 2)).transpose(1, 2)
+        x = self.posenc(x)
+        x = self.encoder(x)
+        return self.head(x.mean(dim=1)).squeeze(-1)
+
+
 MODELS: dict[str, type[nn.Module]] = {
     "cnn": CNN1D,
     "lstm": LSTMClassifier,
@@ -389,4 +430,5 @@ MODELS: dict[str, type[nn.Module]] = {
     "tcn6se": TCN6SE,
     "tcn8": TCN8,
     "transformer": TransformerClassifier,
+    "transformer_p5": TransformerP5,
 }
