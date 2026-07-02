@@ -31,6 +31,8 @@ import numpy as np
 import pandas as pd
 
 from src.features.gravity import _gravity_window_features
+from src.features.rhythm import rhythm_window_features
+from src.features.tsfresh_winners import tsfresh_winner_features
 
 ACC_COLS = ["ax", "ay", "az"]
 GYRO_COLS = ["rx", "ry", "rz"]
@@ -148,7 +150,10 @@ def _safe_corr(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.corrcoef(a, b)[0, 1])
 
 
-def _window_features(window: np.ndarray, fs_hz: float) -> dict[str, float]:
+def _window_features(window: np.ndarray, fs_hz: float,
+                     rhythm: bool = False,
+                     hard_negative_feats: bool = False,
+                     tsfresh_winners: bool = False) -> dict[str, float]:
     """Per-axis stats + magnitude + spectral + jerk + correlation features.
 
     Layout for one (N, 6) IMU window (axes: ax, ay, az, rx, ry, rz):
@@ -209,6 +214,40 @@ def _window_features(window: np.ndarray, fs_hz: float) -> dict[str, float]:
     feats["corr_rx_ry"] = _safe_corr(rx, ry)
     feats["corr_rx_rz"] = _safe_corr(rx, rz)
     feats["corr_ry_rz"] = _safe_corr(ry, rz)
+
+    # Opt-in: 4 Rhythmus-/Periodizitäts-Features (Tipp-vs-Schreib-Trennung).
+    # Default aus → kanonischer 88-Vektor bit-identisch.
+    if rhythm:
+        feats.update(rhythm_window_features(acc_mag, gyro_mag, fs_hz))
+
+    # Opt-in: 10 Features gegen die keyboard/phone-Verwechslung (SHAP-Diff
+    # 2026-07-01, reports/shap_hard_negative_diff.md). rx_band_3_8 und
+    # gyro_mag_jerk_mean_abs trennen P17s Tippen von Schreiben schon korrekt,
+    # werden aber von den lauten Accel-Jerk-Features ueberstimmt. Verschaerft
+    # beide Signale statt sie zu duplizieren: Jerk pro Gyro-Achse (bisher nur
+    # Magnitude) + Accel-Rotations-Kopplung verankert an rx (die eine Achse,
+    # die im SHAP-Diff schon informativ war — nicht alle 9 Accel×Gyro-Paare,
+    # um die Feature-Zahl bei N=20 nicht unnoetig aufzublaehen).
+    if hard_negative_feats:
+        for i, name in zip((3, 4, 5), GYRO_COLS):
+            dx = np.diff(window[:, i]) * fs_hz
+            feats[f"{name}_jerk_std"] = float(np.std(dx)) if len(dx) else 0.0
+            feats[f"{name}_jerk_mean_abs"] = float(np.mean(np.abs(dx))) if len(dx) else 0.0
+        feats["corr_ax_rx"] = _safe_corr(ax, rx)
+        feats["corr_ay_rx"] = _safe_corr(ay, rx)
+        feats["corr_az_rx"] = _safe_corr(az, rx)
+        # Ratio auf den ROHEN, nicht-negativen Groessen (band-ratio in [0,1],
+        # jerk mean_abs >= 0) -- NICHT auf bereits z-gescorten Werten (die
+        # koennen negativ sein, was die Ratio unsinnig macht). Z-Score der
+        # Ratio selbst passiert wie bei jedem anderen Feature stromabwaerts
+        # in _zscore_per_session().
+        feats["rx_ay_ratio"] = feats["rx_band_3_8"] / (feats["ay_jerk_mean_abs"] + 1e-3)
+
+    # Opt-in: 42 destillierte tsfresh-Winner (per-Achse-Autokorr@Lags,
+    # Quantile, change_quantiles, CID) — die volle tsfresh-Bank schlug die
+    # 88 gepaart signifikant (2026-07-02, siehe src/features/tsfresh_winners.py).
+    if tsfresh_winners:
+        feats.update(tsfresh_winner_features(window))
     return feats
 
 
@@ -220,6 +259,9 @@ def build_windows(
     min_label_ratio: float = 0.6,
     max_gap_ms: float = 2500.0,
     max_spike_ms: float = 0.0,
+    rhythm: bool = False,
+    hard_negative_feats: bool = False,
+    tsfresh_winners: bool = False,
 ) -> pd.DataFrame:
     """Build feature rows from a watch-base merged DataFrame.
 
@@ -286,7 +328,9 @@ def build_windows(
     rows: list[dict[str, float]] = []
     for start in range(0, len(df) - win + 1, stride):
         end = start + win
-        feats = _window_features(imu[start:end], fs_hz=fs_hz)
+        feats = _window_features(imu[start:end], fs_hz=fs_hz, rhythm=rhythm,
+                                  hard_negative_feats=hard_negative_feats,
+                                  tsfresh_winners=tsfresh_winners)
         feats["label"] = int(labels[start:end].mean() >= min_label_ratio)
         feats["t_center_ms"] = float(times[start:end].mean())
         if has_gravity:
