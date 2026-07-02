@@ -145,7 +145,29 @@ def test_model_registry_forward(name, seq_len):
 def test_models_registry_keys():
     assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn", "tcn6",
                                   "tcn6w32", "tcn6k5", "tcn6wn", "tcn6ap",
-                                  "tcn6se", "tcn8", "transformer"}
+                                  "tcn6se", "tcn8", "transformer",
+                                  "transformer_p5"}
+
+
+@pytest.mark.parametrize("seq_len", [50, 250, 500])
+def test_transformer_p5_forward(seq_len):
+    out = MODELS["transformer_p5"](dropout=0.1)(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_transformer_p5_patches_reduce_tokens():
+    """Kern der Variante: der Encoder sieht 100-ms-Patches (5 Samples),
+    nicht rohe Samples -- 250er-Fenster -> 50 Tokens, Attention O(L²/25).
+    Der rohe Transformer brauchte ~3.5 h/Fold auf CI-CPUs (Run 28527728688
+    + 28576694968) und riss jedes 300-min-Timeout."""
+    m = MODELS["transformer_p5"](dropout=0.1)
+    seen = {}
+    m.encoder.register_forward_hook(
+        lambda mod, inp, out: seen.update(tokens=inp[0].shape[1]))
+    out = m(torch.randn(4, 250, 6))
+    assert out.shape == (4,)
+    assert seen["tokens"] == 50
 
 
 @pytest.mark.parametrize("name", ["tcn6wn", "tcn6ap", "tcn6se", "tcn8"])
