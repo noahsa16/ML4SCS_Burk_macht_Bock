@@ -10,6 +10,7 @@ from src.training.deep import data as deep_data
 from src.training.deep.data import build_raw_windows, load_session_raw, zscore_channels
 from src.training.deep.models import CNN1D, MODELS, TCN, TemporalBlock
 from src.training.deep.train_loso import (
+    DEVICE,
     POOL_FS,
     _acc_auc,
     _pool_plan,
@@ -261,6 +262,37 @@ def test_train_one_model_runs_and_predicts():
     proba = predict_proba(model, Xv)
     assert proba.shape == (16,)
     assert np.all((proba >= 0.0) & (proba <= 1.0))
+
+
+def test_predict_proba_chunks_large_inputs():
+    """predict_proba schickt nie mehr als batch_size Fenster in einen Forward.
+
+    Regression fuer den Transformer-OOM der HP-Studie: der volle Train-Split
+    in einem Forward materialisiert Batch x Heads x L x L Attention (40 GB
+    bei ~20k Fenstern). Ergebnis muss dem Single-Shot gleichen (eval-Modus:
+    BatchNorm nutzt running stats, per-Sample unabhaengig vom Batch)."""
+
+    class _BatchRecorder(torch.nn.Module):
+        def __init__(self, inner):
+            super().__init__()
+            self.inner = inner
+            self.batch_sizes: list[int] = []
+
+        def forward(self, x):
+            self.batch_sizes.append(len(x))
+            return self.inner(x)
+
+    rng = np.random.default_rng(4)
+    X = rng.normal(size=(20, 50, 6)).astype(np.float32)
+    model = CNN1D().to(DEVICE)
+    model.eval()
+    with torch.no_grad():
+        expected = torch.sigmoid(model(torch.from_numpy(X).to(DEVICE))).cpu().numpy()
+
+    wrapped = _BatchRecorder(model)
+    proba = predict_proba(wrapped, X, batch_size=7)
+    assert wrapped.batch_sizes == [7, 7, 6]
+    np.testing.assert_allclose(proba, expected, rtol=1e-5, atol=1e-6)
 
 
 def test_train_one_model_emits_epoch_progress():

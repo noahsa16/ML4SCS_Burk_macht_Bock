@@ -180,12 +180,22 @@ def _acc_auc(proba: np.ndarray, y_true: np.ndarray) -> tuple[float, float]:
     return acc, auc
 
 
-def predict_proba(model: torch.nn.Module, X: np.ndarray) -> np.ndarray:
-    """Sigmoid-Wahrscheinlichkeiten fuer die positive Klasse (writing)."""
+def predict_proba(
+    model: torch.nn.Module, X: np.ndarray, batch_size: int = 512
+) -> np.ndarray:
+    """Sigmoid-Wahrscheinlichkeiten fuer die positive Klasse (writing).
+
+    Why: gebatcht statt Single-Shot — der volle Train-Split in einem
+    Forward materialisiert beim Transformer Batch x Heads x L x L
+    Attention (~40 GB bei ~20k 5-s-Fenstern) und OOMt den CI-Runner.
+    """
     model.eval()
+    out: list[np.ndarray] = []
     with torch.no_grad():
-        logits = model(torch.from_numpy(X).to(DEVICE))
-        return torch.sigmoid(logits).cpu().numpy()
+        for i in range(0, len(X), batch_size):
+            xb = torch.from_numpy(X[i:i + batch_size]).to(DEVICE)
+            out.append(torch.sigmoid(model(xb)).cpu().numpy())
+    return np.concatenate(out) if out else np.empty(0, dtype=np.float32)
 
 
 def fold_metrics(
