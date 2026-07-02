@@ -86,6 +86,35 @@ def test_run_collect_empty_dir_raises(tmp_path):
         study.run_collect(str(tmp_path), "legacy", 5, [42])
 
 
+def test_train_trial_passes_schedule_and_zscore(monkeypatch):
+    import pandas as pd
+    seen = {}
+    fake = pd.DataFrame({"held_out": ["P1"], "accuracy": [0.8],
+                         "roc_auc": [0.9], "best_epoch": [3]})
+    def _capture(model, win, **kw):
+        seen.update(kw); return fake
+    monkeypatch.setattr(study, "train_deep_loso", _capture)
+    cfg = {"lr": 1e-3, "dropout": 0.2, "batch_size": 64, "weight_decay": 1e-5,
+           "lr_schedule": "cosine", "zscore": True}
+    study._train_trial("tcn6", cfg, 42, "legacy", 5)
+    assert seen["lr_schedule"] == "cosine"
+    assert seen["zscore"] is True
+
+
+def test_train_trial_defaults_constant_no_zscore(monkeypatch):
+    import pandas as pd
+    seen = {}
+    fake = pd.DataFrame({"held_out": ["P1"], "accuracy": [0.8],
+                         "roc_auc": [0.9], "best_epoch": [3]})
+    def _capture(model, win, **kw):
+        seen.update(kw); return fake
+    monkeypatch.setattr(study, "train_deep_loso", _capture)
+    cfg = {"lr": 1e-3, "dropout": 0.2, "batch_size": 64, "weight_decay": 1e-5}
+    study._train_trial("cnn", cfg, 42, "legacy", 5)
+    assert seen["lr_schedule"] == "constant"
+    assert seen["zscore"] is False
+
+
 def test_trial_mode_rejects_wrong_max_epochs(monkeypatch):
     import pytest, sys
     monkeypatch.setattr(sys, "argv", [

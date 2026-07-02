@@ -65,6 +65,21 @@ def test_matrix_custom_entries(monkeypatch):
     assert "--max-epochs 120" in e["cmd"]
 
 
+def test_matrix_custom_schedule_and_zscore_flags(monkeypatch):
+    """CUSTOM-Eintraege koennen lr_schedule/zscore setzen -- nur dann
+    erscheinen die Flags im Kommando (Default bleibt flag-frei)."""
+    custom = ('[{"model": "tcn6", "name": "tcn6-cos-s43", "lr": 0.002, '
+              '"dropout": 0.05, "batch_size": 128, "weight_decay": 1e-4, '
+              '"seed": 43, "lr_schedule": "cosine"}, '
+              '{"model": "tcn6wn", "name": "tcn6wn-z-s42", "lr": 0.002, '
+              '"dropout": 0.05, "batch_size": 128, "weight_decay": 1e-4, '
+              '"zscore": true}]')
+    inc = _build(monkeypatch, MODELS="none", CUSTOM=custom)
+    cos, zsc = inc[0]["cmd"], inc[1]["cmd"]
+    assert "--lr-schedule cosine" in cos and "--zscore" not in cos
+    assert "--zscore" in zsc and "--lr-schedule" not in zsc
+
+
 def test_matrix_models_none_without_custom_fails(monkeypatch):
     """Leere Matrix wuerde den Workflow kryptisch scheitern lassen --
     lieber klare Fehlermeldung im prepare-Job."""
