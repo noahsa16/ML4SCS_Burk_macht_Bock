@@ -87,6 +87,8 @@ def _train_trial(model: str, cfg: dict, seed: int, pool: str, win: int) -> pd.Da
         model, win, pool=pool, seed=seed,
         lr=cfg["lr"], dropout=cfg["dropout"], batch_size=cfg["batch_size"],
         weight_decay=cfg["weight_decay"], max_epochs=MAX_EPOCHS,
+        lr_schedule=cfg.get("lr_schedule", "constant"),
+        zscore=cfg.get("zscore", False),
     )
 
 
@@ -187,6 +189,9 @@ def main() -> None:
     # die tatsaechlich wirksame Konstante in _train_trial, dieses Flag wird nur
     # entgegengenommen damit argparse den generierten Befehl nicht ablehnt.
     ap.add_argument("--max-epochs", type=int, default=MAX_EPOCHS)
+    ap.add_argument("--lr-schedule", default="constant",
+                    choices=["constant", "cosine"])
+    ap.add_argument("--zscore", action="store_true")
     args = ap.parse_args()
     if args.mode == "trial":
         if args.max_epochs != MAX_EPOCHS:
@@ -194,6 +199,12 @@ def main() -> None:
                 f"--max-epochs must equal the fixed fairness cap {MAX_EPOCHS}")
         cfg = {"lr": args.lr, "dropout": args.dropout,
                "batch_size": args.batch_size, "weight_decay": args.weight_decay}
+        # Why: nur non-defaults in cfg — die Keys landen via _mean_row als
+        # CSV-Spalten; Grid-Trials bleiben spaltenidentisch zur Suchphase.
+        if args.lr_schedule != "constant":
+            cfg["lr_schedule"] = args.lr_schedule
+        if args.zscore:
+            cfg["zscore"] = True
         run_trial(args.model, cfg, args.seed, args.pool, args.win,
                   args.name, args.hp_dir)
     elif args.mode == "collect":
