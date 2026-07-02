@@ -48,15 +48,21 @@ jobs:
         # Why: der Hoster drosselt parallele Downloads teils mit einer
         # HTTP-200-Fehlerseite — curl -f greift nicht, erst der
         # Zip-Integritaetscheck erkennt das; daher Retry-Schleife.
+        # Start-Jitter + 8 Versuche (~15 min), weil ein Burst gleichzeitig
+        # startender Matrix-Jobs das Throttle-Fenster sonst nicht ueberlebt
+        # (3 gru-Jobs am 2026-07-02 trotz 5x-Retry verloren). Kein
+        # actions/cache fuer das Bundle: Probandendaten gehoeren nicht in
+        # den oeffentlich lesbaren Cache eines Public-Repos.
         run: |
           if [ -z "$DATA_URL" ]; then echo "::error::SWEEP_DATA_URL fehlt"; exit 1; fi
-          for i in 1 2 3 4 5; do
+          sleep $((RANDOM % 60))
+          for i in 1 2 3 4 5 6 7 8; do
             curl -fsSL --retry 5 --retry-all-errors "$DATA_URL" -o sweep_data.zip \
               && unzip -tq sweep_data.zip >/dev/null 2>&1 && break
-            echo "Download-Versuch $i defekt (Hoster-Throttle?) — warte $((i*20))s"
+            echo "Download-Versuch $i defekt (Hoster-Throttle?) — warte ~$((i*30))s"
             rm -f sweep_data.zip
-            if [ "$i" = 5 ]; then echo "::error::Daten-Download nach 5 Versuchen defekt"; exit 1; fi
-            sleep $((i*20))
+            if [ "$i" = 8 ]; then echo "::error::Daten-Download nach 8 Versuchen defekt"; exit 1; fi
+            sleep $((i*30 + RANDOM % 30))
           done
           unzip -q sweep_data.zip
       - name: "Trial ${{ matrix.name }}"
@@ -92,16 +98,18 @@ jobs:
         env: { DATA_URL: "${{ secrets.SWEEP_DATA_URL }}" }
         # Why: der Hoster drosselt parallele Downloads teils mit einer
         # HTTP-200-Fehlerseite — curl -f greift nicht, erst der
-        # Zip-Integritaetscheck erkennt das; daher Retry-Schleife.
+        # Zip-Integritaetscheck erkennt das; daher Retry-Schleife
+        # (Jitter + 8 Versuche, siehe search-Job).
         run: |
           if [ -z "$DATA_URL" ]; then echo "::error::SWEEP_DATA_URL fehlt"; exit 1; fi
-          for i in 1 2 3 4 5; do
+          sleep $((RANDOM % 60))
+          for i in 1 2 3 4 5 6 7 8; do
             curl -fsSL --retry 5 --retry-all-errors "$DATA_URL" -o sweep_data.zip \
               && unzip -tq sweep_data.zip >/dev/null 2>&1 && break
-            echo "Download-Versuch $i defekt (Hoster-Throttle?) — warte $((i*20))s"
+            echo "Download-Versuch $i defekt (Hoster-Throttle?) — warte ~$((i*30))s"
             rm -f sweep_data.zip
-            if [ "$i" = 5 ]; then echo "::error::Daten-Download nach 5 Versuchen defekt"; exit 1; fi
-            sleep $((i*20))
+            if [ "$i" = 8 ]; then echo "::error::Daten-Download nach 8 Versuchen defekt"; exit 1; fi
+            sleep $((i*30 + RANDOM % 30))
           done
           unzip -q sweep_data.zip
       - name: Trial-Summaries einsammeln
