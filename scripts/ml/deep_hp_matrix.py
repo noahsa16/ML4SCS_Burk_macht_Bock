@@ -14,6 +14,10 @@ def _trial_cmd(model: str, name: str, cfg: dict, seed: str | int,
            f"--lr {cfg['lr']} --dropout {cfg['dropout']} "
            f"--batch-size {cfg['batch_size']} --weight-decay {cfg['weight_decay']} "
            f"--hp-dir models/hp/{pool}")
+    if cfg.get("lr_schedule", "constant") != "constant":
+        cmd += f" --lr-schedule {cfg['lr_schedule']}"
+    if cfg.get("zscore"):
+        cmd += " --zscore"
     return " ".join(cmd.split())
 
 

@@ -10,6 +10,7 @@ import math
 
 import torch
 import torch.nn as nn
+from torch.nn.utils.parametrizations import weight_norm
 
 
 class CNN1D(nn.Module):
@@ -75,18 +76,31 @@ class TemporalBlock(nn.Module):
         kernel_size: int = 3,
         dilation: int = 1,
         dropout: float = 0.2,
+        norm: str = "batch",
     ) -> None:
         super().__init__()
         pad = (kernel_size - 1) * dilation
+        # Why: norm="weight" = Bai-et-al.-Originalrezept (weight_norm auf den
+        # Convs, keine Aktivierungs-Normalisierung) -- verliert die
+        # BatchNorm-Scale-Toleranz, daher nur als explizite HP-Studien-Probe;
+        # Default "batch" bleibt bit-identisch zu allen bisherigen Laeufen.
+        if norm == "weight":
+            _conv = lambda i, o: weight_norm(  # noqa: E731
+                nn.Conv1d(i, o, kernel_size, padding=pad, dilation=dilation))
+            _norm = nn.Identity
+        else:
+            _conv = lambda i, o: nn.Conv1d(  # noqa: E731
+                i, o, kernel_size, padding=pad, dilation=dilation)
+            _norm = lambda: nn.BatchNorm1d(n_out)  # noqa: E731
         self.net = nn.Sequential(
-            nn.Conv1d(n_in, n_out, kernel_size, padding=pad, dilation=dilation),
+            _conv(n_in, n_out),
             Chomp1d(pad),
-            nn.BatchNorm1d(n_out),
+            _norm(),
             nn.ReLU(),
             nn.Dropout(dropout),
-            nn.Conv1d(n_out, n_out, kernel_size, padding=pad, dilation=dilation),
+            _conv(n_out, n_out),
             Chomp1d(pad),
-            nn.BatchNorm1d(n_out),
+            _norm(),
             nn.ReLU(),
             nn.Dropout(dropout),
         )
@@ -119,6 +133,7 @@ class TCN(nn.Module):
         levels: int = 4,
         kernel_size: int = 3,
         dropout: float = 0.2,
+        norm: str = "batch",
     ) -> None:
         super().__init__()
         blocks = [
@@ -128,6 +143,7 @@ class TCN(nn.Module):
                 kernel_size,
                 dilation=2 ** i,
                 dropout=dropout,
+                norm=norm,
             )
             for i in range(levels)
         ]
@@ -183,6 +199,87 @@ class TCN6K5(TCN):
     def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
         super().__init__(n_channels=n_channels, levels=6, kernel_size=5,
                          dropout=dropout)
+
+
+class AttnPool1d(nn.Module):
+    """Gelerntes Attention-Pooling ueber die Zeitachse.
+
+    Softmax-gewichtete Summe statt uniformem ``AdaptiveAvgPool1d`` --
+    das Netz lernt, WELCHE Zeitschritte des Fensters die Entscheidung
+    tragen. Rueckgabe ``(batch, hidden, 1)``, drop-in fuer ``self.pool``.
+    """
+
+    def __init__(self, hidden: int) -> None:
+        super().__init__()
+        self.score = nn.Conv1d(hidden, 1, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        w = torch.softmax(self.score(x), dim=-1)  # (batch, 1, seq)
+        return (x * w).sum(dim=-1, keepdim=True)  # (batch, hidden, 1)
+
+
+class SEGate(nn.Module):
+    """Squeeze-and-Excitation-Gate: kanalweise Sigmoid-Reskalierung.
+
+    Global-Avg ueber die Zeit -> Bottleneck-MLP -> Sigmoid-Gates in (0,1).
+    Fensterweit (nutzt die ganze Zeitachse) -- fuer die Fenster-Entscheidung
+    unkritisch, bricht aber die Per-Position-Kausalitaet des Conv-Stacks.
+    """
+
+    def __init__(self, channels: int, reduction: int = 4) -> None:
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(channels, channels // reduction),
+            nn.ReLU(),
+            nn.Linear(channels // reduction, channels),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        gates = self.fc(x.mean(dim=-1))  # (batch, channels)
+        return x * gates.unsqueeze(-1)
+
+
+class TCN6WN(TCN):
+    """WeightNorm-Probe: Bai-et-al.-Originalrezept statt BatchNorm.
+
+    Verliert die Scale-Toleranz der BatchNorm (siehe TemporalBlock-Note) --
+    daher im A/B mit und ohne Per-Session-Z-Score zu testen.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels=n_channels, levels=6, dropout=dropout,
+                         norm="weight")
+
+
+class TCN6AP(TCN):
+    """Attention-Pooling-Probe: gewichtetes statt uniformes Zeit-Mittel."""
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels=n_channels, levels=6, dropout=dropout)
+        self.pool = AttnPool1d(16)
+
+
+class TCN6SE(TCN):
+    """SE-Probe: Squeeze-and-Excitation-Gate nach jedem TemporalBlock."""
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels=n_channels, levels=6, dropout=dropout)
+        gated = []
+        for block in self.tcn:
+            gated += [block, SEGate(16)]
+        self.tcn = nn.Sequential(*gated)
+
+
+class TCN8(TCN):
+    """Tiefen-Probe: 8 Ebenen, Dilationen bis 128 (rezeptives Feld 1021).
+
+    Erwartung laut tcn6-vs-TCN-Befund: kein Gewinn (Feld saturiert das
+    250er-Fenster schon bei 6 Ebenen) -- laeuft als Falsifikations-Probe.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels=n_channels, levels=8, dropout=dropout)
 
 
 class _RNNClassifier(nn.Module):
@@ -287,5 +384,9 @@ MODELS: dict[str, type[nn.Module]] = {
     "tcn6": TCN6,
     "tcn6w32": TCN6Wide,
     "tcn6k5": TCN6K5,
+    "tcn6wn": TCN6WN,
+    "tcn6ap": TCN6AP,
+    "tcn6se": TCN6SE,
+    "tcn8": TCN8,
     "transformer": TransformerClassifier,
 }

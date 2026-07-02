@@ -144,7 +144,92 @@ def test_model_registry_forward(name, seq_len):
 
 def test_models_registry_keys():
     assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn", "tcn6",
-                                  "tcn6w32", "tcn6k5", "transformer"}
+                                  "tcn6w32", "tcn6k5", "tcn6wn", "tcn6ap",
+                                  "tcn6se", "tcn8", "transformer"}
+
+
+@pytest.mark.parametrize("name", ["tcn6wn", "tcn6ap", "tcn6se", "tcn8"])
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_tcn6_extended_variant_forward(name, seq_len):
+    """Zweite Proben-Welle der HP-Studie: WeightNorm, Attention-Pooling,
+    SE-Gating, 8 Ebenen -- gleiche Signatur wie tcn6."""
+    out = MODELS[name](dropout=0.1)(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn6wn_weightnorm_replaces_batchnorm():
+    """Bai-et-al.-Originalrezept: weight_norm auf den Kausal-Convs, KEIN
+    BatchNorm -- Vorsicht Deployability, deshalb nur als explizite Probe."""
+    from torch.nn.utils.parametrize import is_parametrized
+
+    m = MODELS["tcn6wn"]()
+    assert not any(isinstance(x, torch.nn.BatchNorm1d) for x in m.modules())
+    causal_convs = [c for c in m.tcn.modules()
+                    if isinstance(c, torch.nn.Conv1d) and c.kernel_size[0] > 1]
+    assert causal_convs
+    assert all(is_parametrized(c, "weight") for c in causal_convs)
+
+
+def test_default_temporalblock_keeps_batchnorm():
+    """Bit-Identitaets-Guard: die Default-Blocks (alle bisherigen tcn/tcn6-
+    Ergebnisse) behalten BatchNorm."""
+    tb = TemporalBlock(6, 16)
+    assert any(isinstance(x, torch.nn.BatchNorm1d) for x in tb.modules())
+
+
+def test_attnpool_is_convex_time_average():
+    """Attention-Pooling = konvexe Kombination ueber die Zeitachse: Output
+    liegt je Kanal zwischen Min und Max der Feature-Map (Softmax-Gewichte)."""
+    from src.training.deep.models import AttnPool1d
+
+    pool = AttnPool1d(16)
+    x = torch.randn(4, 16, 50)
+    out = pool(x)
+    assert out.shape == (4, 16, 1)
+    o = out.squeeze(-1)
+    assert torch.all(o <= x.max(-1).values + 1e-6)
+    assert torch.all(o >= x.min(-1).values - 1e-6)
+
+
+def test_segate_only_attenuates():
+    """SE-Gate skaliert Kanaele mit Sigmoid-Faktoren in (0,1) -- darf
+    Betraege nie vergroessern."""
+    from src.training.deep.models import SEGate
+
+    g = SEGate(16)
+    x = torch.randn(4, 16, 50)
+    out = g(x)
+    assert out.shape == x.shape
+    assert torch.all(out.abs() <= x.abs() + 1e-6)
+
+
+def test_lr_factor_warmup_then_cosine_to_floor():
+    """LR-Schedule-Probe: linearer Warmup (3 Epochen), Cosine-Decay bis
+    Epoche 40, danach Floor 0.05 -- Horizont bewusst kuerzer als
+    max_epochs=120, weil Early Stopping bei best_epoch ~6-18 greift."""
+    from src.training.deep.train_loso import _lr_factor
+
+    assert _lr_factor(0) < _lr_factor(1) < _lr_factor(2) < _lr_factor(3)
+    assert _lr_factor(3) == pytest.approx(1.0)
+    assert _lr_factor(10) > _lr_factor(20) > _lr_factor(39)
+    assert _lr_factor(40) == pytest.approx(0.05)
+    assert _lr_factor(100) == pytest.approx(0.05)
+
+
+def test_train_one_model_accepts_lr_schedule():
+    rng = np.random.default_rng(5)
+    def _make(n, scale):
+        return rng.normal(scale=scale, size=(n, 50, 6)).astype(np.float32)
+    X = np.concatenate([_make(16, 0.2), _make(16, 2.0)])
+    y = np.concatenate([np.zeros(16), np.ones(16)]).astype(np.int64)
+    Xv = np.concatenate([_make(8, 0.2), _make(8, 2.0)])
+    yv = np.concatenate([np.zeros(8), np.ones(8)]).astype(np.int64)
+    model, best_epoch = train_one_model(
+        CNN1D(), X, y, Xv, yv, max_epochs=3, patience=3, batch_size=16,
+        lr_schedule="cosine",
+    )
+    assert -1 <= best_epoch <= 2
 
 
 @pytest.mark.parametrize("name", ["tcn6w32", "tcn6k5"])
@@ -676,15 +761,18 @@ def test_train_deep_loso_threads_hp(monkeypatch):
     monkeypatch.setattr(DL, "_load_all_sessions", fake_load)
     captured = {}
     def fake_train(m, *a, lr=1e-3, batch_size=64, weight_decay=0.0, patience=8,
-                   max_epochs=60, augmenter=None, on_epoch=None):
+                   max_epochs=60, augmenter=None, on_epoch=None,
+                   lr_schedule="constant"):
         captured.update(lr=lr, batch_size=batch_size, weight_decay=weight_decay,
-                        max_epochs=max_epochs); return (m, 0)
+                        max_epochs=max_epochs, lr_schedule=lr_schedule); return (m, 0)
     monkeypatch.setattr(DL, "train_one_model", fake_train)
     rng = np.random.default_rng(0)
     monkeypatch.setattr(DL, "predict_proba", lambda m, X: rng.random(len(X)))
     DL.train_deep_loso("cnn", 1, pool="legacy", include_all=True,
-                       lr=3e-4, batch_size=32, weight_decay=1e-4, max_epochs=120)
-    assert captured == {"lr": 3e-4, "batch_size": 32, "weight_decay": 1e-4, "max_epochs": 120}
+                       lr=3e-4, batch_size=32, weight_decay=1e-4, max_epochs=120,
+                       lr_schedule="cosine")
+    assert captured == {"lr": 3e-4, "batch_size": 32, "weight_decay": 1e-4,
+                        "max_epochs": 120, "lr_schedule": "cosine"}
 
 
 def test_deep_cli_has_hp_flags():
