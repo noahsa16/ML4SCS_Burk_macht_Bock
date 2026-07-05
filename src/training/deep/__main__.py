@@ -182,6 +182,11 @@ def main() -> None:
     parser.add_argument("--patience", type=int, default=8)
     parser.add_argument("--max-epochs", type=int, default=60)
     parser.add_argument(
+        "--folds", type=int, default=None,
+        help="Grouped-K-fold nach Person statt LOSO (leakage-frei, "
+             "RF-validiert: 5-fold 0.867 ~ LOSO 0.871). Default: LOSO.",
+    )
+    parser.add_argument(
         "--zscore", action="store_true",
         help="Per-Session-Z-Score einschalten (Default aus -- fuers CNN "
              "empirisch neutral, ohne ist direkt deploybar ohne "
@@ -230,6 +235,7 @@ def main() -> None:
             lr=args.lr, dropout=args.dropout, batch_size=args.batch_size,
             weight_decay=args.weight_decay, patience=args.patience,
             max_epochs=args.max_epochs,
+            folds=args.folds,
             exclude_boundary=exclude_boundary,
             zscore=zscore,
             augment=args.augment,
