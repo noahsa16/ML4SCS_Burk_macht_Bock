@@ -6,11 +6,14 @@ deterministisch ueber ``seed`` -> unit-testbar.
 """
 from __future__ import annotations
 
+import itertools
 import math
 
 from scipy.stats import qmc
 
 _BATCH = (32, 64, 128)
+
+GRID_PARAM_ORDER = ("lr", "dropout", "batch_size", "weight_decay")
 
 
 def _log_uniform(u: float, lo: float, hi: float) -> float:
@@ -30,6 +33,17 @@ def sobol_configs(n: int, seed: int = 0) -> list[dict]:
             "weight_decay": round(_log_uniform(wd_u, 1e-6, 1e-2), 8),
         })
     return out
+
+
+def grid_configs(grid: dict) -> list[dict]:
+    """Kartesisches Produkt in kanonischer Reihenfolge (Sobol-Dimensionen).
+
+    Listenindex = Config-ID (g00, g01, ...). Werte unveraendert
+    uebernommen -- die Config-Datei ist die Wahrheit, kein Rounding.
+    """
+    axes = [grid[k] for k in GRID_PARAM_ORDER]
+    return [dict(zip(GRID_PARAM_ORDER, combo))
+            for combo in itertools.product(*axes)]
 
 
 def is_at_boundary(value: float, lo: float, hi: float,
