@@ -300,3 +300,7 @@ def test_colab_notebook_parses():
     assert "userdata" in sources          # Colab-Secrets, keine Creds im Klartext
     assert "cfat_" not in sources and "SECRET" not in sources.replace(
         "R2_SECRET_ACCESS_KEY", "")       # kein eingebettetes Secret
+    assert "os.environ.get(" in sources   # Env-Var-Fallback (RunPod)
+    for cell in nb.cells:
+        if cell.cell_type == "code" and "google.colab" in cell.source:
+            assert "try:" in cell.source   # Colab-Import nur im try-Block
