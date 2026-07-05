@@ -40,6 +40,9 @@ def epoch_history_sink(
             ])
             fh.flush()
 
+    # Why: expliziter Close-Kontrakt statt GC-Cleanup des Closures -- bei
+    # ~100+ Trials pro Prozess ist ein deterministisches Schliessen noetig.
+    _sink.close = fh.close
     return _sink
 
 
