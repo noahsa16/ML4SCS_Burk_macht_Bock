@@ -431,6 +431,34 @@ class TransformerP5(nn.Module):
         return self.head(x.mean(dim=1)).squeeze(-1)
 
 
+class TCNGRUHybrid(nn.Module):
+    """TCN6-Trunk (ohne Pooling) + GRU ueber die Feature-Sequenz.
+
+    Der TCN-Trunk wirkt als lokaler Filter (dieselben 6 dilatierten
+    TemporalBlocks wie TCN6), das GRU modelliert den zeitlichen Verlauf
+    ueber die volle Fenster-Sequenz statt sie sofort zu mitteln. GRUs
+    kosten O(seq_len) -- kein Downsampling noetig wie beim Attention-basierten
+    Hybrid weiter unten.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2,
+                 rnn_hidden: int = 32) -> None:
+        super().__init__()
+        self.trunk = _build_tcn_trunk(n_channels, hidden=16, levels=6,
+                                      dropout=dropout)
+        self.gru = nn.GRU(input_size=16, hidden_size=rnn_hidden,
+                          batch_first=True)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(rnn_hidden, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: (batch, seq, 6) -> Conv1d erwartet (batch, channels, seq)
+        x = x.transpose(1, 2)
+        feat = self.trunk(x).transpose(1, 2)  # (batch, seq, 16)
+        out, _ = self.gru(feat)
+        last = out[:, -1, :]  # letzter Zeitschritt, (batch, rnn_hidden)
+        return self.head(last).squeeze(-1)  # (batch,)
+
+
 MODELS: dict[str, type[nn.Module]] = {
     "cnn": CNN1D,
     "lstm": LSTMClassifier,
@@ -445,4 +473,5 @@ MODELS: dict[str, type[nn.Module]] = {
     "tcn8": TCN8,
     "transformer": TransformerClassifier,
     "transformer_p5": TransformerP5,
+    "tcn_gru": TCNGRUHybrid,
 }
