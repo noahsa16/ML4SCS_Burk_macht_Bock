@@ -1,0 +1,33 @@
+{
+  "model": "tcn6w32",
+  "pool": "legacy",
+  "win": 5,
+  "folds": 5,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "max_epochs": 120,
+  "patience": 8,
+  "grid": {
+    "lr": [
+      0.0003,
+      0.001,
+      0.003
+    ],
+    "dropout": [
+      0.05,
+      0.2,
+      0.4
+    ],
+    "batch_size": [
+      64,
+      128
+    ],
+    "weight_decay": [
+      1e-05,
+      0.001
+    ]
+  }
+}
