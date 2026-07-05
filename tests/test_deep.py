@@ -147,7 +147,7 @@ def test_models_registry_keys():
     assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn", "tcn6",
                                   "tcn6w32", "tcn6k5", "tcn6wn", "tcn6ap",
                                   "tcn6se", "tcn8", "transformer",
-                                  "transformer_p5"}
+                                  "transformer_p5", "tcn_gru"}
 
 
 @pytest.mark.parametrize("seq_len", [50, 250, 500])
@@ -840,3 +840,37 @@ def test_fold_splits_deterministic_and_seed_independent():
     # Why: random_state ist fix (42), NICHT der Trainings-Seed -- gleiche
     # Fold-Partition ueber Seeds 42/43/44 ist die Paarungs-Garantie.
     assert _fold_splits(persons, 3, random_state=42) == _fold_splits(persons, 3)
+
+
+# --- Task 2: TCNGRUHybrid (TCN6 Trunk + GRU) --------------------------------
+
+
+def test_tcn_gru_in_registry():
+    assert "tcn_gru" in MODELS
+
+
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_tcn_gru_forward_shape(seq_len):
+    out = MODELS["tcn_gru"]()(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn_gru_forward_batch_one():
+    model = MODELS["tcn_gru"]()
+    model.eval()
+    out = model(torch.randn(1, 50, 6))
+    assert out.shape == (1,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn_gru_is_small():
+    """TCN6-Trunk + 1-Layer-GRU: bleibt trotz Sequenz-Modellierung klein."""
+    n_params = sum(p.numel() for p in MODELS["tcn_gru"]().parameters())
+    assert n_params < 20_000
+
+
+def test_tcn_gru_receptive_field_spans_5s_window():
+    """Trunk ist der unveraenderte TCN6-Stack -- rezeptives Feld 253 Samples
+    spannt weiterhin das 5-s-Fenster (250 Samples @ 50 Hz)."""
+    assert _last_pos_depends_on_window_start(MODELS["tcn_gru"]().trunk, 250)
