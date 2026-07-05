@@ -13,6 +13,7 @@ from src.training.deep.train_loso import (
     DEVICE,
     POOL_FS,
     _acc_auc,
+    _fold_splits,
     _pool_plan,
     fold_metrics,
     predict_proba,
@@ -806,3 +807,34 @@ def test_deep_cli_has_hp_flags():
     for flag in ("--lr", "--dropout", "--batch-size", "--weight-decay",
                  "--patience", "--max-epochs"):
         assert flag in r.stdout
+
+
+def test_fold_splits_loso_matches_status_quo():
+    """folds=None == altes Verhalten: Test=p_i, Val=naechste Person (wrap)."""
+    persons = [f"P{i:02d}" for i in range(5)]
+    splits = _fold_splits(persons, folds=None)
+    assert len(splits) == 5
+    for i, (test_group, val_p, train_ps) in enumerate(splits):
+        assert test_group == [persons[i]]
+        assert val_p == persons[(i + 1) % 5]
+        assert sorted(test_group + [val_p] + train_ps) == sorted(persons)
+
+
+def test_fold_splits_grouped_partition_is_clean():
+    persons = [f"P{i:02d}" for i in range(11)]
+    splits = _fold_splits(persons, folds=4)
+    tested = [p for tg, _, _ in splits for p in tg]
+    assert sorted(tested) == sorted(persons)          # jede Person genau 1x Test
+    assert len(splits) == 4
+    for test_group, val_p, train_ps in splits:
+        assert val_p not in test_group                 # Val aus dem Train-Split
+        assert not set(test_group) & set(train_ps)     # kein Overlap
+        assert sorted(test_group + [val_p] + train_ps) == sorted(persons)
+
+
+def test_fold_splits_deterministic_and_seed_independent():
+    persons = [f"P{i:02d}" for i in range(8)]
+    assert _fold_splits(persons, 3) == _fold_splits(persons, 3)
+    # Why: random_state ist fix (42), NICHT der Trainings-Seed -- gleiche
+    # Fold-Partition ueber Seeds 42/43/44 ist die Paarungs-Garantie.
+    assert _fold_splits(persons, 3, random_state=42) == _fold_splits(persons, 3)
