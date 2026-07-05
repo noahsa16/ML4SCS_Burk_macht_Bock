@@ -130,6 +130,7 @@ def train_one_model(
     # drop_last: BatchNorm1d kollabiert bei Batch-Groesse 1.
     loader = DataLoader(ds, batch_size=batch_size, shuffle=True, drop_last=True)
     val_Xt = torch.from_numpy(val_X).to(DEVICE)
+    val_yt = torch.from_numpy(val_y.astype(np.float32)).to(DEVICE)
 
     best_auc = -1.0
     best_epoch = -1
@@ -151,7 +152,8 @@ def train_one_model(
 
         model.eval()
         with torch.no_grad():
-            val_logits = model(val_Xt).cpu().numpy()
+            val_logits_t = model(val_Xt)
+        val_logits = val_logits_t.cpu().numpy()
         try:
             val_auc = roc_auc_score(val_y, val_logits)
         except ValueError:
@@ -163,9 +165,16 @@ def train_one_model(
         if on_epoch is not None:
             ep_loss = loss_sum / max(n_batches, 1)
             ep_auc = float(val_auc)
+            # Why: val_loss mit demselben (pos_weight-)Criterion wie der
+            # Train-Loss -- sonst sind die Kurven nicht vergleichbar.
+            with torch.no_grad():
+                ep_val_loss = float(loss_fn(val_logits_t, val_yt).item())
+            ep_val_acc = float(((val_logits >= 0.0) == (val_y == 1)).mean())
             on_epoch(epoch,
                      float(ep_loss) if np.isfinite(ep_loss) else 0.0,
-                     ep_auc if np.isfinite(ep_auc) else 0.0)
+                     ep_auc if np.isfinite(ep_auc) else 0.0,
+                     ep_val_loss if np.isfinite(ep_val_loss) else 0.0,
+                     ep_val_acc if np.isfinite(ep_val_acc) else 0.0)
 
         if val_auc > best_auc:
             best_auc = val_auc
@@ -468,9 +477,10 @@ def train_deep_loso(
                 lr=lr, batch_size=batch_size, weight_decay=weight_decay,
                 patience=patience, max_epochs=max_epochs,
                 augmenter=augmenter, lr_schedule=lr_schedule,
-                on_epoch=lambda e, l, a, _i=i: emit(
+                on_epoch=lambda e, l, a, vl, va, _i=i: emit(
                     {"type": _events.EPOCH, "fold": _i, "epoch": e,
-                     "loss": l, "val_auc": a}))
+                     "loss": l, "val_auc": a,
+                     "val_loss": vl, "val_acc": va}))
 
             # Under-/Overfit-Diagnose: Train- und Val-Metriken am besten Modell.
             # train_acc misst Fit auf die 8 Trainings-Personen, val_acc auf die
