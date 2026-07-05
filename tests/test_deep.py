@@ -430,8 +430,8 @@ def test_predict_proba_chunks_large_inputs():
 
 
 def test_train_one_model_emits_epoch_progress():
-    """on_epoch feuert pro Epoche mit (epoch, loss, val_auc) — echte Werte aus
-    dem Loop, für die Cockpit-Loss-Kurve der Deep-Modelle."""
+    """on_epoch feuert pro Epoche mit (epoch, loss, val_auc, val_loss,
+    val_acc) — echte Werte aus dem Loop, für Cockpit-Loss-Kurve + Grid-History."""
     rng = np.random.default_rng(3)
     def _make(n, scale):
         return rng.normal(scale=scale, size=(n, 50, 6)).astype(np.float32)
@@ -441,13 +441,15 @@ def test_train_one_model_emits_epoch_progress():
     yv = np.concatenate([np.zeros(8), np.ones(8)]).astype(np.int64)
     seen = []
     train_one_model(CNN1D(), X, y, Xv, yv, max_epochs=3, patience=3, batch_size=16,
-                    on_epoch=lambda e, l, a: seen.append((e, l, a)))
+                    on_epoch=lambda e, l, a, vl, va: seen.append((e, l, a, vl, va)))
     assert len(seen) >= 1
-    assert seen[0][0] == 0                                  # 0-indexiert
-    assert [e for e, _, _ in seen] == sorted(e for e, _, _ in seen)  # monoton
-    assert all(isinstance(e, int) for e, _, _ in seen)
-    assert all(isinstance(l, float) and l == l for _, l, _ in seen)  # Loss endlich
-    assert all(isinstance(a, float) for _, _, a in seen)
+    assert seen[0][0] == 0
+    assert [r[0] for r in seen] == sorted(r[0] for r in seen)
+    for _, l, a, vl, va in seen:
+        assert isinstance(l, float) and l == l
+        assert isinstance(a, float)
+        assert isinstance(vl, float) and vl == vl and vl >= 0.0
+        assert isinstance(va, float) and 0.0 <= va <= 1.0
 
 
 def test_acc_auc_ranges_and_perfect_split():
