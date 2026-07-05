@@ -1,0 +1,15 @@
+{
+  "model": "tcn",
+  "pool": "legacy",
+  "win": 5,
+  "folds": 5,
+  "seeds": [42],
+  "max_epochs": 3,
+  "patience": 3,
+  "grid": {
+    "lr": [1e-3],
+    "dropout": [0.2],
+    "batch_size": [64],
+    "weight_decay": [1e-5]
+  }
+}
