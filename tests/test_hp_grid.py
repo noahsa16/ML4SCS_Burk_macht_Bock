@@ -141,3 +141,76 @@ def test_all_canonical_configs_load_and_share_grid():
         assert s.grid == ref.grid
         assert (s.seeds, s.max_epochs, s.patience, s.folds, s.pool, s.win) == \
                (ref.seeds, ref.max_epochs, ref.patience, ref.folds, ref.pool, ref.win)
+
+
+import pandas as pd
+
+from src.training.deep import grid as grid_mod
+from src.training.deep.grid import run_grid, trial_name
+
+SMALL = {
+    "model": "tcn", "pool": "legacy", "win": 5, "folds": 3,
+    "seeds": [42, 43], "max_epochs": 2, "patience": 1,
+    "grid": {"lr": [1e-3], "dropout": [0.1, 0.2],
+             "batch_size": [64], "weight_decay": [0.0]},
+}
+
+
+def _fake_loso(model_name, window_sec, **kw):
+    if kw.get("on_event"):
+        kw["on_event"]({"type": "fold_start", "idx": 0, "person": "P01+P02"})
+        kw["on_event"]({"type": "epoch", "fold": 0, "epoch": 0, "loss": 0.5,
+                        "val_auc": 0.8, "val_loss": 0.6, "val_acc": 0.7})
+    return pd.DataFrame([
+        {"held_out": "P01+P02", "accuracy": 0.9, "roc_auc": 0.95, "best_epoch": 1},
+        {"held_out": "P03+P04", "accuracy": 0.8, "roc_auc": 0.90, "best_epoch": 2},
+    ])
+
+
+@pytest.fixture()
+def small_cfg(tmp_path, monkeypatch):
+    monkeypatch.setattr(grid_mod, "train_deep_loso", _fake_loso)
+    monkeypatch.setattr(grid_mod, "ROOT", tmp_path)
+    p = tmp_path / "configs" / "smoke.json"
+    p.parent.mkdir()
+    p.write_text(json.dumps(SMALL))
+    return p
+
+
+def test_run_grid_writes_trials_history_and_meta(small_cfg, tmp_path):
+    outdir = run_grid(small_cfg)
+    assert outdir == tmp_path / "models" / "hp_grid" / "legacy" / "smoke"
+    trials = sorted(f.name for f in outdir.glob("trial_*.csv"))
+    assert trials == [f"trial_{trial_name('tcn', i, s)}.csv"
+                      for i in (0, 1) for s in (42, 43)]
+    row = pd.read_csv(outdir / "trial_tcn-g00-s42.csv").iloc[0]
+    assert row["cfg_id"] == "g00" and row["seed"] == 42
+    assert row["accuracy"] == pytest.approx(0.85)
+    assert row["dropout"] == 0.1
+    meta = json.loads((outdir / "run_meta.json").read_text())
+    assert meta["config"] == SMALL and meta["n_configs"] == 2
+    assert (outdir / "history_tcn-g00-s42.csv").exists()
+
+
+def test_run_grid_resume_skips_existing(small_cfg):
+    ran = []
+    outdir = run_grid(small_cfg, after_trial=lambda d: ran.append(1))
+    assert len(ran) == 4
+    ran.clear()
+    run_grid(small_cfg, after_trial=lambda d: ran.append(1))
+    assert ran == []                                  # alles uebersprungen
+
+
+def test_run_grid_freeze_mismatch_aborts(small_cfg, tmp_path):
+    run_grid(small_cfg)
+    changed = {**SMALL, "grid": {**SMALL["grid"], "lr": [3e-3]}}
+    small_cfg.write_text(json.dumps(changed))
+    with pytest.raises(SystemExit, match="run_meta"):
+        run_grid(small_cfg)
+
+
+def test_history_sink_close_is_callable_after_run_grid(small_cfg, tmp_path):
+    run_grid(small_cfg)
+    sink = epoch_history_sink(tmp_path / "x.csv", "m", "g00", 42, 1e-3)
+    assert callable(sink.close)
+    sink.close()
