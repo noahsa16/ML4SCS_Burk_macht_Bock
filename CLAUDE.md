@@ -749,23 +749,23 @@ no longer vibrates continuously when the server is down.
   Zusammenführen der Trial-CSVs (wie hier geschehen) oder Voll-Redispatch.
 - `src/training/deep/grid.py` + `configs/hp/*.json` +
   `notebooks/hp_grid_colab.ipynb` — **config-getriebene HP-Grid-Search**
-  (2026-07-05, Spec docs/superpowers/specs/2026-07-03-colab-grid-search-
-  design.md): editierbare per-Modell-Grids (13 Dateien, identische
+  (2026-07-05, Spec `docs/superpowers/specs/2026-07-03-colab-grid-search-design.md`):
+  editierbare per-Modell-Grids (13 Dateien, identische
   Default-Grids = Fairness-Invariante), kartesisches Produkt via
   `grid_configs`, Runner `--mode grid --config …` (Freeze via
-  run_meta.json + Git-SHA, Resume ueber Trial-CSV-Skip),
+  run_meta.json + Git-SHA, Resume über Trial-CSV-Skip),
   `--mode grid-collect` (Winner a-priori: Seed-Mittel-Acc, Tie AUC;
   `n_configs_searched` = Budget-Disclosure; kein Auto-Retrain).
   Zwei-Stufen-Protokoll: Suche auf **grouped-5-fold**
   (`train_deep_loso(folds=5)`, Portierung der RF-`_make_fold_sets`,
-  Fold-Partition fix `random_state=42` ueber alle Seeds = gepaart;
-  `folds=None` bit-identisch LOSO) -> Bestaetigung NUR des Siegers +
+  Fold-Partition fix `random_state=42` über alle Seeds = gepaart;
+  `folds=None` bit-identisch LOSO) → Bestätigung NUR des Siegers +
   tcn6-Baseline @3 Seeds auf LOSO-20 (`significance.py`, n=20).
-  Signifikanz auf 5 Folds strukturell unterpowert (min p 0.0625) ->
-  nie fuer gepaarte Claims. Per-Epoch-History (train/val-Loss,
+  Signifikanz auf 5 Folds strukturell unterpowert (min p 0.0625) →
+  nie für gepaarte Claims. Per-Epoch-History (train/val-Loss,
   val-Acc/AUC je Fold) via `epoch_history_sink` am Event-Bus
-  (EPOCH-Event traegt seit 2026-07-05 zusaetzlich val_loss/val_acc);
-  Colab-Notebook konsumiert denselben Stream fuer Live-Lernkurve +
+  (EPOCH-Event trägt seit 2026-07-05 zusätzlich val_loss/val_acc);
+  Colab-Notebook konsumiert denselben Stream für Live-Lernkurve +
   Leaderboard, Daten/Ergebnisse via R2 (`ml4scs-sweep`, Colab-Secrets,
   resumierbar). Ergebnisse unter models/hp_grid/ (gitignored).
 - `src/training/deep/harnet*.py` — **Transfer-Learning-Vergleich mit dem
