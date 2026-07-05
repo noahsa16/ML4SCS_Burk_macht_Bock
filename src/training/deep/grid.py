@@ -110,6 +110,7 @@ def _git_sha() -> str:
             capture_output=True, text=True, check=True,
         ).stdout.strip()
     except Exception:
+        # Why: ohne Git-Repo (z. B. Colab-Zip-Download) -> "unknown" statt Crash.
         return "unknown"
 
 

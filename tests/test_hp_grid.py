@@ -209,8 +209,34 @@ def test_run_grid_freeze_mismatch_aborts(small_cfg, tmp_path):
         run_grid(small_cfg)
 
 
-def test_history_sink_close_is_callable_after_run_grid(small_cfg, tmp_path):
+def test_run_grid_closes_sink_per_trial_and_crash_leaves_no_trial_csv(
+        small_cfg, monkeypatch, tmp_path):
+    closed = []
+    real_sink = grid_mod.epoch_history_sink
+
+    def spying_sink(*a, **kw):
+        s = real_sink(*a, **kw)
+        orig_close = s.close
+        def _close():
+            closed.append(1)
+            orig_close()
+        s.close = _close
+        return s
+
+    monkeypatch.setattr(grid_mod, "epoch_history_sink", spying_sink)
     run_grid(small_cfg)
-    sink = epoch_history_sink(tmp_path / "x.csv", "m", "g00", 42, 1e-3)
-    assert callable(sink.close)
-    sink.close()
+    assert len(closed) == 4                    # 2 Configs x 2 Seeds, je genau 1 close
+
+    closed.clear()
+    outdir2 = tmp_path / "models" / "hp_grid" / "legacy" / "smoke2"
+    cfg2 = small_cfg.parent / "smoke2.json"
+    cfg2.write_text(small_cfg.read_text())
+
+    def crashing_loso(*a, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(grid_mod, "train_deep_loso", crashing_loso)
+    with pytest.raises(RuntimeError):
+        run_grid(cfg2)
+    assert closed == [1]                       # Sink trotz Crash geschlossen
+    assert not list(outdir2.glob("trial_*.csv"))  # kein Partial-Trial -> Resume faehrt neu
