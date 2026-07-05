@@ -459,6 +459,41 @@ class TCNGRUHybrid(nn.Module):
         return self.head(last).squeeze(-1)  # (batch,)
 
 
+class TCNTransformerHybrid(nn.Module):
+    """TCN-Trunk als Patch-Embedder + Transformer-Encoder ueber die Patches.
+
+    Wie TransformerP5 (100-ms-Patches statt Roh-Samples, Attention 25x
+    billiger als ueber alle 250 Samples), aber die Patch-Embeddings kommen
+    von einem echten 3-Ebenen-TCN (Dilationen 1/2/4, ~15 Samples rezeptives
+    Feld pro Token) statt einer einzelnen Conv1d -- lokal informierte
+    Patches statt Roh-Sample-Mittel.
+    """
+
+    def __init__(self, n_channels: int = 6, d_model: int = 32, nhead: int = 4,
+                 num_layers: int = 2, dim_ff: int = 64, dropout: float = 0.2,
+                 patch: int = 5) -> None:
+        super().__init__()
+        self.trunk = _build_tcn_trunk(n_channels, hidden=16, levels=3,
+                                      dropout=dropout)
+        self.downsample = nn.MaxPool1d(patch)
+        self.proj = nn.Conv1d(16, d_model, kernel_size=1)
+        self.posenc = _PositionalEncoding(d_model)
+        layer = nn.TransformerEncoderLayer(
+            d_model=d_model, nhead=nhead, dim_feedforward=dim_ff,
+            dropout=dropout, batch_first=True,
+        )
+        self.encoder = nn.TransformerEncoder(layer, num_layers=num_layers)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(d_model, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.transpose(1, 2)                        # (batch, 6, seq)
+        x = self.downsample(self.trunk(x))            # (batch, 16, seq/patch)
+        x = self.proj(x).transpose(1, 2)               # (batch, seq/patch, d_model)
+        x = self.posenc(x)
+        x = self.encoder(x)
+        return self.head(x.mean(dim=1)).squeeze(-1)
+
+
 MODELS: dict[str, type[nn.Module]] = {
     "cnn": CNN1D,
     "lstm": LSTMClassifier,
@@ -474,4 +509,5 @@ MODELS: dict[str, type[nn.Module]] = {
     "transformer": TransformerClassifier,
     "transformer_p5": TransformerP5,
     "tcn_gru": TCNGRUHybrid,
+    "tcn_transformer": TCNTransformerHybrid,
 }
