@@ -115,6 +115,30 @@ class TemporalBlock(nn.Module):
         return self.relu(self.net(x) + self.downsample(x))
 
 
+def _build_tcn_trunk(
+    n_channels: int,
+    hidden: int,
+    levels: int,
+    kernel_size: int = 3,
+    dropout: float = 0.2,
+    norm: str = "batch",
+) -> nn.Sequential:
+    """Baut den dilatierten TemporalBlock-Stack -- geteilt von TCN und den
+    Hybrid-Modellen (TCNGRUHybrid, TCNTransformerHybrid), die den Trunk ohne
+    Pooling/Head weiterverwenden."""
+    return nn.Sequential(*[
+        TemporalBlock(
+            n_channels if i == 0 else hidden,
+            hidden,
+            kernel_size,
+            dilation=2 ** i,
+            dropout=dropout,
+            norm=norm,
+        )
+        for i in range(levels)
+    ])
+
+
 class TCN(nn.Module):
     """Temporal Convolutional Network (Bai et al. 2018), klein gehalten.
 
@@ -136,18 +160,8 @@ class TCN(nn.Module):
         norm: str = "batch",
     ) -> None:
         super().__init__()
-        blocks = [
-            TemporalBlock(
-                n_channels if i == 0 else hidden,
-                hidden,
-                kernel_size,
-                dilation=2 ** i,
-                dropout=dropout,
-                norm=norm,
-            )
-            for i in range(levels)
-        ]
-        self.tcn = nn.Sequential(*blocks)
+        self.tcn = _build_tcn_trunk(n_channels, hidden, levels, kernel_size,
+                                    dropout, norm)
         self.pool = nn.AdaptiveAvgPool1d(1)
         self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(hidden, 1))
 
