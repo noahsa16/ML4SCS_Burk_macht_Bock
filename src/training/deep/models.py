@@ -464,7 +464,7 @@ class TCNTransformerHybrid(nn.Module):
 
     Wie TransformerP5 (100-ms-Patches statt Roh-Samples, Attention 25x
     billiger als ueber alle 250 Samples), aber die Patch-Embeddings kommen
-    von einem echten 3-Ebenen-TCN (Dilationen 1/2/4, ~15 Samples rezeptives
+    von einem echten 3-Ebenen-TCN (Dilationen 1/2/4, 29 Samples rezeptives
     Feld pro Token) statt einer einzelnen Conv1d -- lokal informierte
     Patches statt Roh-Sample-Mittel.
     """
