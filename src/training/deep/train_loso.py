@@ -39,7 +39,11 @@ POOL_FS: dict[str, int] = {"legacy": 50, "modern": 100}
 # Legacy-Pool zieht zusaetzlich Modern-Sessions als 50-Hz-View mit.
 _POOL_NATIVE_PROFILE: dict[str, str] = {"legacy": "50hz", "modern": "100hz_grav"}
 
-DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+DEVICE = torch.device(
+    "cuda" if torch.cuda.is_available()
+    else "mps" if torch.backends.mps.is_available()
+    else "cpu"
+)
 
 
 def _set_seed(seed: int = 42) -> None:
