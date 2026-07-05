@@ -132,7 +132,7 @@ def test_grid_spec_rejects_out_of_range():
 def test_all_canonical_configs_load_and_share_grid():
     """Fairness-Invariante: identische Default-Grids in allen 13 Dateien."""
     cfg_dir = Path(__file__).parents[1] / "configs" / "hp"
-    paths = sorted(cfg_dir.glob("*.json"))
+    paths = sorted(p for p in cfg_dir.glob("*.json") if not p.stem.startswith("smoke"))
     assert len(paths) == 13
     specs = [load_grid_spec(p) for p in paths]
     assert {s.model for s in specs} == {p.stem for p in paths}
@@ -288,3 +288,15 @@ def test_grid_boundary_warnings():
     assert any("batch_size" in w for w in warns)
     assert not any("dropout" in w for w in warns)      # 1-Wert-Achse: nie Rand
     assert not any("weight_decay" in w for w in warns) # Wert nicht am Rand
+
+
+def test_colab_notebook_parses():
+    import nbformat
+    nb_path = Path(__file__).parents[1] / "notebooks" / "hp_grid_colab.ipynb"
+    nb = nbformat.read(nb_path, as_version=4)
+    nbformat.validate(nb)
+    sources = "\n".join(c.source for c in nb.cells)
+    assert "run_grid" in sources and "collect_grid" in sources
+    assert "userdata" in sources          # Colab-Secrets, keine Creds im Klartext
+    assert "cfat_" not in sources and "SECRET" not in sources.replace(
+        "R2_SECRET_ACCESS_KEY", "")       # kein eingebettetes Secret
