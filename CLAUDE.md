@@ -747,6 +747,31 @@ no longer vibrates continuously when the server is down.
   t2,4,5,6,10,12,13. Achtung Nachzügler-Runs: der collect-Job lädt nur
   Artefakte des **eigenen** Runs — Teil-Redispatch erfordert lokales
   Zusammenführen der Trial-CSVs (wie hier geschehen) oder Voll-Redispatch.
+- `src/training/deep/grid.py` + `configs/hp/*.json` +
+  `notebooks/hp_grid_colab.ipynb` — **config-getriebene HP-Grid-Search**
+  (2026-07-05, Spec `docs/superpowers/specs/2026-07-03-colab-grid-search-design.md`):
+  editierbare per-Modell-Grids (13 Dateien, identische
+  Default-Grids = Fairness-Invariante), kartesisches Produkt via
+  `grid_configs`, Runner `--mode grid --config …` (Freeze via
+  run_meta.json + Git-SHA, Resume über Trial-CSV-Skip),
+  `--mode grid-collect` (Winner a-priori: Seed-Mittel-Acc, Tie AUC;
+  `n_configs_searched` = Budget-Disclosure; kein Auto-Retrain).
+  Zwei-Stufen-Protokoll: Suche auf **grouped-5-fold**
+  (`train_deep_loso(folds=5)`, Portierung der RF-`_make_fold_sets`,
+  Fold-Partition fix `random_state=42` über alle Seeds = gepaart;
+  `folds=None` bit-identisch LOSO) → Bestätigung NUR des Siegers +
+  tcn6-Baseline @3 Seeds auf LOSO-20 (`significance.py`, n=20).
+  Signifikanz auf 5 Folds strukturell unterpowert (min p 0.0625) →
+  nie für gepaarte Claims. Per-Epoch-History (train/val-Loss,
+  val-Acc/AUC je Fold) via `epoch_history_sink` am Event-Bus
+  (EPOCH-Event trägt seit 2026-07-05 zusätzlich val_loss/val_acc);
+  Colab-Notebook konsumiert denselben Stream für Live-Lernkurve +
+  Leaderboard, Daten/Ergebnisse via R2 (`ml4scs-sweep`, resumierbar).
+  **Runner-agnostisch (seit 2026-07-05):** Secrets kommen aus
+  Colab-`userdata` ODER Env-Vars (gleiche drei Namen) — dasselbe
+  Notebook läuft damit auch auf RunPod/JupyterLab (Pod-Env-Vars beim
+  Deploy setzen); die Download-Zelle guarded den `google.colab`-Import.
+  Ergebnisse unter models/hp_grid/ (gitignored).
 - `src/training/deep/harnet*.py` — **Transfer-Learning-Vergleich mit dem
   Oxford `ssl-wearables`-Foundation-Model (harnet)**, im identischen
   LOSO-by-person-Protokoll wie `train_loso.py` (importiert nur
