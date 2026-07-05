@@ -50,7 +50,11 @@ LOGREG_C_GRID = (0.01, 0.1, 1.0)
 RF_TREES = 200
 SEED = 42
 
-DEVICE = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
+DEVICE = torch.device(
+    "cuda" if torch.cuda.is_available()
+    else "mps" if torch.backends.mps.is_available()
+    else "cpu"
+)
 
 
 def _ensure_ca_bundle() -> None:
