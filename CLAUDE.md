@@ -766,8 +766,12 @@ no longer vibrates continuously when the server is down.
   val-Acc/AUC je Fold) via `epoch_history_sink` am Event-Bus
   (EPOCH-Event trägt seit 2026-07-05 zusätzlich val_loss/val_acc);
   Colab-Notebook konsumiert denselben Stream für Live-Lernkurve +
-  Leaderboard, Daten/Ergebnisse via R2 (`ml4scs-sweep`, Colab-Secrets,
-  resumierbar). Ergebnisse unter models/hp_grid/ (gitignored).
+  Leaderboard, Daten/Ergebnisse via R2 (`ml4scs-sweep`, resumierbar).
+  **Runner-agnostisch (seit 2026-07-05):** Secrets kommen aus
+  Colab-`userdata` ODER Env-Vars (gleiche drei Namen) — dasselbe
+  Notebook läuft damit auch auf RunPod/JupyterLab (Pod-Env-Vars beim
+  Deploy setzen); die Download-Zelle guarded den `google.colab`-Import.
+  Ergebnisse unter models/hp_grid/ (gitignored).
 - `src/training/deep/harnet*.py` — **Transfer-Learning-Vergleich mit dem
   Oxford `ssl-wearables`-Foundation-Model (harnet)**, im identischen
   LOSO-by-person-Protokoll wie `train_loso.py` (importiert nur
