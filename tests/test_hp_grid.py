@@ -130,10 +130,10 @@ def test_grid_spec_rejects_out_of_range():
 
 
 def test_all_canonical_configs_load_and_share_grid():
-    """Fairness-Invariante: identische Default-Grids in allen 13 Dateien."""
+    """Fairness-Invariante: identische Default-Grids in allen 15 Dateien."""
     cfg_dir = Path(__file__).parents[1] / "configs" / "hp"
     paths = sorted(p for p in cfg_dir.glob("*.json") if not p.stem.startswith("smoke"))
-    assert len(paths) == 13
+    assert len(paths) == 15
     specs = [load_grid_spec(p) for p in paths]
     assert {s.model for s in specs} == {p.stem for p in paths}
     ref = specs[0]
