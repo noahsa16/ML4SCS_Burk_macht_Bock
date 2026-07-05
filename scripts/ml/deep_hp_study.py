@@ -169,13 +169,15 @@ def run_collect(hp_dir: str, pool: str, win_sec: int, seeds: list) -> None:
 
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--mode", default="full", choices=["full", "trial", "collect"])
+    ap.add_argument("--mode", default="full",
+                    choices=["full", "trial", "collect", "grid", "grid-collect"])
     ap.add_argument("--pool", default="legacy", choices=["legacy", "modern"])
     ap.add_argument("--win", type=int, default=5)
     ap.add_argument("--n-trials", type=int, default=16)
     ap.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
     ap.add_argument("--models", nargs="+", default=list(MODELS))
     ap.add_argument("--hp-dir", default=str(MODEL_DIR / "hp"))
+    ap.add_argument("--config", help="Grid-Config (configs/hp/*.json) fuer --mode grid/grid-collect")
     # trial-Modus
     ap.add_argument("--model")
     ap.add_argument("--name")
@@ -193,6 +195,14 @@ def main() -> None:
                     choices=["constant", "cosine"])
     ap.add_argument("--zscore", action="store_true")
     args = ap.parse_args()
+    if args.mode == "grid":
+        from src.training.deep.grid import run_grid
+        run_grid(Path(args.config))
+        return
+    if args.mode == "grid-collect":
+        from src.training.deep.grid import collect_grid
+        collect_grid(Path(args.config))
+        return
     if args.mode == "trial":
         if args.max_epochs != MAX_EPOCHS:
             raise SystemExit(

@@ -177,3 +177,52 @@ def run_grid(config_path: Path, on_event=None, after_trial=None) -> Path:
             if after_trial is not None:
                 after_trial(outdir)
     return outdir
+
+
+def grid_boundary_warnings(winner_hp: dict, grid: dict) -> list[str]:
+    warns = []
+    for param, values in grid.items():
+        if len(values) < 2:
+            continue
+        if winner_hp[param] in (min(values), max(values)):
+            warns.append(
+                f"{param}: Winner-Wert {winner_hp[param]!r} am Grid-Rand "
+                f"({min(values)}..{max(values)}) -- Bereich erweitern?"
+            )
+    return warns
+
+
+def collect_grid(config_path: Path) -> pd.DataFrame:
+    config_path = Path(config_path)
+    spec = load_grid_spec(config_path)
+    outdir = grid_outdir(spec, config_path)
+    files = sorted(outdir.glob("trial_*.csv"))
+    if not files:
+        raise SystemExit(f"keine trial_*.csv in {outdir}")
+    study = pd.concat([pd.read_csv(f) for f in files], ignore_index=True)
+
+    hp_cols = ["lr", "dropout", "batch_size", "weight_decay"]
+    agg = (study.groupby("cfg_id", as_index=False)
+           .agg(**{c: (c, "first") for c in ["model"] + hp_cols},
+                acc_mean=("accuracy", "mean"), acc_std=("accuracy", "std"),
+                auc_mean=("roc_auc", "mean"), auc_std=("roc_auc", "std"),
+                n_seeds=("seed", "nunique")))
+    # Why: a-priori-Kriterium (Spec § 8, vorregistriert) -- Seed-Mittel-Acc,
+    # Tie ueber Seed-Mittel-AUC. Kein nachtraegliches Umschwenken.
+    agg = agg.sort_values(["acc_mean", "auc_mean"], ascending=False)
+    winner = agg.head(1).copy()
+    winner["n_configs_searched"] = study["cfg_id"].nunique()
+
+    stem = config_path.stem
+    (ROOT / "models").mkdir(exist_ok=True)
+    study.to_csv(ROOT / "models" / f"grid_study_{stem}_{spec.pool}.csv", index=False)
+    winner.to_csv(ROOT / "models" / f"grid_winner_{stem}_{spec.pool}.csv", index=False)
+
+    warns = grid_boundary_warnings(
+        winner.iloc[0][hp_cols].to_dict(), spec.grid.model_dump())
+    print(f"=== Grid-Collect {stem} ({spec.pool}) | "
+          f"best-of-{int(winner.iloc[0]['n_configs_searched'])} ===")
+    print(agg.head(10).to_string(index=False))
+    for w in warns or ["keine Rand-Warnungen"]:
+        print(f"  - {w}")
+    return winner

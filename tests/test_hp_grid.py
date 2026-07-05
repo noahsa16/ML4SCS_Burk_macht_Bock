@@ -240,3 +240,51 @@ def test_run_grid_closes_sink_per_trial_and_crash_leaves_no_trial_csv(
         run_grid(cfg2)
     assert closed == [1]                       # Sink trotz Crash geschlossen
     assert not list(outdir2.glob("trial_*.csv"))  # kein Partial-Trial -> Resume faehrt neu
+
+
+from src.training.deep.grid import collect_grid, grid_boundary_warnings
+
+
+def _write_trial(outdir, name, cfg_id, acc, auc, seed, lr=1e-3, dropout=0.1):
+    pd.DataFrame([{
+        "model": "tcn", "cfg_id": cfg_id, "lr": lr, "dropout": dropout,
+        "batch_size": 64, "weight_decay": 0.0, "seed": seed,
+        "accuracy": acc, "roc_auc": auc, "best_epoch": 3.0,
+    }]).to_csv(outdir / f"trial_{name}.csv", index=False)
+
+
+def test_collect_grid_winner_by_seed_mean_acc(small_cfg, tmp_path):
+    outdir = tmp_path / "models" / "hp_grid" / "legacy" / "smoke"
+    outdir.mkdir(parents=True)
+    _write_trial(outdir, "tcn-g00-s42", "g00", 0.90, 0.95, 42, dropout=0.1)
+    _write_trial(outdir, "tcn-g00-s43", "g00", 0.80, 0.90, 43, dropout=0.1)
+    _write_trial(outdir, "tcn-g01-s42", "g01", 0.86, 0.99, 42, dropout=0.2)
+    _write_trial(outdir, "tcn-g01-s43", "g01", 0.86, 0.99, 43, dropout=0.2)
+    win = collect_grid(small_cfg)
+    assert win.iloc[0]["cfg_id"] == "g01"             # 0.86 > 0.85 Seed-Mittel
+    assert win.iloc[0]["n_configs_searched"] == 2
+    assert win.iloc[0]["n_seeds"] == 2
+    study = pd.read_csv(tmp_path / "models" / "grid_study_smoke_legacy.csv")
+    assert len(study) == 4
+    assert (tmp_path / "models" / "grid_winner_smoke_legacy.csv").exists()
+
+
+def test_collect_grid_tie_broken_by_auc(small_cfg, tmp_path):
+    outdir = tmp_path / "models" / "hp_grid" / "legacy" / "smoke"
+    outdir.mkdir(parents=True)
+    _write_trial(outdir, "tcn-g00-s42", "g00", 0.85, 0.90, 42)
+    _write_trial(outdir, "tcn-g01-s42", "g01", 0.85, 0.97, 42, dropout=0.2)
+    win = collect_grid(small_cfg)
+    assert win.iloc[0]["cfg_id"] == "g01"
+
+
+def test_grid_boundary_warnings():
+    grid = {"lr": [1e-4, 1e-3, 1e-2], "dropout": [0.2],
+            "batch_size": [64, 128], "weight_decay": [1e-5, 1e-3]}
+    warns = grid_boundary_warnings(
+        {"lr": 1e-2, "dropout": 0.2, "batch_size": 128, "weight_decay": 1e-4},
+        grid)
+    assert any("lr" in w for w in warns)
+    assert any("batch_size" in w for w in warns)
+    assert not any("dropout" in w for w in warns)      # 1-Wert-Achse: nie Rand
+    assert not any("weight_decay" in w for w in warns) # Wert nicht am Rand
