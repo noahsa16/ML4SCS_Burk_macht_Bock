@@ -81,3 +81,63 @@ def test_tee_calls_all_in_order(tmp_path):
              lambda e: calls.append(("b", e["type"])))
     cb({"type": "x"})
     assert calls == [("a", "x"), ("b", "x")]
+
+
+import json
+
+from pydantic import ValidationError
+
+from src.training.deep.grid import GridSpec, load_grid_spec
+
+VALID = {
+    "model": "tcn6", "pool": "legacy", "win": 5, "folds": 5,
+    "seeds": [42, 43, 44], "max_epochs": 120, "patience": 8,
+    "grid": {"lr": [3e-4, 1e-3, 3e-3], "dropout": [0.05, 0.2, 0.4],
+             "batch_size": [64, 128], "weight_decay": [1e-5, 1e-3]},
+}
+
+
+def test_grid_spec_valid_roundtrip(tmp_path):
+    p = tmp_path / "tcn6.json"
+    p.write_text(json.dumps(VALID))
+    spec = load_grid_spec(p)
+    assert spec.model == "tcn6" and spec.folds == 5
+    assert spec.grid.lr == [3e-4, 1e-3, 3e-3]
+
+
+def test_grid_spec_rejects_unknown_field():
+    with pytest.raises(ValidationError):
+        GridSpec(**{**VALID, "learning_rate_extra": 1})
+
+
+def test_grid_spec_rejects_unknown_model():
+    with pytest.raises(ValidationError):
+        GridSpec(**{**VALID, "model": "resnet50"})
+
+
+def test_grid_spec_rejects_empty_grid_axis():
+    bad = {**VALID, "grid": {**VALID["grid"], "lr": []}}
+    with pytest.raises(ValidationError):
+        GridSpec(**bad)
+
+
+def test_grid_spec_rejects_out_of_range():
+    bad = {**VALID, "grid": {**VALID["grid"], "dropout": [1.5]}}
+    with pytest.raises(ValidationError):
+        GridSpec(**bad)
+    with pytest.raises(ValidationError):
+        GridSpec(**{**VALID, "pool": "mixed"})
+
+
+def test_all_canonical_configs_load_and_share_grid():
+    """Fairness-Invariante: identische Default-Grids in allen 13 Dateien."""
+    cfg_dir = Path(__file__).parents[1] / "configs" / "hp"
+    paths = sorted(cfg_dir.glob("*.json"))
+    assert len(paths) == 13
+    specs = [load_grid_spec(p) for p in paths]
+    assert {s.model for s in specs} == {p.stem for p in paths}
+    ref = specs[0]
+    for s in specs[1:]:
+        assert s.grid == ref.grid
+        assert (s.seeds, s.max_epochs, s.patience, s.folds, s.pool, s.win) == \
+               (ref.seeds, ref.max_epochs, ref.patience, ref.folds, ref.pool, ref.win)
