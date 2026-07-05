@@ -26,7 +26,7 @@ from src.training import events as _events
 from src.training.deep.augment import Augmenter
 from src.training.deep.data import load_session_raw
 from src.training.deep.models import MODELS
-from src.training.train_loso import _burst_metrics, _select_sessions
+from src.training.train_loso import _burst_metrics, _make_fold_sets, _select_sessions
 
 ROOT = Path(__file__).parents[3]
 MODEL_DIR = ROOT / "models"
@@ -293,6 +293,28 @@ def _stack_persons(
     return np.concatenate([data[s][key] for p in plist for s in persons[p]])
 
 
+def _fold_splits(
+    person_ids: list[str], folds: int | None, random_state: int = 42
+) -> list[tuple[list[str], str, list[str]]]:
+    """(test_group, val_person, train_persons) je Fold.
+
+    folds=None = LOSO, bit-identisch zum alten Verhalten (Val = naechste
+    Person in sortierter Reihenfolge, wrap-around). Sonst grouped-K-fold
+    via _make_fold_sets (RF-Runner-Logik, leakage-frei: eine Person nie
+    in Train UND Test). Why: random_state ist konstant und NICHT der
+    Trainings-Seed -- identische Fold-Partition ueber alle Seeds haelt
+    die Seed-Laeufe gepaart.
+    """
+    fold_sets = _make_fold_sets(list(person_ids), folds, random_state)
+    splits = []
+    for i, test_group in enumerate(fold_sets):
+        rest = [p for p in person_ids if p not in test_group]
+        val_p = rest[i % len(rest)]
+        train_ps = [p for p in rest if p != val_p]
+        splits.append((list(test_group), val_p, train_ps))
+    return splits
+
+
 def train_deep_loso(
     model_name: str,
     window_sec: int,
@@ -306,6 +328,7 @@ def train_deep_loso(
     weight_decay: float = 0.0,
     patience: int = 8,
     max_epochs: int = 60,
+    folds: int | None = None,
     exclude_boundary: tuple[float, float] | None = None,
     zscore: bool = False,
     augment: bool = False,
@@ -319,7 +342,9 @@ def train_deep_loso(
     merged-Quelle (siehe :func:`_pool_plan`). Bewusst kein ``auto`` — rohe
     Sequenzen koennen keine Sample-Raten mischen.
 
-    Pro Fold: Test = 1 Person, Val = 1 rotierende Person, Train = Rest.
+    Pro Fold: Test = 1 Person (LOSO, ``folds=None``) oder eine
+    Personen-Gruppe (``folds=K`` -> grouped-K-fold, RF-validiert),
+    Val = 1 rotierende Person aus dem Train-Split, Train = Rest.
 
     ``zscore`` (default **False**): per-Session-Z-Score vor dem Training.
     Default aus — fuers CNN empirisch neutral (gepaartes A/B, N=14: Δacc
@@ -381,40 +406,40 @@ def train_deep_loso(
     )
 
     emit = on_event if on_event is not None else (lambda _ev: None)
+    splits = _fold_splits(person_ids, folds)
+    person_of_session = {s: p for p, ss in persons.items() for s in ss}
     emit({"type": _events.RUN_START, "model": model_name, "by": "person",
-          "pool": pool, "n_folds": len(person_ids)})
+          "pool": pool, "n_folds": len(splits)})
 
     rows: list[dict] = []
     oof_frames: list[pd.DataFrame] = []
     interrupted = False
-    for i, test_p in enumerate(
-        tqdm(person_ids, desc=f"{model_name}/{pool} folds", unit="fold")
+    for i, (test_group, val_p, train_ps) in enumerate(
+        tqdm(splits, desc=f"{model_name}/{pool} folds", unit="fold")
     ):
-        emit({"type": _events.FOLD_START, "idx": i, "person": str(test_p)})
-        # Val: naechste Person in sortierter Reihenfolge, wrap-around --
-        # jede Person ist genau einmal Test und genau einmal Val.
-        val_p = person_ids[(i + 1) % len(person_ids)]
-        train_ps = [p for p in person_ids if p not in (test_p, val_p)]
+        held_out = "+".join(sorted(test_group))
+        emit({"type": _events.FOLD_START, "idx": i, "person": held_out})
 
         train_X = _stack_persons(train_ps, "X", data, persons)
         train_y = _stack_persons(train_ps, "y", data, persons)
         val_X = _stack_persons([val_p], "X", data, persons)
         val_y = _stack_persons([val_p], "y", data, persons)
-        test_X = _stack_persons([test_p], "X", data, persons)
-        test_y = _stack_persons([test_p], "y", data, persons)
+        test_X = _stack_persons(test_group, "X", data, persons)
+        test_y = _stack_persons(test_group, "y", data, persons)
 
         if len(np.unique(test_y)) < 2:
-            print(f"  Fold {test_p}: uebersprungen -- Test-Fold einklassig")
+            print(f"  Fold {held_out}: uebersprungen -- Test-Fold einklassig")
             continue
 
         # test_df fuer die per-Session-Burst-Aggregation.
+        test_sessions = [s for p in test_group for s in persons[p]]
         test_df = pd.concat(
             [
                 pd.DataFrame({
                     "session_id": s,
                     "t_center_ms": data[s]["t"],
                 })
-                for s in persons[test_p]
+                for s in test_sessions
             ],
             ignore_index=True,
         )
@@ -464,7 +489,7 @@ def train_deep_loso(
         row = {
             "model": model_name,
             "window_sec": window_sec,
-            "held_out": test_p,
+            "held_out": held_out,
             "n_test": len(test_y),
             "accuracy": m["accuracy"],
             "f1_writing": m["f1_writing"],
@@ -480,26 +505,26 @@ def train_deep_loso(
             row[f"auc_{scale}"] = bm["roc_auc"]
         rows.append(row)
         # OOF fuer ROC-Kurve + Fehler-nach-Task im Cockpit-Drawer. proba/test_y
-        # liegen in derselben Reihenfolge wie test_df (beide ueber persons[test_p]
+        # liegen in derselben Reihenfolge wie test_df (beide ueber test_sessions
         # gestackt) -> spaltenweise ausrichtbar.
         oof_frames.append(pd.DataFrame({
             "label": test_y,
             "proba_raw": proba,
             "session_id": test_df["session_id"].to_numpy(),
-            "person_id": test_p,
+            "person_id": test_df["session_id"].map(person_of_session).to_numpy(),
             "t_center_ms": test_df["t_center_ms"].to_numpy(),
         }))
 
         pred = (proba >= 0.5).astype(int)
         cm = confusion_matrix(test_y, pred, labels=[0, 1])
-        emit({"type": _events.FOLD_END, "idx": i, "person": str(test_p),
-              "n": len(person_ids), "acc": m["accuracy"], "auc": m["roc_auc"],
+        emit({"type": _events.FOLD_END, "idx": i, "person": held_out,
+              "n": len(splits), "acc": m["accuracy"], "auc": m["roc_auc"],
               "f1": m["f1_writing"],
               "burst": {scale: bm["accuracy"] for scale, bm in m["bursts"].items()},
               "confusion": {"tn": int(cm[0, 0]), "fp": int(cm[0, 1]),
                             "fn": int(cm[1, 0]), "tp": int(cm[1, 1])}})
         print(
-            f"  Fold {test_p}: train={train_acc:.3f} val={val_acc:.3f} "
+            f"  Fold {held_out}: train={train_acc:.3f} val={val_acc:.3f} "
             f"test={m['accuracy']:.3f}  f1={m['f1_writing']:.3f} "
             f"auc={m['roc_auc']:.3f}  best_epoch={best_epoch}"
         )
