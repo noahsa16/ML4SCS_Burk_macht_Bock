@@ -53,4 +53,6 @@ Built a Sobol-sampled nuisance-parameter sweep (learning rate, dropout, batch si
 
 ### Taji
 
-- _to be filled in_
+- Searched for papers and related projects that are highly similar to our own project, with a focus on sensor-based machine learning and wearable data.
+- Compared the identified works in terms of data sources, methods, feature extraction, and prediction goals to evaluate their relevance for our approach.
+- Created an initial overview of related work that can be used to better position our project and support the selection of suitable methods in the next steps.
