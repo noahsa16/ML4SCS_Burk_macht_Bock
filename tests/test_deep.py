@@ -144,10 +144,12 @@ def test_model_registry_forward(name, seq_len):
 
 
 def test_models_registry_keys():
-    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn", "tcn6",
+    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "gru2", "bigru",
+                                  "inception", "tcn", "tcn6",
                                   "tcn6w32", "tcn6k5", "tcn6wn", "tcn6ap",
                                   "tcn6se", "tcn8", "transformer",
-                                  "transformer_p5", "tcn_gru", "tcn_transformer"}
+                                  "transformer_p5", "tcn_gru", "tcn_bigru",
+                                  "tcn_gru_attn", "tcn_transformer"}
 
 
 @pytest.mark.parametrize("seq_len", [50, 250, 500])

@@ -1,0 +1,28 @@
+{
+  "model": "bigru",
+  "pool": "legacy",
+  "win": 5,
+  "folds": 5,
+  "seeds": [
+    42
+  ],
+  "max_epochs": 120,
+  "patience": 8,
+  "grid": {
+    "lr": [
+      0.001,
+      0.003,
+      0.005
+    ],
+    "dropout": [
+      0.3,
+      0.5
+    ],
+    "batch_size": [
+      64
+    ],
+    "weight_decay": [
+      1e-05
+    ]
+  }
+}
