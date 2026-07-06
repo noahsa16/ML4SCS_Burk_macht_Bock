@@ -1,291 +1,105 @@
-# Writing Activity Detection via Apple Watch IMU
+# Writing-Activity Detection from Apple Watch IMU
 
-[![tests](https://github.com/noahsa16/ML4SCS_Burk_macht_Bock/actions/workflows/test.yml/badge.svg)](https://github.com/noahsa16/ML4SCS_Burk_macht_Bock/actions/workflows/test.yml)
+[![tests](https://github.com/CH-GE-Focus-Watch/ML4SCS/actions/workflows/test.yml/badge.svg)](https://github.com/CH-GE-Focus-Watch/ML4SCS/actions/workflows/test.yml)
 
-**Semester project · Machine Learning for Smart and Connected Systems**  
-Team: Noah Samel · Ben Kriegsmann · Tajuddin Snasni
+**Semester project · Machine Learning for Smart and Connected Systems (ML4SCS)**
+Noah Samel · Tajuddin Snasni
+
+> **Can handwriting be detected from an Apple Watch's wrist IMU alone — independent of who is wearing the watch and what they write?**
+
+A Moleskine smart pen supplies ground-truth stroke labels **during data collection only**: its `dot_type` events tell us exactly when the wearer is writing, which labels the watch samples at the matching timestamp. Once the model is trained the pen is gone — inference runs on the watch alone, which is the whole point.
+
+**Headline — 20-subject cross-subject LOSO** (RandomForest + per-session z-score + label closing): accuracy **0.869 ± 0.032**, ROC-AUC **0.946 ± 0.021** at 1-second resolution; **0.856 / 0.932** at a 5-second decision window. A causal HMM post-filter runs live in the dashboard.
+
+![Writing vs. idle wrist acceleration](reports/figures/signal_demo.png)
+
+*Apple Watch ‖acc‖ during writing (left) vs. an idle pause (right), pen ground-truth below. Writing is the higher-dynamics class — but not every non-writing motion is calm, which is exactly where the problem gets hard (see the ceiling, below).*
 
 ---
 
-## Research Question
+## Data & Collection
 
-> Can writing activity be detected from IMU data (accelerometer + gyroscope) of an Apple Watch?
+| Device | Role | Signal |
+|--------|------|--------|
+| **Apple Watch (Series 7)** | model input | accelerometer + gyroscope (+ gravity), **currently 100 Hz**; the LOSO cohort was recorded at 50 Hz without gravity (the "legacy" pool) |
+| **Moleskine Smart Pen NWP-F130** | ground truth (collection only) | x / y / pressure / `dot_type` via BLE |
 
-The Moleskine Smart Pen is used as ground truth during data collection — its stroke events tell us when the wearer is actually writing, which lets us label the watch samples. Once the model is trained the pen is no longer needed; inference runs on the watch alone, which is the project's objective. A live deployment of the model is wired into the dashboard (Focus Tracker + topbar pill).
+**Counterbalanced study protocol.** Recordings run under a Williams-Latin-square protocol (Study Mode v2) that deliberately weaves in **hard negatives** — phone typing, keyboard typing, scrolling, pen-fidgeting, gesturing — alongside writing variants (normal, soft-pressure, think-pause). Task order is counterbalanced per subject, and every state transition is written to a per-session markers CSV, so downstream analysis can attribute each error to the exact task that produced it. The proband side is a fullscreen takeover with per-task instructions, a pre-task countdown, and audio cues; the experimenter drives Pause / Next / Abort from a hidden second-screen monitor.
+
+**Cohort.** 22 subjects collected. The computed headline is on the 20-subject legacy pool; the two newest subjects' refresh is pending. Sessions enter training only if they pass an alignment-confidence and quality gate (`verdict ∈ {trainable, usable}`).
+
+**Pen ↔ IMU time alignment.** The pen and watch clocks don't share an epoch — the pen's hardware clock is typically ~922 days off — so a naïve wall-clock join would smear every label. We recover the per-session offset **δ** automatically by **stroke-variance minimisation** (ported from an ETH Zürich method): while the pen is on paper the wrist stays comparatively still, so the correct δ shifts the stroke mask onto the calmest stretches of the IMU signal. A coarse (±20 s) then fine (±5 s @ 10 ms) search finds it; confidence is the z-score of the minimum against the search grid. No tap-sync ritual at recording time. → [`src/alignment/pen_match.py`](src/alignment/pen_match.py)
 
 ---
 
-## How it works
+## Method
 
 ```
-Apple Watch (IMU)
-  └─ WatchConnectivity ──► iPhone Bridge ──► POST /watch    ──► server.py
-                                                                     │
-AirPods (head-IMU)                                                   │
-  └─ CMHeadphoneMotionManager ─► iPhone ──► POST /airpods ──► server.py
-                                                                     │
-Moleskine Smart Pen (BLE)                                            │
-  └─ pen_logger.py ──────────────────────────────────────────────────┘
-                                                                     │
-                                            data/raw/watch/{session}_watch.csv
-                                            data/raw/pen/{session}_pen.csv
-                                            data/raw/airpods/{session}_airpods.csv
-                                                                     │
-                                  src/alignment/pen_match.py   (recover δ)
-                                  src/merge/                   (watch-base, ±40 ms)
-                                                                     │
-                                  data/processed/{session}_merged.csv
-                                                                     │
-                                  src/features/   (1 s windows, 0.5 s stride,
-                                                   88 features + label smoothing:
-                                                   time-stats + spectral (FFT) +
-                                                   jerk + ZCR + correlations)
-                                                                     │
-                                  data/processed/{session}_windows.csv
-                                                                     │
-                                  src/training/train_loso.py      (per-session z-score
-                                                                   → LOSO cross-val —
-                                                                   headline metric)
-                                                                     │
-                                  models/rf_all.joblib            (LOSO artefact)
-                                  models/rf_all_live.joblib       (deploy: pooled μ/σ)
-                                  models/rf_noah.joblib           (Personal, 100 Hz)
-                                                                     │
-                                  src/server/inference.py         (live @1 Hz → dashboard
-                                                                   topbar pill + Focus tab)
+Watch IMU ─► iPhone bridge ─► POST /watch ─► server ─► data/raw/watch/{s}_watch.csv
+Pen (BLE) ─► pen_logger.py ─────────────────────────► data/raw/pen/{s}_pen.csv
+      │
+      ├─ pen_match.py    recover δ (stroke-variance)
+      ├─ merge.py        watch-base join, label ±40 ms → {s}_merged.csv
+      ├─ features/       1 s windows / 0.5 s stride → 88 features → {s}_windows.csv
+      └─ train_loso.py   per-session z-score → LOSO-by-person   (headline)
+                              │
+                   live @1 Hz (inference.py) → dashboard pill + causal HMM filter
 ```
 
----
-
-## Screenshots
-
-### Dashboard (Web)
-
-The session dashboard runs at `http://localhost:8000` and gives a real-time view of both sensors, session management, and data quality.
-
-**Session overview & live sensor status**
-
-![Dashboard – Session Control](docs/screenshots/dashboard.png)
+- **Label closing (`max_gap_ms = 2500`).** The pen only reports contact, but a writer in mid-thought lifts the pen for < 2.5 s while still *writing*. Morphological closing redefines the label from "pen on paper" to "person in writing mode (incl. micro-pauses)" — the user-facing truth for a writing-time tracker. The `300 → 2500` sweep was the single largest data-side gain of the project.
+- **88 features per 1-s window** in six semantic groups (time-stats, spectral/FFT, jerk, zero-crossing rate, magnitude, cross-axis correlation). Modern (gravity) sessions add 4 tilt features → 92.
+- **Per-session z-score** (on by default) standardises each feature per session before fitting, removing the absolute-scale drift between wrists (size, handedness, strap). It was the **largest single ML-side win** of the project.
+- **LOSO-by-person** — each fold holds out one subject entirely, so the held-out data is never seen in training. This is the metric that maps to the deployment scenario, and it is what we report.
+- **Causal burst aggregation** at 1 / 5 / 10 / 30 s decision windows (trailing rolling mean, no look-ahead) — because an app cares about "has the person written in the last 30 s?", not one 1-s window.
+- **Causal HMM live filter** — a 2-state (idle/writing) post-processor on the 1-s probabilities. It lifts the 1-s decision **0.881 → 0.905 without retraining** and is deployed in the server.
 
 ---
 
-### iPhone App
+## Results & the honest ceiling
 
-The iPhone app bridges Watch ↔ Server: it receives IMU batches via WatchConnectivity and forwards them as HTTP POSTs. It also relays start/stop commands from the server to the Watch.
+| Decision window | Accuracy | ROC-AUC |
+|-----------------|----------|---------|
+| **1 s** (per window) | **0.869 ± 0.032** | **0.946 ± 0.021** |
+| 5 s (causal burst) | 0.856 ± 0.039 | 0.932 ± 0.026 |
+| 10 s (causal burst) | 0.825 ± 0.046 | 0.907 ± 0.032 |
+| 30 s (causal burst) | 0.771 ± 0.046 | 0.855 ± 0.041 |
 
-![iPhone App](docs/screenshots/iphone_app.png)
+*20-subject cross-subject LOSO (22 collected, refresh pending). Burst numbers are strictly causal — the earlier centered-smoothing gain was future leakage.*
 
----
+**The ceiling is signal ambiguity, not the model.** The residual error clusters on one confusion: aggressive keyboard / phone typing looks like writing at the wrist. Pooled false-positive rate is 0.36 on keyboard-typing vs. 0.04 on genuine pauses, and the hardest subject mistakes ~2/3 of his typing windows for writing. Crucially, **four unrelated model families — RandomForest, MiniRocket, a wearable foundation model (harnet), and deep TCNs — converge on the same cross-subject wall**, and the feature axis was falsified three separate ways (rhythm features, sharpened hard-negative features, data augmentation — all null). The first *transferable* gain came from distilled `tsfresh` features (+0.5 pp, p = 0.007). This is a data problem (more typing-style subjects), not a modelling one.
 
-### Apple Watch App
+![Model-family ceiling](reports/figures/model_ceiling.png)
 
-The Watch app captures `CMDeviceMotion` at 50 Hz and streams batches of 10 samples to the iPhone bridge via WatchConnectivity. The UI shows session state, sample rate, and connection status.
+*Four model families cluster at the same cross-subject ceiling (N=15). Two routes rise above the 1-s decision level: native 5-second deep windows (TCN, 0.911) and a causal HMM on the 1-s RandomForest (0.905). The HMM route is the one deployed live.*
 
-![Watch App](docs/screenshots/watch_app.png)
+**Deep models (research arm).** Under the identical LOSO protocol, a TCN-trunk + GRU hybrid is the front-runner (grouped-5-fold, 3-seed mean 0.922), and native long-window training beats the RF by +2–4 pp — but this margin lives entirely in what burst aggregation already removes, so the deployed model stays the 1-s RandomForest + HMM. Full model-comparison panel: [`reports/model_progression.md`](reports/model_progression.md).
 
-
-
-## Hardware
-
-| Device | Role | Data |
-|--------|------|------|
-| Apple Watch (Series 7) | Model input | Accelerometer + Gyroscope @ 50 or 100 Hz (configurable) |
-| AirPods (Pro / 3rd Gen) | Auxiliary input | Head IMU (accel + gyro + attitude) via `CMHeadphoneMotionManager` |
-| Moleskine Smart Pen NWP-F130 | Ground truth | x/y/pressure/dot_type via BLE |
+**Live deployment.** Inference runs every second in the server. The dashboard surfaces it as a topbar pill and a Recording-page card (60-s sparkline + persistent writing-time counter that survives restarts), with a model picker between a personal model and a generic pooled-μ/σ model for raw-stream serving.
 
 ---
 
-## Project Structure
-
-```
-server.py / pen_logger.py    FastAPI entry point + standalone BLE pen logger
-src/server/                  Modular server (config, state, csv_io, quality,
-                             routes/, study.py — Study Mode runner)
-src/alignment/               Pen↔IMU clock-offset recovery (stroke-variance)
-src/merge/                   Watch-base merge (1 row per IMU sample + label)
-src/features/                Sliding windows → 88 features (94 with gravity)
-src/training/                train_loso.py (headline) + within_session/ + deep/
-src/evaluation/              Regression (Schreib-Prozent) + engagement post-proc
-scripts/plots/, scripts/ml/  Figures + training/ablation/diagnostic scripts
-scripts/ops/                 Server + tunnel shell helpers
-tests/                       346 smoke tests (~10 s)
-static/, dashboard.html      Web dashboard (page-modular ES modules)
-watch_streamer/              iOS + watchOS Xcode targets
-data/raw/, data/processed/   Per-session CSVs (raw committed, processed gitignored)
-study_protocols/             Study Mode protocol definitions (v1.json)
-```
-
-See [CLAUDE.md](CLAUDE.md) for the per-module breakdown.
-
----
-
-## Setup
+## Reproduce
 
 ```bash
 pip install -r requirements.txt
+
+# per-session preprocessing (omit the ID to use the most recent session)
+python -m src.merge S029                       # watch-base merge  → {s}_merged.csv
+python -m src.features S029 --max-gap-ms 2500  # sliding windows   → 88 features
+
+# headline cross-subject evaluation
+python -m src.training.train_loso --by person  # true LOSO-by-person
+
+pytest tests/                                  # 682 smoke tests, ~10 s
 ```
+
+Run the full live stack: `uvicorn server:app --host 0.0.0.0 --port 8000`, then open the dashboard at `http://localhost:8000` and connect the iPhone app.
 
 ---
 
-## Running the Stack
+## Documentation
 
-**1. Start the server:**
-```bash
-uvicorn server:app --host 0.0.0.0 --port 8000
-```
-Open `http://localhost:8000` — the dashboard loads automatically.
-
-**2. Open the iPhone app** — enter the server IP, tap *Connect*.
-
-**3. Start a session** from the dashboard — both pen logger and watch start automatically. Two modes are available:
-
-- **Free mode** (default): START, write freely, STOP. Same flow as before.
-- **Study mode**: toggle the Recording page to **Study Mode** → pick `v1` from the protocol dropdown → **START STUDY**. The proband side enters a fullscreen takeover with per-task instructions, a pre-task countdown, an urgent last-5-second pulse, and audio cues (880 Hz tick + E5/B5 chime at transitions). The VL controls Pause / Next / Abort and can monitor live status from a second screen via the hidden `#admin` page — **triple-click the brand logo** to reach it on iPad. Task order is counterbalanced via a Latin Square keyed on `subject_index`.
-
-**4. Record data** — write something, pause, write again (or follow the protocol).
-
-**5. Stop the session** — CSVs are finalized. Study Mode also writes `data/raw/markers/{session}_markers.csv` with one row per task transition.
-
-**6. Check quality** — dashboard Sessions page shows `ml_readiness` and `recording_health` per session. The **⤓ md** link in each row downloads a self-explaining Markdown report listing every issue with its check, threshold, observed value, and rationale (`GET /sessions/{id}/report?format=md`).
-
-Server logs go to the terminal *and* `logs/server.log` (rotating). The same log lines also show up in the dashboard's event log panel — useful when debugging connection drops or rate spikes.
-
----
-
-## ML Pipeline
-
-Once a session is recorded, the per-session preprocessing is two commands:
-
-```bash
-python -m src.merge S029                       # watch-base merge → data/processed/S029_merged.csv
-python -m src.features S029 --max-gap-ms 2500  # sliding windows  → data/processed/S029_windows.csv
-```
-
-Without a session ID, `merge` and `features` operate on the most recent session.
-
-There are two training entry points, and we use them for different things.
-
-### Cross-subject evaluation (this is what we report)
-
-```bash
-python -m src.training.train_loso --by person      # true LOSO-by-person — what we report
-python -m src.training.train_loso --by session     # leave-one-session-out fallback
-```
-
-Each fold holds out one subject completely, so the held-out data is never seen during training. By default the script only includes sessions marked `verdict ∈ {trainable, usable}` (use `--include-all` to override).
-
-**Current 15-subject LOSO** with RandomForest + per-session z-score + label closing `max_gap_ms=2500` (10 legacy subjects + P12–P15 + P17 folded in as anti-aliased 50 Hz views), after the capture-clock fix:
-
-| Decision window | Accuracy | ROC-AUC |
-|---|---|---|
-| 1 s (per window) | **0.872 ± 0.037** | **0.947 ± 0.026** — F1(writing) 0.873 |
-| 5 s (causal burst) | 0.860 ± 0.044 | 0.933 ± 0.032 |
-| 10 s (causal burst) | 0.825 ± 0.049 | 0.906 ± 0.040 |
-| 30 s (causal burst) | 0.771 ± 0.051 | 0.856 ± 0.049 |
-
-The jump vs. the previous 14-subject headline (0.855 / 0.929) is the **capture-clock fix**, not cohort change: the merge and windowing now run their label join and window timeline on the per-sample capture clock `ts` instead of the batch-arrival clock `local_ts_ms`, which on spill-drain stretches was minutes late and shifted labels onto the wrong samples. Paired before/after (Wilcoxon, N=15): 15/15 folds better, mean +2.4 pp acc, p = 0.0001; biggest winner P07 at +8.5 pp acc.
-
-The 1-s window is right for *features* (FFT bands, label transitions) but not for an app — a writing-time tracker cares about "has the person written in the last 30 s?", so we report the same fold at 1/5/10/30 s by smoothing the 1-s probabilities per session **causally** (trailing mean, no look-ahead) and re-thresholding at 0.5. Under causal smoothing the burst scales sit *below* the 1-s number; the earlier centered burst gain was future leakage.
-
-**Per-session z-score** (on by default) standardises each feature per `session_id` before fitting — removes the absolute-scale drift between wrists (size, handedness, strap tightness). Biggest single ML-side win of the project. Caveat: a model trained with z-score needs a calibration phase to be served on raw live features — see `models/rf_all_live.joblib` for the deployment variant with pooled μ/σ baked in.
-
-**Label closing (`max_gap_ms=2500`)** redefines the label from "pen currently on paper" to "person in writing mode incl. micro-pauses ≤ 2.5 s". Gap sweep `300 → 2500` was the largest single-step gain of the project (acc +4.2 pp at N=5; tightened 6/7 folds at N=7; plateau-stable at N=10). `3000` regressed P05 — `2500` is the last "no systematic regression" step.
-
-**Deep models.** `python -m src.training.deep` runs 1D-CNN / LSTM / GRU on raw 50-Hz IMU sequences under the same LOSO-by-person protocol. RF on engineered features is still the headline; deep models have not caught up at this dataset size.
-
-### Within-session baseline (for iterating)
-
-```bash
-python -m src.training.within_session.train_rf S029
-```
-
-Temporal 80/20 split on a single session, 4-window gap to avoid leakage. **Not a generalisation claim** — used only for feature-iteration and label-smoothing tuning. Real numbers come from `train_loso.py`.
-
-```bash
-pytest tests/     # 346 cases, ~10 s
-```
-
----
-
-## Data Formats
-
-The two files that actually feed the model:
-
-- **`data/processed/{session}_merged.csv`** — watch-base: one row per IMU sample + `label_writing ∈ {0, 1}` from the nearest pen `dot_type` within ±40 ms of the δ-corrected pen clock. Watch samples in pen-gaps → label 0.
-- **`data/processed/windows/{profile}/{session}_windows.csv`** (profile ∈ `50hz`/`100hz`/`100hz_grav`, content-derived) — one row per 1 s sliding window (0.5 s stride) with 88 features (time-stats + spectral + jerk + ZCR + correlations), plus `label` and `t_center_ms`. Labels are morphologically closed (default `max_gap_ms=2500`) at sample level before windowing. Sessions captured with gravity (since 2026-05-26) get 4 extra tilt features → 92 total — see [Pool architecture](#pool-architecture-legacy-vs-modern).
-
-Raw CSV schemas (watch, pen, AirPods, sessions index, Study-Mode markers) are documented in [CLAUDE.md](CLAUDE.md).
-
----
-
-## Pen ↔ IMU Time Alignment
-
-The pen and the watch don't share a clock. The Moleskine pen's hardware clock is typically off by about 922 days plus some time-of-day offset, so a naïve wall-clock join would smear the labels by hundreds of milliseconds or worse, which would invalidate every label the model trains on.
-
-We recover the per-session offset **δ** automatically with a stroke-window variance-minimisation approach, ported from the ETH Zürich method described in [`data/02_Pen_IMU_Timestamp_Alignment.pdf`](data/02_Pen_IMU_Timestamp_Alignment.pdf). The implementation is in [`src/alignment/pen_match.py`](src/alignment/pen_match.py).
-
-The idea: while the pen is touching paper, the wrist holding the watch stays comparatively still — strokes are short and the motion is constrained. So the correct δ shifts the stroke mask onto the calmest parts of the IMU signal, and we can find it by minimising the mean accelerometer variance under the shifted mask.
-
-```
-                δ wrong                                δ correct
-       ┌────────────────────┐                  ┌────────────────────┐
- acc   │   ╱╲   ╱╲    ╱╲    │            acc   │       ___      __  │
- var   │  ╱  ╲ ╱  ╲  ╱  ╲   │            var   │ ___ ╱   ╲ ___ ╱  ╲ │
-       │ ╱    V    ╲╱    ╲  │                  │╱   ╲    │   ╲    │ │
-       └─▲─────▲────▲─────▲─┘                  └─▲────▲────▲────▲──┘
-         strokes overlap motion                  strokes sit on quiet IMU
-```
-
-The search runs in two passes: a coarse one (±20 s in 0.5 s steps) handles BLE buffering and clock drift, then a fine one (±5 s in 10 ms steps) refines around the coarse minimum. We report the confidence as `sigma_minimal_variance` — a z-score of the minimum against the rest of the search grid. More negative means a clearer alignment.
-
-`merge_watch_pen()` calls `match_pen_data()`, shifts `pen.local_ts_ms` by δ, then runs a watch-based `merge_asof` within ±40 ms. Every watch sample is preserved and gets `label_writing = 1` if the nearest pen `dot_type` is `PEN_DOWN` or `PEN_MOVE` within tolerance, else `0`. If the signal is too weak (`sigma > -2`) we skip the δ shift and the quality engine flags the session as `low_sync_confidence` (warn) or `sync_failed` (bad). For actual training we apply a stricter filter of `σ ≤ -3` — we noticed that values around -2 sometimes lock onto spurious local minima.
-
-This replaced an earlier plan to require a tap-sync protocol at the start of each recording (3× tap with the watch hand). Alignment is now fully post-hoc, so probands don't have to do anything special at recording time.
-
----
-
-## Quality Checks
-
-Each session is scored against a fixed set of checks defined in `quality.py`. Every issue carries `code`, `check`, `threshold`, `observed`, and a short `rationale` — so when a warning fires it's clear *why* and what assumption the threshold reflects. The first version of these checks had three thresholds set wrong; that only became apparent once each warning stated its rationale.
-
-| Check | Target |
-|-------|--------|
-| Watch has accelerometer (`ax/ay/az`) | Required |
-| Watch has gyroscope (`rx/ry/rz`) | Required |
-| Watch sample rate | 40–60 Hz or 80–120 Hz (target: 50 or 100 Hz) |
-| Pen CSV has `local_ts_ms` | Required for wall-clock anchor |
-| No sequence gaps in watch batches | Recommended |
-| Pen dots fall within watch time range | ≥ 80 % |
-| `PEN_DOWN` / `PEN_UP` paired | Diagnostic |
-
-Two scores are exposed separately: `ml_readiness` (does this session contain usable training material?) and `recording_health` (did the hardware behave during capture?). Sync confidence is reported as a diagnostic only and never downgrades a session score on its own.
-
-The full per-session report is available as JSON at `GET /sessions/{id}/report` or as Markdown at `GET /sessions/{id}/report?format=md`.
-
-Sync confidence (`sigma_minimal_variance`) is reported as a diagnostic alongside the scores. The pen↔IMU clock offset itself is recovered automatically per session — see [Pen ↔ IMU Time Alignment](#pen--imu-time-alignment) above.
-
----
-
-## Current Status
-
-The full pipeline is operational end-to-end: capture → alignment → merge → features → training → evaluation → **live inference in the dashboard**. **Headline: 15-subject cross-subject LOSO with RandomForest + per-session z-score + `max_gap_ms=2500`, after the capture-clock fix — accuracy 0.872 ± 0.037, ROC-AUC 0.947 ± 0.026, F1(writing) 0.873.** Causal burst @5s: AUC 0.933; @30s: AUC 0.856. Detailed progression and model-comparison panel in [`reports/model_progression.md`](reports/model_progression.md).
-
-**Live deployment.** Inference runs in the server every 1 s (`src/server/inference.py`). The dashboard shows it as a topbar pill, a Recording-page card with sparkline, and a dedicated **Focus** tab with daily/weekly aggregation persisted across restarts. A model picker switches between Personal (`rf_noah`, 100 Hz, no z-score) and Generic (`rf_all_live`, pooled μ/σ baked in for raw-stream use).
-
-**Pool architecture (Legacy vs Modern).** Sessions before 2026-05-26 stream the 6 sensor channels (`ax/ay/az + rx/ry/rz`); newer sessions additionally record the gravity vector (`motion.gravity`) — the accelerometer's gravity component (`userAccel + gravity = total acceleration`), not a separate sensor channel — for 9 values per sample and 4 extra tilt features (92 total). Pool is auto-detected at runtime; `train_loso.py --pool {legacy,modern,auto}` selects which to train on. `src/features/downsample.py` bridges modern sessions into the legacy pool for cross-pool LOSO.
-
----
-
-## Weekly Reports
-
-- [Week 3](reports/week03.md)
-- [Week 4](reports/week_04_report.md)
-- [Week 5](reports/week_05_report.md)
-- [Week 6](reports/week_06_report.md)
-- [Week 7](reports/week_07_report.md)
-- [Week 8](reports/week_08_report.md)
-- [Week 9](reports/week_09_report.md) — two-pool gravity architecture + first Modern proband
-- [Week 10](reports/week_10_report.md) — gravity verdict, N=14 headline, profile-sorted windows
-- [Week 11](reports/week_11_report.md) — methodological audit, capture-clock fix (N=15 headline 0.872), stream-integrity hardening
-- [Week 12](reports/week_12_report.md) — native long-window deep models break the decision-window ceiling, causal HMM post-processing, Scrybe live deployment
-- [Week 13](reports/week_13_report.md) — marker-driven ceiling diagnosis (training gap vs. ambiguity), TCN6↔RF fusion, N=20 cohort, first transferable feature gain (distilled tsfresh winners)
+- **[CLAUDE.md](CLAUDE.md)** — the full operational reference: architecture, module map, data schemas, and the pipeline gotchas that still bite.
+- **[documentation/](documentation/)** — consolidated [experiment log](documentation/experiment_log.md) (negative results, deep-model / fusion numbers) and the [headline lineage](documentation/headline_history.md) (N=3 → 22).
+- **[reports/](reports/)** — per-experiment deep-dives. Highlights: [marker-driven ceiling diagnosis](reports/marker_fpr.md) · [causal HMM post-processing](reports/hmm_postprocess.md) · [distilled tsfresh feature gain](reports/tsfresh_transfer.md) · [TCN↔RF fusion](reports/tcn_rf_fusion.md) · [the sort-stability bug forensics](reports/sort_stability_bug.md).
+- **Weekly reports:** [W3](reports/week03.md) · [W4](reports/week_04_report.md) · [W5](reports/week_05_report.md) · [W6](reports/week_06_report.md) · [W7](reports/week_07_report.md) · [W8](reports/week_08_report.md) · [W9](reports/week_09_report.md) · [W10](reports/week_10_report.md) · [W11](reports/week_11_report.md) · [W12](reports/week_12_report.md) · [W13](reports/week_13_report.md)
