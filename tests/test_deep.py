@@ -144,10 +144,12 @@ def test_model_registry_forward(name, seq_len):
 
 
 def test_models_registry_keys():
-    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "tcn", "tcn6",
+    assert set(MODELS.keys()) == {"cnn", "lstm", "gru", "gru2", "bigru",
+                                  "inception", "tcn", "tcn6",
                                   "tcn6w32", "tcn6k5", "tcn6wn", "tcn6ap",
                                   "tcn6se", "tcn8", "transformer",
-                                  "transformer_p5"}
+                                  "transformer_p5", "tcn_gru", "tcn_bigru",
+                                  "tcn_gru_attn", "tcn_transformer"}
 
 
 @pytest.mark.parametrize("seq_len", [50, 250, 500])
@@ -840,3 +842,77 @@ def test_fold_splits_deterministic_and_seed_independent():
     # Why: random_state ist fix (42), NICHT der Trainings-Seed -- gleiche
     # Fold-Partition ueber Seeds 42/43/44 ist die Paarungs-Garantie.
     assert _fold_splits(persons, 3, random_state=42) == _fold_splits(persons, 3)
+
+
+# --- Task 2: TCNGRUHybrid (TCN6 Trunk + GRU) --------------------------------
+
+
+def test_tcn_gru_in_registry():
+    assert "tcn_gru" in MODELS
+
+
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_tcn_gru_forward_shape(seq_len):
+    out = MODELS["tcn_gru"]()(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn_gru_forward_batch_one():
+    model = MODELS["tcn_gru"]()
+    model.eval()
+    out = model(torch.randn(1, 50, 6))
+    assert out.shape == (1,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn_gru_is_small():
+    """TCN6-Trunk + 1-Layer-GRU: bleibt trotz Sequenz-Modellierung klein."""
+    n_params = sum(p.numel() for p in MODELS["tcn_gru"]().parameters())
+    assert n_params < 20_000
+
+
+def test_tcn_gru_receptive_field_spans_5s_window():
+    """Trunk ist der unveraenderte TCN6-Stack -- rezeptives Feld 253 Samples
+    spannt weiterhin das 5-s-Fenster (250 Samples @ 50 Hz)."""
+    assert _last_pos_depends_on_window_start(MODELS["tcn_gru"]().trunk, 250)
+
+
+# --- Task 3: TCNTransformerHybrid (TCN-Patch-Embed + Transformer) -----------
+
+
+def test_tcn_transformer_in_registry():
+    assert "tcn_transformer" in MODELS
+
+
+@pytest.mark.parametrize("seq_len", [50, 250, 500])
+def test_tcn_transformer_forward_shape(seq_len):
+    out = MODELS["tcn_transformer"](dropout=0.1)(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn_transformer_forward_batch_one():
+    model = MODELS["tcn_transformer"]()
+    model.eval()
+    out = model(torch.randn(1, 50, 6))
+    assert out.shape == (1,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn_transformer_param_budget():
+    n = sum(p.numel() for p in MODELS["tcn_transformer"]().parameters())
+    assert n < 30_000
+
+
+def test_tcn_transformer_patches_reduce_tokens():
+    """Wie transformer_p5: 250-Sample-Fenster -> 50 Tokens vor der Attention --
+    nur dass die Patch-Embeddings hier von einem 3-Ebenen-TCN statt einer
+    einzelnen Conv kommen."""
+    m = MODELS["tcn_transformer"](dropout=0.1)
+    seen = {}
+    m.encoder.register_forward_hook(
+        lambda mod, inp, out: seen.update(tokens=inp[0].shape[1]))
+    out = m(torch.randn(4, 250, 6))
+    assert out.shape == (4,)
+    assert seen["tokens"] == 50

@@ -106,12 +106,19 @@ def train_one_model(
     augmenter=None,
     on_epoch=None,
     lr_schedule: str = "constant",
+    sample_weight: np.ndarray | None = None,
 ) -> tuple[torch.nn.Module, int]:
     """Trainiere ein Modell mit Early Stopping auf Val-ROC-AUC.
 
     Das beste Modell (hoechste Val-AUC) wird am Ende zurueckgeladen.
     ``pos_weight`` gleicht die Klassen-Imbalance aus (Pendant zu
     ``class_weight='balanced'`` beim RF).
+
+    ``sample_weight`` (optional, ausgerichtet auf ``train_X``) skaliert den
+    Per-Fenster-Loss zusaetzlich zum ``pos_weight`` -- fuers Hard-Negative-
+    Reweighting-Experiment (keyboard/phone-Fenster hoeher gewichten). ``None``
+    laesst den Default-Pfad bit-identisch; nur wenn gesetzt, wechselt der Loss
+    auf ``reduction='none'`` und mittelt ``loss * weight`` selbst.
 
     Returns ``(model, best_epoch)`` -- ``best_epoch`` (0-indexiert) ist die
     Epoche, in der die beste Val-AUC erreicht wurde, fuer die Under-/
@@ -122,15 +129,24 @@ def train_one_model(
     n_pos = float((train_y == 1).sum())
     n_neg = float((train_y == 0).sum())
     pos_weight = torch.tensor([n_neg / max(n_pos, 1.0)], device=DEVICE)
-    loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    weighted = sample_weight is not None
+    loss_fn = torch.nn.BCEWithLogitsLoss(
+        pos_weight=pos_weight, reduction="none" if weighted else "mean")
     opt = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     sched = (torch.optim.lr_scheduler.LambdaLR(opt, _lr_factor)
              if lr_schedule == "cosine" else None)
 
-    ds = TensorDataset(
-        torch.from_numpy(train_X),
-        torch.from_numpy(train_y.astype(np.float32)),
-    )
+    if weighted:
+        ds = TensorDataset(
+            torch.from_numpy(train_X),
+            torch.from_numpy(train_y.astype(np.float32)),
+            torch.from_numpy(sample_weight.astype(np.float32)),
+        )
+    else:
+        ds = TensorDataset(
+            torch.from_numpy(train_X),
+            torch.from_numpy(train_y.astype(np.float32)),
+        )
     # drop_last: BatchNorm1d kollabiert bei Batch-Groesse 1.
     loader = DataLoader(ds, batch_size=batch_size, shuffle=True, drop_last=True)
     val_Xt = torch.from_numpy(val_X).to(DEVICE)
@@ -144,12 +160,19 @@ def train_one_model(
     for epoch in range(max_epochs):
         model.train()
         loss_sum, n_batches = 0.0, 0
-        for xb, yb in loader:
-            xb, yb = xb.to(DEVICE), yb.to(DEVICE)
+        for batch in loader:
+            if weighted:
+                xb, yb, wb = batch
+                xb, yb, wb = xb.to(DEVICE), yb.to(DEVICE), wb.to(DEVICE)
+            else:
+                xb, yb = batch
+                xb, yb = xb.to(DEVICE), yb.to(DEVICE)
             if augmenter is not None:
                 xb = augmenter(xb)
             opt.zero_grad()
             loss = loss_fn(model(xb), yb)
+            if weighted:
+                loss = (loss * wb).mean()
             loss.backward()
             opt.step()
             loss_sum += float(loss.item()); n_batches += 1
@@ -172,7 +195,8 @@ def train_one_model(
             # Why: val_loss mit demselben (pos_weight-)Criterion wie der
             # Train-Loss -- sonst sind die Kurven nicht vergleichbar.
             with torch.no_grad():
-                ep_val_loss = float(loss_fn(val_logits_t, val_yt).item())
+                _vl = loss_fn(val_logits_t, val_yt)
+                ep_val_loss = float(_vl.mean().item() if weighted else _vl.item())
             ep_val_acc = float(((val_logits >= 0.0) == (val_y == 1)).mean())
             on_epoch(epoch,
                      float(ep_loss) if np.isfinite(ep_loss) else 0.0,
