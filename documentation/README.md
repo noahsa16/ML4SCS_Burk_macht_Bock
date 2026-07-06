@@ -11,6 +11,10 @@ used to carry inline — preserved verbatim, searchable, but out of the way.
 - **[experiment_log.md](experiment_log.md)** — negative results & falsifications,
   per-cohort gap-ablation narratives (N=7/8/10), and the detailed deep-model /
   fusion / transfer numbers that CLAUDE.md used to spell out per script.
+- **[hp_grid_leaderboard.md](hp_grid_leaderboard.md)** — the deep-model HP-grid
+  leaderboard (best config per architecture, grouped-5-fold search) pulled from
+  wandb `ML4SCS_HP_Grid`, with the noise-floor / selection-bias caveats. Snapshot
+  2026-07-06; the whole TCN/GRU-hybrid family clusters at 0.91–0.93 (no separation).
 
 The per-experiment `reports/*.md` files remain the **primary** detailed source;
 this folder is the consolidated narrative + the lineage that no single report
