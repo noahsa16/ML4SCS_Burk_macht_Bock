@@ -22,4 +22,4 @@ websockets
 psutil
 tqdm
 pytest
-
+wandb
