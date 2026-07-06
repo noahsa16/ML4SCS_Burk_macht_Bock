@@ -1,6 +1,5 @@
 import os
 import sys
-import argparse
 from pathlib import Path
 import json
 import pandas as pd
@@ -333,7 +332,7 @@ def main():
                 
                 # Optionaler W&B Logger dazuschalten
                 if wandb_enabled:
-                    from scripts.run_grid_wandb import WandbEventLogger
+                    from scripts.ml.run_grid_wandb import WandbEventLogger
                     wandb_config = {
                         "model": spec.model, "cfg_id": cfg_id, "seed": seed, **cfg,
                         "win": spec.win, "pool": spec.pool, "max_epochs": spec.max_epochs
