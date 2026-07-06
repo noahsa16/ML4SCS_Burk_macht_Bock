@@ -5,7 +5,7 @@ Guidance for Claude Code (claude.ai/code) when working in this repository.
 ## Project Overview
 
 ML4SCS (Machine Learning for Smart and Connected Systems) — semester
-project by Noah Samel, Ben Kriegsmann, and Tajuddin Snasni. Goal: a
+project by Noah Samel and Tajuddin Snasni. Goal: a
 general writing-activity detector from **Apple Watch IMU data alone** —
 binary classification (writing vs. not writing) on the wrist-worn IMU
 stream, independent of who is wearing the watch or what is being written.
@@ -19,78 +19,49 @@ Sensors during training-data collection:
 - **Moleskine Smart Pen (NWP-F130)** — ground truth; x/y, pressure,
   tilt at ~80–90 Hz over BLE.
 - **Apple Watch (Series 7)** — primary model input; accelerometer +
-  gyroscope at 50 Hz via CoreMotion → iPhone bridge → FastAPI server.
-- **AirPods (Pro / 3rd Gen)** — additional head-IMU stream via
-  `CMHeadphoneMotionManager`, captured alongside the watch through the
-  same iPhone bridge. Currently logged but not yet used by the model.
+  gyroscope (+ gravity vector) via CoreMotion → iPhone bridge → FastAPI
+  server. Rate is configurable — **current capture is 100 Hz + gravity**
+  (Modern-Pool). The cross-subject LOSO headline cohort was recorded at
+  50 Hz without gravity (Legacy-Pool); see *Pool architecture* below.
 
 Status: data collection + preprocessing + watch-base merge + quality
 checks + sliding-window features + Random Forest baseline + LOSO
 cross-validation + Study Mode (counterbalanced protocol runner with
 fullscreen proband UI and VL admin monitor) + Live-Inference im
-Dashboard (Topbar-Pill, Recording-Page-Card, eigener `#focus`-Tab
-mit persistenter Schreibzeit-Aggregation) + Modell-Switcher
-(Personal ↔ Generic) are operational. **Current headline (20-person
-cross-subject LOSO seit 2026-07-01 — die 15-Probanden-Kohorte (siehe
-Vorgänger-Headlines unten) + P26/P27/P29/P31/P32 als v2-Hard-Negative-
-Kohorte; RF + per-session z-score + `max_gap_ms=2500` label closing;
-Capture-Clock-Fix angewandt): 1s-window accuracy 0.869 ± 0.032,
-ROC-AUC 0.946 ± 0.021. Burst-aggregiert **kausal**: @5s acc 0.856 ± 0.039,
-AUC 0.932 ± 0.026; @10s acc 0.825 ± 0.046, AUC 0.907 ± 0.032;
-@30s acc 0.771 ± 0.046, AUC 0.855 ± 0.041.** Praktisch **unverändert**
-ggü. der N=15-Headline (0.872/0.947) trotz 5 zusätzlicher, im Schnitt
-härterer v2-Probanden — die neuen Folds sind eine Mischung aus sehr
-schwach (P31 acc 0.784, P17 0.802) und sehr stark (P13 0.908, P26 0.907),
-kein systematischer Abfall (siehe *Marker-FPR-Hard-Negative-Gap* unten:
-die Schwäche ist task-/subjekt-spezifisch — keyboard/phone-Tippen-
-Verwechslung —, nicht kohorten-weit). **Nachgerechnet direkt aus
-`models/loso_oof_legacy.csv` (Stand 2026-07-01, N=20); die kanonischen
-Artefakte `loso_cv_legacy.csv` / `rf_all.joblib` sind noch auf N=15
-(2026-06-20) und regenerations-pflichtig.**
-**Capture-Clock-Fix (2026-06-13):** Merge-/Window-Zeitachse läuft jetzt
-auf der per-Sample-Watch-Uhr `ts` statt der Batch-Ankunftszeit
-`local_ts_ms`. Letztere ist batch-quantisiert (alle Samples eines POSTs
-teilen einen Wert) und bei Spill-Drain-Strecken Minuten verspätet
-(S019/P07: 33 % der Samples >2,5 s versetzt, max 42 s; S043: 5,3 %,
-max 13,6 s), wodurch Labels zeitversetzten Pen-Aktivitäten zugeordnet
-wurden. Gepaarter Vorher/Nachher-Vergleich (Wilcoxon, N=15):
-**15/15 Folds besser, mean +2,4 pp acc, p = 0,0001** auf acc/AUC/F1.
-Größter Gewinner **P07 +8,5 pp acc / +9,3 pp AUC** — die
-„Signal-Ambiguitäts-Decke" dieses Folds war zu großen Teilen
-zeitversetztes Labeling, kein irreduzibles Signal-Problem.
-Wichtig: die **früheren zentrierten** Burst-Zahlen waren ~5–6 pp höher,
-weil `rolling(center=True)` Zukunfts-Fenster mit-mittelte — nicht-kausal
-und für eine als live verkaufte Metrik unzulässig. Unter kausaler
-Glättung hebt Burst-Aggregation die Metrik **nicht** über das
-1-s-Window-Level; der scheinbare Gewinn war das Artefakt.
-**Alle anderen Burst-Zahlen in dieser Datei (CNN-Deep, harnet
-frozen/finetune, harnet↔RF-Fusion) wurden noch unter `center=True`
-UND vor dem Capture-Clock-Fix gerechnet und sind regenerations-
-pflichtig** (beide Code-Fixes sind global, Zahlen noch nicht nachgezogen).
-Für gepaarte
-Within-Kohorten-A/Bs gibt es `src/evaluation/significance.py`
-(Wilcoxon signed-rank); kleine pp-Differenzen ohne p < 0.05 sind als
-Rauschen zu reporten. Kanonische
-Artefakte (`rf_all.joblib`, `loso_cv.csv`, `loso_oof.csv`) sind auf
-N=15 + Capture-Clock-Fix retrainiert (Promotion via
-`--pool legacy --no-pool-suffix`); `rf_all_live.joblib` ist noch auf
-N=14 pre-fix und retraining-pflichtig. Vorgänger-Headlines:
-**15-Probanden (post Capture-Clock-Fix, vor N=20-Erweiterung, seit
-2026-06-13): acc 0.872 ± 0.037 / AUC 0.947 ± 0.026 / F1(w) 0.873;
-@5s 0.860/0.933, @10s 0.825/0.906, @30s 0.771/0.856.**
-**14-Probanden (pre Capture-Clock-Fix): acc 0.855 ± 0.034 /
-AUC 0.929 ± 0.034 / F1(w) 0.862.**
-**10-Probanden (post Sort-Stability-Fix): acc 0.863 ± 0.032 /
-AUC 0.935 ± 0.032 / F1(w) 0.875; @5s 0.902/0.968, @30s 0.844/0.922.**
-Davor (vor Sort-Stability-Fix,
-siehe `reports/sort_stability_bug.md`): 10-Probanden 0.856 / 0.928;
-8-Probanden gap=2500 acc 0.861 ± 0.035 / AUC 0.932 ± 0.035;
-7-Probanden gap=2500 acc 0.868 ± 0.024 / AUC 0.943 ± 0.014;
-7-Probanden gap=2000 acc 0.864 ± 0.026 / AUC 0.940; 5-Probanden
-gap=2000 acc 0.872 ± 0.020 / AUC 0.940; 3-Probanden gap=300 acc
-0.842 ± 0.007 / AUC 0.909 (ExtraTrees). Alle Pre-Fix-Zahlen wurden
-auf systematisch verrauschten Features gerechnet (Trainings- und
-Test-Daten symmetrisch betroffen, relative Vergleiche bleiben gültig).
+Dashboard (Topbar-Pill + Recording-Page-Card mit persistenter
+Schreibzeit-Aggregation) + Modell-Switcher
+(Personal ↔ Generic) are operational. **Current headline (20-person cross-subject LOSO seit 2026-07-01;
+RF + per-session z-score + `max_gap_ms=2500` label closing;
+Capture-Clock-Fix): 1s-window accuracy 0.869 ± 0.032, ROC-AUC
+0.946 ± 0.021. Burst-aggregiert kausal: @5s 0.856/0.932, @10s 0.825/0.907,
+@30s 0.771/0.855.** Praktisch **unverändert** ggü. N=15 (0.872/0.947) trotz
+5 härterer v2-Probanden (P26/P27/P29/P31/P32) — die Schwäche ist
+task-/subjekt-spezifisch (keyboard/phone-Tippen-Verwechslung, siehe
+*Marker-FPR* unten), nicht kohorten-weit. Nachgerechnet aus
+`models/loso_oof_legacy.csv`; die kanonischen Artefakte
+`loso_cv_legacy.csv` / `rf_all.joblib` sind noch auf N=15 und
+regenerations-pflichtig (ebenso `rf_all_live.joblib`, noch N=14 pre-fix).
+**Kohorte inzwischen N=22** (P33/S062 + P34/S063 collected & `usable`,
+Legacy-Views lokal gebaut) — die *computed* Headline bleibt bis auf
+Weiteres N=20 (`loso_oof_legacy.csv`), der N=22-Refresh + Winner-Retrain
+läuft ein andermal **auf dem Pod** (bewusst nicht lokal). Der Config-Rang
+der HP-Suche ist robust gegen ±2 Probanden, daher bleibt die N=20-Suche
+für Stufe-1-Selektion gültig.
+
+**Vorgänger-Headlines (N=3 → N=15, volle Zahlen-Ahnenreihe) +
+Deep-Modell-Headlines:
+[`documentation/headline_history.md`](documentation/headline_history.md).**
+
+Zwei Zeitachsen-Fixes prägen alle Zahlen (Details im *ML pipeline
+gotchas*-Abschnitt): der **Capture-Clock-Fix** (2026-06-13, Labels laufen
+auf der Watch-`ts`-Uhr statt der Batch-Ankunftszeit; +2,4 pp acc, 15/15
+Folds, p=0,0001) und die **kausale Burst-Glättung** (frühere
+`center=True`-Zahlen ~5–6 pp inflationiert; unter kausaler Glättung hebt
+Burst-Aggregation die Metrik *nicht* über das 1-s-Level). Deep-/harnet-/
+Fusion-Burst-Zahlen im Log liefen teils noch pre-fix + `center=True` und
+sind regenerations-pflichtig. Für gepaarte Within-Kohorten-A/Bs:
+`src/evaluation/significance.py` (Wilcoxon); sub-pp-Gewinne ohne p<0.05
+sind Rauschen.
 
 ## Setup
 
@@ -136,7 +107,7 @@ otherwise to `pen_log_YYYYMMDD_HHMMSS.csv` in the working directory.
 **Merge / features / train / evaluate (full ML pipeline):**
 ```bash
 python -m src.merge S029                          # watch-base merge → data/processed/S029_merged.csv
-python -m src.features S029 --max-gap-ms 300      # sliding-window features → data/processed/S029_windows.csv
+python -m src.features S029 --max-gap-ms 2500     # sliding-window features → data/processed/S029_windows.csv
 python -m src.training.train_loso                 # LOSO cross-validation (headline metric)
 python -m src.training.deep --model cnn --pool legacy  # ein Deep-Modell, LOSO vs RF
 python -m src.training.deep.harnet --model harnet5          # Transfer-Learning Stufe 1 (frozen) vs RF
@@ -146,13 +117,13 @@ python -m src.evaluation.regression               # Schreib-Prozent: MAE/RMSE/Bi
 python -m src.evaluation.engagement               # Schreibzeit-Anteil pro Aufgabe + Heatmap
 python -m src.training.within_session.train_rf S029   # within-session 80/20 RF (debug/feature-iteration)
 python -m src.evaluation.evaluate S029            # placeholder, prints label distribution
-python scripts/plots/plot_merged.py S029 --max-gap-ms 300   # visualize IMU + label overlay
+python scripts/plots/plot_merged.py S029 --max-gap-ms 2500  # visualize IMU + label overlay
 ```
 Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 605 tests
+pytest tests/         # 682 tests
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -170,14 +141,10 @@ the proband's screen. See *Study Mode* below.
 
 ```
 Apple Watch (MotionManager.swift)
-  → batches of 10 samples at 50 Hz via WatchConnectivity
+  → batches of 10 samples at 50/100 Hz via WatchConnectivity
   → iPhone (PhoneBridge.swift)
   → HTTP POST /watch
   → server.py → data/raw/watch/{session}_watch.csv
-
-AirPods (CMHeadphoneMotionManager on iPhone)
-  → HTTP POST /airpods
-  → server.py → data/raw/airpods/{session}_airpods.csv
 
 Moleskine Smart Pen (BLE)
   → pen_logger.py (subprocess spawned by server.py)
@@ -192,7 +159,7 @@ Moleskine Smart Pen (BLE)
                                       sample with label_writing from
                                       pen activity in ±40 ms)
                     ↓
-         data/processed/{session}_merged.csv  (50 Hz watch + raw label)
+         data/processed/{session}_merged.csv  (50/100 Hz watch + raw label)
                     ↓
        src/features/windows.py       (sample-level label closing,
                                       max_gap_ms=2500 → "writing mode"
@@ -240,7 +207,7 @@ Moleskine Smart Pen (BLE)
                                       @1 Hz aus _status_loop)
                     ↓
          /focus/today + /focus/week (Aggregator-Endpoints für
-                                     Recording-Page-Card + #focus-Tab)
+                                     Recording-Page-Card + hidden #focus page)
 ```
 
 ### Server (`server.py` + `src/server/`)
@@ -254,12 +221,12 @@ config.py          paths, field names, sessions.csv init
 utils.py           pure helpers (_now_ms, _as_float, _mad …)
 state.py           SessionState class + global `state` object
 logging_setup.py   RotatingFileHandler + EventLog handler wiring
-csv_io.py          read/write watch + pen + airpods + sessions CSVs;
-                   _next_session_id() (scans raw/{pen,watch,airpods}
+csv_io.py          read/write watch + pen + sessions CSVs;
+                   _next_session_id() (scans raw/{pen,watch}
                    to avoid ID reuse); _pen_recent_dots() for the live
                    whiteboard preview
 status.py          connection status + _status_payload() for WS broadcasts
-issues.py          ISSUE_SPECS table + _TARGET_WATCH_HZ / _TARGET_AIRPODS_HZ;
+issues.py          ISSUE_SPECS table + _TARGET_WATCH_HZ;
                    single source of truth for issue codes/severities
 sync.py            sync-confidence helpers around the alignment output
 timelines.py       per-session timeline reconstruction for validation views
@@ -319,7 +286,7 @@ training_runs.py   Nicht-destruktiver Run-Store: models/runs/{run_id}/
                    Pool-Validität: src/training/registry.py; Event-Schema:
                    src/training/events.py.
 routes/            FastAPI endpoint package — one APIRouter per concern
-                   (watch.py, airpods.py, pen.py, sessions.py,
+                   (watch.py, pen.py, sessions.py,
                     study.py, dashboard.py, inference.py, focus.py,
                     training.py, ws.py, _helpers.py); __init__.py aggregates
                     them into a single `router`. training.py: /training/
@@ -342,7 +309,6 @@ session start/stop start/stop it automatically.
 - `POST /session/start` / `POST /session/stop` — write `data/sessions.csv`
 - `POST /watch` — receives IMU batches; supports both flat list and
   `{samples: [...]}` envelope formats
-- `POST /airpods` — same envelope shape, head-IMU stream
 - `GET /sessions/quality` — quality snapshot for every session
 - `GET /sessions/{id}/validation` — deep validation (timeline, drift, sync)
 - `GET /sessions/{id}/report?format=json|md` — full per-session report;
@@ -384,9 +350,12 @@ rolling Hz estimates, and maintains a 60-point rolling chart buffer
 ### Dashboard frontend (`dashboard.html` + `static/`)
 
 `dashboard.html` is a thin shell: head with stylesheet + module
-preload tags, topbar markup (Recording · Focus · Sessions · Settings,
-plus hidden Admin), the `liveInferencePill` next to the status cluster,
-six empty `<div data-view="..."></div>` page slots, and
+preload tags, topbar markup (visible tabs **Recording · Sessions ·
+Training · Settings**; Focus **and** Admin are intentionally *not*
+listed — their page slots, routes, and JS modules stay registered so
+`#focus` / `#admin` still resolve, they are just hidden from the tab
+strip), the `liveInferencePill` next to the status cluster, the
+`<div data-view="..."></div>` page slots, and
 `<script type="module" src="/static/dashboard.js">`.
 
 `static/dashboard.js` is the bootstrap (~165 lines). On `hashchange` it
@@ -405,14 +374,18 @@ focus,sessions,session_detail,settings,admin}.js` and all export the
 same four-function contract: `mount(container)`, `onStatus(payload)`,
 `onShow()`, `onHide()`.
 
-`focus.js` is the dedicated Focus-Tracker tab — contemplative
-counterpart to the Recording cockpit. Hero `h:mm` clock left, 24-hour
-day-timeline strip right (with writing stretches as gradient blocks +
-"now" marker that advances on every WS tick), seven-bar week frieze
-below (today highlighted, peak day tagged). Reads `/focus/today` and
-`/focus/week` on mount and re-polls every 5 s while visible; live pill
-updates from each WS tick. Styles in `static/css/focus.css` with its
-own background slash glyph (mirror-flipped vs Recording's). The
+`focus.js` is the Focus-Tracker page — **hidden from the tab strip**
+(reachable only via the `#focus` URL, same pattern as Admin), a
+contemplative counterpart to the Recording cockpit. Hero `h:mm` clock
+left, 24-hour day-timeline strip right (with writing stretches as
+gradient blocks + "now" marker that advances on every WS tick),
+seven-bar week frieze below (today highlighted, peak day tagged). Reads
+`/focus/today` and `/focus/week` on mount and re-polls every 5 s while
+visible; live pill updates from each WS tick. Styles in
+`static/css/focus.css` with its own background slash glyph
+(mirror-flipped vs Recording's). The page module + `/focus/*` backend +
+`focus_log.py` all stay live — the day-to-day writing-time surface is now
+the embedded Recording-page inference card. The
 Recording-page also exposes an embedded inference card (writing-now
 state + 60-s sparkline + "writing time tracked" counter) with an
 in-place model picker (Personal `rf_noah` ↔ Generic `rf_all_live`)
@@ -480,7 +453,8 @@ Two Xcode targets:
   (rx/ry/rz) und `motion.gravity` (gx/gy/gz). Das sind **6 Sensor-Achsen**
   (Accel + Gyro); gx/gy/gz ist die Schwerkraft-Komponente desselben
   Beschleunigungssensors, kein eigener Kanal — siehe *Pool architecture*. Sample-Rate und Batch-Größe sind konfigurierbar
-  (Phone-App → Settings → Motion; Default 50 Hz / Batch 10) — die Werte
+  (Phone-App → Settings → Motion; Code-`Config`-Default 50 Hz / Batch 10,
+  **aktuell auf 100 Hz gesetzt**) — die Werte
   kommen über jeden `command`/Poll-Reply als `requested_hz`/`batch_size`
   und werten `effectiveHz`/`effectiveBatchSize` aus (H3). Was sonst
   gedroppt würde (Buffer-Overflow, volle `transferUserInfo`-Queue), geht
@@ -562,7 +536,7 @@ no longer vibrates continuously when the server is down.
   scrambled und Trainings- von Live-Features divergent machte).
   Sample-level **morphological closing** on the binary label sequence
   (idle gaps ≤ `max_gap_ms` between writing runs → flipped to writing;
-  default 300 ms) before windowing. Then 1 s sliding windows with
+  default 2500 ms) before windowing. Then 1 s sliding windows with
   0.5 s stride → **88 features per window**, in 6 semantic groups:
   *time_stats* (36: mean/std/min/max/rms/range per axis), *spectral*
   (24: dominant frequency, spectral centroid, spectral entropy, 3–8 Hz
@@ -575,7 +549,7 @@ no longer vibrates continuously when the server is down.
   have `label_writing == 1`. Optional opening (`--max-spike-ms`) is
   implemented but defaults off — empirically didn't help on S029.
 - `src/features/__main__.py` — CLI: `python -m src.features [SESSION_ID]
-  [--max-gap-ms 300] [--max-spike-ms 0]`, writes
+  [--max-gap-ms 2500] [--max-spike-ms 0]`, writes
   `data/processed/{session}_windows.csv`.
 - `src/training/within_session/train_rf.py` — **debug/feature-iteration
   baseline, not the headline metric.** `RandomForestClassifier` (200
@@ -617,502 +591,267 @@ no longer vibrates continuously when the server is down.
   threshold. Empirically: jumped acc from 0.812 → 0.838 on the
   3-person dataset and tightened fold-σ 4× (0.042 → 0.009) — the
   biggest single ML-side improvement of the project.
-- `src/training/deep/` — **Deep-Sequenz-Modell-LOSO** (Roadmap
-  Prio 3/4). 1D-CNN / LSTM / GRU / TCN auf rohen IMU-Sequenzen statt der 88
-  Features, im identischen LOSO-by-person-Protokoll wie `train_loso.py`
-  (importiert dessen `_select_sessions` / `_burst_metrics`). `data.py`
-  baut rohe Fenster (6 Kanäle; `load_session_raw` nimmt `merged_suffix`
-  für die Legacy-View-Quelle + `zscore`-Schalter), `models.py` die vier
-  kleinen `nn.Module`-Klassen (seq-len-agnostisch via `AdaptiveAvgPool1d`
-  / letztem Hidden-State, daher laufen 50- und 100-Hz-Fenster ohne
-  Architektur-Änderung; der `TCN` ist ein Stack dilatierter **Kausal**-Convs
-  nach Bai et al. 2018 — `TemporalBlock` mit Dilationen 1/2/4/8, rezeptives
-  Feld 61 Samples, ~6k Params, kausal by construction und damit passend zur
-  trailing Burst-Glättung; `BatchNorm1d` wie beim CNN → ohne Z-Score
-  deploybar), `train_loso.py` den Trainings-Loop (Early
-  Stopping auf rotierendem Person-Holdout) + pool-fähigen LOSO-Runner.
-  **Genau ein Modell pro Aufruf**, mit `--pool`-Auswahl analog zum RF:
-  `seq_len`/`stride` werden aus der Pool-Sample-Rate abgeleitet
-  (`POOL_FS`, ein 1-s-Fenster = 50 Samples legacy / 100 modern),
-  `_pool_plan()` mappt jede Session über `watch_profile` auf die
-  merged-Quelle (50hz nativ → `_merged.csv`, Modern → downsampled
-  `_merged_legacy.csv`-View). Kein `auto` — rohe Sequenzen können keine
-  Sample-Raten mischen; fehlende Legacy-View → Skip mit Hinweis statt
-  Crash. **Per-Session-Z-Score ist hier standardmäßig AUS** (anders als
-  beim RF): gepaartes A/B (CNN, legacy, N=14) ergab Δacc −0.002 / ΔAUC
-  −0.001 bei p≈0.65 — statistisch nicht unterscheidbar, weil die
-  `BatchNorm1d` nach jeder Conv die Aktivierungs-Skala re-normalisiert
-  und das Netz scale-tolerant macht (BatchNorm ≠ Per-Session-Z-Score
-  mechanistisch, aber im Effekt ausreichend). Ohne Z-Score ist das CNN
-  direkt deploybar — keine Per-Stream-Kalibrierphase für μ/σ. `--zscore`
-  schaltet ihn opt-in ein (→ `deep_loso_{pool}_zscore.csv`). Caveat: nur
-  fürs CNN belegt; LSTM/GRU haben keine Input-Normalisierung, dort kann
-  Z-Score sehr wohl zählen. CLI:
+- `src/training/deep/` — **Deep-Sequenz-Modell-LOSO.** 1D-CNN / LSTM / GRU / TCN
+  auf rohen IMU-Sequenzen statt der 88 Features, im identischen LOSO-by-person-
+  Protokoll wie `train_loso.py`. `data.py` baut rohe Fenster (6 Kanäle,
+  `zscore`-Schalter), `models.py` die `nn.Module`-Klassen (seq-len-agnostisch;
+  `TCN` = dilatierte Kausal-Convs nach Bai et al. 2018, `BatchNorm1d` → ohne
+  Z-Score deploybar), `train_loso.py` den Trainings-Loop + pool-fähigen Runner.
+  **Genau ein Modell pro Aufruf**, `--pool`-Auswahl analog RF (`POOL_FS`,
+  `_pool_plan()` mappt Session→merged-Quelle; kein `auto` — rohe Sequenzen
+  können keine Raten mischen). **Per-Session-Z-Score hier default AUS**
+  (BatchNorm re-normalisiert die Skala; CNN-A/B Δacc −0.002 p≈0.65). CLI:
   `python -m src.training.deep --model {cnn|lstm|gru|tcn|tcn6} [--pool legacy|modern] [--win 1|5|10|both] [--zscore]`
-  → `models/deep_loso_{pool}.csv` + Vergleichstabellen gegen die
-  RF-Headline (`RF_DECISION_BY_POOL["legacy"]` = **N=15 post-Capture-Clock-Fix,
-  kausale Burst**: @1s 0.872/0.947, @5s 0.860/0.933, @10s 0.825/0.906,
-  @30s 0.771/0.856; modern ohne RF-Zeile).
-  **TCN-Headline (@1s, N=15, post-fix, no-zscore, 2026-06-19): acc
-  0.895 ± 0.035, AUC 0.960 — signifikant über RF@1s.** Gepaarter Wilcoxon
-  auf denselben 15 Folds (`src/evaluation/significance.py`,
-  `deep_loso_legacy.csv` vs frisch regeneriertes `loso_cv_legacy.csv`):
-  Δacc +0.021 p=0.0006, ΔAUC +0.010 p=0.015. **Aber @5/10/30 s
-  statistisch ununterscheidbar vom RF** (alle p>0.1, |Δacc|<0.6 pp,
-  vorzeichen-inkonsistent): der 1-s-Vorsprung ist genau das von der
-  Burst-Aggregation entfernte Hochfrequenz-Rauschen — **kein
-  Headline-Gewinn**. Schwächste Fold P17 (0.794), dieselben schwachen
-  Folds wie RF. Train/Test-Gap 0.012 = data-limited (nicht Overfit).
-  Drittes Architektur-Pendant (nach frozen-harnet + RF-Window-Sweep), das
-  die Decision-Window-Decke modellunabhängig bestätigt — siehe
-  `feature_engineering_ceiling`-Memory. CNN @1s (N=14, **pre-Capture-
-  Clock-Fix**, no-zscore): acc 0.873 ± 0.035, AUC 0.936, @5s 0.897/0.963,
-  @30s 0.843/0.918 — auf Augenhöhe mit dem damaligen RF, aber
-  regenerations-pflichtig auf N=15.
-  **Native-Lang-Fenster-Befund (Deep, 2026-06-20, N=15 legacy, post-fix,
-  no-zscore).** Anders als die @5/10/30-s-Burst-Aggregation oben (1-s-Input-
-  Modell, Predictions nachträglich geglättet → ununterscheidbar vom RF)
-  trainieren CNN/TCN hier direkt auf **nativen 5-s-Fenstern** (250 Samples,
-  `--win 5`). Per-window (= 5-s-Entscheidung): **TCN-5s acc 0.911 / AUC 0.976
-  (σ 0.030), CNN-5s 0.905 / 0.970 (σ 0.036)** vs. **RF-nativ-5s (rf-win5,
-  `train_loso --window-sec 5`) 0.885 / 0.953**. Gepaarter Wilcoxon auf
-  denselben 15 Folds (lokal, gleiche Maschine + Daten — Environment-Confound
-  ausgeschlossen, lokales rf-win5 0.885 ≡ GitHub-Sweep 0.886): **TCN-5s vs
-  RF-5s Δacc +0.021 p=0.0012, ΔAUC +0.026 p=0.0001; CNN-5s vs RF-5s Δacc
-  +0.021 p=0.0043, ΔAUC +0.019 p=0.0034 — beide signifikant.** Das ist das
-  Deep-Pendant zum RF-Feature-Fenster-Sweep (`sweep_window_size.py`:
-  RF-nativ-5s schlägt RF-1s+Burst@5s um +2.8 pp): echter Längs-Kontext *in
-  der Repräsentation* hebt die Deep-Netze auf der 5-s-Decision-Skala über den
-  RF — die Decision-Window-Decke gilt damit nur fürs **Burst-Framing**
-  (1-s-Input nachglätten), nicht fürs native Lang-Fenster-Training.
-  **`tcn6` (TCN mit 6 Ebenen, Dilationen bis 32, rezeptives Feld 253 Samples
-  ≈ 5 s @ 50 Hz): acc 0.922 / AUC 0.978 (σ 0.033)** — höchster Punktschätzer,
-  schlägt RF-nativ-5s noch deutlicher (Δacc +0.041 p=0.0012, ΔAUC +0.026
-  p=0.0001). **Aber der Vorsprung gegenüber dem 4-Ebenen-TCN-5s (0.911) ist
-  NICHT signifikant** (Δacc +0.019 p=0.083; ΔAUC +0.002 p=0.008 zwar
-  signifikant, aber +0.2 pp trivial). Heißt: der Lang-Fenster-Gewinn kommt aus
-  dem **längeren Roh-Input** (mehr Kontext zum Pooling), nicht aus einem
-  buchstäblich 5-s-weiten rezeptiven Feld — der `AdaptiveAvgPool` über den
-  4-Ebenen-TCN holt das schon. **@10-s nativ (RF-nativ-10s = rf-win10 =
-  0.880 / 0.955):** TCN-10s acc 0.914 / AUC 0.979 (σ 0.037) schlägt RF-10s
-  weiterhin signifikant (Δacc +0.035 p=0.015, ΔAUC +0.028 p=0.002); CNN-10s
-  fällt dagegen auf 0.889 / 0.969 (σ 0.047) und ist gegen RF-10s nur noch im
-  AUC signifikant (Δacc +0.005 p=0.42 n.s., ΔAUC +0.014 p=0.015). Der
-  Lang-Fenster-Gewinn **plateauiert bei ~5 s**: TCN-10s vs TCN-5s Δacc +0.007
-  p=0.60 n.s. (Verdopplung bringt keine Accuracy), und der CNN verliert bei
-  10 s Zeitauflösung (zwei MaxPool(2) + GlobalAvgPool über 500 Samples,
-  σ wächst 0.036→0.047). **Praktisches Optimum: 5-s-Fenster mit TCN/tcn6
-  (0.911 / 0.922)** — robustester signifikanter Vorsprung über RF bei
-  kürzester Latenz; CNN nur @5 s konkurrenzfähig, TCN über 5 s + 10 s stabil.
-  Tooling neu (2026-06-20): `tcn6` in `MODELS` + CLI, `--win 10`, Tabelle 2
-  skalen-bewusst (RF-Ref auf passender Decision-Skala statt hart @5s);
-  GitHub-Sweep-Dimension `DEEP_WIN5` (cnn/tcn/tcn6 @5s, Cron aus / Dispatch an).
+  → `models/deep_loso_{pool}.csv` + Vergleichstabellen gegen die RF-Headline.
+  **Kernbefund:** auf **1-s-Input + Burst** ist der TCN-Vorsprung @1s (0.895 vs
+  RF 0.872) genau das von der Burst-Aggregation entfernte Rauschen → @5/10/30 s
+  ununterscheidbar vom RF. Aber **natives Lang-Fenster-Training** (`--win 5`)
+  schlägt den RF signifikant: **TCN-5s 0.911, `tcn6` 0.922** vs RF-nativ-5s
+  0.885 (N=15, gepaart p<0.005); plateauiert bei ~5 s. Praktisches Optimum:
+  5-s-Fenster mit TCN/tcn6 — **nicht deployed** (live läuft 1s-RF+HMM). Volle
+  Zahlen (CNN/TCN/tcn6 @1/5/10 s, modern-Pool-Seed-Floor ±1.7 pp):
+  [`documentation/experiment_log.md`](documentation/experiment_log.md) §3.
 - `scripts/ml/deep_hp_study.py` + `src/training/deep/hp_search.py` —
-  **faire Per-Architektur-Hyperparameter-Studie** (Sobol-Quasi-Zufall über
-  lr/dropout/batch/weight-decay, `sobol_configs(n, seed=0)`). Motivation:
-  die Deep-Modell-Vergleiche oben (CNN/LSTM/GRU/TCN/tcn6) liefen bislang
-  mit denselben Default-Hyperparametern für alle Architekturen — ein
-  Modell könnte einfach besser default-getuned sein, nicht strukturell
-  überlegen. `--mode {full,trial,collect}`: `trial` fährt eine einzelne
-  Sobol-Konfiguration (CI-Matrix-Job), `collect` liest alle `trial_*.csv`
-  eines Architektur-Ordners und meldet den Winner + Boundary-Warnungen
-  (`winners()`, `boundary_warnings()`, `infeasible_count()` — reine
-  Funktionen, getestet). `.github/workflows/deep_hp.yml`: 3-Job-Pipeline
-  (prepare → search-Matrix → collect), dispatch-only, `SWEEP_DATA_URL`-
-  gated (Probandendaten nie im Repo). Via Subagent-Driven-Development
-  gebaut, **PR #57 auf main gemergt (2026-07-01)**. Ein echter Studienlauf
-  braucht das ~307 MB-Proband-Bundle als `SWEEP_DATA_URL`-Secret;
-  `timeout-minutes: 300` pro Matrix-Job — die teuersten Trials (`tcn6`)
-  können das reißen, `run_collect` liest per Glob nur die tatsächlich
-  vorhandenen `trial_*.csv` (kein Crash bei fehlenden Trials, Sobol
-  verträgt weniger Punkte). **Suchphase gelaufen (Run 28527728688,
-  2026-07-01→02, N=20 legacy @5s, 64/96 Trials, nach 16,5 h
-  abgebrochen; ausgewertet in `reports/deep_hp_study.md` +
-  `models/deep_hp_{study,winners}_legacy.csv`).** Sieger @1 Seed:
-  **tcn6 0.9194/0.9755 — bestes UND robustestes** (min über 9
-  Sobol-Punkte 0.893); **GRU-Überraschung 0.9185 gleichauf** (lr~0.005,
-  dropout~0.47 — der Default-HP-Vergleich hatte rekurrente Netze zu
-  früh abgeschrieben), aber HP-fragil (einzelne Configs kollabieren auf
-  Chance); LSTM extrem fragil (Median 0.64, best 0.908); tcn 0.905,
-  cnn 0.897 (insensitiv, gedeckelt). Referenz N=20 nativ-5s: RF 0.879,
-  tcn6-Default 0.898. tcn6-vs-gru (Δ 0,1 pp) liegt weit unter dem
-  Seed-Floor ±1,7 pp — erst die **noch offene Sieger-@3-Seed-
-  Varianzstufe** macht das belastbar. **Transformer 0/16: OOM in
-  `predict_proba`** (voller Train-Split in einem Forward → 40,4 GB
-  Attention auf dem 16-GB-Runner), maskiert durch fehlendes `pipefail`
-  in der while-Pipe des Trial-Steps (Jobs grün ohne Artefakt). Beide
-  gefixt (2026-07-02): `predict_proba` chunked (batch_size=512,
-  Äquivalenz-Test in `test_deep.py`), Trial-Step mit `shell: bash`.
-  Fehlende Trials (Run-Abbruch): gru t2,4,5,7,9,10,12,13,14 + tcn6
-  t2,4,5,6,10,12,13. Achtung Nachzügler-Runs: der collect-Job lädt nur
-  Artefakte des **eigenen** Runs — Teil-Redispatch erfordert lokales
-  Zusammenführen der Trial-CSVs (wie hier geschehen) oder Voll-Redispatch.
-- `src/training/deep/grid.py` + `configs/hp/*.json` +
-  `notebooks/hp_grid_colab.ipynb` — **config-getriebene HP-Grid-Search**
-  (2026-07-05, Spec `docs/superpowers/specs/2026-07-03-colab-grid-search-design.md`):
-  editierbare per-Modell-Grids (13 Dateien, identische
-  Default-Grids = Fairness-Invariante), kartesisches Produkt via
-  `grid_configs`, Runner `--mode grid --config …` (Freeze via
-  run_meta.json + Git-SHA, Resume über Trial-CSV-Skip),
-  `--mode grid-collect` (Winner a-priori: Seed-Mittel-Acc, Tie AUC;
-  `n_configs_searched` = Budget-Disclosure; kein Auto-Retrain).
-  Zwei-Stufen-Protokoll: Suche auf **grouped-5-fold**
-  (`train_deep_loso(folds=5)`, Portierung der RF-`_make_fold_sets`,
-  Fold-Partition fix `random_state=42` über alle Seeds = gepaart;
-  `folds=None` bit-identisch LOSO) → Bestätigung NUR des Siegers +
-  tcn6-Baseline @3 Seeds auf LOSO-20 (`significance.py`, n=20).
-  Signifikanz auf 5 Folds strukturell unterpowert (min p 0.0625) →
-  nie für gepaarte Claims. Per-Epoch-History (train/val-Loss,
-  val-Acc/AUC je Fold) via `epoch_history_sink` am Event-Bus
-  (EPOCH-Event trägt seit 2026-07-05 zusätzlich val_loss/val_acc);
-  Colab-Notebook konsumiert denselben Stream für Live-Lernkurve +
-  Leaderboard, Daten/Ergebnisse via R2 (`ml4scs-sweep`, resumierbar).
-  **Runner-agnostisch (seit 2026-07-05):** Secrets kommen aus
-  Colab-`userdata` ODER Env-Vars (gleiche drei Namen) — dasselbe
-  Notebook läuft damit auch auf RunPod/JupyterLab (Pod-Env-Vars beim
-  Deploy setzen); die Download-Zelle guarded den `google.colab`-Import.
-  Ergebnisse unter models/hp_grid/ (gitignored).
-- `src/training/deep/harnet*.py` — **Transfer-Learning-Vergleich mit dem
-  Oxford `ssl-wearables`-Foundation-Model (harnet)**, im identischen
-  LOSO-by-person-Protokoll wie `train_loso.py` (importiert nur
-  `_select_sessions` / `_burst_metrics`). Drei Dateien: `harnet_data.py`
-  (Bridge merged-CSV → harnet-Fenster: stable-sort `ts`, Label-Closing
-  @2500 ms, `scipy.signal.resample_poly` 50→30 = 3/5 bzw. 100→30 = 3/10,
-  Labels nearest-sample, `(N,3,150)`-Fenster für harnet5 / `(N,3,300)`
-  für harnet10 — **alle Magic Numbers zentral**, `HARNET_VARIANTS`),
-  `harnet_frozen.py` (Stufe 1: frozen Conv-Trunk `model.feature_extractor`
-  → 512-dim Embedding (harnet5) / 1024-dim (harnet10), pro Session als
-  `.npz` unter `data/processed/embeddings/{variant}/` gecached
-  (gitignored); darauf LOSO mit zwei Köpfen: LogReg mit C-Sweep
-  {0.01,0.1,1} per innerem GroupKFold + RF 200 Trees), `harnet_finetune.py`
-  (Stufe 2: volles Modell end-to-end fine-tunen — LR 1e-4, Early Stopping
-  auf Val-Person, Modell pro Fold frisch pretrained), `harnet.py` (CLI
-  frozen). **Input = `userAcceleration` ohne Gravity** — bewusster
-  Distribution-Shift ggü. dem Biobank-Total-Accel-Pretraining (Legacy-Pool
-  hat kein Gravity), **kein Per-Session-Z-Score** (Netz erwartet g). CLIs:
-  `python -m src.training.deep.harnet [--model harnet5|harnet10]` (frozen,
-  Stufe 1) und `python -m src.training.deep.harnet_finetune [--model …]`
-  (Stufe 2). Output variantenbewusst: harnet5-frozen ist kanonisch
-  (`models/harnet_loso.csv` + `reports/harnet_transfer.md`), andere Varianten
-  bzw. Fine-Tuning schreiben klar benannte Siblings
-  (`harnet_loso_harnet10.csv`, `harnet_finetune_{variant}.csv/.md`).
-  Vergleich immer auf nativer Decision-Skala (harnet5 = 5 s, harnet10 = 10 s).
-  **Ergebnisse (N=14):**
-  - *harnet5 frozen, LogReg:* per-window (5s) acc 0.896 / AUC 0.958 —
-    **gleichauf mit RF@5s** (0.899/0.962).
-  - *harnet10 frozen, LogReg:* per-window (10s) acc 0.909 / AUC 0.966 —
-    **schlägt RF@10s** (0.882/0.952); @30s 0.881/0.950 vs RF 0.838/0.917
-    (+4,3 pp acc). Längerer Kontext hilft dem Foundation-Model spürbar.
-  - *harnet5 fine-tuned (Stufe 2):* per-window 0.896 / AUC 0.965 — **kein
-    klarer Gewinn vs. frozen** (ΔAcc +0.001, ΔAUC +0.007, in der
-    Fold-Streuung). mean best_epoch 0.8 + Train/Test-Gap +0.042 ⇒ die
-    vortrainierten Features sind nahe optimal, Fine-Tuning überanpasst bei
-    N=14 fast sofort.
-  Über alle harnet-Varianten gleiche schwache Folds wie RF (P07/P09/P12),
-  per-Fold-AUC r≈0.92 mit RF — modellunabhängige Bestätigung der
-  Signal-Ambiguitäts-Decke (siehe `reports/harnet_transfer.md` +
-  `feature_engineering_ceiling`-Memory).
-  **Fusion-Falsifikation (`scripts/ml/harnet_rf_fusion.py` +
-  `harnet_frozen.harnet_oof()`, harnet5, N=14):** koppelt harnets
-  frozen-Repräsentation an den 88-Feature-RF — als Proba-Ensemble
-  (Mittel zweier OOF-Vorhersagen, sauber) und als Stack (harnet-OOF als
-  89. Feature). Auf der **nativen 5-s-Decision-Skala hebt Fusion die
-  Headline nicht**: Ensemble ΔAcc −0.011 / ΔAUC +0.001, Stack ΔAcc
-  +0.005 / ΔAUC +0.006 vs. RF-baseline-88 im selben Lauf — alles in der
-  Fold-Streuung. Per-**window** glänzt die Fusion zwar (RF-AUC 0.923 →
-  Stack 0.946 / Ensemble 0.949, +0.023–0.026), aber dieser Gewinn ist
-  reines De-Noising der 1-s-RF-Zappelei und damit **redundant zur
-  Burst-Aggregation**, die auf 5 s ohnehin glättet → der Vorsprung
-  verpufft beim Aggregieren. Entscheidender Window-Level-Test: die
-  **Residuen-Korrelation r=+0.574** (Fehler RF vs. Fehler harnet) — beide
-  Modelle irren an denselben Fenstern, kein Fusions-Spielraum. Bestätigt
-  Szenario (a) window-genau: die Decke ist Signal-Ambiguität, kein freier
-  Headline-Sprung durch ein größeres/zweites Modell. Output:
-  `reports/harnet_rf_fusion.md` + `models/harnet_fusion_harnet5.csv`
-  (+ OOF-Cache `models/harnet_oof_harnet5.csv`). Erste-Setup-Hürde:
-  macOS-Framework-Python braucht ein CA-Bundle für `torch.hub`
-  (`_ensure_ca_bundle()` setzt `SSL_CERT_FILE` via certifi). Modell-Download
-  lazy beim ersten Lauf (~40 s, dann `~/.cache/torch/hub`).
-- `scripts/ml/tcn_rf_fusion.py` — **TCN6↔RF-Ensemble** (2026-07-01/02,
-  N=20 legacy, nativ-5s, 9093 aligned Fenster) — mirror von
-  `harnet_rf_fusion.py`, aber gegen `tcn6` statt harnet5 gekoppelt.
-  **Anders als die harnet-Fusion (Null-Befund oben) hebt das Ensemble
-  (Proba-Mittel) hier BEIDE Solo-Modelle signifikant:** RF-nativ-5s-solo
-  0.879 ± 0.027 / AUC 0.953, TCN6-nativ-5s-solo 0.898 ± 0.045 / AUC 0.969,
-  **Ensemble 0.909 ± 0.036 / AUC 0.978**. Gepaarter Wilcoxon: Ensemble >
-  TCN6-solo (Δacc +0.0076 p=0.036, ΔAUC n.s. p=0.43), Ensemble > RF-solo
-  (Δacc +0.0327 p=0.0032, ΔAUC +0.0229 p<0.0001). Residuen-Korrelation
-  r=0.599 — fast identisch zur harnet-Fusion (r=0.574), aber diesmal ein
-  echter Gewinn statt Null; plausibelster Grund ist die höhere Power bei
-  N=20 (vs. N=14 bei der harnet-Fusion), einen realen ~1-pp-Effekt von
-  Rauschen zu trennen, nicht notwendigerweise ein Unterschied zwischen
-  TCN6 und harnet5 als Fusionspartner. **Wichtiger Vorbehalt:** TCN6-solo
-  liegt hier bei 0.898 ± 0.045, die tcn6-Headline oben nennt 0.922 —
-  Differenz konsistent mit dem dokumentierten Seed-Rauschen-Floor
-  (±1.7 pp, siehe *Modern-TCN6-Seed-Floor* unten); ein Mehrfach-Seed-
-  Replay des Ensemble-Gewinns steht noch aus. **Forschungsbefund, NICHT
-  deployed** — live läuft weiter 1s-RF+HMM. Output: `reports/tcn_rf_fusion.md`
-  + `models/tcn_rf_fusion_cv.csv`.
+  **faire Per-Architektur-HP-Studie** (Sobol über lr/dropout/batch/wd), weil die
+  Deep-Vergleiche oben mit Default-HP für alle Architekturen liefen. `--mode
+  {full,trial,collect}`; `.github/workflows/deep_hp.yml` = 3-Job-CI, dispatch-only,
+  `SWEEP_DATA_URL`-gated. **PR #57 auf main (2026-07-01).** Suchlauf N=20 legacy
+  @5s: Sieger @1 Seed **tcn6 0.9194/0.9755** (robustest), **GRU-Überraschung
+  0.9185 gleichauf** aber HP-fragil, LSTM extrem fragil, tcn 0.905, cnn 0.897.
+  tcn6-vs-gru (0.1 pp) weit unter dem Seed-Floor ±1.7 pp. Details +
+  Transformer-OOM-Fix: `reports/deep_hp_study.md`,
+  [`documentation/experiment_log.md`](documentation/experiment_log.md) §3.
+- `src/training/deep/grid.py` + `configs/hp/*.json` — **config-getriebene
+  HP-Grid-Search** (2026-07-05): editierbare per-Modell-Grids (identische
+  Default-Grids = Fairness-Invariante), Runner `--mode grid --config …` (Freeze
+  via Git-SHA, Resume über Trial-CSV-Skip) + `--mode grid-collect` (Winner
+  a-priori: Seed-Mittel-Acc). **Zwei-Stufen-Protokoll:** Suche auf grouped-5-fold
+  (`train_deep_loso(folds=5)`, `random_state=42` gepaart; `folds=None` = LOSO) →
+  Bestätigung NUR des Siegers @3 Seeds auf LOSO-20 (`significance.py`).
+  5-Fold-Signifikanz strukturell unterpowert (min p 0.0625) → nie für gepaarte
+  Claims. **RunPod ist die primäre Trainings-Umgebung** (1× RTX A4000, hat Colab
+  abgelöst — Session-Timeouts). Dispatch auf dem Pod:
+  `python scripts/ml/run_grid_wandb.py configs/hp/<name>.json` → loggt nach wandb
+  (`ML4SCS_HP_Grid`) + R2-Backup. Ergebnisse ziehen:
+  `scripts/ml/pull_wandb_runs.py [--out models/hp_grid/wandb_runs.csv]`.
+  **Bei GPU-Compute-Fragen RunPod vorschlagen; für HP-Grid-Ergebnisse zuerst
+  `pull_wandb_runs.py` laufen lassen.**
+- `src/training/deep/harnet*.py` — **Transfer-Learning mit dem Oxford
+  `ssl-wearables`-Foundation-Model (harnet).** `harnet_data.py` (Bridge
+  merged→harnet-Fenster: resample 50/100→30 Hz, `(N,3,150)` harnet5 /
+  `(N,3,300)` harnet10), `harnet_frozen.py` (Stufe 1: frozen Conv-Trunk →
+  Embedding als `.npz` gecached, LOSO mit LogReg + RF-Kopf), `harnet_finetune.py`
+  (Stufe 2: end-to-end). **Input = userAcceleration ohne Gravity, kein
+  Z-Score.** CLIs `python -m src.training.deep.harnet [--model harnet5|harnet10]`
+  + `.harnet_finetune`. **Befund (N=14):** harnet5-frozen gleichauf mit RF@5s;
+  harnet10-frozen schlägt RF@10s (+bes. @30s +4.3 pp); Fine-Tuning kein Gewinn
+  vs frozen (überfittet bei N=14). Gleiche schwache Folds wie RF (per-Fold-AUC
+  r≈0.92) → modellunabhängige Decken-Bestätigung. `reports/harnet_transfer.md`,
+  [`documentation/experiment_log.md`](documentation/experiment_log.md) §3.
+  Setup-Hürde: macOS-Framework-Python braucht CA-Bundle für `torch.hub`
+  (`_ensure_ca_bundle()`); Modell-Download lazy beim ersten Lauf (~40 s).
+- `scripts/ml/harnet_rf_fusion.py` — **harnet5↔RF-Fusion, Null-Befund** (N=14):
+  nativ-5s hebt weder Ensemble noch Stack die Headline (alles in der
+  Fold-Streuung); der per-window-Gewinn ist reines De-Noising, redundant zur
+  Burst-Aggregation. Residuen-Korrelation r=+0.574 (beide irren an denselben
+  Fenstern). `reports/harnet_rf_fusion.md`.
+- `scripts/ml/tcn_rf_fusion.py` — **TCN6↔RF-Ensemble** (2026-07-01/02, N=20
+  legacy, nativ-5s). **Anders als die harnet-Fusion hebt das Proba-Mittel hier
+  BEIDE Solo-Modelle signifikant:** RF-solo 0.879, TCN6-solo 0.898, **Ensemble
+  0.909 / AUC 0.978** (Ensemble > RF Δacc +0.0327 p=0.0032; > TCN6 +0.0076
+  p=0.036). Residuen r=0.599 — plausibel echter ~1-pp-Effekt via N=20-Power (vs
+  N=14 harnet). **Forschungsbefund, NICHT deployed** (live 1s-RF+HMM).
+  `reports/tcn_rf_fusion.md`, [`documentation/experiment_log.md`](documentation/experiment_log.md)
+  §4. Siehe `tcn6_rf_fusion_result`-Memory.
+- **Hybrid-TCN-Modelle + Modell-Zoo-Erweiterung** (`src/training/deep/models.py`,
+  2026-07-05/06, aus Nutzer-Vorschlägen; die 2026-07-05-Hybride via Subagent-
+  Driven-Development, Commits `027d07c..2a16172` auf `development`). **In git
+  committet sind 15 Einträge** (`cnn, lstm, gru, tcn, tcn6, tcn6w32, tcn6k5,
+  tcn6wn, tcn6ap, tcn6se, tcn8, transformer, transformer_p5, tcn_gru,
+  tcn_transformer`); **5 weitere leben nur im lokalen Working-Tree + auf dem
+  RunPod-Pod, NICHT in git** (`gru2, bigru, inception, tcn_bigru, tcn_gru_attn`
+  → `MODELS` hat lokal **20** Einträge). Vor jedem Zitat einer Accuracy für
+  diese fünf: `models/hp_grid/wandb_runs.csv` bzw. den Pod prüfen — ein frischer
+  Clone hat sie nicht. Gemeinsame Grundlage aller TCN-Varianten:
+  `_build_tcn_trunk(n_channels, hidden, levels, kernel_size=3, dropout=0.2,
+  norm="batch")`, bit-identisch aus `TCN.__init__` extrahiert (volle Test-Suite
+  vorher/nachher grün), damit Hybride denselben dilatierten Causal-Conv-Stack
+  wie `TCN`/`tcn6` bauen statt ihn zu duplizieren.
+  - **`TCNGRUHybrid` (`tcn_gru`, ~14.257 Params) — der aktuelle FRONT-RUNNER.**
+    `tcn6`'s 6-Ebenen-Trunk (`hidden=16`, kein `AdaptiveAvgPool1d`) speist einen
+    1-Layer-GRU (`hidden=32`) statt zu poolen — der GRU übernimmt die zeitliche
+    Aggregation, die `tcn6` sonst wegmittelt (`O(seq_len)` wie ein reiner GRU,
+    kein Downsampling nötig). **HP-Grid-Befund (2026-07-06, grouped-5-fold,
+    legacy, nativ-5s): g00 (lr 3e-4/dropout 0.05/wd 1e-5) über 3 Seeds acc
+    0.9271/0.9211/0.9185 → Mittel 0.9222 ± 0.0036 / AUC 0.9786** — über `tcn6`
+    g00 (0.9196) auf demselben Protokoll, mit σ *tighter* als der Seed-Floor.
+    **Caveat:** auf einem *einzelnen* Seed nicht belastbar über tcn6 (GPU-Non-
+    Determinismus unten); der Vorsprung braucht das gepaarte 3-Seed-Mittel.
+  - **`TCNBiGRUHybrid` (`tcn_bigru`, ~19.089 Params, UNCOMMITTED):** Einzel-
+    Variablen-Delta zu `tcn_gru` — GRU-Head **bidirektional**, Repräsentation =
+    `cat(h_n[0], h_n[1])` (beide finalen Hidden-States) statt `out[:, -1, :]`
+    (dessen Rückwärts-Anteil sähe nur das letzte Sample). Bei Batch-Fenster-
+    Klassifikation zulässig (kein Online-Streaming *im* Fenster); der Rückwärts-
+    Pass trägt das Fensterende (Stift-Absetzen) in frühe Zeitschritte. Hypothese:
+    hebt den tcn_gru-Vorsprung über das Rauschband.
+  - **`TCNGRUAttnHybrid` (`tcn_gru_attn`, ~14.290 Params, UNCOMMITTED):** Einzel-
+    Variablen-Delta zu `tcn_gru` — `AttnPool1d` (Softmax über die Zeit) über
+    ALLE GRU-Outputs statt nur `out[:, -1, :]`. Fast gratis (+33 Params). Nicht
+    kausal streambar (nutzt die Zukunft), für die Batch-Fenster-Entscheidung ok.
+    Beide Deltas sind bewusst **isoliert** (je eine Variable), damit die Präsi-
+    Aussage eindeutig bleibt (bidirektional *vs.* Attention-Pooling, nicht beides).
+  - **`TCNTransformerHybrid` (`tcn_transformer`, ~22.193 Params) — DROPPED.**
+    3-Ebenen-TCN-Trunk als reicherer Patch-Embedder (mehr Kontext/Token als
+    `transformer_p5`'s einzelner Conv), `MaxPool1d(5)` → 50 Tokens (gleiches
+    Attention-Budget wie `transformer_p5`), dann 2-Layer-`TransformerEncoder`
+    (`d_model=32, nhead=4`); rezeptives Feld 29 Samples/Token. **2026-07-06
+    mid-run gekillt** (zu langsam für die GPU-Share vor Donnerstag) — nie ein
+    echtes Ergebnis.
+  - **`gru2`/`bigru`/`inception` (UNCOMMITTED, Standalone-Roh-Sequenz, kein
+    TCN-Trunk):** Pre-Thursday-Modell-Zoo — 2-Layer-GRU (~11k), bidirektionaler
+    1-Layer-GRU (`cat(h_n[0],h_n[1])`, ~8k), `InceptionTime` (Fawaz et al. 2020:
+    parallele Kernel 9/19/39 + Bottleneck + MaxPool-Zweig + Residual alle 3
+    Blocks, ~119k — das bewusst stärkere CNN-Pendant gegen das 0.897-gedeckelte
+    `cnn`). GRU-getunte Grids (`lr` bis 0.005, das der Sobol-GRU-Sieger mochte).
+    Zwischenstand HP-Grid: `gru2` best 0.9125, `tcn_gru` 0.9222, `tcn6` 0.9196 —
+    die GRU-Familie ist konkurrenzfähig, aber im ±1.7-pp-Rauschband.
+  - **Configs:** je `configs/hp/<model>.json`. `tcn_gru`/`tcn_transformer` volles
+    Grid (Fairness-Invariante); die Pre-Thursday-Probes (`gru2`/`bigru`/
+    `inception`/`tcn_bigru`/`tcn_gru_attn`) **fokussierte 4–6-Trial-Grids, 1 Seed,
+    grouped-5-fold** um den jeweiligen Sieger-HP — bewusst NICHT das volle Grid,
+    damit sie vor Donnerstag durchlaufen (die tcn_gru-108→36-Kürzung war derselbe
+    Zwang). tcn_gru selbst wurde auf dem Pod via `tcn_gru_1seed.json`-Kopie
+    (seeds `[42]`) von 108 auf 36 Trials gekürzt.
+  - **GPU-Non-Determinismus (2026-07-06, wichtiger Methodik-Befund):** dieselbe
+    Config + derselbe **Seed 42** gaben **0.9271** (`tcn_gru/`) vs. **0.9106**
+    (`tcn_gru_1seed/`) — **1.6 pp Spread bei FIXEM Seed.** Ursache: cuDNN-
+    Autotuning + nicht-deterministische Conv-Backward-Kernel → divergente Early-
+    Stop-Epochen (9.8 vs 8.0). Heißt: der dokumentierte „Seed-Rauschen-Floor
+    ±1.7 pp" ist teils gar kein Seed-Effekt, sondern **Hardware-Nichtdeterminiert-
+    heit bei fixem Seed**. Konsequenz: Einzelzahlen-Rankings zwischen Modellen
+    sind Rauschen; nur **gepaartes Multi-Seed auf identischen Folds** (Sieger-@3-
+    Seed-Bestätigung, `significance.py`) ist belastbar.
+  - **Ensemble (Konzept 3):** `scripts/ml/tcn_transformer_fusion.py`
+    (+ `tests/test_tcn_transformer_fusion.py`) — Proba-Mittel `tcn6` ×
+    `transformer_p5`, noch nie für ein echtes Ergebnis gelaufen. Reaktiver Hebel:
+    nur wenn ein Run überrascht (Muster `tcn_rf_fusion.py` → 0.909).
+  - **Pod-Dispatch-Stand (2026-07-06, pre-Donnerstag-Abschlusspräsi):** drei
+    tmux-Queues auf dem RunPod-Pod (siehe *RunPod hat Colab abgelöst*), alle nach
+    wandb `ML4SCS_HP_Grid`: `hp_tcn_gru` (= `tcn_gru_1seed`, 36 Trials),
+    `hp_queue` (`gru2`→`bigru`→`inception`), `hp_queue2` (`tcn_bigru`→
+    `tcn_gru_attn`→Deep-Reweighting-Experiment; wartet comm-basiert bis die GPU
+    frei ist). Ein RF-Sweep + `tcn_transformer` wurden gekillt (irrelevant / zu
+    langsam vor der Präsi).
+- `scripts/ml/deep_hard_negative_weight.py` — **Deep-Reweighting am tcn6**
+  (2026-07-06, UNCOMMITTED): gepaart pro Fold tcn6 baseline vs. **3×-Loss-
+  Gewicht auf keyboard/phone-Trainingsfenstern**, einzige Variable =
+  `sample_weight`. Deep-Pendant zum RF-Test (`reports/hard_negative_feature.md`:
+  phone-FPR 0.243→0.286 *schlechter*) — der einzige nach der RF-Falsifikation
+  noch untestete Riss (ein Netz könnte seine Repräsentation umformen). Dafür
+  bekam `train_one_model` ein optionales `sample_weight` (Default `None` →
+  bit-identisch, `reduction='none'`+gewichtetes Mittel nur wenn gesetzt; 105/105
+  `test_deep` grün). Nutzt die Deployment-Trainingsmaschinerie (kein divergenter
+  Loop). Tagging via Marker (`t_center_ms`→Task, wie `marker_fpr.py`). Output
+  `reports/deep_hard_negative_weight.md` + `models/deep_hard_neg_weight_{oof,cv}.csv`.
+  Erwartung: bestätigt den RF-Null → stärkt die Signal-Decken-Story.
 - `scripts/ml/compare_models.py` — runs LOSO on the same splits with
   RF / ExtraTrees / HistGradBoost / LogReg / MLP / SVM-RBF to verify
   RF is still competitive. Same `--no-zscore` flag. Liest
   vor-generierte `{session}_windows.csv` aus `data/processed/`.
 - `scripts/ml/minirocket_loso.py` — **MiniRocket-LOSO (viertes Modell-Bein,
-  `aeon`)**: transformiert die rohen `(N,6,seq_len)`-Deep-Fenster mit MiniRocket
-  (zufällige Convolutional-Kernel) + standardisierte LogReg (echte Probas für
-  AUC/Burst; der `MiniRocketClassifier`-Default-Ridge hat keine). Wiederverwendet
-  die Deep-Loader + den kausalen `_burst_metrics`; `--window-sec` / `--n-kernels`
-  (Default 2000 = schnell, ~10k = Paper-Default). **Befund (2026-06-24, N=15
-  legacy, post-fix, gepaarter Wilcoxon auf denselben Folds): MiniRocket-nativ-5s
-  0.886/0.956 ≡ RF-nativ-5s 0.885/0.953 — Δacc −0.004 p=0.93, ΔAUC +0.005 p=0.36,
-  Gleichstand.** 1-s per-window ebenfalls Gleichstand (0.872/0.872 p=0.52). Eine
-  mechanistisch RF-unverwandte Familie trifft dieselbe Decke *und* dieselbe
-  schwächste Fold (P17 0.794) → paradigmen-unabhängige Bestätigung der
-  Signal-Decke (siehe `feature_engineering_ceiling`-Memory). TCN-5s 0.911 bleibt
-  darüber (TCN>RF ⇒ TCN>MiniRocket). **Ehrlicher Negativbefund:** MiniRocket auf
-  **1-s+Burst** ist @10s/@30s signifikant schlechter als der RF (Δacc −0.050
-  p=0.0009 / −0.035 p=0.010) — also nativ-5s nutzen, nicht 1-s+Burst. Output
-  `models/minirocket_win{1,5}_cv.csv` (`significance.py`-kompatibel).
-- `scripts/ml/shap_explain_fold.py` — **SHAP-Erklärung einer LOSO-Fold** (`shap`
-  `TreeExplainer`, leakage-ehrlich: RF auf den Train-Folds, erklärt die
-  Held-out-Person; schwächste Fold datengetrieben aus `loso_oof.csv`). Auf **P17**
-  (RF-acc 0.781): Top-Features nach mean|SHAP| sind **Jerk** (`ay_jerk_*`,
-  `gyro/acc_mag_jerk`) + **3–8-Hz-Spektral** — physikalisch sinnvolle Kinematik
-  selbst auf der schwächsten Fold; die *kleinen* signierten Werte (~±0.005) SIND
-  der Befund: kein Feature trennt P17 sauber → Mehrdeutigkeit im Signal, nicht im
-  Feature-Set. → `reports/figures/shap_P17.png`. Perf: exaktes TreeSHAP ist
-  O(Bäume·Blätter·Tiefe²)/Sample — auf 200 tiefen RF-Bäumen × tausenden Fenstern
-  Minuten; Subsample auf 600 Fenster (Accuracy bleibt auf allen) → Sekunden.
+  `aeon`)**, `--window-sec` / `--n-kernels`. **Befund (N=15 legacy):
+  MiniRocket-nativ-5s 0.886/0.956 ≡ RF-nativ-5s 0.885/0.953 (p=0.93).** Eine
+  RF-unverwandte Familie trifft dieselbe Decke + schwächste Fold (P17) →
+  paradigmen-unabhängige Decken-Bestätigung. Negativ: 1-s+Burst @10s/@30s
+  signifikant schlechter als RF → nativ-5s nutzen. `models/minirocket_win{1,5}_cv.csv`.
+- `scripts/ml/shap_explain_fold.py` — **SHAP-Erklärung einer LOSO-Fold**
+  (`TreeExplainer`, leakage-ehrlich). Auf **P17**: Top-Features Jerk + 3–8-Hz-
+  Spektral, aber die *kleinen* signierten Werte (~±0.005) SIND der Befund — kein
+  Feature trennt P17 → Mehrdeutigkeit im Signal, nicht im Feature-Set.
+  → `reports/figures/shap_P17.png`.
 - `scripts/ml/marker_fpr.py` — **Marker-Per-Task-FPR: Hard-Negative-Lücke**
-  (2026-07-01, N=20 legacy 1s-OOF). Ordnet jedes False-Positive-Fenster über
-  `t_center_ms` seiner Marker-Task zu (`parse_task_blocks`/`assign_task`,
-  IntervalIndex) und aggregiert die FPR pro Task. **Befund: die LOSO-FPR
-  clustert task-spezifisch auf Tipp-Bewegungen, nicht flach** — pooled
-  `keyboard_typing` FPR 0.360, `phone_typing` 0.251 vs. `pause` 0.036
-  (4.7×, alle anderen Idle-Tasks ~3–5 %). **P17: keyboard 0.63, phone
-  0.68** — verwechselt beide Tipp-Arten in ~2/3 der Fenster mit Schreiben,
-  trotz 5 anderer v2-Probanden mit Tipp-Beispielen im Training (subjekt-
-  spezifisch: P26/P27 lehnen Tastatur nahezu perfekt ab). **Revidiert die
-  „Decke ist reine Signal-Ambiguität"-Erzählung teilweise**: ein
-  substanzieller Teil von P17s Schwäche ist eine **adressierbare
-  Trainingslücke** (Tipp-Verwechslung), nicht irreduzible Mehrdeutigkeit —
-  die frühere Multi-Modell-Decken-Bestätigung (RF/TCN/harnet/MiniRocket,
-  `feature_engineering_ceiling`-Memory) teilte alle dieselbe Trainings-
-  verteilung und konnte das nicht unterscheiden. Bestätigt + quantifiziert
-  den dokumentierten Phone-Typing-Confound (Pause-Analyse P07 oben).
-  Output: `reports/marker_fpr.md` + `models/marker_fpr.csv`. Getestet
-  (`tests/test_marker_fpr.py`, 4 Tests, pure Funktionen).
+  (2026-07-01, N=20 legacy 1s-OOF; `parse_task_blocks`/`assign_task`,
+  `tests/test_marker_fpr.py`). **Die LOSO-FPR clustert task-spezifisch auf
+  Tippen, nicht flach:** pooled `keyboard_typing` 0.360, `phone_typing` 0.251
+  vs. `pause` 0.036 (4.7×). **P17: keyboard 0.63, phone 0.68** (verwechselt ~2/3
+  der Tipp-Fenster mit Schreiben), subjekt-spezifisch (P26/P27 lehnen ab).
+  **Revidiert die „Decke = reine Signal-Ambiguität"-Erzählung teilweise:** ein
+  substanzieller Teil von P17s Schwäche ist eine adressierbare Trainingslücke.
+  `reports/marker_fpr.md`; siehe `marker_fpr_hard_negative_gap`-Memory.
 - `src/features/rhythm.py` + `scripts/ml/rhythm_feature_test.py` —
-  **Rhythmus-Feature-Negativbefund** (2026-07-01): Hypothese aus dem
-  Marker-FPR-Befund — Tippen ist regelmäßiger als Schreiben — getestet
-  mit 4 neuen Opt-in-Features (`build_windows(rhythm=True)`):
-  Autokorrelations-Peak-Höhe (Zeit-Domäne, Rhythmus-Band) + spektrale
-  Flatness (Wiener-Entropie) je auf accel-mag/gyro-mag. Kontrollierter
-  88-vs-92-Test (N=20 legacy, dieselben Fenster, gepaarter Wilcoxon):
-  **keyboard-FPR 0.343 → 0.336 (−0.7 pp, marginal), phone-FPR 0.243 →
-  0.247 (leicht schlechter), LOSO-acc n.s. (p=0.54 window, p=0.89 @5s).**
-  Handschrift ist am Wrist-IMU selbst rhythmisch genug (Buchstabe-für-
-  Buchstabe-Wiederholung) — Autokorrelation/Flatness trennen Tippen nicht
-  von Schreiben. Opt-in bit-identisch im Default (`rhythm=False`), getestet
-  (`tests/test_rhythm.py`). Output: `reports/rhythm_feature.md` +
-  `models/rhythm_oof_{base,rhythm}.csv`.
-- `scripts/ml/tsfresh_loso.py` + `src/features/tsfresh_winners.py` +
-  `scripts/ml/tsfresh_winners_test.py` — **ERSTER übertragbarer
-  Feature-Gewinn des Projekts (2026-07-02)**, nach drei Falsifikationen
-  (Rhythmus, verschärfte Hard-Negative-Features, Weighting). Dreistufige
-  Beweiskette:
-  (1) *Volle tsfresh-Bank* (EfficientFCParameters, ~4700 Features, 1-s-
-  Fenster, klassen-balanciertes 1000er-Subsample/Session): schlägt die 88
-  **auf identischen Fenstern gematcht** (merge_asof auf t_center_ms,
-  19168/20000 matched, 0 Label-Mismatch) gepaart signifikant — **+0.85 pp
-  acc (0.8821 vs 0.8736, p=0.0015), +0.52 pp AUC (p=0.0005)**, 16/20 Folds,
-  trotz weniger Trainingsfenstern. Roher Headline-Vergleich wäre wegen des
-  balancierten Subsamples unfair gewesen — matched ist Pflicht.
-  (2) *Destillat*: die Top-Importances konzentrieren sich auf vier Familien,
-  die den 88 fehlen — **per-Achse-Autokorrelation bei festen kurzen Lags**
-  (Gyro lag 2–5 = 40–100 ms; NICHT dasselbe wie der Rhythmus-Negativbefund:
-  dort Autokorr-PEAK über ein Lag-Band auf Magnituden), **Quantile**
-  (q70/q90), **change_quantiles** (mittlere |Änderung| im Quantil-Korridor),
-  **CID**. Daraus 42 lean numpy-Features (`src/features/tsfresh_winners.py`,
-  kein tsfresh-Dependency, tsfresh-Semantik; Opt-in
-  `build_windows(tsfresh_winners=True)`, Default bit-identisch,
-  `tests/test_tsfresh_winners.py`).
-  (3) *Transfer-Test auf ALLEN ~45.5k Fenstern* (natürliche Verteilung,
-  gleiche Fenster, gepaart): **window-acc 0.869 → 0.874 (p=0.0073), AUC
-  p=0.0002 — Transfer hält.** @5s-Burst-acc n.s. (Burst schluckt den
-  1-s-Gewinn — der Wert liegt auf der 1-s-Skala, wo die Live-Pipeline
-  läuft). **Live-Stack-Kompound: HMM auf beiden OOFs → 1s+HMM acc 0.8954 →
-  0.8993 (p=0.0027), F1 p=0.0007, AUC p<0.0001** — der Gewinn komponiert
-  mit dem HMM statt geschluckt zu werden. keyboard/phone-FPR mild besser
-  (0.343→0.336 / 0.243→0.225), P17 unberührt (Tipp-Confound bleibt
-  Datenproblem). **Adoptions-Kandidat, noch NICHT adoptiert:** Übernahme
-  hieße Flag in kanonischer Window-Generierung + Live-Inference +
-  Retraining von rf_all/rf_all_live/hmm_live.json (+ ggf. Pruning der 42
-  per Importance). Artefakte: `reports/tsfresh_transfer.md`,
-  `models/tsfresh_{cv,oof,importances}.csv`,
-  `models/tsfresh_winners_oof_{base,winners}.csv`,
-  `data/processed/tsfresh_features.parquet` (253-MB-Cache, gitignored).
-  Gotchas des Laufs: pyarrow war nicht installiert (Parquet-Write crashte
-  nach 40-min-Extraktion → Pickle-Fallback jetzt im Code); Ur-Skript hatte
-  einen Window-ID-Scramble-Bug (IDs vor dem Subsampling vergeben →
-  Feature/Label-Mismatch + ID-Kollisionen zwischen Sessions) und einen
-  Z-Score-Mismatch (Train per-Session, Test faktisch roh) — beide vor dem
-  Lauf gefixt.
-- **SHAP-Diff P17-Schreiben vs. P17-Tippen** (2026-07-01/02,
-  `reports/shap_hard_negative_diff.md` + `reports/figures/
-  raw_compare_p17_p26.png`): mechanistische Vertiefung des Marker-FPR-
-  Befunds für P17. Ein Rohdaten-Vergleich (10s P17-Tippen vs. P17-
-  Schreiben vs. P26-Tippen als Kontrolle) zeigt P17s Tippen als
-  **diskrete, scharfe Gyro-Bursts** in **derselben Größenordnung wie P17s
-  eigenes Schreiben** (Gyro-RMS 0.965 vs. 0.589) — P26 (Kontrolle) bleibt
-  beim Tippen durchgehend leise (0.140). Kein Hinweis auf ein lockeres
-  Wearable (P17s Pause/Gesturing-FPR ist normal ~0.07); P17 tippt vermutlich
-  aggressiv (Hunt-and-Peck mit kräftigem Handgelenk-Wippen). Ein gezielter
-  SHAP-Vergleich (P17-Schreib-TP vs. P17-Tipp-FP, RF trainiert auf den
-  anderen 19 Personen, gleiche 88 Features) zeigt **Korrelation r=0.633**
-  über alle Features: die meisten Top-Treiber (`ay_jerk_mean_abs`, `rz_zcr`,
-  `rz_band_3_8`, `rz_spec_centroid`) stimmen in Richtung UND Stärke
-  überein — echte Merkmalsgleichheit. **Aber zwei Features widersprechen
-  korrekt und kippen das Vorzeichen:** `rx_band_3_8` (+0.0175 Schreiben vs.
-  −0.0062 Tippen) und `gyro_mag_jerk_mean_abs` (+0.0127 vs. −0.0159) —
-  plausibel die Pronation/Supination-Achse (Pen-Drehen), die reines
-  Tippen nicht reproduziert, werden aber von der Mehrheit überstimmt.
-  Implikation: weder reine Stil-Ambiguität noch reines Boundary-Problem —
-  die Trenn-Information existiert bereits im Feature-Satz, ist aber eine
-  Minderheitsstimme; der Hebel ist mehr Trainingsdaten mit diesem Tippstil,
-  kein neues Feature (deckt sich mit dem Rhythmus-Negativbefund).
-  **Empirisch bestätigt (2026-07-02, `scripts/ml/hard_negative_feature_test.py`
-  + `reports/hard_negative_feature.md`):** 10 gezielte Verschärfungen der
-  Minderheits-Signale (per-Achse-Gyro-Jerk, Accel↔rx-Korrelationen,
-  rx/ay-Ratio; opt-in `build_windows(hard_negative_feats=True)`, bit-identisch
-  im Default, `tests/test_hard_negative_feats.py`) **senken die Tipp-FPR
-  nicht** — keyboard 0.343→0.358 (leicht schlechter), phone unverändert; ein
-  3×-Sample-Weight auf keyboard/phone-Trainingsfenstern treibt die phone-FPR
-  0.243→0.286 hoch und regrediert die korrekt ablehnenden Probanden (P26/P27
-  ~−1 pp). LOSO überall flach (p>0.29). Mechanik: korrelierte Kopien eines
-  vorhandenen Signals ändern die Mehrheitsverhältnisse im Wald nicht;
-  Cost-Sensitive-Weighting verzerrt die global kalibrierte Grenze für alle.
-  Damit ist die Feature-Achse für den Tipp-Confound **dreifach falsifiziert**
-  (Rhythmus, verschärfte Features, Weighting) — verbleibende Hebel: mehr
-  Probanden mit aggressivem Tippstil (Lernkurven-Experiment), oder der
-  Confound ist am 50-Hz-Wrist-IMU intrinsisch (dann Kontext-Sensor / höhere
-  Abtastrate).
+  **Rhythmus-Feature-Negativbefund** (opt-in `build_windows(rhythm=True)`,
+  Autokorr-Peak + spektrale Flatness): keyboard-FPR 0.343→0.336, phone leicht
+  schlechter, LOSO n.s. — Handschrift ist am Wrist-IMU selbst rhythmisch genug.
+  `reports/rhythm_feature.md`, Log §2.
+- `scripts/ml/tsfresh_loso.py` + `src/features/tsfresh_winners.py` — **ERSTER
+  übertragbarer Feature-Gewinn** (2026-07-02, nach drei Falsifikationen).
+  Dreistufig: volle tsfresh-Bank schlägt die 88 gematcht (+0.85 pp acc p=0.0015)
+  → 42 lean numpy-„Winner" destilliert (Kurzlag-Autokorrelation, Quantile,
+  change_quantiles, CID; opt-in `build_windows(tsfresh_winners=True)`,
+  bit-identisch im Default) → **Transfer auf allen ~45.5k Fenstern hält**
+  (window-acc 0.869→0.874 p=0.0073, AUC p=0.0002; **1s+HMM-Stack 0.8954→0.8993
+  p=0.0027** — komponiert mit dem HMM). P17 unberührt (Tipp-Confound bleibt
+  Datenproblem). **Adoptions-Kandidat, noch NICHT adoptiert** (Übernahme = Flag
+  in kanonischer Window-Gen + Live-Inference + Retraining). `reports/tsfresh_transfer.md`,
+  Log §4; siehe `tsfresh_feature_gain`-Memory.
+- **SHAP-Diff + Hard-Negative-Feature-Test P17-Schreiben vs. P17-Tippen**
+  (`scripts/ml/hard_negative_feature_test.py`, 2026-07-01/02): Rohdaten zeigen
+  P17s Tippen als scharfe Gyro-Bursts *derselben Größenordnung* wie sein
+  Schreiben (aggressiver Hunt-and-Peck-Stil); SHAP-Vergleich P17-Schreib-TP vs.
+  Tipp-FP r=0.633 — die Trenn-Info existiert als **Minderheitsstimme**
+  (`rx_band_3_8`, `gyro_mag_jerk`), wird aber überstimmt. 10 verschärfte Features
+  senken die Tipp-FPR nicht (keyboard 0.343→0.358); 3×-Weighting schadet
+  (phone 0.243→0.286). **Feature-Achse dreifach falsifiziert** (Rhythmus,
+  Features, Weighting) → Hebel = mehr Probanden mit aggressivem Tippstil, oder
+  intrinsisch @50 Hz. `reports/shap_hard_negative_diff.md` +
+  `reports/hard_negative_feature.md`, Log §2/§5; siehe
+  `p17_keyboard_confusion_mechanism`-Memory.
 - `scripts/ml/compare_models_at_gap.py` — gleiches Modell-Panel, aber
   baut die Features on-the-fly bei beliebigem `--gap` neu, ohne die
   Cache-Dateien anzufassen. Nützlich, um Modell-Rangfolge bei
   alternativen Label-Closing-Werten zu prüfen ohne Re-Generation.
-- `scripts/ml/sweep_window_size.py` — **Feature-Window-Größen-Sweep**
-  (das *Feature*-Fenster, nicht das Burst-Decision-Window): rechnet die 88
-  Features über *längere* Roh-IMU-Fenster (3–5 s statt 1 s, längerer Stride)
-  statt 1-s-Predictions nachträglich zu mitteln. Reproduziert den
-  N=14-Legacy-Pool exakt (pro Session `*_merged_legacy.csv` bevorzugt, sonst
-  native), schreibt in den **separaten** Ordner `data/processed/windows_sweep/`
-  (kanonischer `windows/50hz/`-Cache unangetastet), nutzt ausschließlich den
-  **kausalen** `train_loso._burst_metrics`. Wichtig: **nicht**
-  `compare_models._eval_fold`/`_burst_auc` wiederverwenden — die glätten noch
-  `center=True` (nicht-kausal, ~5–6 pp inflationiert). CLI:
-  `--pool {legacy,modern}`, `--models` (kuratiertes Panel RF/ExtraTrees/
-  HistGradBoost/LogReg), `--config W,S` (mehrfach). Output:
-  `models/window_sweep*_cv.csv` (kompatibel mit `src.evaluation.significance`).
-  **Befund (2026-06-11, N=14 Legacy):** ein 5-s-**natives** Feature-Fenster
-  schlägt 1-s-Features + Burst@5s bei *fixer 5-s-Decision-Latenz* um
-  **+2.8 pp acc / +2.3 pp AUC** (gepaarter Wilcoxon p≈0.011, **12/14 Folds
-  besser**) — bestätigt den harnet10-Befund (echter Längs-Kontext in der
-  Repräsentation > Prediction-Mittelung) jetzt auch für den RF. Mechanik:
-  FFT-Auflösung 0.2 statt 1 Hz + Statistik über 250 statt 50 Samples. **Beste
-  Parameter:** `5s/2.5s` oder `3s/1.5s` (je 50 % Overlap, statistisch
-  ununterscheidbar Δ p=0.71); dichte `5s/1.0s` lohnt nicht (per-window minimal
-  höher, @5s schlechter, 2,5× redundante Fenster). **Modell-robust:**
-  RF/ExtraTrees/HistGradBoost/SVM-RBF signifikant (+2.0–2.8 pp, p<0.05) über
-  vier Modellfamilien (Bagging/Extra-Random/Boosting/Kernel), LogReg gleiche
-  Richtung/Größe aber n.s. (schwächstes Modell, höchste Fold-σ) → Feature-
-  Qualitäts-Effekt, kein RF-Artefakt. SVM-RBF ist bestes 1-s-Modell (0.862)
-  und teilt den 5-s-Spitzenplatz (0.875); Auswahl via `--model SVM-RBF`
-  (langsam, SVC probability=True auf ~24k 1-s-Fenstern — nicht im Default-Panel).
-  **Gravity-robust nur richtungs-
-  konsistent:** Modern-Pool N=4 (92 Features inkl. Gravity) zeigt Tree-Modelle
-  +3.8–5.0 pp mit deutlich schrumpfender Fold-σ, aber N=4 ist für den Wilcoxon
-  strukturell unterpowert (min erreichbares p=0.125) — corroborating, nicht
-  confirming. Der Gewinn sitzt bei **5–10 s** Latenz (10 s noch p<0.001) und
-  konvergiert bei 30 s gegen die Baseline (acc-Δ n.s., AUC-Δ noch signifikant).
-  Per-Fold: **P09 (Soft-Writer) +0.057 größter Gewinner** (5-s-Fenster mittelt
-  Mikropausen *im* Feature weg), **P07 (Denkpausen) einzige echte Regression
-  −0.038** (längeres Fenster + 60%-Regel schmiert lange Idle-Stretches
-  Richtung writing) — exakte Bestätigung der P07/P09-Failure-Mode-Dichotomie.
-  **Noch NICHT adoptiert:** Live-Inference (`_window_features`) + deployte
-  Joblibs rechnen weiter auf 1 s; ein Headline-Wechsel müsste durch
-  `inference.py` + Retraining gezogen werden und kostet 1-s-Zeitauflösung.
-- `scripts/ml/ablate_gap_loso.py` — Label-Closing-**Sensitivitätsanalyse**:
-  fährt den vollen LOSO-Lauf bei mehreren `max_gap_ms`-Werten und reportiert
-  per-Fold + Mean/Std. **Methodik-Hinweis (Reviewer 2026-06-11):** `max_gap_ms`
-  ist *nicht* per nested CV auf dem Test-Fold optimiert — das wäre Test-Set-
-  Tuning. Der Wert ist **a-priori durch die Label-Semantik fixiert**
-  (Schreibmodus inkl. Mikropausen ≤ 2.5 s = die User-facing-Wahrheit eines
-  Schreibzeit-Trackers, siehe *Label smoothing* unten), und dieser Sweep ist
-  eine **Robustheits-/Sensitivitätsprüfung** der Wahl, kein Selektions-
-  kriterium. Die gemessenen Effekte (gap 2000→2500: +0.4 pp acc) liegen
-  ohnehin innerhalb der Fold-σ (~3.4 pp) und sind ohne gepaarten Test
-  (`src/evaluation/significance.py`) nicht als Gewinn zu lesen.
-  **Nachtest (2026-07-01, N=14 legacy): gap 2500 vs. 3000 — 2500 acc
-  0.871 ± 0.030 vs. 3000 0.867 ± 0.039, marginal besser UND stabiler,
-  Δ n.s. (p=0.24) → 2500 bleibt.** Derselbe Lauf: **grouped-5-fold**
-  (`train_loso --folds 5`, `GroupKFold` nach Subject statt echtem LOSO,
-  leakage-frei) acc 0.867 ± 0.026 — praktisch identisch zur LOSO-Headline
-  (0.871), sogar engere σ. **Korroboriert die LOSO-Headline** (kein
-  Fold-Struktur-Artefakt; ein random-5-fold hätte sie durch Leakage
-  aufgebläht, GroupKFold nicht).
-- `src/training/deep/augment.py` + `scripts/ml/augment_matrix.py` +
-  `scripts/ml/augment_ab_collect.py` — **Daten-Augmentation-Negativbefund**
-  (2026-07-01, `reports/augment_ab.md`). On-the-fly-Augmentation der
-  rohen IMU-Fenster (train-only, label-safe, eigener RNG pro Fold) in
-  zwei Stärken: **basic** (scale 0.8–1.2, rotate ±10°) und **rich**
-  (+ time-warp/jitter/magnitude, scale 0.7–1.3, rotate ±20°), getestet
-  via paralleler GitHub-Actions-A/B (`.github/workflows/augment.yml`,
-  tcn6 @5s, 3 Seeds × {aug, no-aug}, gepaarter Wilcoxon). **Claim-Gate:
-  Δ außerhalb Seed-σ-Band UND p < 0.05 auf acc UND AUC.** Ergebnis: **kein
-  Gewinn auf keinem Pool, mit keinem Satz** — modern/basic Δacc +1.55 pp
-  p=0.078, legacy/basic +0.52 pp p=0.27, modern/rich +1.28 pp p=0.31
-  (rich half sogar *weniger* als basic), legacy/rich unvollständig (CI-
-  Concurrency-Cancel). **AUC durchweg flach (alle Δ ≤ +0.5 pp)** — der
-  entscheidende Tell: Augmentation bewegt Accuracy auf einzelnen
-  Folds (P14/P17/P26), aber keine Trennbarkeit. Reiht sich in die
-  Feature-Engineering-Nullbefunde ein (`feature_engineering_ceiling`-
-  Memory) — Input-Raum-Erweiterung erfindet kein Signal, das nicht im
-  Signal ist. `AUGMENT`-Default bleibt OFF; Tooling nutzbar für
-  zukünftige Sweeps.
+- `scripts/ml/sweep_window_size.py` — **Feature-Window-Größen-Sweep** (das
+  *Feature*-Fenster): rechnet die 88 Features über längere Roh-IMU-Fenster (3–5 s
+  statt 1 s) statt 1-s-Predictions zu mitteln. Schreibt in den separaten Ordner
+  `data/processed/windows_sweep/` (kanonischer Cache unangetastet), nutzt den
+  **kausalen** `_burst_metrics`. CLI `--pool`, `--models`, `--config W,S`.
+  **Befund (N=14 legacy):** ein 5-s-natives Feature-Fenster schlägt 1-s+Burst@5s
+  bei fixer 5-s-Latenz um **+2.8 pp acc / +2.3 pp AUC** (p≈0.011, 12/14 Folds),
+  modell-robust über 4 Familien. Beste Parameter 5s/2.5s oder 3s/1.5s. Per-Fold:
+  P09 +0.057 größter Gewinner, P07 −0.038 einzige Regression (P07/P09-Dichotomie).
+  **Noch NICHT adoptiert** (live rechnet weiter auf 1 s). Log §5.
+- `scripts/ml/ablate_gap_loso.py` — Label-Closing-**Sensitivitätsanalyse** über
+  mehrere `max_gap_ms`. **Methodik:** `max_gap_ms` ist a-priori durch die
+  Label-Semantik fixiert (nicht test-fold-getunt); dieser Sweep prüft Robustheit,
+  ist kein Selektor. Nachtest (N=14): gap 2500 vs 3000 — 2500 marginal besser +
+  stabiler, Δ n.s. → **2500 bleibt**. Grouped-5-fold (GroupKFold) 0.867 ≈ LOSO
+  0.871 → korroboriert die Headline (kein Fold-Struktur-Artefakt). Log §1.
+- `src/training/deep/augment.py` + `scripts/ml/augment_matrix.py` —
+  **Daten-Augmentation-Negativbefund** (`reports/augment_ab.md`). On-the-fly-IMU-
+  Augmentation (basic scale/rotate; rich +time-warp/jitter/magnitude), GitHub-A/B
+  tcn6 @5s 3 Seeds. **Kein Gewinn auf keinem Pool** (alle p>0.07), AUC durchweg
+  flach → Input-Raum-Erweiterung erfindet kein fehlendes Signal. `AUGMENT`
+  default OFF. Log §2; siehe `feature_engineering_ceiling`-Memory.
 - `scripts/ml/label_kinematics_check.py` — falsifiziert den Varianz-
   Alignment-Bias-Verdacht: pooled writing-vs-idle Jerk/Varianz (Kern
   `src/evaluation/label_diagnostics.py::class_kinematics_summary`). Befund:
   8/8 Jerk-Features bei writing höher (Median-Ratio 1.35) → Schreiben ist
   die dynamischere Klasse, Labels nicht auf Ruhephasen invertiert (siehe
   *Sample-level merge alignment* oben). Kein Ersatz für Video-Ground-Truth.
-- `scripts/ml/sync_audit.py` — Sync-Audit: prüft, ob residualer Pen↔Watch-
-  Alignment-Fehler die LOSO-Fehlerdecke erklärt. Drei Teiltests: (A) σ ↔
-  Fold-Accuracy-Korrelation, (B) δ-Drift erste vs. zweite Session-Hälfte
-  + Drift↔Accuracy-Korrelation, (C) Label-Kippung bei ±50 ms δ-Störung.
-  Ergebnis (2026-05-22): r(σ,acc)=−0.22, r(Drift,acc)=−0.18 — beide
-  null/falsch-vorzeichig; Sync erklärt die Decke **nicht**, die Diagnose
-  „echte Signal-Mehrdeutigkeit" bleibt. Output: `reports/sync_audit.md` +
-  `models/sync_audit.csv`.
-- `scripts/ml/per_subject_threshold.py` — testet leakage-frei, ob ein
-  per-Person kalibrierter Entscheidungs-Schwellwert (statt global 0.5) die
-  schwachen Folds hebt. Eichphase = erstes Session-Drittel; Eval = restliche
-  2/3; Oracle-Spalte als Leakage-Obergrenze. Ergebnis (2026-05-22): hilft
-  nicht (F1w 0.858→0.846, Oracle nur +0.007) — widerlegt die „P09 braucht
-  Per-Subject-Threshold"-Hypothese. Output: `reports/per_subject_threshold.md`
-  + `models/per_subject_threshold.csv`. Siehe *Negative result* unten.
-- `scripts/ml/train_noah_personal.py` — Personal-Modell für die Focus-
-  Tracker-Live-App. Trainiert RF auf Noahs 100-Hz-Sessions (S032 + S033),
-  A/B mit/ohne Z-Score (datengetrieben entschieden — Δ AUC = 0.000, daher
-  ohne). Speichert `models/rf_noah.joblib` mit `person_id`, `sample_rate_hz`,
-  optional `zscore_mu/sigma` als Metadata. Within-Noah-LOSO: acc 0.878,
-  AUC 0.939, @5s AUC 0.973, @30s AUC 0.949 (post Sort-Stability-Fix).
-- `scripts/ml/honest_live_loso.py` — misst die ehrliche, deploybare
-  Live-Zahl: fährt denselben LOSO zweimal (per-Session-Z-Score vs.
-  leak-frei pooled via `_zscore_train_pooled`) und testet die Differenz
-  gepaart (Wilcoxon). Ergebnis 2026-06-11: pooled 0.863 ≥ per-session
-  0.855 — der nicht-kausale per-Session-Z-Score inflationiert *nicht*
-  (siehe *Per-session z-score* unten).
+- `scripts/ml/sync_audit.py` — prüft, ob residualer Pen↔Watch-Alignment-Fehler
+  die LOSO-Decke erklärt. **Nein:** r(σ,acc)=−0.22, r(Drift,acc)=−0.18 (beide
+  null/falsch-vorzeichig) → Signal-Mehrdeutigkeit bleibt die Diagnose.
+  `reports/sync_audit.md`, Log §2.
+- `scripts/ml/per_subject_threshold.py` — per-Person kalibrierter Schwellwert
+  hilft P09 nicht (F1w 0.858→0.846, Oracle +0.007) — siehe *Per-Subject-Threshold*
+  in den Gotchas + Log §2.
+- `scripts/ml/train_noah_personal.py` — Personal-Modell für die Focus-Tracker-App.
+  RF auf Noahs 100-Hz-Sessions (S032+S033), A/B datengetrieben ohne Z-Score
+  (ΔAUC=0.000). Speichert `models/rf_noah.joblib` (mit `person_id`,
+  `sample_rate_hz`, optional `zscore_mu/sigma`). Within-Noah-LOSO acc 0.878.
+- `scripts/ml/honest_live_loso.py` — misst die ehrliche, deploybare Live-Zahl
+  (per-Session-Z-Score vs. leak-frei pooled). **pooled 0.863 ≥ per-session 0.855**
+  → der nicht-kausale Z-Score inflationiert *nicht*. Log §2.
 - `scripts/ml/train_rf_all_live.py` — Deployment-Variante des
   Generic-Modells. Lädt alle 10 LOSO-Probanden, berechnet **pooled** mu/
   sigma (statt per-session — Pooled ist live-deployment-fähig, weil das
@@ -1158,79 +897,37 @@ no longer vibrates continuously when the server is down.
   (`models/hmm_live.json`: 2×2-Matrix + Prior, modell-agnostisch aus
   `loso_oof.csv`) für den `OnlineForwardFilter` in der Inferenz.
 - `scripts/ml/hmm_postprocess_loso.py` — HMM-Treiber auf `models/loso_oof.csv`,
-  leakage-frei per-Person-Holdout (Transition + Prior nur aus Train-Personen).
-  **Hebt den 1-s-RF acc 0.881 → 0.905 (Δ +2,4 pp, ohne Retraining)** und schlägt
-  die kausale Burst-Glättung auf jeder Skala (+4,4 pp @5s … +13 pp @30s, 15/15
-  Folds, p=0.0001), bei ~16 s *adaptiver* Latenz (langes Gedächtnis bei schwacher
-  Evidenz, schneller Kipp bei starker — deshalb > fixer Rolling-Mean).
-  **Negativkontrolle** (in-session geshuffelte Emission → acc 0.50) schließt ein
-  Block-Erkennungs-Artefakt aus; der Gewinn ist signalgetrieben. Verfeinert den
-  Decken-Befund „kausale Post-Glättung hebt nichts“: der *Rolling-Mean* nicht,
-  ein *HMM* schon. Kausal + O(1)/Tick + parameter-leicht → live-deploybar (Caveat:
-  stateful → Gap/Session-Reset nötig; ~16 s Latenz ideal fürs Schreibzeit-Tracking,
-  träge für die instantane Pille). Output: `models/hmm_postprocess_{cv,detail}.csv`
-  (cv ist loso_cv-kompatibel → `significance.py`) + `reports/hmm_postprocess.md`.
-  **Seit 2026-06-24 LIVE deployed** (`OnlineForwardFilter` in der Inferenz —
-  siehe inference.py oben; Parameter via `scripts/ml/export_hmm_live.py` →
-  `models/hmm_live.json`).
-- `scripts/ml/hmm_cross_model.py` — **Cross-Model-Kontext-Leiter**: derselbe
-  HMM-Filter über die per-window-OOF mehrerer Basismodelle, je gegen den eigenen
-  Floor + Negativkontrolle. **2×2-Faktordesign (RF/Deep × 1s/5s): der HMM-Gewinn
-  hängt am Zeitkontext (Fenstergröße), NICHT an der Modellfamilie.** RF-1s +2,4 pp
-  / TCN-1s +1,0 pp (beide *hilft*, sig) vs. RF-5s −0,8 pp / TCN-5s −0,9 pp /
-  harnet-5s −1,0 pp (alle *schadet/null* — Überglättung). Beide Familien kippen
-  helps→hurts allein mit 1s→5s; das HMM hilft nur den *gedächtnislosen*
-  1-s-Modellen. Vereinheitlicht nativen Lang-Fenster-Gewinn mit Post-Hoc-HMM —
-  **eine Decke, mehrere Straßen**: RF-1s+HMM 0.905 ≈ TCN-1s+HMM 0.905 ≈ nativer
-  TCN-5s 0.911; der Zeit-Struktur-Gewinn wird *einmal* eingesammelt (der TCN „hat
-  das HMM schon eingebaut“). Deployment-Konsequenz: HMM auf den 1-s-RF, **nicht**
-  auf 5-s-RF oder TCN. Output: `reports/hmm_context_ladder.md`. Knüpft an den
-  `feature_engineering_ceiling`-Befund an.
-- `src/evaluation/calibration.py` — Kalibrierungs-Primitive (`reliability_curve`,
-  `expected_calibration_error`/ECE), getestet. Geteilt von
-  `plot_reliability_diagram.py` (vorher private Kopien) und dem Decision-Scale-Skript.
-- `scripts/ml/calibration_decision_scale.py` — **Phase-2-Kalibrierung**: ECE +
-  Brier + Reliability-Kurve auf den *Decision-Scale*-Probas (raw/cal @1s, kausaler
-  Burst @5/10/30s, HMM-Filter), leakage-frei auf `loso_oof.csv`. Befunde (N=15):
-  **die 1-s-RF-Proba ist schon ehrlich** (ECE 0.020 < 0.05; isotone `proba_cal`
-  verbessert nichts → keine Nach-Kalibrierung nötig — per-Session-Z-Score +
-  `class_weight=balanced` liefert brauchbare Probas); **Burst verschlechtert die
-  Kalibrierung** (ECE rauf, Brier monoton 0.09 → 0.16 = Auflösungsverlust, aber die
-  *thresholdete* Schreibzeit-Entscheidung bleibt unberührt); **der HMM-Filter hat
-  den besten Brier (0.080), ist aber leicht über-konfident** (ECE 0.057 — sticky
-  Prior treibt zu 0/1; für eine als Prozent angezeigte Pille lohnt eine leichte
-  Posterior-Nach-Kalibrierung). Output: `reports/calibration_decision_scale.md` +
-  `reports/figures/calibration_decision_scale.png`.
-- `src/evaluation/regression.py` — Schreib-Prozent-Regression (Stufe 2).
-  Reines Post-Processing über `models/loso_oof.csv`: aggregiert die
-  OOF-Vorhersagen auf 60 s / 300 s / ganze-Session-Blöcke und reportet
-  MAE/RMSE/Bias gegen geschlossene und rohe Pen-Wahrheit, plus
-  Calibration- und Scatter-Plot in `reports/figures/`. `pred_pct` ist
-  der **binäre** Schätzer `mean(proba_cal ≥ 0.5)` — das Mitteln roher
-  Wahrscheinlichkeiten (`pred_pct_proba`) schrumpft zur Mitte (~53 %)
-  und generalisiert nicht auf schiefe Schreibanteile (siehe
-  `reports/regression.md`, Abschnitt „Shrinkage"). Headline binär:
-  Session-MAE 4,5 pp, 60 s 8,6 pp (N=14 seit 2026-06-10; bei N=10
-  waren es 3,5 / 7,6 pp — Verschiebung durch die härtere Kohorte,
-  nicht durch Modell-Änderung). Der `evaluate()`-Output trennt
-  zwei beschriftete Abschnitte: **HEADLINE** (truth = `closed`
-  labels, = Modell-Labels mit Mikropausen ≤2,5 s als writing) und
-  **DIAGNOSTIC** (truth = rohe Pen-Down-Samples). `regression_metrics.csv`
-  trägt dafür eine `role`-Spalte (`headline`/`diagnostic`). Wichtig:
-  der Diagnostic-Bias (~+21 pp) ist der inhärente Label-Closing-Bias
-  unserer Politik, **kein Modellfehler** — nur Headline ist die
-  vorzeigbare Aussage.
-- `src/evaluation/engagement.py` — Engagement-Auswertung (Stufe 2,
-  Prio 2). Reines Post-Processing über `models/loso_oof.csv` + den
-  Study-Mode-`markers`-CSVs. Ordnet jedes 1-s-Fenster über `t_center_ms`
-  einem Task-Block zu (`task_start`/`task_end` aus den Markern) und
-  aggregiert pro `(Session, Task)` den Schreibzeit-Anteil: `true_pct`
-  (geschlossene Labels) und `pred_pct` (binärer Schätzer, geteilt mit
-  `regression.py` via `block_percentages()`). Output:
-  `models/engagement_metrics.csv` (1 Zeile pro Task-Block, Schreib-Tasks
-  + Pausen als Kontrolle) plus `reports/figures/engagement_heatmap.png`
-  (Proband × Task). Der Wert ist ein **Engagement-Proxy**, kein
-  Aufmerksamkeits-Detektor — Schreibzeit ≠ Aufmerksamkeit.
+  leakage-frei per-Person-Holdout. **Hebt den 1-s-RF acc 0.881 → 0.905 (+2,4 pp,
+  ohne Retraining)**, schlägt die kausale Burst-Glättung auf jeder Skala (15/15
+  Folds, p=0.0001), ~16 s adaptive Latenz. Negativkontrolle (geshuffelte Emission
+  → acc 0.50) schließt ein Artefakt aus. Verfeinert den Decken-Befund: der
+  *Rolling-Mean* hebt nichts, ein *HMM* schon. **Seit 2026-06-24 LIVE deployed**
+  (`OnlineForwardFilter`; Parameter via `scripts/ml/export_hmm_live.py` →
+  `models/hmm_live.json`). `reports/hmm_postprocess.md`, Log §5.
+- `scripts/ml/hmm_cross_model.py` — **Cross-Model-Kontext-Leiter** (2×2 RF/Deep ×
+  1s/5s): **der HMM-Gewinn hängt am Zeitkontext, NICHT an der Modellfamilie** —
+  RF-1s +2,4 / TCN-1s +1,0 (hilft) vs. RF-5s/TCN-5s/harnet-5s (schadet,
+  Überglättung). RF-1s+HMM 0.905 ≈ TCN-1s+HMM 0.905 ≈ nativer TCN-5s 0.911 — eine
+  Decke, mehrere Straßen. **Deployment: HMM auf den 1-s-RF, nicht 5-s.**
+  `reports/hmm_context_ladder.md`, Log §5.
+- `src/evaluation/calibration.py` + `scripts/ml/calibration_decision_scale.py` —
+  ECE/Brier/Reliability auf den Decision-Scale-Probas (N=15): **die 1-s-RF-Proba
+  ist schon ehrlich** (ECE 0.020, Isotone verbessert nichts); Burst verschlechtert
+  die Kalibrierung; der HMM-Filter hat den besten Brier (0.080), ist leicht
+  über-konfident (ECE 0.057). `reports/calibration_decision_scale.md`, Log §5.
+- `src/evaluation/regression.py` — **Schreib-Prozent-Regression** (Post-Processing
+  über `loso_oof.csv`, 60 s / 300 s / Session-Blöcke, MAE/RMSE/Bias). `pred_pct` =
+  **binärer** Schätzer `mean(proba_cal ≥ 0.5)` — Proba-Mitteln schrumpft zur Mitte
+  (~53 %), generalisiert nicht auf schiefe Anteile. Headline binär: Session-MAE
+  4,5 pp, 60 s 8,6 pp (N=14). `evaluate()` trennt **HEADLINE** (truth = closed
+  labels) von **DIAGNOSTIC** (truth = rohe Pen-Down; Bias ~+21 pp ist der
+  Label-Closing-Bias, kein Modellfehler). `reports/regression.md`, siehe
+  `regression_shrinkage`-Memory.
+- `src/evaluation/engagement.py` — **Engagement-Auswertung** (Post-Processing über
+  `loso_oof.csv` + Marker-CSVs): pro `(Session, Task)` der Schreibzeit-Anteil
+  `true_pct` / `pred_pct` (`block_percentages()` geteilt mit `regression.py`).
+  Output `models/engagement_metrics.csv` + `reports/figures/engagement_heatmap.png`.
+  **Engagement-Proxy, kein Aufmerksamkeits-Detektor** (Schreibzeit ≠ Aufmerksamkeit).
 - `scripts/plots/plot_merged.py` — visualizes ‖acc‖, ‖gyro‖, and
   `label_writing` over the session; supports `--max-gap-ms` /
   `--max-spike-ms` to preview label smoothing effects.
@@ -1270,15 +967,6 @@ them out before spatial analysis. `label_writing` is derived as 1 for
 `PEN_DOWN`/`PEN_MOVE`, else 0. Schema is defined in
 `src/pen_schema.py` (shared with `pen_logger.py`).
 
-**AirPods CSV** (`data/raw/airpods/{session}_airpods.csv`):
-```
-local_ts, local_ts_ms, session_id, sequence, sample_rate_hz,
-airpods_sent_at, phone_received_at, server_received_ms, source,
-ts, ax, ay, az, rx, ry, rz, qw, qx, qy, qz, gx, gy, gz
-```
-Head-IMU stream from `CMHeadphoneMotionManager`: accel + gyro +
-attitude quaternion + gravity vector. Currently logged only.
-
 **Sessions index** (`data/sessions.csv` — **gitignored**, owned by
 the running server, derivable from `data/raw/`):
 ```
@@ -1286,6 +974,10 @@ session_id, person_id, description, start_time, end_time,
 pen_samples, watch_samples, airpods_samples, status,
 study_mode, protocol_id, subject_index
 ```
+- `airpods_samples` — **vestigial**; the AirPods head-IMU stream is no
+  longer captured. The column stays in the header for CSV-schema stability
+  (kept in `config.py` SESSION_FIELDNAMES) but is always empty for new
+  sessions.
 - `study_mode` ∈ {`free`, `study`, `test`}. `free` = legacy manual
   recording; `study` = run under a study protocol; `test` = study
   protocol run flagged not-for-analysis (pilot/dry-run).
@@ -1303,7 +995,7 @@ study_mode, protocol_id, subject_index
   both cycle every 6 subjects.
 
 Session IDs auto-increment (`S001`, `S002`, …). `_next_session_id()`
-scans **sessions.csv** and `data/raw/{pen,watch,airpods}/` so an ID
+scans **sessions.csv** and `data/raw/{pen,watch}/` so an ID
 can never be reused while a stale per-session CSV is still on disk.
 
 `sessions.csv` was previously checked in but is **now gitignored**
@@ -1482,23 +1174,16 @@ Gravity ist ein Personalisierungs-Signal, kein Generalisierungs-
 Signal. Details `reports/feature_ablation.md`. Capture läuft
 unverändert weiter (nicht retro-imputierbar, revidierbar ab N≥6).
 
-**Modern-TCN6-Seed-Floor (2026-06-25, Modern-Pool N=7 — S055/P26 +
-S050/Noah aktiviert seit N=6).** Ehrliche 3-Seed-Headline für `tcn6` auf
-dem Modern-Pool (100 Hz + Gravity, nativ-5s): **acc 0.889 ± 0.017 /
-AUC 0.968 ± 0.001.** Kernbefund: **Seed-Rauschen-Floor ±1.7 pp**
-(per-Fold bis ±5 pp, P26 12 pp Spannweite bei identischen Daten und
-Config) — bei N=7 sind Architektur-Tweaks (SE-Block, ConvGRU, LayerNorm)
-gegen dieses Rauschen **unmessbar**; nur mehr Daten bewegen die Zahl
-verlässlich. Ein zuvor gemessenes „+4.9 pp durch Z-Score" (N=6) und
-„+2.8 pp durch Val-basierte Early-Stopping-Wahl" waren **Rausch-
-Artefakte**, keine echten Effekte. AUC ist seed-stabil (Ranking robust),
-nur die Accuracy-Schwelle wackelt. **Deploy-Entscheidung: no-zscore**
-(konsistent mit dem Legacy-Pool-Befund, dass BatchNorm die Normalisierung
-schon übernimmt). Nebenbei die Deep-Pipeline gehärtet: `drawing`-Task
-korrekt aus allen Pools ausgeschlossen (vorher ein Bug, der P17 künstlich
-drückte — P17 stieg von 0.728 auf 0.843 durch Fix + N=7, nicht durch
-reine Decken-Überwindung), Per-Fold-Seeding, datengetriebene v2-Coverage-
-Erkennung. 519 Tests grün zum Zeitpunkt dieses Fixes.
+**Modern-TCN6-Seed-Floor (2026-06-25, Modern-Pool N=7).** Ehrliche 3-Seed-
+`tcn6`-Headline (100 Hz + Gravity, nativ-5s): **acc 0.889 ± 0.017 / AUC 0.968.**
+Kernbefund: **Seed-Rauschen-Floor ±1.7 pp** (per-Fold bis ±5 pp) — bei N=7 sind
+Architektur-Tweaks gegen dieses Rauschen unmessbar; nur mehr Daten bewegen die
+Zahl. Frühere „+4.9 pp z-score" / „+2.8 pp val-early-stop" waren Rausch-Artefakte.
+AUC seed-stabil (Ranking robust), nur die acc-Schwelle wackelt. **Deploy:
+no-zscore.** Nebenbei die Deep-Pipeline gehärtet: `drawing`-Task aus allen Pools
+ausgeschlossen (war ein Bug, der P17 drückte — 0.728 → 0.843 durch Fix + N=7),
+Per-Fold-Seeding, v2-Coverage-Erkennung. Details Log §3; siehe
+`modern_zscore_threshold_fix`-Memory.
 
 **Was wo lebt:**
 - `src/profiles.py` (+ `tests/test_profiles.py`): watch_profile-
@@ -1603,7 +1288,7 @@ Quality-Check ermittelt den Target per Session via Nearest-Match aus
 `_VALID_WATCH_HZ = (50.0, 100.0)` und akzeptiert ±20 % darum. Beide
 Baender ([40-60] und [80-120] Hz) gelten als valide, der Bereich
 [60-80] Hz faellt durch. Erweitern: einen Wert in `_VALID_WATCH_HZ`
-ergaenzen. AirPods bleiben hard-coded `_TARGET_AIRPODS_HZ=25`.
+ergaenzen.
 
 **Sample-level merge alignment:** pen and watch device clocks do not
 share an epoch (typical Moleskine pen offset: ~922 days plus an
@@ -1641,51 +1326,27 @@ Ersatz für eine manuelle Video-Ground-Truth (Reviewer-Fix #5, Gold-Standard
 
 ## ML pipeline gotchas
 
-**Capture-Clock-Fix (entdeckt + gefixt 2026-06-13).** Merge (`merge.py`)
-und Window-Bau (`windows.py`) joinen Pen-Labels / berechnen `t_center_ms`
-und Label-Closing-Gaps jetzt auf der per-Sample-Watch-Uhr **`ts`**, nicht
-mehr auf der Batch-Ankunftszeit `local_ts_ms`. Zwei Defekte von
-`local_ts_ms`: (1) **batch-quantisiert** — alle Samples eines `POST /watch`
-teilen einen Wert (Server-Receive-Time), Labels waren in ~200–400-ms-Blöcke
-gerastert; (2) **Spill-Drain-Verspätung** — bei WLAN-Hängern liefert der
-Watch-Spill Samples Minuten verspätet nach (`watch_sent_at` korrekt,
-`local_ts_ms` Minuten zu spät), wodurch Pen-Labels zeitversetzten
-Watch-Samples zugeordnet wurden. Messung: S019/P07 33 % der Samples >2,5 s
-versetzt (max 42 s), S043/P17 5,3 % (max 13,6 s); Legacy-Sessions ohne
-Stalls praktisch 0 %. **Wichtig:** δ wurde schon immer gegen `ts` optimiert
-(`reconstruct_watch_wall_clock` in `pen_match.py`) — der Join lief aber auf
-`local_ts_ms`, also auf einer *anderen* Achse als die Alignment-Schätzung.
-Der Fix vereinheitlicht beide auf `ts` (Fallback `local_ts_ms` nur ohne
-ts-Spalte; intern `_wall_ms`-Hilfsspalte, wird vor Return gedroppt). Gepaarter
-Vorher/Nachher-Lauf (Wilcoxon, N=15 Legacy): **15/15 Folds besser, mean
-+2,4 pp acc, p = 0,0001** (acc/AUC/F1); P07 +8,5 pp acc / +9,3 pp AUC.
-Alle vor 2026-06-13 berechneten Zahlen (inkl. Deep/harnet/Fusion/Window-Sweep)
-liefen auf `local_ts_ms` und sind regenerations-pflichtig; relative
-Within-Kohorten-Vergleiche bleiben grob gültig (Defekt war symmetrisch in
-Train/Test), aber die schwachen Folds (P07!) waren überproportional betroffen.
-Tests: `test_late_arriving_samples_labelled_by_capture_time` (merge),
-`test_t_center_and_closing_follow_capture_clock` (windows).
+**Capture-Clock-Fix (2026-06-13).** Merge + Window-Bau joinen Pen-Labels /
+berechnen `t_center_ms` + Label-Closing-Gaps jetzt auf der per-Sample-Watch-Uhr
+**`ts`**, nicht mehr auf der Batch-Ankunftszeit `local_ts_ms` (Fallback nur ohne
+ts-Spalte). `local_ts_ms` ist batch-quantisiert + bei Spill-Drain Minuten
+verspätet → Labels wurden zeitversetzten Samples zugeordnet (S019/P07 bis 42 s
+versetzt). δ wurde schon immer gegen `ts` optimiert — der Join lief aber auf
+`local_ts_ms`, also einer *anderen* Achse. **Ergebnis (N=15): 15/15 Folds besser,
++2,4 pp acc, p=0,0001; P07 +8,5 pp.** Alle vor 2026-06-13 gerechneten Zahlen
+liefen auf `local_ts_ms` (regenerations-pflichtig; Defekt symmetrisch in
+Train/Test, schwache Folds überproportional). Tests
+`test_late_arriving_samples_labelled_by_capture_time` +
+`test_t_center_and_closing_follow_capture_clock`.
 
-**Sort-Stability-Bug (entdeckt + gefixt 2026-05-25).** `pandas.sort_values`
-ist per Default **nicht stabil** (`kind='quicksort'` historisch). Watch-
-Samples in einem Batch teilen sich dieselbe `local_ts_ms` (Server-Receive-
-Time pro POST), bei Disk-Spill-Drain sind das bis zu 30 Samples
-gleichzeitig. Unstable sort permutierte die Reihenfolge innerhalb dieser
-Ties zufällig, was alle order-sensitiven Features (FFT, Jerk, ZCR,
-Korrelationen — ~52 % des 88-Feature-Vektors) zwischen Trainings-Pipeline
-und Live-Inferenz divergent machte. Tests waren grün (beide Seiten gleich
-gescrambled), aber Live-Deployment auf nicht-gescrambled Samples
-zeigte AUC bleibend hoch (0.96 — Ranking funktioniert) und Acc kollabiert
-(0.57 — Decisions falsch, alle Schreib-Probas unter 0.5 geschoben).
-**Fix:** `kind='stable'` in `merge.py` + sortieren nach per-Sample-`ts`
-in `windows.py` statt nach `local_ts_ms`. Impact auf Headline: +0.7 pp
-Acc / +0.7 pp AUC systematisch über alle Skalen. Alle relativen
-Vergleiche (gap-Sweep, N-Verlauf, Sync-Audit, Per-Subject-Threshold)
-bleiben gültig — Bug war symmetrisch in Train- und Test-Daten. **Diagnose-
-Tools** für ähnliche zukünftige Bugs: `scripts/ml/replay_live_inference.py`
-(simuliert Live über bekannte CSV) und `scripts/ml/diff_live_features.py`
-(per-Feature-Vergleich Train- vs. Live-Pipeline). Forensik:
-[`reports/sort_stability_bug.md`](reports/sort_stability_bug.md).
+**Sort-Stability-Bug (2026-05-25).** `pandas.sort_values` ist per Default **nicht
+stabil**; Batch-Samples teilen dieselbe `local_ts_ms` → unstable sort scrambelte
+die Reihenfolge und machte alle order-sensitiven Features (~52 % des Vektors)
+zwischen Trainings- und Live-Pipeline divergent (Live-Acc kollabierte auf 0.57 bei
+AUC 0.96). **Fix:** `kind='stable'` in `merge.py` + sort nach per-Sample-`ts` in
+`windows.py`. Impact +0.7 pp acc/AUC. Diagnose-Tools:
+`scripts/ml/replay_live_inference.py` + `scripts/ml/diff_live_features.py`.
+Forensik: [`reports/sort_stability_bug.md`](reports/sort_stability_bug.md).
 
 **Label smoothing (morphological closing).** The pen reports DOWN/MOVE
 only while in contact / near the paper. Between letters, across word
@@ -1712,78 +1373,18 @@ damit detektiert das Modell "Person ist im Schreibmodus" (inkl.
 Mikropausen ≤ 2.5 s) und nicht "Pen aktuell auf Papier". Für einen
 Schreibzeit-Tracker ist das die User-facing-Wahrheit.
 
-LOSO-Ablation auf N=7 (2026-05-18): Headline gap=2000 → 2500 hob
-acc 0.864 → 0.868 (+0.4 pp), AUC 0.940 → 0.943 (+0.3 pp), F1(w)
-0.875 → 0.885 (+1.0 pp). 6 von 7 Folds verbesserten sich, P02/P03
-marginal regrediert (≤0.7 pp). Wichtig: P05 (neue, schwächste Fold)
-profitierte (acc 0.816 → 0.825, FP 307 → 295) — was die Hypothese
-aus der Marker-Analyse stützt, dass P05's lange Denkpausen in der
-math-Task länger als 2 s sind. Gap=3000 testete noch +0.2 pp F1,
-aber P05 regredierte (acc 0.802, FP 340) weil Fidgeting in geplanten
-Pausen ≥ 2.5 s fälschlich als writing geschluckt wird — und σ-acc
-sprang von 0.026 auf 0.035. `2500` ist die letzte Stelle mit
-near-universellem Per-Fold-Gewinn und σ-Tightening. Vorgänger-Switch
-auf N=5 von gap=300 → 2000 hatte +4.2 pp acc gebracht; bei N=7 ist
-das Plateau erreicht — weitere Smoothing-Gains brauchen entweder
-Features (z. B. „still sitting" Detektor) oder Threshold-Tuning.
+Die gap-Ablations-Historie (N=5 gap 300→2000 +4.2 pp; N=7 plateau bei 2500;
+N=8/N=10 die P07-Math- und P09-Soft-Writer-Failure-Modi) steht in
+[`documentation/experiment_log.md`](documentation/experiment_log.md) §1.
+Kernlehre daraus, die weiter gilt: **zwei distinkte Failure-Modi** — P07-Klasse
+(high-frequency Noise, profitiert von Burst-Aggregation) vs. P09-Klasse
+(systematische Soft-Writer-Confusion, @30 s-Burst verschlechtert sie sogar).
 
-N=8 (2026-05-18, +P07/S019): Headline-Acc fällt 0.868 → 0.861, AUC
-0.943 → 0.932, σ wächst 0.024 → 0.035 — komplett von P07-Fold
-getrieben (acc 0.808, AUC 0.848). Per-Block-Diagnose: P07 versagt
-*ausschließlich* im Math-Block (acc 0.578, 96 FPs, 61 FNs), während
-abschreiben/free_writing/pause sauber sind (acc 0.83–0.96). Sample-
-Level am `S019_merged.csv`: P07 hat in 225 s Math-Block nur **22 s
-echte Pen-Zeit (10 %)**; 6 Idle-Stretches > 10 s (längste 22 s),
-die `max_gap_ms=2500` strukturell nicht schließen kann. **30 s-Burst-
-AUC für P07 erholt sich auf 0.932** — Modell trifft Phasen, nur nicht
-einzelne Sekunden. Nebenbefund: 3 FP-Bursts in Pause 2 (+8 s, +49 s,
-+74 s) korrespondieren mit Noah's in-room Beobachtung dass P07 in der
-Pause aufs Handy getippt hat — Phone-Typing als echter Wrist-Confound,
-für Protokoll v2 dokumentiert.
-
-N=10 (2026-05-19, +P08/S020, +P09/S022): Headline-Acc 0.861 → 0.856,
-AUC 0.932 → 0.928, F1(w) 0.879 → 0.864 — **alle Bewegungen innerhalb
-σ-fold, σ tightens sogar 0.035 → 0.032 trotz +2 Folds**, Modell
-stabilisiert sich mit N. **P08-Math widerlegt die N=8-These "Math
-ist strukturell schwer":** P08 hat in Math 26 % Pen-Zeit (ähnlich
-niedrig wie P07's 10 %), erreicht aber acc 0.843 / AUC 0.942 im
-Math-Block. Math-Schwierigkeit war **P07-individuell** (lange
-Denkpausen + fidgety hands), nicht task-inhärent — die N=8-Diagnose
-"strukturelle Limitation" ist insofern zu stark formuliert. **P09 ist
-neue Fehlerklasse** (acc 0.812, AUC 0.896): Pausen exzellent
-(acc 0.92–0.96), aber beide Writing-Tasks symmetrisch schwach
-(Free 0.791 / AUC 0.843, Abschreiben 0.782 / AUC 0.844).
-Abschreiben-Pen-Zeit nur **58 % (Norm 75–80 %)** — Soft-Writer-Stil
-mit langen Mikropausen *innerhalb* der Schreibphasen. Anders als P07:
-**Burst-Aggregation @30 s verschlechtert P09** (acc 0.812 → 0.782,
-AUC 0.896 → 0.851) statt zu helfen — die einzige Fold im Datensatz
-mit @30 s < @1 s AUC. Erklärung: P09's Fehler sind zeitlich
-geclustert, nicht verrauscht — längere Decision-Windows mitteln
-korrekte Predictions weg statt Noise zu glätten. → **Zwei distinkte
-Failure-Modi** im Datensatz mit unterschiedlichen Lösungswegen:
-P07-Klasse (high-frequency Noise) braucht task-aware Labeling oder
-profitiert from Burst-Aggregation; P09-Klasse (systematische Soft-
-Writer-Confusion) braucht weichere Pen-Truth-Definition.
-
-**Negative result: Per-Subject-Threshold.** Die ursprüngliche Hypothese
-„P09-Klasse braucht einen per-Person kalibrierten Entscheidungs-
-Schwellwert" wurde getestet (`scripts/ml/per_subject_threshold.py`,
-2026-05-22) und **widerlegt**. Leakage-frei: Schwellwert auf dem ersten
-Session-Drittel (Eichphase, F1(writing)-optimal) gewählt, ausgewertet auf
-den restlichen 2/3, 0.5-Baseline auf denselben Fenstern. Ergebnis:
-F1(writing) 0.858 → 0.846 (**schlechter**, 7/10 Folds regrediert) — das
-erste Drittel ist nicht klassen-repräsentativ für den Rest. Entscheidend
-ist das **Oracle** (Schwellwert direkt auf den Eval-Labels getunt, also
-mit Leakage als Obergrenze): es hebt F1(writing) nur um +0.007. Für P09
-selbst ist der Oracle-Schwellwert 0.49 — praktisch 0.5. Damit steht fest:
-P09's Fehler sitzen in der Klassen-*Trennung* (Modell/Signal), nicht in
-der Schwellwert-Wahl — ein Threshold tauscht nur FP gegen FN, die ROC-AUC
-bleibt. Damit ist auch der gap-basierte Pfad ausgereizt (`max_gap_ms` hat
-bei 2500 plateauiert, 3000 regredierte P05): die ehrlich verbleibenden
-P09-Hebel sind mehr Signal (100 Hz) oder eine grundsätzlich andere
-Label-Semantik (Intent statt Pen-Kontakt) — nicht weiteres Threshold- oder
-gap-Tuning. P09-Klasse ist nach aktuellem Stand ein inhärent schwerer
-Teil-Datensatz. Report `reports/per_subject_threshold.md`.
+**Negative result: Per-Subject-Threshold** (`scripts/ml/per_subject_threshold.py`)
+— ein per-Person kalibrierter Schwellwert hilft P09 nicht (F1(writing) 0.858 →
+0.846; Oracle nur +0.007, P09-Oracle-Threshold 0.49 ≈ 0.5). P09's Fehler sitzt in
+der Klassen-*Trennung*, nicht in der Schwelle. `reports/per_subject_threshold.md`,
+Log §2.
 
 Opening (`max_spike_ms`) ist implementiert aber bleibt off; flipping
 short writing spikes hurt S029 — real quick strokes (i-dots,
@@ -1905,116 +1506,43 @@ der Leak hilft nicht, er unterperformt minimal (Held-out-Single-Session-
 μ/σ ist verrauschter als die gepoolte Trainingsverteilung). Die ehrliche
 deploybare Zahl ist also 0.863, nicht niedriger.
 
-**Negative result: catch22 + DWT-Energy features.** Tried adding the
-22-feature catch22 bank (`pycatch22`) and DWT-Energy coefficients
-(`pywt`, db4 wavelet) per axis on top of the 88 engineered features.
-At N=3 probands, no systematic gain (Δacc ≈ ±0.003) and fold-σ
-roughly doubled — classic overfitting signature when feature count
-grows but data doesn't. Recorded in `reports/model_progression.md`.
-Worth re-trying at N≥5.
+**Negative result: catch22 + DWT-Energy features.** catch22 (`pycatch22`) +
+DWT-Energy (`pywt`, db4) on top of the 88 features: at N=3 no systematic gain
+(Δacc ≈ ±0.003), fold-σ ~doubled (overfitting). `reports/model_progression.md`,
+Log §2. Worth re-trying at N≥5.
+
+Weitere Negativbefunde (Rhythmus, hard-negative-Features, Augmentation, Sync-
+Audit, Label-Kinematik) sind bei den jeweiligen Skripten oben +
+[`documentation/experiment_log.md`](documentation/experiment_log.md) §2 gesammelt.
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (605 cases) — anything that
+`tests/` holds Tier-1 smoke tests (682 cases) — anything that
 could silently poison the training data or the proband-facing flow:
 
-- `test_quality.py` — synthetic CSVs feeding into `_session_facts`;
-  asserts which issue codes fire. Includes a regression for the
-  stale-CSV-window bug.
-- `test_session_id.py` — `_next_session_id` skips IDs with stale
-  pen/watch/airpods files.
-- `test_merge.py` — `merge_watch_pen` watch-base behaviour (every
-  watch sample preserved; label 1 only when pen DOWN/MOVE within
-  tolerance; pre/post idle stretches labelled 0), plus
-  `prepare_pen_data` `label_writing` mapping and x=-1 filtering.
-- `test_pen_match.py` — stroke-variance alignment in
-  `src/alignment/pen_match.py`: stroke-mask construction, coarse/fine
-  search behaviour, sigma confidence.
-- `test_pen_parser_framing.py` — STX/ETX/DLE-escape state machine
-  in `pen_logger.py`.
-- `test_endpoints.py` — FastAPI TestClient smokes for `POST /watch`
-  (both payload formats), `POST /session/start` → `/stop` happy path,
-  and the `streams_do_not_overlap` validation issue.
-- `test_protocol_loader.py` — `load_protocol` schema validation
-  (extra fields rejected, durations positive, content_type matches
-  content, etc.).
-- `test_study_scheduler.py` — Latin-Square ordering, writing/pause
-  interleave, `pre_task_seconds`, randomize fallback.
-- `test_study_state_machine.py` — runtime transitions
-  (idle → running → paused → running → done), pause/abort semantics.
-- `test_study_endpoints.py` — HTTP layer for `/study/*`.
-- `test_study_e2e.py` — full start → next → next → abort smoke,
-  asserts markers CSV contents and sessions.csv columns.
-- `test_subject_index.py` — `_subject_index_for_person_id` counts
-  only `study_mode='study'` sessions, ignores `test` and `free`.
-- `test_markers_csv.py` — `write_marker` schema + append behaviour.
-- `test_sessions_schema.py` — sessions.csv carries the new
-  `study_mode` / `protocol_id` / `subject_index` columns; the schema
-  is migrated forward on read.
-- `test_sync.py` / `test_timelines.py` — previously-untested server
-  helpers (sync-confidence, per-session timeline reconstruction).
-- `test_chart_aggregation.py` — 5 Hz chart aggregator.
-- `test_dashboard_static.py` — every JS module / view partial /
-  stylesheet path returns 200 (404 trap; ES modules fail opaquely
-  when served as `text/html`).
-- `test_deep.py` — Deep-Sequenz-Modell-Paket (`src/training/deep/`):
-  `build_raw_windows` Shapes/Labels, Per-Kanal-Z-Score, Forward-Pass
-  aller vier Modelle (CNN/LSTM/GRU/TCN) bei beiden Sequenzlängen,
-  TCN-spezifisch: `TemporalBlock`-Kausalitätstest (Störung bei t lässt
-  Outputs < t unverändert, im eval()-Modus) + Parameter-Budget-Guard,
-  Mini-Trainingslauf von `train_one_model`/`predict_proba`/`fold_metrics`,
-  plus Pool-/Suffix-Auswahl (`load_session_raw(merged_suffix=…)` lädt die
-  Legacy-View bzw. nennt die Downsample-Chain, `_pool_plan` mappt
-  watch_profile→merged-Suffix, `POOL_FS`) und den `zscore`-Toggle
-  (Default raw, `zscore=True` normalisiert per Kanal).
-- `test_harnet_data.py` — harnet-Daten-Bridge (`src/training/deep/
-  harnet_data.py`): Fenster-Shapes (harnet5 150 / harnet10 300),
-  Resample-Längen-Arithmetik (500@50→300, 600@100→180), Label-
-  Mehrheitslogik, **Stable-Sort-Invarianz bei local_ts_ms-Ties**
-  (Regression analog `test_merge`), g-Range-Check (kein versehentlicher
-  Z-Score), Raten-Detektion aus `ts`. Kein Modell-/Training-Test (der
-  frozen-Extractor braucht den torch.hub-Download — manueller Smoke).
-- `test_harnet_finetune.py` — Fine-Tuning-Loop (`harnet_finetune.py`):
-  `_class_weights` balanciert, `finetune_model`/`predict_proba` als
-  modell-agnostischer Smoke mit einem Dummy-`(b,3,L)→(b,2)`-Netz (kein
-  harnet-Download nötig).
-- `test_inference.py` — `LiveInference` smoke: leerer/stale/zu-kleiner
-  Buffer → predict() == None, payload-shape, sparkline-Wachstum, Z-Score-
-  Honouring (mu/sigma aus Joblib appliziert), Rate-Mismatch-Guard
-  (>20 % fs-Abweichung → `rate_mismatch: true` Payload), Daily-Aggregate-
-  Reset bei Datums-Wechsel, model-load-Fallback bei fehlendem joblib,
-  Modern-Gravity-Support (`append_sample` mit/ohne Gravity, 92-Feature-
-  Predict, Feature-Parität inkl. Gravity gegen `build_windows`,
-  `missing_channels`-Guard wenn Modern-Modell auf Legacy-Stream läuft).
-- `test_inference_endpoints.py` — `GET /inference/models` Schema +
-  Whitelist, `POST /inference/model {id}` Switch + Buffer-Clear,
-  unbekannte ID → 404.
-- `test_focus.py` — Focus-Tracker-Persistenz: `log_tick` schreibt Header +
-  Row, ignoriert rate_mismatch/None-Ticks, `/focus/today` gruppiert Ticks
-  in Stretches (max-gap 2.5 s analog zum Label-Closing), `/focus/week`
-  liefert 7 chronologische Buckets mit `is_today`-Flag.
-- `test_burst_metrics.py` — `_causal_rolling_mean` ist trailing/kausal:
-  ein Zukunfts-Fenster ändert keine vergangene Entscheidung (Regression
-  gegen das frühere `center=True`-Look-ahead).
-- `test_significance.py` — `paired_fold_test` (Wilcoxon): identische Folds
-  → n.s. (p=1.0), konsistenter 10-pp-Gewinn → signifikant, sub-pp-Rauschen
-  → n.s., Form-Mismatch → ValueError.
-- `test_zscore_pooled.py` — `_zscore_train_pooled` ist leak-frei: der
-  Held-out wird mit TRAIN-μ/σ normiert (nicht mit eigener Statistik), und
-  die Eingabe-DataFrames bleiben unmutiert.
-- `test_label_diagnostics.py` — `class_kinematics_summary`: per-Klassen-
-  Mittel + Ratio, fehlende Spalten übersprungen, beide Klassen erforderlich
-  (ValueError sonst).
-- `test_hmm.py` — HMM-Kern (`src/evaluation/hmm.py`): Übergangs-Schätzung
-  (per-Session, keine Phantom-Übergänge über Session-Grenzen),
-  `scaled_likelihoods` (Clipping gegen inf bei Proba 0/1), und die tragende
-  **Kausalitäts-Invariante** des `forward_filter` (Störung der Emission bei t
-  lässt jeden Posterior *vor* t unverändert) + der nicht-kausale Kontrast des
-  `forward_backward` (nutzt die Zukunft). 14 Tests.
-- `test_calibration.py` — `reliability_curve` + `expected_calibration_error`
-  (ECE): perfekt kalibriert → 0, Over-Confidence → Gap, Count-Gewichtung der
-  Bins, letzter Bin rechts-inklusiv (`proba == 1.0` fällt nicht durch), leere
-  Eingabe → nan.
+**Daten-/Pipeline-Integrität:** `test_quality.py` (Issue-Codes + stale-CSV-Window-
+Regression), `test_session_id.py` (kein ID-Reuse), `test_merge.py` (watch-base
+Merge-Verhalten), `test_pen_match.py` (Stroke-Varianz-Alignment),
+`test_pen_parser_framing.py` (STX/ETX/DLE-State-Machine), `test_sessions_schema.py`
+(sessions.csv-Migration), `test_markers_csv.py` (`write_marker`).
+
+**Server/Endpoints:** `test_endpoints.py` (`POST /watch` + session start/stop),
+`test_inference_endpoints.py` (`/inference/*` + 404), `test_focus.py`
+(Focus-Persistenz + Stretch-Gruppierung), `test_sync.py` / `test_timelines.py`,
+`test_chart_aggregation.py`, `test_dashboard_static.py` (404-Trap auf jeden
+static-Pfad).
+
+**Study Mode:** `test_protocol_loader.py`, `test_study_scheduler.py`
+(Latin-Square + Interleave), `test_study_state_machine.py`,
+`test_study_endpoints.py`, `test_study_e2e.py`, `test_subject_index.py`.
+
+**ML-Kern:** `test_deep.py` (alle Modelle Forward + TCN-Kausalität + Mini-Train +
+Pool/zscore-Toggle), `test_harnet_data.py` / `test_harnet_finetune.py`,
+`test_inference.py` (`LiveInference` inkl. Rate-Mismatch + Modern-Gravity-Parität),
+`test_burst_metrics.py` (kausaler Rolling-Mean, Look-ahead-Regression),
+`test_significance.py`, `test_zscore_pooled.py` (leak-frei),
+`test_label_diagnostics.py`, `test_hmm.py` (forward_filter-Kausalitäts-Invariante),
+`test_calibration.py` (ECE).
 
 Hardware loops (real BLE pen, watchOS app, iPhone bridge) remain
 **manual** smoke tests — there is no XCTest target in the Xcode
