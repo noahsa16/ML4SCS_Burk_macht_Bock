@@ -24,6 +24,7 @@ Output: reports/deep_hard_negative_weight.md + models/deep_hard_neg_weight_{oof,
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -31,14 +32,17 @@ import pandas as pd
 from scipy.stats import wilcoxon
 from sklearn.metrics import roc_auc_score
 
+# Why: run as `python scripts/ml/deep_hard_negative_weight.py` from repo root —
+# add the project root to sys.path BEFORE the src imports below.
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
+
 from src.training.deep.train_loso import (
     DEVICE, POOL_FS, _POOL_NATIVE_PROFILE, _fold_splits, _load_all_sessions,
     _pool_plan, _set_seed, _stack_persons, predict_proba, train_one_model,
 )
 from src.training.deep.models import MODELS
 from src.training.train_loso import _burst_metrics, _select_sessions
-
-ROOT = Path(__file__).resolve().parents[2]
 MARKER_DIR = ROOT / "data" / "raw" / "markers"
 REPORT = ROOT / "reports" / "deep_hard_negative_weight.md"
 OOF_CSV = ROOT / "models" / "deep_hard_neg_weight_oof.csv"
