@@ -329,6 +329,50 @@ class GRUClassifier(_RNNClassifier):
         super().__init__(nn.GRU, n_channels, hidden, dropout)
 
 
+class GRU2Classifier(nn.Module):
+    """2-Layer-GRU (unidirektional), hidden=32. ~11k Parameter.
+
+    Tiefen-Probe gegen den 1-Layer-GRU-Sobol-Ueberraschungssieger (0.9185):
+    testet, ob eine zweite rekurrente Ebene ueber den kausalen Verlauf mehr
+    Struktur holt. ``dropout`` wirkt zwischen den GRU-Ebenen (PyTorch-Semantik
+    bei ``num_layers > 1``) UND im Head.
+    """
+
+    def __init__(self, n_channels: int = 6, hidden: int = 32, dropout: float = 0.3) -> None:
+        super().__init__()
+        self.rnn = nn.GRU(n_channels, hidden, num_layers=2,
+                          batch_first=True, dropout=dropout)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(hidden, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out, _ = self.rnn(x)
+        return self.head(out[:, -1, :]).squeeze(-1)  # (batch,)
+
+
+class BiGRUClassifier(nn.Module):
+    """Bidirektionaler 1-Layer-GRU, hidden=32 -> 64-dim Repraesentation.
+
+    Fuers 5-s-Fenster als BATCH-Entscheidung legitim (kein Streaming, keine
+    Kausalitaets-Pflicht): nutzt Kontext aus beiden Zeitrichtungen. Die
+    finalen Hidden-States beider Richtungen (Vorwaerts sieht das ganze
+    Fenster bis zum Ende, Rueckwaerts vom Ende zum Anfang) werden
+    konkateniert -- die textbuch-uebliche biRNN-Sequenz-Repraesentation,
+    nicht ``out[:, -1]`` (dessen Rueckwaerts-Teil nur das letzte Sample saehe).
+    ~8k Parameter.
+    """
+
+    def __init__(self, n_channels: int = 6, hidden: int = 32, dropout: float = 0.3) -> None:
+        super().__init__()
+        self.rnn = nn.GRU(n_channels, hidden, batch_first=True,
+                          bidirectional=True)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(2 * hidden, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _, h_n = self.rnn(x)                      # (2, batch, hidden)
+        h = torch.cat([h_n[0], h_n[1]], dim=1)    # (batch, 2*hidden)
+        return self.head(h).squeeze(-1)           # (batch,)
+
+
 class _PositionalEncoding(nn.Module):
     """Sinusoidales Positional-Encoding (Vaswani et al. 2017), forward-only.
 
@@ -494,10 +538,151 @@ class TCNTransformerHybrid(nn.Module):
         return self.head(x.mean(dim=1)).squeeze(-1)
 
 
+class TCNBiGRUHybrid(nn.Module):
+    """TCN6-Trunk (ohne Pooling) + BIDIREKTIONALER GRU ueber die Feature-Sequenz.
+
+    Einzel-Variablen-Delta zu TCNGRUHybrid (dem Front-Runner): der GRU liest die
+    Sequenz vorwaerts UND rueckwaerts. Bei der Batch-Klassifikation eines ganzen
+    5-s-Fensters ist das zulaessig (kein Online-Streaming innerhalb des Fensters)
+    und der Rueckwaerts-Pass traegt Ende-Information -- z. B. das Absetzen des
+    Stifts -- in die Repraesentation frueher Zeitschritte. Repraesentation =
+    Konkatenation der beiden FINALEN Hidden-States (vorwaerts ``h_n[0]``,
+    rueckwaerts ``h_n[1]``), nicht ``out[:, -1, :]`` -- dessen Rueckwaerts-Anteil
+    saehe nur das letzte Sample. ~19k Parameter.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2,
+                 rnn_hidden: int = 32) -> None:
+        super().__init__()
+        self.trunk = _build_tcn_trunk(n_channels, hidden=16, levels=6,
+                                      dropout=dropout)
+        self.gru = nn.GRU(input_size=16, hidden_size=rnn_hidden,
+                          batch_first=True, bidirectional=True)
+        self.head = nn.Sequential(nn.Dropout(dropout),
+                                  nn.Linear(2 * rnn_hidden, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.transpose(1, 2)
+        feat = self.trunk(x).transpose(1, 2)      # (batch, seq, 16)
+        _, h_n = self.gru(feat)                   # (2, batch, rnn_hidden)
+        h = torch.cat([h_n[0], h_n[1]], dim=1)    # (batch, 2*rnn_hidden)
+        return self.head(h).squeeze(-1)
+
+
+class TCNGRUAttnHybrid(nn.Module):
+    """TCN6-Trunk + GRU, aber Attention-Pooling ueber ALLE GRU-Outputs statt nur
+    des letzten Hidden-State.
+
+    Einzel-Variablen-Delta zu TCNGRUHybrid: statt ``out[:, -1, :]`` gewichtet ein
+    gelerntes ``AttnPool1d`` (Softmax ueber die Zeit) alle GRU-Ausgaben. Das Netz
+    lernt selbst, welche Fenster-Abschnitte die Schreib-Entscheidung tragen --
+    nuetzlich, falls der Gate-Mechanismus ueber 250 Schritte Ende-lastig
+    vergisst. Fenster-weit (nutzt die Zukunft) -- fuer die Batch-Fenster-
+    Entscheidung zulaessig, nicht kausal streambar. ~14k Parameter.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2,
+                 rnn_hidden: int = 32) -> None:
+        super().__init__()
+        self.trunk = _build_tcn_trunk(n_channels, hidden=16, levels=6,
+                                      dropout=dropout)
+        self.gru = nn.GRU(input_size=16, hidden_size=rnn_hidden,
+                          batch_first=True)
+        self.pool = AttnPool1d(rnn_hidden)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(rnn_hidden, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.transpose(1, 2)
+        feat = self.trunk(x).transpose(1, 2)         # (batch, seq, 16)
+        out, _ = self.gru(feat)                      # (batch, seq, rnn_hidden)
+        pooled = self.pool(out.transpose(1, 2))      # (batch, rnn_hidden, 1)
+        return self.head(pooled.squeeze(-1)).squeeze(-1)
+
+
+class _InceptionModule(nn.Module):
+    """Ein Inception-Block (Fawaz et al. 2020): Bottleneck -> parallele Convs
+    mehrerer Kernel-Groessen + MaxPool-Zweig -> Concat -> BatchNorm -> ReLU.
+
+    Die parallelen Kernel (9/19/39) sehen kurze bis lange Motive gleichzeitig
+    -- der strukturelle Unterschied zum festen 5er-Kernel des einfachen CNN.
+    Alle Kernel sind ungerade mit ``padding=k//2`` -> laengen-erhaltend.
+    """
+
+    def __init__(self, in_ch: int, n_filters: int = 16,
+                 kernel_sizes: tuple[int, ...] = (9, 19, 39),
+                 bottleneck: int = 16) -> None:
+        super().__init__()
+        use_bottleneck = in_ch > 1
+        self.bottleneck = (nn.Conv1d(in_ch, bottleneck, 1, bias=False)
+                           if use_bottleneck else nn.Identity())
+        bch = bottleneck if use_bottleneck else in_ch
+        self.convs = nn.ModuleList([
+            nn.Conv1d(bch, n_filters, k, padding=k // 2, bias=False)
+            for k in kernel_sizes
+        ])
+        self.maxpool = nn.MaxPool1d(3, stride=1, padding=1)
+        self.pool_conv = nn.Conv1d(in_ch, n_filters, 1, bias=False)
+        self.bn = nn.BatchNorm1d(n_filters * (len(kernel_sizes) + 1))
+        self.relu = nn.ReLU()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        b = self.bottleneck(x)
+        outs = [conv(b) for conv in self.convs]
+        outs.append(self.pool_conv(self.maxpool(x)))
+        return self.relu(self.bn(torch.cat(outs, dim=1)))
+
+
+class InceptionTime(nn.Module):
+    """InceptionTime (Fawaz et al. 2020) -- Multi-Scale-CNN, TSC-Benchmark-
+    Sieger. 6 Inception-Bloecke, Residual alle 3 Bloecke, GlobalAvgPool -> FC.
+
+    Groesser als der Rest des Zoos (~110k Params, vs ~10k), aber absolut klein
+    -- der bewusst staerkere CNN-Gegenpart zum bei 0.897 gedeckelten einfachen
+    CNN. ``AdaptiveAvgPool1d(1)`` macht ihn sequenzlaengen-agnostisch wie CNN/TCN.
+    """
+
+    def __init__(self, n_channels: int = 6, n_filters: int = 16,
+                 depth: int = 6, dropout: float = 0.2) -> None:
+        super().__init__()
+        out_ch = n_filters * 4  # 3 Kernel-Zweige + 1 Pool-Zweig
+        self.blocks = nn.ModuleList()
+        # Why: ModuleDict statt ModuleList-mit-None -- ModuleList darf keine
+        # None-Eintraege tragen; Residual gibt es nur alle 3 Bloecke.
+        self.residuals = nn.ModuleDict()
+        in_ch = n_channels
+        res_in = n_channels
+        for d in range(depth):
+            self.blocks.append(_InceptionModule(in_ch, n_filters))
+            in_ch = out_ch
+            if d % 3 == 2:
+                self.residuals[str(d)] = nn.Sequential(
+                    nn.Conv1d(res_in, out_ch, 1, bias=False),
+                    nn.BatchNorm1d(out_ch),
+                )
+                res_in = out_ch
+        self.gap = nn.AdaptiveAvgPool1d(1)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(out_ch, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.transpose(1, 2)  # (batch, seq, 6) -> (batch, 6, seq)
+        res = x
+        out = x
+        for d, block in enumerate(self.blocks):
+            out = block(out)
+            if str(d) in self.residuals:
+                out = torch.relu(out + self.residuals[str(d)](res))
+                res = out
+        out = self.gap(out).squeeze(-1)  # (batch, out_ch)
+        return self.head(out).squeeze(-1)  # (batch,)
+
+
 MODELS: dict[str, type[nn.Module]] = {
     "cnn": CNN1D,
     "lstm": LSTMClassifier,
     "gru": GRUClassifier,
+    "gru2": GRU2Classifier,
+    "bigru": BiGRUClassifier,
+    "inception": InceptionTime,
     "tcn": TCN,
     "tcn6": TCN6,
     "tcn6w32": TCN6Wide,
@@ -509,5 +694,7 @@ MODELS: dict[str, type[nn.Module]] = {
     "transformer": TransformerClassifier,
     "transformer_p5": TransformerP5,
     "tcn_gru": TCNGRUHybrid,
+    "tcn_bigru": TCNBiGRUHybrid,
+    "tcn_gru_attn": TCNGRUAttnHybrid,
     "tcn_transformer": TCNTransformerHybrid,
 }
