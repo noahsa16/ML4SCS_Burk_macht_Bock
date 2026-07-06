@@ -132,7 +132,8 @@ def test_grid_spec_rejects_out_of_range():
 # Why: focused pre-Thursday probes carry intentionally reduced grids (1 seed,
 # 4-6 trials around a known winner) so they finish before the deadline — they
 # are exempt from the shared-grid fairness invariant, like smoke* fixtures.
-_FOCUSED_PROBES = {"bigru", "gru2", "inception", "tcn_bigru", "tcn_gru_attn"}
+_FOCUSED_PROBES = {"bigru", "gru2", "inception", "tcn_bigru", "tcn_gru_attn",
+                   "tcn_bigru_attn"}
 
 
 def test_all_canonical_configs_load_and_share_grid():

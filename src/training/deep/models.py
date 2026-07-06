@@ -599,6 +599,39 @@ class TCNGRUAttnHybrid(nn.Module):
         return self.head(pooled.squeeze(-1)).squeeze(-1)
 
 
+class TCNBiGRUAttnHybrid(nn.Module):
+    """TCN6-Trunk + BIDIREKTIONALER GRU + Attention-Pooling ueber alle Outputs.
+
+    Kreuzung der beiden Einzel-Deltas: bidirektionaler GRU-Head (wie
+    ``TCNBiGRUHybrid`` -- liest vorwaerts UND rueckwaerts) UND gelerntes
+    Attention-Pooling ueber die gesamte Ausgabesequenz (wie ``TCNGRUAttnHybrid``
+    -- statt nur der finalen Hidden-States). Ein bidirektionaler GRU liefert pro
+    Zeitschritt ``2*rnn_hidden`` Kanaele (Vorwaerts+Rueckwaerts konkateniert),
+    also poolt ``AttnPool1d`` ueber ``2*rnn_hidden``: das Netz waehlt selbst die
+    entscheidungstragenden Zeitschritte UND sieht an jeder Position beide
+    Zeitrichtungen. Fenster-weit (nutzt die Zukunft), fuer die Batch-Fenster-
+    Entscheidung zulaessig, nicht kausal streambar. ~19k Parameter.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2,
+                 rnn_hidden: int = 32) -> None:
+        super().__init__()
+        self.trunk = _build_tcn_trunk(n_channels, hidden=16, levels=6,
+                                      dropout=dropout)
+        self.gru = nn.GRU(input_size=16, hidden_size=rnn_hidden,
+                          batch_first=True, bidirectional=True)
+        self.pool = AttnPool1d(2 * rnn_hidden)
+        self.head = nn.Sequential(nn.Dropout(dropout),
+                                  nn.Linear(2 * rnn_hidden, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.transpose(1, 2)
+        feat = self.trunk(x).transpose(1, 2)      # (batch, seq, 16)
+        out, _ = self.gru(feat)                   # (batch, seq, 2*rnn_hidden)
+        pooled = self.pool(out.transpose(1, 2))   # (batch, 2*rnn_hidden, 1)
+        return self.head(pooled.squeeze(-1)).squeeze(-1)
+
+
 class _InceptionModule(nn.Module):
     """Ein Inception-Block (Fawaz et al. 2020): Bottleneck -> parallele Convs
     mehrerer Kernel-Groessen + MaxPool-Zweig -> Concat -> BatchNorm -> ReLU.
@@ -696,5 +729,6 @@ MODELS: dict[str, type[nn.Module]] = {
     "tcn_gru": TCNGRUHybrid,
     "tcn_bigru": TCNBiGRUHybrid,
     "tcn_gru_attn": TCNGRUAttnHybrid,
+    "tcn_bigru_attn": TCNBiGRUAttnHybrid,
     "tcn_transformer": TCNTransformerHybrid,
 }

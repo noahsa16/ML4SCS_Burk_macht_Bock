@@ -149,7 +149,19 @@ def test_models_registry_keys():
                                   "tcn6w32", "tcn6k5", "tcn6wn", "tcn6ap",
                                   "tcn6se", "tcn8", "transformer",
                                   "transformer_p5", "tcn_gru", "tcn_bigru",
-                                  "tcn_gru_attn", "tcn_transformer"}
+                                  "tcn_gru_attn", "tcn_bigru_attn",
+                                  "tcn_transformer"}
+
+
+@pytest.mark.parametrize("name", ["tcn_bigru", "tcn_gru_attn", "tcn_bigru_attn"])
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_tcn_gru_hybrid_variant_forward(name, seq_len):
+    """BiGRU / Attention-Pooling / beides kombiniert -- gleiche Signatur wie
+    tcn_gru. Faengt insb. den 2*rnn_hidden-AttnPool-Dim-Bug im BiGRU+Attn-
+    Hybrid ab (bidirektionaler GRU gibt 2*hidden Kanaele pro Zeitschritt)."""
+    out = MODELS[name](dropout=0.1)(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
 
 
 @pytest.mark.parametrize("seq_len", [50, 250, 500])
