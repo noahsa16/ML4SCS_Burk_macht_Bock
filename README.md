@@ -11,9 +11,7 @@ A Moleskine smart pen supplies ground-truth stroke labels **during data collecti
 
 **Headline — 20-subject cross-subject LOSO** (RandomForest + per-session z-score + label closing): accuracy **0.869 ± 0.032**, ROC-AUC **0.946 ± 0.021** at 1-second resolution; **0.856 / 0.932** at a 5-second decision window. A causal HMM post-filter runs live in the dashboard.
 
-![Writing vs. idle wrist acceleration](reports/figures/signal_demo.png)
 
-*Apple Watch ‖acc‖ during writing (left) vs. an idle pause (right), pen ground-truth below. Writing is the higher-dynamics class — but not every non-writing motion is calm, which is exactly where the problem gets hard (see the ceiling, below).*
 
 ---
 
@@ -68,7 +66,6 @@ Pen (BLE) ─► pen_logger.py ────────────────�
 
 **The ceiling is signal ambiguity, not the model.** The residual error clusters on one confusion: aggressive keyboard / phone typing looks like writing at the wrist. Pooled false-positive rate is 0.36 on keyboard-typing vs. 0.04 on genuine pauses, and the hardest subject mistakes ~2/3 of his typing windows for writing. Crucially, **four unrelated model families — RandomForest, MiniRocket, a wearable foundation model (harnet), and deep TCNs — converge on the same cross-subject wall**, and the feature axis was falsified three separate ways (rhythm features, sharpened hard-negative features, data augmentation — all null). The first *transferable* gain came from distilled `tsfresh` features (+0.5 pp, p = 0.007). This is a data problem (more typing-style subjects), not a modelling one.
 
-![Model-family ceiling](reports/figures/model_ceiling.png)
 
 *Four model families cluster at the same cross-subject ceiling (N=15). Two routes rise above the 1-s decision level: native 5-second deep windows (TCN, 0.911) and a causal HMM on the 1-s RandomForest (0.905). The HMM route is the one deployed live.*
 
