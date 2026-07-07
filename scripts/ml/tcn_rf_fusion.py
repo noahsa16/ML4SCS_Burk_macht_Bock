@@ -14,10 +14,13 @@ Der entscheidende mechanistische Test ist die **Residuen-Korrelation**
 ``pearsonr(rf−y, tcn6−y)``: Fusion kann nur helfen, wenn die Fehler *dekorreliert*
 sind (harnet↔RF war r=0.574 → kein Spielraum; TCN6↔RF ist offen).
 
-CLI: ``python scripts/ml/tcn_rf_fusion.py [--force-oof]``.
-Output: ``reports/tcn_rf_fusion.md`` + ``models/tcn_rf_fusion_cv.csv``
+Das Deep-Modell ist über ``--model`` wählbar (Default tcn6); jedes Deep-Modell
+aus ``MODELS`` (z. B. inception, tcn_bigru) lässt sich so gegen den RF fusionieren.
+
+CLI: ``python scripts/ml/tcn_rf_fusion.py [--model tcn6] [--force-oof]``.
+Output: ``reports/{model}_rf_fusion.md`` + ``models/{model}_rf_fusion_cv.csv``
 (significance-kompatible Per-Fold-CVs je Arm) + OOF-Caches
-``models/{rf5,tcn6}_oof_legacy.csv``.
+``models/rf5_oof_legacy.csv`` + ``models/{model}_oof_legacy.csv``.
 """
 from __future__ import annotations
 
@@ -62,23 +65,24 @@ def _normalise_oof(df: pd.DataFrame) -> pd.DataFrame:
     return out[["session_id", "t_center_ms", "person_id", "y", "proba"]].copy()
 
 
-def align_oofs(rf: pd.DataFrame, tcn6: pd.DataFrame) -> pd.DataFrame:
-    """Paart RF- und TCN6-OOF per Session auf nächstem t_center (nearest).
+def align_oofs(rf: pd.DataFrame, deep: pd.DataFrame) -> pd.DataFrame:
+    """Paart RF- und Deep-OOF per Session auf nächstem t_center (nearest).
 
     Beide sind nativ-5s; ``merge_asof(direction='nearest')`` fängt kleine
     Gitter-Offsets ab. Ground-Truth ``y`` + ``person_id`` kommen vom RF-Arm
-    (linkes Frame). Returns Spalten session_id, t_center_ms, person_id, y,
-    rf_proba, tcn6_proba.
+    (linkes Frame). Die Deep-Spalte heißt generisch ``deep_proba`` (nicht
+    modell-spezifisch), damit das Tool jedes Deep-Modell fusionieren kann.
+    Returns Spalten session_id, t_center_ms, person_id, y, rf_proba, deep_proba.
     """
     left = _normalise_oof(rf).rename(columns={"proba": "rf_proba"}).sort_values("t_center_ms")
-    right = (_normalise_oof(tcn6)[["session_id", "t_center_ms", "proba"]]
-             .rename(columns={"proba": "tcn6_proba"}).sort_values("t_center_ms"))
+    right = (_normalise_oof(deep)[["session_id", "t_center_ms", "proba"]]
+             .rename(columns={"proba": "deep_proba"}).sort_values("t_center_ms"))
     merged = pd.merge_asof(left, right, on="t_center_ms", by="session_id",
                            direction="nearest")
-    missing = int(merged["tcn6_proba"].isna().sum())
+    missing = int(merged["deep_proba"].isna().sum())
     if missing:
-        print(f"[fusion] {missing} Fenster ohne TCN6-Match — verworfen")
-        merged = merged.dropna(subset=["tcn6_proba"])
+        print(f"[fusion] {missing} Fenster ohne Deep-Match — verworfen")
+        merged = merged.dropna(subset=["deep_proba"])
     return merged.reset_index(drop=True)
 
 
@@ -100,10 +104,29 @@ def per_fold_metrics(df: pd.DataFrame, proba_col: str) -> pd.DataFrame:
     return pd.DataFrame(rows).sort_values("held_out").reset_index(drop=True)
 
 
-def ensemble_proba(rf_proba: np.ndarray, tcn6_proba: np.ndarray,
+def ensemble_proba(rf_proba: np.ndarray, deep_proba: np.ndarray,
                    w: float = 0.5) -> np.ndarray:
     """Gewichtetes Proba-Mittel (Default gleichgewichtet)."""
-    return w * np.asarray(rf_proba) + (1.0 - w) * np.asarray(tcn6_proba)
+    return w * np.asarray(rf_proba) + (1.0 - w) * np.asarray(deep_proba)
+
+
+def _deep_cache_path(model: str) -> Path:
+    """OOF-Cache-Pfad, dem Modellnamen folgend (statt hartem tcn6)."""
+    return MODEL_DIR / f"{model}_oof_legacy.csv"
+
+
+def _output_paths(model: str) -> tuple[Path, Path]:
+    """(cv-CSV, Report-md) je Modell — kein Clobbern zwischen Fusions-Läufen."""
+    return (MODEL_DIR / f"{model}_rf_fusion_cv.csv",
+            REPORTS_DIR / f"{model}_rf_fusion.md")
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--model", default="tcn6",
+                    help="Deep-Modell-Key (z. B. tcn6, inception, tcn_bigru)")
+    ap.add_argument("--force-oof", action="store_true")
+    return ap
 
 
 def _paired(a_cv: pd.DataFrame, b_cv: pd.DataFrame, metric: str) -> dict:
@@ -138,16 +161,16 @@ def _rf5_oof(force: bool) -> pd.DataFrame:
     return df
 
 
-def _tcn6_oof(force: bool) -> pd.DataFrame:
-    cache = MODEL_DIR / "tcn6_oof_legacy.csv"
+def _deep_oof(model: str, force: bool) -> pd.DataFrame:
+    cache = _deep_cache_path(model)
     if cache.exists() and not force:
-        print(f"[fusion] TCN6-5s-OOF aus Cache {cache.name}")
+        print(f"[fusion] {model}-5s-OOF aus Cache {cache.name}")
         return pd.read_csv(cache)
-    print("[fusion] berechne TCN6-nativ-5s-OOF (train_deep_loso tcn6 @5s) …")
+    print(f"[fusion] berechne {model}-nativ-5s-OOF (train_deep_loso {model} @5s) …")
     from src.training.deep.train_loso import train_deep_loso
     with tempfile.TemporaryDirectory() as td:
         rd = Path(td)
-        train_deep_loso("tcn6", WIN_SEC, pool=POOL, run_dir=rd)
+        train_deep_loso(model, WIN_SEC, pool=POOL, run_dir=rd)
         produced = sorted(rd.glob("*oof*.csv"))
         if not produced:
             raise FileNotFoundError(f"train_deep_loso schrieb keine oof.csv in {rd}")
@@ -163,44 +186,45 @@ def _summary(cv: pd.DataFrame) -> str:
 
 
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--force-oof", action="store_true")
-    args = ap.parse_args()
+    args = _build_parser().parse_args()
+    model = args.model
+    cv_out, report_out = _output_paths(model)
 
-    aligned = align_oofs(_rf5_oof(args.force_oof), _tcn6_oof(args.force_oof))
+    aligned = align_oofs(_rf5_oof(args.force_oof), _deep_oof(model, args.force_oof))
     aligned["ens_proba"] = ensemble_proba(
-        aligned["rf_proba"].to_numpy(), aligned["tcn6_proba"].to_numpy())
+        aligned["rf_proba"].to_numpy(), aligned["deep_proba"].to_numpy())
 
     rf_cv = per_fold_metrics(aligned, "rf_proba")
-    tcn6_cv = per_fold_metrics(aligned, "tcn6_proba")
+    deep_cv = per_fold_metrics(aligned, "deep_proba")
     ens_cv = per_fold_metrics(aligned, "ens_proba")
 
     y = aligned["y"].to_numpy()
     r_resid, _ = pearsonr(aligned["rf_proba"].to_numpy() - y,
-                          aligned["tcn6_proba"].to_numpy() - y)
+                          aligned["deep_proba"].to_numpy() - y)
 
     sig = {
-        "ens_vs_tcn6_acc": _paired(ens_cv, tcn6_cv, "accuracy"),
-        "ens_vs_tcn6_auc": _paired(ens_cv, tcn6_cv, "roc_auc"),
+        "ens_vs_deep_acc": _paired(ens_cv, deep_cv, "accuracy"),
+        "ens_vs_deep_auc": _paired(ens_cv, deep_cv, "roc_auc"),
         "ens_vs_rf_acc": _paired(ens_cv, rf_cv, "accuracy"),
         "ens_vs_rf_auc": _paired(ens_cv, rf_cv, "roc_auc"),
     }
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    cv_out = MODEL_DIR / "tcn_rf_fusion_cv.csv"
-    pd.concat([rf_cv.assign(arm="rf"), tcn6_cv.assign(arm="tcn6"),
+    pd.concat([rf_cv.assign(arm="rf"), deep_cv.assign(arm=model),
                ens_cv.assign(arm="ensemble")]).to_csv(cv_out, index=False)
 
-    _report(rf_cv, tcn6_cv, ens_cv, r_resid, sig, len(aligned), cv_out)
+    _report(model, rf_cv, deep_cv, ens_cv, r_resid, sig, len(aligned),
+            cv_out, report_out)
 
 
-def _report(rf_cv, tcn6_cv, ens_cv, r_resid, sig, n_win, cv_out) -> None:
-    d_acc = ens_cv["accuracy"].mean() - tcn6_cv["accuracy"].mean()
-    d_auc = ens_cv["roc_auc"].mean() - tcn6_cv["roc_auc"].mean()
-    helps = (sig["ens_vs_tcn6_acc"]["significant"] and d_acc > 0) or \
-            (sig["ens_vs_tcn6_auc"]["significant"] and d_auc > 0)
-    verdict = ("**hebt** den TCN6" if helps
-               else "**hebt den TCN6 nicht** (Δ n.s. / ≤ 0)")
+def _report(model, rf_cv, deep_cv, ens_cv, r_resid, sig, n_win,
+            cv_out, report_out) -> None:
+    d_acc = ens_cv["accuracy"].mean() - deep_cv["accuracy"].mean()
+    d_auc = ens_cv["roc_auc"].mean() - deep_cv["roc_auc"].mean()
+    helps = (sig["ens_vs_deep_acc"]["significant"] and d_acc > 0) or \
+            (sig["ens_vs_deep_auc"]["significant"] and d_auc > 0)
+    verdict = (f"**hebt** den {model}" if helps
+               else f"**hebt den {model} nicht** (Δ n.s. / ≤ 0)")
 
     def sline(k):
         s = sig[k]
@@ -208,32 +232,32 @@ def _report(rf_cv, tcn6_cv, ens_cv, r_resid, sig, n_win, cv_out) -> None:
                 f"→ {'SIGNIFIKANT' if s['significant'] else 'n.s.'}")
 
     lines = [
-        "# TCN6↔RF-Ensemble: hebt Fusion das stärkste Modell?", "",
-        f"Legacy-Pool, nativ-5s, LOSO-by-person, {len(tcn6_cv)} Folds, "
+        f"# {model}↔RF-Ensemble: hebt Fusion das Deep-Modell?", "",
+        f"Legacy-Pool, nativ-5s, LOSO-by-person, {len(deep_cv)} Folds, "
         f"{n_win} aligned Fenster.", "",
         "## Per-Fold acc±σ / AUC (nativ-5s)", "",
         "| Arm | acc±σ / AUC |", "|---|---|",
         f"| RF-nativ-5s solo | {_summary(rf_cv)} |",
-        f"| TCN6-nativ-5s solo | {_summary(tcn6_cv)} |",
+        f"| {model}-nativ-5s solo | {_summary(deep_cv)} |",
         f"| **Ensemble (mean)** | {_summary(ens_cv)} |", "",
         "## Der entscheidende Test: Residuen-Korrelation", "",
-        f"- **r(rf−y, tcn6−y) = {r_resid:+.3f}**  "
+        f"- **r(rf−y, {model}−y) = {r_resid:+.3f}**  "
         + ("→ Fehler stark korreliert, kaum Fusions-Spielraum."
            if r_resid > 0.5 else
            "→ Fehler nur teilweise korreliert, etwas Spielraum."),
         "", "## Gepaarter Wilcoxon (Ensemble vs. solo)", "",
-        f"- Ensemble vs **TCN6** (acc): {sline('ens_vs_tcn6_acc')}",
-        f"- Ensemble vs **TCN6** (AUC): {sline('ens_vs_tcn6_auc')}",
+        f"- Ensemble vs **{model}** (acc): {sline('ens_vs_deep_acc')}",
+        f"- Ensemble vs **{model}** (AUC): {sline('ens_vs_deep_auc')}",
         f"- Ensemble vs RF (acc): {sline('ens_vs_rf_acc')}",
         f"- Ensemble vs RF (AUC): {sline('ens_vs_rf_auc')}",
         "", f"**Verdikt:** Fusion {verdict} "
-        f"(vs TCN6-solo: Δacc {d_acc:+.4f}, ΔAUC {d_auc:+.4f}).",
+        f"(vs {model}-solo: Δacc {d_acc:+.4f}, ΔAUC {d_auc:+.4f}).",
         "", f"Rohdaten: `{cv_out.relative_to(ROOT)}`.", "",
     ]
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    (REPORTS_DIR / "tcn_rf_fusion.md").write_text("\n".join(lines))
+    report_out.write_text("\n".join(lines))
     print("\n".join(lines))
-    print(f"\n-> {REPORTS_DIR / 'tcn_rf_fusion.md'}")
+    print(f"\n-> {report_out}")
 
 
 if __name__ == "__main__":
