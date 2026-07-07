@@ -144,7 +144,8 @@ def test_all_canonical_configs_load_and_share_grid():
     # *_stage2 = LOSO-Bestaetigungslaeufe (folds=null, Multi-Seed, model != stem) --
     # wie die focused probes von der Shared-Grid-Invariante ausgenommen.
     paths = [p for p in all_paths
-             if p.stem not in _FOCUSED_PROBES and not p.stem.endswith("_stage2")]
+             if p.stem not in _FOCUSED_PROBES and not p.stem.endswith("_stage2")
+             and not p.stem.endswith("_confirm")]
     assert len(paths) == 15
     specs = [load_grid_spec(p) for p in paths]
     assert {s.model for s in specs} == {p.stem for p in paths}
@@ -175,6 +176,16 @@ def test_tcn6_inception_config_exists():
     spec = load_grid_spec(cfg_dir / "tcn6_inception.json")
     assert spec.model == "tcn6_inception"
     assert spec.folds == 5
+
+
+def test_confirm_configs_5f_3seed():
+    """N=22-Bestaetigung: grouped-5-fold, 3 Seeds, Sieger-HP fix (model != stem)."""
+    cfg_dir = Path(__file__).parents[1] / "configs" / "hp"
+    for stem, model in [("tcn_bigru_confirm", "tcn_bigru"), ("tcn6_confirm", "tcn6")]:
+        spec = load_grid_spec(cfg_dir / f"{stem}.json")
+        assert spec.model == model
+        assert spec.folds == 5
+        assert spec.seeds == [42, 43, 44]
 
 
 def test_stage2_loso_confirmation_configs():
