@@ -719,9 +719,11 @@ class InceptionTime(nn.Module):
                 )
                 res_in = out_ch
         self.gap = nn.AdaptiveAvgPool1d(1)
+        self.out_ch = out_ch  # Feature-Dim vor dem Kopf (fuer Feature-Level-Fusion)
         self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(out_ch, 1))
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def features(self, x: torch.Tensor) -> torch.Tensor:
+        """Pre-Head-Features ``(batch, out_ch)`` -- Tap-Punkt fuer Zwei-Branch-Fusion."""
         x = x.transpose(1, 2)  # (batch, seq, 6) -> (batch, 6, seq)
         res = x
         out = x
@@ -730,8 +732,39 @@ class InceptionTime(nn.Module):
             if str(d) in self.residuals:
                 out = torch.relu(out + self.residuals[str(d)](res))
                 res = out
-        out = self.gap(out).squeeze(-1)  # (batch, out_ch)
-        return self.head(out).squeeze(-1)  # (batch,)
+        return self.gap(out).squeeze(-1)  # (batch, out_ch)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(self.features(x)).squeeze(-1)  # (batch,)
+
+
+class TCN6InceptionHybrid(nn.Module):
+    """Zwei-Branch-Netz: TCN6-Trunk ‖ InceptionTime, Features konkateniert, EIN
+    gemeinsamer Kopf, end-to-end zusammen trainiert.
+
+    Echte Feature-Level-Fusion (kein Proba-Ensemble getrennt trainierter Netze):
+    der TCN6-Zweig (dilatierte Kausal-Convs, 16-dim) und der Inception-Zweig
+    (parallele Multi-Scale-Kernel 9/19/39, 64-dim) sehen dasselbe Roh-Signal aus
+    verschiedenen rezeptiven Feldern; der gemeinsame Kopf lernt ueber beide
+    Repraesentationen gemeinsam. Beide Branch-Feature-Extraktoren sind wieder-
+    verwendet (``_build_tcn_trunk`` bzw. ``InceptionTime.features``) statt
+    dupliziert.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__()
+        self.tcn_trunk = _build_tcn_trunk(n_channels, hidden=16, levels=6,
+                                          dropout=dropout)
+        self.tcn_pool = nn.AdaptiveAvgPool1d(1)
+        self.inception = InceptionTime(n_channels=n_channels, dropout=dropout)
+        feat_dim = 16 + self.inception.out_ch  # 16 (TCN6) + 64 (Inception)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(feat_dim, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        xt = x.transpose(1, 2)                                   # (B, 6, seq)
+        t = self.tcn_pool(self.tcn_trunk(xt)).squeeze(-1)       # (B, 16)
+        i = self.inception.features(x)                           # (B, 64)
+        return self.head(torch.cat([t, i], dim=1)).squeeze(-1)  # (B,)
 
 
 MODELS: dict[str, type[nn.Module]] = {
@@ -759,4 +792,5 @@ MODELS: dict[str, type[nn.Module]] = {
     "tcn_bigru_w32_24": TCNBiGRUWide32_24,
     "tcn_bigru_w64_16": TCNBiGRUWide64_16,
     "tcn_bigru_w64_24": TCNBiGRUWide64_24,
+    "tcn6_inception": TCN6InceptionHybrid,
 }

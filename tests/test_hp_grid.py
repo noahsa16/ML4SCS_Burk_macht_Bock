@@ -134,7 +134,7 @@ def test_grid_spec_rejects_out_of_range():
 # are exempt from the shared-grid fairness invariant, like smoke* fixtures.
 _FOCUSED_PROBES = {"bigru", "gru2", "inception", "tcn_bigru", "tcn_gru_attn",
                    "tcn_bigru_attn", "tcn_bigru_w32_24", "tcn_bigru_w64_16",
-                   "tcn_bigru_w64_24"}
+                   "tcn_bigru_w64_24", "tcn6_inception"}
 
 
 def test_all_canonical_configs_load_and_share_grid():
@@ -167,6 +167,14 @@ def test_tcn_bigru_wide_probe_configs():
         spec = load_grid_spec(cfg_dir / f"{stem}.json")
         assert spec.model == stem       # Modell = Dateiname-Stem
         assert spec.seeds == [42]       # focused: 1 Seed
+
+
+def test_tcn6_inception_config_exists():
+    """Zwei-Branch-Netz TCN6 ‖ Inception: Focused-Probe auf 5-fold (das Maß)."""
+    cfg_dir = Path(__file__).parents[1] / "configs" / "hp"
+    spec = load_grid_spec(cfg_dir / "tcn6_inception.json")
+    assert spec.model == "tcn6_inception"
+    assert spec.folds == 5
 
 
 def test_stage2_loso_confirmation_configs():

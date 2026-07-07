@@ -1,0 +1,27 @@
+{
+  "model": "tcn6_inception",
+  "pool": "legacy",
+  "win": 5,
+  "folds": 5,
+  "seeds": [
+    42
+  ],
+  "max_epochs": 120,
+  "patience": 8,
+  "grid": {
+    "lr": [
+      0.0003,
+      0.001
+    ],
+    "dropout": [
+      0.05,
+      0.2
+    ],
+    "batch_size": [
+      64
+    ],
+    "weight_decay": [
+      1e-05
+    ]
+  }
+}

@@ -8,7 +8,8 @@ import torch
 
 from src.training.deep import data as deep_data
 from src.training.deep.data import build_raw_windows, load_session_raw, zscore_channels
-from src.training.deep.models import CNN1D, MODELS, TCN, TCNBiGRUHybrid, TemporalBlock
+from src.training.deep.models import (
+    CNN1D, MODELS, TCN, InceptionTime, TCNBiGRUHybrid, TemporalBlock)
 from src.training.deep.train_loso import (
     DEVICE,
     POOL_FS,
@@ -151,7 +152,8 @@ def test_models_registry_keys():
                                   "transformer_p5", "tcn_gru", "tcn_bigru",
                                   "tcn_gru_attn", "tcn_bigru_attn",
                                   "tcn_transformer", "tcn_bigru_w32_24",
-                                  "tcn_bigru_w64_16", "tcn_bigru_w64_24"}
+                                  "tcn_bigru_w64_16", "tcn_bigru_w64_24",
+                                  "tcn6_inception"}
 
 
 @pytest.mark.parametrize("name", ["tcn_bigru", "tcn_gru_attn", "tcn_bigru_attn",
@@ -181,6 +183,29 @@ def test_tcn_bigru_wide_variants_are_wider():
     assert n(MODELS["tcn_bigru_w32_24"]()) > base   # breiterer Trunk (16->24)
     assert n(MODELS["tcn_bigru_w64_16"]()) > base   # breiterer GRU (32->64)
     assert n(MODELS["tcn_bigru_w64_24"]()) > base   # beides
+
+
+def test_inception_features_extract_and_forward_identity():
+    # features() liefert die Pre-Head-Features (B, out_ch); forward == head(features)
+    m = InceptionTime(dropout=0.0)
+    m.eval()
+    x = torch.randn(4, 50, 6)
+    feat = m.features(x)
+    assert feat.shape == (4, m.out_ch)          # (4, 64)
+    torch.testing.assert_close(m(x), m.head(feat).squeeze(-1))
+
+
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_tcn6_inception_forward_shape(seq_len):
+    out = MODELS["tcn6_inception"](dropout=0.1)(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn6_inception_head_consumes_both_branches():
+    # das Zwei-Branch-Netz konkateniert TCN6-Feature (16) + Inception-Feature (64) = 80
+    m = MODELS["tcn6_inception"]()
+    assert m.head[-1].in_features == 16 + 64
 
 
 @pytest.mark.parametrize("seq_len", [50, 250, 500])
