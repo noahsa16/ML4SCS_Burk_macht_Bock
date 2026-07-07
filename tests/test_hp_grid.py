@@ -141,7 +141,10 @@ def test_all_canonical_configs_load_and_share_grid():
     """Fairness-Invariante: identische Default-Grids in allen kanonischen Dateien."""
     cfg_dir = Path(__file__).parents[1] / "configs" / "hp"
     all_paths = sorted(p for p in cfg_dir.glob("*.json") if not p.stem.startswith("smoke"))
-    paths = [p for p in all_paths if p.stem not in _FOCUSED_PROBES]
+    # *_stage2 = LOSO-Bestaetigungslaeufe (folds=null, Multi-Seed, model != stem) --
+    # wie die focused probes von der Shared-Grid-Invariante ausgenommen.
+    paths = [p for p in all_paths
+             if p.stem not in _FOCUSED_PROBES and not p.stem.endswith("_stage2")]
     assert len(paths) == 15
     specs = [load_grid_spec(p) for p in paths]
     assert {s.model for s in specs} == {p.stem for p in paths}
@@ -164,6 +167,18 @@ def test_tcn_bigru_wide_probe_configs():
         spec = load_grid_spec(cfg_dir / f"{stem}.json")
         assert spec.model == stem       # Modell = Dateiname-Stem
         assert spec.seeds == [42]       # focused: 1 Seed
+
+
+def test_stage2_loso_confirmation_configs():
+    """Prio 1: Stage-2 LOSO-Bestaetigung -- folds=null (LOSO), 3 Seeds, targeten
+    das Front-Runner-Modell (model != stem, da _stage2-Suffix)."""
+    cfg_dir = Path(__file__).parents[1] / "configs" / "hp"
+    for stem, model in [("tcn_bigru_stage2", "tcn_bigru"),
+                        ("tcn_gru_stage2", "tcn_gru")]:
+        spec = load_grid_spec(cfg_dir / f"{stem}.json")
+        assert spec.model == model
+        assert spec.folds is None       # LOSO, nicht grouped-k-fold
+        assert spec.seeds == [42, 43, 44]
 
 
 import pandas as pd
