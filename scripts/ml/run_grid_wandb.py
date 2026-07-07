@@ -157,7 +157,7 @@ def run_grid_wandb(config_path: Path):
                     lr=cfg["lr"], dropout=cfg["dropout"],
                     batch_size=cfg["batch_size"], weight_decay=cfg["weight_decay"],
                     patience=spec.patience, max_epochs=spec.max_epochs,
-                    folds=spec.folds, on_event=events,
+                    folds=spec.folds, gravity=spec.gravity, on_event=events,
                 )
                 pd.DataFrame([{
                     "model": spec.model, "cfg_id": cfg_id, **cfg, "seed": seed,

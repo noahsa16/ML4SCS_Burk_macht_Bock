@@ -129,6 +129,12 @@ def test_grid_spec_rejects_out_of_range():
         GridSpec(**{**VALID, "pool": "mixed"})
 
 
+def test_grid_spec_gravity_flag_defaults_false():
+    # Gravity-Kanaele (9 statt 6) opt-in; Default False = bit-identisch.
+    assert GridSpec(**VALID).gravity is False
+    assert GridSpec(**{**VALID, "gravity": True}).gravity is True
+
+
 # Why: focused pre-Thursday probes carry intentionally reduced grids (1 seed,
 # 4-6 trials around a known winner) so they finish before the deadline — they
 # are exempt from the shared-grid fairness invariant, like smoke* fixtures.
