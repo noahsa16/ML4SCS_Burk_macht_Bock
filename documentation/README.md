@@ -15,6 +15,11 @@ used to carry inline — preserved verbatim, searchable, but out of the way.
   leaderboard (best config per architecture, grouped-5-fold search) pulled from
   wandb `ML4SCS_HP_Grid`, with the noise-floor / selection-bias caveats. Snapshot
   2026-07-06; the whole TCN/GRU-hybrid family clusters at 0.91–0.93 (no separation).
+- **[fusion_and_run_plan.md](fusion_and_run_plan.md)** — which model pairings are
+  still worth testing (ranked by residual-correlation logic, not solo strength),
+  why further hybrid architectures are dropped, and the prioritized pod queue for
+  the remaining runs (Stage-2 confirmation, N=22 refresh, fusion tests).
+  Snapshot 2026-07-07.
 
 The per-experiment `reports/*.md` files remain the **primary** detailed source;
 this folder is the consolidated narrative + the lineage that no single report
