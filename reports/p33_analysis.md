@@ -7,8 +7,12 @@ liest. **Kein Bug, kein Alignment-Fehler, kein Datenproblem** — die Signal-Dec
 personifiziert.
 
 Kontext: P33/S062 ist der schwächste Fold der N=22-RF-LOSO-Headline (**acc 0.678**),
-11 pp unter dem nächstschwächsten (P31 0.792). Analyse auf `models/loso_oof_legacy.csv`
-(N=22) + Markern `data/raw/markers/S062_markers.csv`.
+11 pp unter dem nächstschwächsten (P31 0.792). Analyse auf dem N=22-Legacy-OOF des
+lokalen Refresh-Laufs + Markern `data/raw/markers/S062_markers.csv`.
+**Quellen-Korrektur (2026-07-07):** das kanonische `models/loso_oof_legacy.csv` ist
+weiterhin N=20 **ohne P33** — das hier analysierte N=22-OOF wurde nicht dauerhaft
+gespeichert. Die Zahl ist unabhängig repliziert (§6); für exakte Reproduktion den
+N=22-Legacy-LOSO neu rechnen (`--pool legacy --save-oof`).
 
 ## 1. Fehlerprofil (3035 Fenster, writing-Anteil 0.408)
 
@@ -69,12 +73,47 @@ schlechter als alle anderen — die dokumentierten P09- (Soft-Writer) und P07-
 
 1. **Nicht code-fixbar** — die Info fehlt im Signal (leichtes Schreiben = kaum
    Wrist-Bewegung). Per-Subject-Threshold half schon P09 nicht (`reports/per_subject_threshold.md`).
-2. **Offener technischer Hebel:** P33 ist nativ **100 Hz + Gravity**, der RF lief aber auf
-   der 50-Hz-Legacy-View (downgesampled → feine Soft-Writing-Bewegung könnte wegfallen).
-   Der direkte Test ist **P33 @50 Hz-6ch vs. @100 Hz-9ch** (Modern-Gravity-Läufe) — ob
-   native Rate + Schwerkraft das schwache Signal retten.
+2. **Hebel „native Rate + Gravity" — getestet, rettet nicht (2026-07-07):** der
+   Modern-Pool-RF (N=13, nativ 100 Hz + 9ch, `models/loso_oof_modern_pooled.csv`)
+   gibt P33 **acc 0.686** vs. 0.676 @50 Hz-6ch — +1 pp, nicht streng gepaart
+   (N=13- statt N=21-Trainingskohorte). Die Information fehlt am Handgelenk,
+   nicht in der Abtastrate.
 3. **Sonst:** mehr extreme-Soft-Writer-Trainingsdaten — aber P33 als Ausreißer *unter* den
    Soft-Writern deutet auf den physischen Sensor-Floor.
 
+## 6. Nachtrag 2026-07-07 — vierfache Replikation + modellfreie Kinematik
+
+Die 0.678 ist über Modellfamilien, Sample-Raten und Merge-Pfade hinweg stabil —
+in jedem Lauf ist S062 der (zweit-)schwächste Fold:
+
+| Lauf | Basis | P33/S062 acc |
+|---|---|---|
+| RF Legacy N=22 (dieser Report) | 50-Hz-View, 88 Features | 0.676 |
+| RF Modern N=13 (`loso_oof_modern_pooled.csv`) | nativ 100 Hz + Gravity, eigener Merge | 0.686 |
+| tcn6 (`deep_deep_fusion_tcn6_tcn_gru_oof.csv`) | rohe Sequenzen | 0.676 |
+| tcn_gru / Proba-Ensemble | rohe Sequenzen | 0.662 / 0.669 |
+
+Der Modern-Lauf nutzt `S062_merged.csv` (nativer Merge-Pfad), nicht die decimierte
+Legacy-View — ein View-Defekt ist damit als gemeinsame Ursache ausgeschlossen.
+
+**Modellfreie Kinematik** (Median über label=1-Fenster, 9 v2-Sessions mit soft_writing):
+
+| | P33 (S062) | Kohorte (übrige 8) |
+|---|---|---|
+| soft_writing `gyro_mag_std` | **0.090** (Minimum) | 0.17–0.30 |
+| soft_writing `acc_mag_std` | **0.023** (Minimum) | 0.031–0.060 |
+| soft_writing / eigene Pause | **1.36×** | z. B. P34 5.36×, P29 3.81× |
+| free_writing `gyro_mag_std` | **0.240** (Minimum) | 0.31–0.47 |
+
+P33s leichtes Schreiben liegt nur 36 % über seinem eigenen Pause-Level. Der
+per-Session-Z-Score kann das nicht retten: er normiert die absolute Skala, aber der
+fehlende *relative* Kontrast Schreiben↔Ruhe ist intrinsisch. Sein `keyboard_typing`
+(gyro 0.225, Jerk 2.56) ist kinematisch von seinem `abschreiben` (0.164, 2.03) kaum
+unterscheidbar → Keyboard-FPR 0.43. Nuance: P27 (S056) hat ähnlich schwaches
+soft_writing (gyro 0.085), scored aber 0.871 — bei ihm ist nur diese eine Task
+betroffen, bei P33 drei (soft, math, think_pause) plus die Keyboard-Verwechslung.
+
 **Reproduktion:** `scripts/ml/marker_fpr.py`-Bausteine (`parse_task_blocks`/`assign_task`)
-auf `models/loso_oof_legacy.csv` gefiltert auf `person_id == "P33"`.
+auf einem N=22-Legacy-OOF gefiltert auf `person_id == "P33"`; Modern-Vergleich auf
+`models/loso_oof_modern_pooled.csv`; Kinematik direkt aus
+`data/processed/windows/50hz/*_windows.csv` + Marker-CSVs.
