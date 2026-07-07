@@ -33,12 +33,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy.stats import pearsonr
-from sklearn.metrics import roc_auc_score
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from src.evaluation.significance import paired_fold_test  # noqa: E402
+# Geteilte reine Kernlogik (single source of truth mit ensemble_committee.py).
+from src.evaluation.fusion_utils import (  # noqa: E402
+    normalise_oof as _normalise_oof, paired_metric as _paired, per_fold_metrics)
 
 MODEL_DIR = ROOT / "models"
 REPORTS_DIR = ROOT / "reports"
@@ -47,23 +48,8 @@ POOL = "legacy"
 
 
 # ---- reine, testbare Kernlogik -------------------------------------------
-
-def _pick(cols: list[str], candidates: tuple[str, ...]) -> str:
-    for c in candidates:
-        if c in cols:
-            return c
-    raise KeyError(f"keine von {candidates} in {cols}")
-
-
-def _normalise_oof(df: pd.DataFrame) -> pd.DataFrame:
-    """Robust auf einheitliche Spalten: session_id, t_center_ms, person_id, y, proba."""
-    cols = list(df.columns)
-    proba = _pick(cols, ("proba_cal", "proba", "proba_raw"))
-    label = _pick(cols, ("label", "y"))
-    person = _pick(cols, ("person_id", "held_out", "person"))
-    out = df.rename(columns={proba: "proba", label: "y", person: "person_id"})
-    return out[["session_id", "t_center_ms", "person_id", "y", "proba"]].copy()
-
+# ``_normalise_oof`` + ``per_fold_metrics`` kommen aus fusion_utils (importiert
+# oben, Namen erhalten). Nur die 2-Wege-spezifische Logik lebt hier lokal.
 
 def align_oofs(rf: pd.DataFrame, deep: pd.DataFrame) -> pd.DataFrame:
     """Paart RF- und Deep-OOF per Session auf nächstem t_center (nearest).
@@ -84,24 +70,6 @@ def align_oofs(rf: pd.DataFrame, deep: pd.DataFrame) -> pd.DataFrame:
         print(f"[fusion] {missing} Fenster ohne Deep-Match — verworfen")
         merged = merged.dropna(subset=["deep_proba"])
     return merged.reset_index(drop=True)
-
-
-def per_fold_metrics(df: pd.DataFrame, proba_col: str) -> pd.DataFrame:
-    """Per-Person acc/AUC auf nativer 5-s-Decision (ein Fenster = eine Entscheidung).
-
-    Returns significance.py-kompatibles CV: held_out, accuracy, roc_auc.
-    """
-    rows = []
-    for person, g in df.groupby("person_id"):
-        y = g["y"].to_numpy()
-        p = g[proba_col].to_numpy()
-        acc = float(((p >= 0.5).astype(int) == y).mean())
-        try:
-            auc = float(roc_auc_score(y, p)) if len(np.unique(y)) > 1 else float("nan")
-        except ValueError:
-            auc = float("nan")
-        rows.append({"held_out": person, "accuracy": acc, "roc_auc": auc})
-    return pd.DataFrame(rows).sort_values("held_out").reset_index(drop=True)
 
 
 def ensemble_proba(rf_proba: np.ndarray, deep_proba: np.ndarray,
@@ -127,13 +95,6 @@ def _build_parser() -> argparse.ArgumentParser:
                     help="Deep-Modell-Key (z. B. tcn6, inception, tcn_bigru)")
     ap.add_argument("--force-oof", action="store_true")
     return ap
-
-
-def _paired(a_cv: pd.DataFrame, b_cv: pd.DataFrame, metric: str) -> dict:
-    """paired_fold_test auf gemeinsamen Folds (held_out) für eine Metrik."""
-    m = a_cv[["held_out", metric]].merge(
-        b_cv[["held_out", metric]], on="held_out", suffixes=("_a", "_b")).dropna()
-    return paired_fold_test(m[f"{metric}_a"].to_numpy(), m[f"{metric}_b"].to_numpy())
 
 
 # ---- OOF-Erzeugung (Plumbing, gecached) ----------------------------------
