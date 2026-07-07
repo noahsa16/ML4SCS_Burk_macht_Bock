@@ -41,12 +41,41 @@ task-/subjekt-spezifisch (keyboard/phone-Tippen-Verwechslung, siehe
 `models/loso_oof_legacy.csv`; die kanonischen Artefakte
 `loso_cv_legacy.csv` / `rf_all.joblib` sind noch auf N=15 und
 regenerations-pflichtig (ebenso `rf_all_live.joblib`, noch N=14 pre-fix).
-**Kohorte inzwischen N=22** (P33/S062 + P34/S063 collected & `usable`,
-Legacy-Views lokal gebaut) — die *computed* Headline bleibt bis auf
-Weiteres N=20 (`loso_oof_legacy.csv`), der N=22-Refresh + Winner-Retrain
-läuft ein andermal **auf dem Pod** (bewusst nicht lokal). Der Config-Rang
-der HP-Suche ist robust gegen ±2 Probanden, daher bleibt die N=20-Suche
-für Stufe-1-Selektion gültig.
+**Kohorte N=22.** N=22-RF-Refresh gerechnet (2026-07-07, auf dem Pod):
+**1s-acc 0.863 ± 0.051, ROC-AUC 0.937 ± 0.053** (leicht unter N=20 0.869/0.946
+— der Rückgang kommt zu 100 % aus P33/P34, nicht kohorten-weit; P33 =
+Extrem-Soft-Writer, siehe `reports/p33_analysis.md`). Das lokale kanonische
+`loso_oof_legacy.csv`/`loso_cv_legacy.csv` sind weiterhin **N=20** (der
+Pod-Refresh wurde nicht lokal persistiert; für lokale Reproduktion neu rechnen).
+**Reporting-Metrik ist jetzt grouped-5-fold** (mit ETH Zürich vereinbart;
+leakage-frei via GroupKFold-by-person — `free_writing`-Kontrolle in p33_analysis) —
+die LOSO-20-Stage-2-Bestätigung entfällt.
+
+**Session 2026-07-07 (durable):**
+- **Deep N=22 grouped-5-fold @3 Seeds:** tcn_bigru 0.9114 ± 0.005, tcn6
+  0.9086 ± 0.003 — effektiv gleichauf, beide ~1–2 pp unter ihren N=20-
+  Einzel-Seed-Leaderboard-Maxes (0.9314/0.9196) → Selektions-Inflation bestätigt.
+- **HMM-HP-Sweep null** (`scripts/ml/hmm_hyperparameter_sweep.py`, 450 Kombis,
+  signifikanz-gegated): smoothing/eps/**gamma** (Acoustic Scale, neu in
+  `scaled_likelihoods`, Default 1.0 bit-identisch) alle im Rauschen → Defaults
+  optimal. **Der echte Hebel ist der Decode-MODUS:** nicht-kausaler smoother
+  (Scrybe-Tagestracker) 0.917 vs kausaler filter (Live-Gimmick) 0.898 = **+1,8 pp,
+  p≈0, 20/20 Folds** (N=22: +1,75 pp, 19/22). Live bleibt filter, Tagestracker → smoother.
+- **Gravity fürs Deep-Netz** (`build_raw_windows(gravity=True)` → 9 statt 6 Kanäle,
+  `GridSpec.gravity`, `n_channels` aus den Daten) — **nie zuvor gefüttert** (auch
+  die alte Modern-tcn6-Headline war 6ch). **Ergebnis (Modern-Deep, 3-Seed):
+  Gravity hilft nicht** — tcn6 6ch 0.858 → 9ch 0.858 (+0.0005, Rauschen),
+  tcn_bigru 6ch 0.889 → 9ch 0.862 (**−0.027, schadet**). Wie beim RF
+  (cross-subject −0.005): Personalisierungs-, kein Generalisierungs-Signal.
+- **deep×deep-Fusion null** (`inception × tcn_bigru`, r(Residuen)=0.708 → kein
+  signifikanter Lift) — bestätigt: nur cross-paradigma (Deep×RF) hebt.
+- Neue Tools: `scripts/ml/ensemble_committee.py` (N-Wege-Komitee) +
+  `src/evaluation/fusion_utils.py` (geteilte 2-/N-Wege-Fusionslogik);
+  `tcn_rf_fusion.py --model`. Neue Modelle: `tcn_bigru_w{32_24,64_16,64_24}`
+  (Wide), `tcn6_inception` (Zwei-Branch-Joint-Fusion, kein Ensemble).
+- **Daten-Decke bestätigt:** jede Achse außer *mehr Probanden* diese Session
+  null/marginal (Fusion, Gravity, HP, Reweighting) — die Decke bewegt sich mit
+  Daten, nicht Compute.
 
 **Vorgänger-Headlines (N=3 → N=15, volle Zahlen-Ahnenreihe) +
 Deep-Modell-Headlines:
@@ -636,6 +665,18 @@ no longer vibrates continuously when the server is down.
   `scripts/ml/pull_wandb_runs.py [--out models/hp_grid/wandb_runs.csv]`.
   **Bei GPU-Compute-Fragen RunPod vorschlagen; für HP-Grid-Ergebnisse zuerst
   `pull_wandb_runs.py` laufen lassen.**
+  **RunPod-Gotchas (2026-07-07):** `/workspace` überlebt einen Pod-Restart, aber
+  **pip-Deps, Creds (`rclone.conf`, wandb-`~/.netrc`) und Env sind weg** →
+  re-provisionieren (`pip install --break-system-packages …`, wandb-Login,
+  `RCLONE_CONFIG_R2_*`-Env). `run_grid_wandb` **crasht mit EXIT:1 am ENDE am
+  rclone-R2-Backup**, wenn R2-Creds fehlen — Training + wandb sind dann längst
+  durch (Ergebnisse sicher in wandb), rein kosmetisch. **Resume-Skip:** ein
+  Leftover-Outdir (`run_meta.json` ohne `trial_*.csv`, Rest eines gekillten Laufs)
+  lässt eine Config **still ausfallen** → Outdir löschen erzwingt Re-Run.
+  R2-Bucket `ml4scs-sweep`, Creds lokal in `.env` (gitignored), `sweep_data.zip`
+  (N=22) hochgeladen. Pod pullt Daten aus R2 + Code aus `origin` (= noahsa16-Fork,
+  NICHT `org` = divergentes Team-Repo). wandb-Run-Namen kollidieren für gleiches
+  (model, seed) über pool/gravity — per Config-Feldern unterscheiden.
 - `src/training/deep/harnet*.py` — **Transfer-Learning mit dem Oxford
   `ssl-wearables`-Foundation-Model (harnet).** `harnet_data.py` (Bridge
   merged→harnet-Fenster: resample 50/100→30 Hz, `(N,3,150)` harnet5 /
@@ -668,11 +709,10 @@ no longer vibrates continuously when the server is down.
   Driven-Development, Commits `027d07c..2a16172` auf `development`). **In git
   committet sind 15 Einträge** (`cnn, lstm, gru, tcn, tcn6, tcn6w32, tcn6k5,
   tcn6wn, tcn6ap, tcn6se, tcn8, transformer, transformer_p5, tcn_gru,
-  tcn_transformer`); **5 weitere leben nur im lokalen Working-Tree + auf dem
-  RunPod-Pod, NICHT in git** (`gru2, bigru, inception, tcn_bigru, tcn_gru_attn`
-  → `MODELS` hat lokal **20** Einträge). Vor jedem Zitat einer Accuracy für
-  diese fünf: `models/hp_grid/wandb_runs.csv` bzw. den Pod prüfen — ein frischer
-  Clone hat sie nicht. Gemeinsame Grundlage aller TCN-Varianten:
+  tcn_transformer`); (`gru2, bigru, inception, tcn_bigru, tcn_gru_attn` sind seit 252cbf1/2aac3a7
+  **committet**; ebenso die 2026-07-07-Neuzugänge tcn_bigru-Wide + tcn6_inception
+  — ein frischer Clone hat sie also). Deren **Accuracies** liegen aber in wandb,
+  nicht lokal: vor jedem Zitat `models/hp_grid/wandb_runs.csv` bzw. den Pod prüfen. Gemeinsame Grundlage aller TCN-Varianten:
   `_build_tcn_trunk(n_channels, hidden, levels, kernel_size=3, dropout=0.2,
   norm="batch")`, bit-identisch aus `TCN.__init__` extrahiert (volle Test-Suite
   vorher/nachher grün), damit Hybride denselben dilatierten Causal-Conv-Stack
