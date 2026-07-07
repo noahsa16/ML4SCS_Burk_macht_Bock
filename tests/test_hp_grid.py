@@ -133,7 +133,8 @@ def test_grid_spec_rejects_out_of_range():
 # 4-6 trials around a known winner) so they finish before the deadline — they
 # are exempt from the shared-grid fairness invariant, like smoke* fixtures.
 _FOCUSED_PROBES = {"bigru", "gru2", "inception", "tcn_bigru", "tcn_gru_attn",
-                   "tcn_bigru_attn"}
+                   "tcn_bigru_attn", "tcn_bigru_w32_24", "tcn_bigru_w64_16",
+                   "tcn_bigru_w64_24"}
 
 
 def test_all_canonical_configs_load_and_share_grid():
@@ -153,6 +154,16 @@ def test_all_canonical_configs_load_and_share_grid():
     for p in all_paths:
         if p.stem in _FOCUSED_PROBES:
             assert load_grid_spec(p).model == p.stem
+
+
+def test_tcn_bigru_wide_probe_configs():
+    """Blocker A: die drei Kapazitaets-Probe-Configs existieren, targeten das
+    passende registrierte Wide-Modell und sind Single-Seed-Focused-Probes."""
+    cfg_dir = Path(__file__).parents[1] / "configs" / "hp"
+    for stem in ["tcn_bigru_w32_24", "tcn_bigru_w64_16", "tcn_bigru_w64_24"]:
+        spec = load_grid_spec(cfg_dir / f"{stem}.json")
+        assert spec.model == stem       # Modell = Dateiname-Stem
+        assert spec.seeds == [42]       # focused: 1 Seed
 
 
 import pandas as pd

@@ -8,7 +8,7 @@ import torch
 
 from src.training.deep import data as deep_data
 from src.training.deep.data import build_raw_windows, load_session_raw, zscore_channels
-from src.training.deep.models import CNN1D, MODELS, TCN, TemporalBlock
+from src.training.deep.models import CNN1D, MODELS, TCN, TCNBiGRUHybrid, TemporalBlock
 from src.training.deep.train_loso import (
     DEVICE,
     POOL_FS,
@@ -150,18 +150,37 @@ def test_models_registry_keys():
                                   "tcn6se", "tcn8", "transformer",
                                   "transformer_p5", "tcn_gru", "tcn_bigru",
                                   "tcn_gru_attn", "tcn_bigru_attn",
-                                  "tcn_transformer"}
+                                  "tcn_transformer", "tcn_bigru_w32_24",
+                                  "tcn_bigru_w64_16", "tcn_bigru_w64_24"}
 
 
-@pytest.mark.parametrize("name", ["tcn_bigru", "tcn_gru_attn", "tcn_bigru_attn"])
+@pytest.mark.parametrize("name", ["tcn_bigru", "tcn_gru_attn", "tcn_bigru_attn",
+                                  "tcn_bigru_w32_24", "tcn_bigru_w64_16",
+                                  "tcn_bigru_w64_24"])
 @pytest.mark.parametrize("seq_len", [50, 250])
 def test_tcn_gru_hybrid_variant_forward(name, seq_len):
-    """BiGRU / Attention-Pooling / beides kombiniert -- gleiche Signatur wie
-    tcn_gru. Faengt insb. den 2*rnn_hidden-AttnPool-Dim-Bug im BiGRU+Attn-
-    Hybrid ab (bidirektionaler GRU gibt 2*hidden Kanaele pro Zeitschritt)."""
+    """BiGRU / Attention-Pooling / beides kombiniert + Wide-Kapazitaets-Varianten
+    -- gleiche Signatur wie tcn_gru. Faengt insb. den 2*rnn_hidden-AttnPool-Dim-
+    Bug ab und dass ein breiterer trunk_hidden konsistent in GRU.input_size
+    fliesst (sonst Shape-Mismatch)."""
     out = MODELS[name](dropout=0.1)(torch.randn(8, seq_len, 6))
     assert out.shape == (8,)
     assert torch.all(torch.isfinite(out))
+
+
+def test_tcn_bigru_trunk_hidden_default_is_bit_identical():
+    # Blocker A: trunk_hidden-Param eingefuehrt, Default 16 == alter fixer Wert
+    n = lambda m: sum(p.numel() for p in m.parameters())  # noqa: E731
+    assert n(TCNBiGRUHybrid()) == n(TCNBiGRUHybrid(rnn_hidden=32, trunk_hidden=16))
+
+
+def test_tcn_bigru_wide_variants_are_wider():
+    # beide Kapazitaets-Achsen vergroessern die Parameterzahl gegenueber dem Basis-tcn_bigru
+    n = lambda m: sum(p.numel() for p in m.parameters())  # noqa: E731
+    base = n(MODELS["tcn_bigru"]())
+    assert n(MODELS["tcn_bigru_w32_24"]()) > base   # breiterer Trunk (16->24)
+    assert n(MODELS["tcn_bigru_w64_16"]()) > base   # breiterer GRU (32->64)
+    assert n(MODELS["tcn_bigru_w64_24"]()) > base   # beides
 
 
 @pytest.mark.parametrize("seq_len", [50, 250, 500])

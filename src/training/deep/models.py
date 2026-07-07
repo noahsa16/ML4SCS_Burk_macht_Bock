@@ -552,21 +552,46 @@ class TCNBiGRUHybrid(nn.Module):
     """
 
     def __init__(self, n_channels: int = 6, dropout: float = 0.2,
-                 rnn_hidden: int = 32) -> None:
+                 rnn_hidden: int = 32, trunk_hidden: int = 16) -> None:
         super().__init__()
-        self.trunk = _build_tcn_trunk(n_channels, hidden=16, levels=6,
+        # trunk_hidden fliesst konsistent in Trunk-Breite UND GRU.input_size --
+        # Default 16 ist bit-identisch zur urspruenglichen fixen Verdrahtung.
+        self.trunk = _build_tcn_trunk(n_channels, hidden=trunk_hidden, levels=6,
                                       dropout=dropout)
-        self.gru = nn.GRU(input_size=16, hidden_size=rnn_hidden,
+        self.gru = nn.GRU(input_size=trunk_hidden, hidden_size=rnn_hidden,
                           batch_first=True, bidirectional=True)
         self.head = nn.Sequential(nn.Dropout(dropout),
                                   nn.Linear(2 * rnn_hidden, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.transpose(1, 2)
-        feat = self.trunk(x).transpose(1, 2)      # (batch, seq, 16)
+        feat = self.trunk(x).transpose(1, 2)      # (batch, seq, trunk_hidden)
         _, h_n = self.gru(feat)                   # (2, batch, rnn_hidden)
         h = torch.cat([h_n[0], h_n[1]], dim=1)    # (batch, 2*rnn_hidden)
         return self.head(h).squeeze(-1)
+
+
+class TCNBiGRUWide32_24(TCNBiGRUHybrid):
+    """tcn_bigru mit breiterem Trunk (16->24), GRU unveraendert (32) -- die
+    Trunk-Kapazitaets-Achse isoliert (Blocker-A-Kapazitaets-Probe)."""
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels, dropout, rnn_hidden=32, trunk_hidden=24)
+
+
+class TCNBiGRUWide64_16(TCNBiGRUHybrid):
+    """tcn_bigru mit breiterem GRU (32->64), Trunk unveraendert (16) -- die
+    Rekurrenz-Kapazitaets-Achse isoliert."""
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels, dropout, rnn_hidden=64, trunk_hidden=16)
+
+
+class TCNBiGRUWide64_24(TCNBiGRUHybrid):
+    """tcn_bigru breit auf beiden Achsen (Trunk 24, GRU 64)."""
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels, dropout, rnn_hidden=64, trunk_hidden=24)
 
 
 class TCNGRUAttnHybrid(nn.Module):
@@ -731,4 +756,7 @@ MODELS: dict[str, type[nn.Module]] = {
     "tcn_gru_attn": TCNGRUAttnHybrid,
     "tcn_bigru_attn": TCNBiGRUAttnHybrid,
     "tcn_transformer": TCNTransformerHybrid,
+    "tcn_bigru_w32_24": TCNBiGRUWide32_24,
+    "tcn_bigru_w64_16": TCNBiGRUWide64_16,
+    "tcn_bigru_w64_24": TCNBiGRUWide64_24,
 }
