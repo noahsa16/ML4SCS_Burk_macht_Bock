@@ -30,7 +30,6 @@ export function initWatch3D(canvas) {
   const targetQuat = { x: 0, y: 0, z: 0, w: 1 };
   let refInv = null;         // q_ref^-1, gesetzt durch recenter()/erstes Sample
   let writing = false;
-  let flip = false;          // DEV: Rotationsrichtung umkehren (Spiegel-Achse-Fix, 'f')
   let lastMsgTs = 0;
   let introT = 0;
   let lastRender = 0;        // performance.now() des letzten gerenderten Frames
@@ -77,27 +76,13 @@ export function initWatch3D(canvas) {
     colorDefault = new THREE.Color(0x000000);
 
     // Basis-Konjugation CoreMotion(Z-up) -> Three.js(Y-up), in updateOrientation()
-    // als C ⊗ q ⊗ C⁻¹ angewandt. Kalibriert: Basis 1 (= 90 Grad um Z), vom Nutzer
-    // per 'b'-Nudger gefunden.
-    C_FIX = new THREE.Quaternion(0, 0, 0.7071067811865476, 0.7071067811865476);
+    // als C ⊗ q ⊗ C⁻¹ angewandt (plus feste Rotationsrichtungs-Umkehr, s.u.).
+    // Empirisch kalibriert (Nutzer, echter Watch-Stream): C_FIX = [0, -√½, √½, 0].
+    C_FIX = new THREE.Quaternion(0, -Math.SQRT1_2, Math.SQRT1_2, 0);
     C_INV = C_FIX.clone().invert();
-    // DEV-Einricht-Tool (nach dem Festnageln diesen Block + onKey loeschen):
-    //   r = recenter (Ruhepose)   f = Spiegel/Flip an-aus (gespiegelte Achse fixen)
-    //   x/y/z = die Bewegungs-Zuordnung 90 Grad um die jeweilige Szenen-Achse drehen.
-    // Bei Match: die geloggte C_FIX-Array + den flip-Wert an den Entwickler geben.
-    const _rot90 = (ax) => {
-      C_FIX.premultiply(new THREE.Quaternion().setFromAxisAngle(ax, Math.PI / 2));
-      C_INV.copy(C_FIX).invert();
-      needsRender = true;
-      console.log('watch3d C_FIX', C_FIX.toArray(), 'flip', flip);
-    };
-    onKey = (e) => {
-      if (e.key === 'r') recenter();
-      else if (e.key === 'x') _rot90(new THREE.Vector3(1, 0, 0));
-      else if (e.key === 'y') _rot90(new THREE.Vector3(0, 1, 0));
-      else if (e.key === 'z') _rot90(new THREE.Vector3(0, 0, 1));
-      else if (e.key === 'f') { flip = !flip; needsRender = true; console.log('watch3d flip', flip); }
-    };
+    // 'r' = recenter (Ruhepose neu setzen) — Demo-Affordance, greift auf die
+    // aktuelle Handhaltung als neue Nulllage.
+    onKey = (e) => { if (e.key === 'r') recenter(); };
     window.addEventListener('keydown', onKey);
 
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -229,8 +214,9 @@ export function initWatch3D(canvas) {
 
     // q_display = C ⊗ (q_ref⁻¹ ⊗ q_dev) ⊗ C⁻¹  — body-frame relativ (unabhaengig vom
     // arbitraeren CoreMotion-Heading), dann in Szenen-Achsen re-exprimiert.
-    dispQ.copy(refInv).multiply(devQ);      // local = q_ref⁻¹ ⊗ q_dev
-    if (flip) dispQ.conjugate();            // Rotationsrichtung umkehren (Spiegel-Achse-Fix)
+    // local = q_ref⁻¹ ⊗ q_dev, dann kalibrierte Spiegel-Achsen-Umkehr (.conjugate),
+    // dann C ⊗ local ⊗ C⁻¹ (Z-up -> Y-up Basis-Konjugation).
+    dispQ.copy(refInv).multiply(devQ).conjugate();
     dispQ.premultiply(C_FIX).multiply(C_INV);
 
     // Double-Cover: kuerzeste Hemisphaere relativ zum aktuellen Ziel
