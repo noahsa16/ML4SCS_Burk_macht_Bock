@@ -40,7 +40,7 @@ export function connectWs() {
       toast(`■ Session ${msg.session_id} stopped`);
       if (document.querySelector('.tab.active')?.dataset.page === 'sessions') loadSessions();
     } else if (msg.type === 'orientation') {
-      if (_orientationHandler && Array.isArray(msg.q)) _orientationHandler(msg.q);
+      if (_orientationHandler && Array.isArray(msg.qs)) _orientationHandler(msg.qs);
     }
   };
 

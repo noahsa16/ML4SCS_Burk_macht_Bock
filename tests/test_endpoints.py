@@ -466,7 +466,7 @@ def test_watch_batch_caches_and_broadcasts_orientation(client, data_dirs, monkey
     r = client.post("/watch", json=payload)
     assert r.status_code == 200
     assert state_mod.state.last_orientation == [0.0, 0.0, 0.0, 1.0]
-    assert any(m.get("type") == "orientation" and m.get("q") == [0.0, 0.0, 0.0, 1.0]
+    assert any(m.get("type") == "orientation" and [0.0, 0.0, 0.0, 1.0] in m.get("qs", [])
                for m in sent)
 
 

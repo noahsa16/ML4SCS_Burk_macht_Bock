@@ -149,7 +149,7 @@ async def receive_watch(request: Request):
     first_ts = None
     last_ts = None
     last_sample = None
-    last_quat = None
+    batch_quats = []
 
     w = get_watch_writer(csv_path)
     for s in envelope.samples:
@@ -185,7 +185,7 @@ async def receive_watch(request: Request):
         valid_count += 1
 
         if None not in (s.qx, s.qy, s.qz, s.qw):
-            last_quat = [s.qx, s.qy, s.qz, s.qw]
+            batch_quats.append([s.qx, s.qy, s.qz, s.qw])
 
         acc_mag = (
             math.sqrt(s.ax * s.ax + s.ay * s.ay + s.az * s.az)
@@ -252,14 +252,13 @@ async def receive_watch(request: Request):
     if state.active:
         state.watch_sample_count += valid_count
 
-    if last_quat is not None:
-        state.last_orientation = last_quat
-        now_ms = int(time.time() * 1000)
-        # Why: throttle auf <=10 Hz — der 60-fps-Client slerpt dazwischen; ein
-        # ungedrosselter Broadcast pro Batch-Sample flutet alle WS-Clients.
-        if now_ms - state.last_orientation_broadcast_ms >= 100:
-            state.last_orientation_broadcast_ms = now_ms
-            await _broadcast({"type": "orientation", "q": last_quat})
+    if batch_quats:
+        # Why: den GANZEN Batch an Quaternionen senden (echte ~100 Hz), nicht nur das
+        # letzte gedrosselt auf 10 Hz. Der Client spielt sie als Queue bei 60 fps ab ->
+        # jede Mikrobewegung sichtbar + fluessig (wie ein Offline-Replay). Ein WS-Frame
+        # pro Batch (~10/s) mit ~10 Quaternionen ist winzig (~400 B).
+        state.last_orientation = batch_quats[-1]
+        await _broadcast({"type": "orientation", "qs": batch_quats})
 
     return {
         "ok": True,

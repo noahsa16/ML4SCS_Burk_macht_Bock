@@ -6,6 +6,7 @@
 const GLTF_URL = '/static/assets/watch/scene-lite.glb';  // 7.4k tris (dezimiert von 347k)
 const CAMERA_FOV = 28;      // lange Brennweite = Produkt-Shot statt Handy-Snapshot
 const SLERP_HALFLIFE = 0.12; // Kompromiss zwischen Latenz und 10-Hz-Glaettung
+const PLAYBACK_SLERP = 0.5;  // Glaettung/Frame beim Queue-Playback der ~100-Hz-Samples
 
 let _threePromise = null;
 let _gltfPromise = null;
@@ -36,6 +37,7 @@ export function initWatch3D(canvas) {
   let lastW = 0, lastH = 0;  // Firing-Feedback-Loop-Schutz fuer ResizeObserver
   let tgtQ;                  // wiederverwendetes Quaternion (keine Per-Frame-Allokation)
   let devQ, dispQ;           // Reusable quaternions for GC prevention
+  const _queue = [];         // gepufferte korrigierte Anzeige-Quaternionen (~100 Hz Playback)
   let colorActive, colorDefault; // Reusable colors for setWriting()
   let needsRender = true;    // Reactive rendering flag to save CPU/GPU cycles
   let C_FIX, C_INV;          // Basis-Konjugation CoreMotion(Z-up) -> Three.js(Y-up)
@@ -184,16 +186,26 @@ export function initWatch3D(canvas) {
     }
 
     const stale = now - lastMsgTs > 2000;
-    const t = 1 - Math.pow(0.0001, dt / SLERP_HALFLIFE);
-    
-    if (stale) {
-      wrapper.rotateY(dt * 0.5);                 // Idle-Plattenteller = Liveness-Beweis
+
+    if (_queue.length) {
+      // Queue-Playback der ~100-Hz-Samples bei Display-Rate: pro Frame aufholen,
+      // damit die Latenz ~1 Batch (~50 ms) bleibt und jede Mikrobewegung durchkommt.
+      const consume = Math.max(1, Math.ceil(_queue.length / 3));
+      let next = null;
+      for (let i = 0; i < consume && _queue.length; i++) next = _queue.shift();
+      tgtQ.set(next[0], next[1], next[2], next[3]);
+      if (wrapper.quaternion.dot(tgtQ) < 0) tgtQ.set(-next[0], -next[1], -next[2], -next[3]);
+      targetQuat.x = tgtQ.x; targetQuat.y = tgtQ.y; targetQuat.z = tgtQ.z; targetQuat.w = tgtQ.w;
+      wrapper.quaternion.slerp(tgtQ, PLAYBACK_SLERP);
+      needsRender = true;
+    } else if (stale) {
+      wrapper.rotateY(dt * 0.5);                 // Idle-Plattenteller (nur ganz ohne Daten)
       needsRender = true;
     } else {
+      // Queue leer, Daten kamen kuerzlich -> Rest-Slerp auf die letzte Pose
       tgtQ.set(targetQuat.x, targetQuat.y, targetQuat.z, targetQuat.w);
-      // Only slerp and render if we are not already aligned with the target
       if (wrapper.quaternion.angleTo(tgtQ) > 0.001) {
-        wrapper.quaternion.slerp(tgtQ, t);
+        wrapper.quaternion.slerp(tgtQ, 1 - Math.pow(0.0001, dt / SLERP_HALFLIFE));
         needsRender = true;
       }
     }
@@ -204,28 +216,31 @@ export function initWatch3D(canvas) {
     }
   }
 
-  function updateOrientation(q) {
-    if (!THREE_ || !q) return;
+  // qs = Array von [x,y,z,w] (ein ganzer Watch-Batch, ~100 Hz). Jedes wird korrigiert
+  // und in die Playback-Queue gelegt; _tick() spielt sie bei 60 fps ab.
+  function updateOrientation(qs) {
+    if (!THREE_ || !qs || !qs.length) return;
     const wasStale = performance.now() - lastMsgTs > 2000;
     lastMsgTs = performance.now();
+    if (wasStale) _queue.length = 0;              // aus dem Idle-Spin: alten Puffer verwerfen
 
-    devQ.set(q[0], q[1], q[2], q[3]).normalize();
-    if (!refInv) refInv = devQ.clone().invert();       // erstes Sample = Ruhepose
-
-    // q_display = C ⊗ (q_ref⁻¹ ⊗ q_dev) ⊗ C⁻¹  — body-frame relativ (unabhaengig vom
-    // arbitraeren CoreMotion-Heading), dann in Szenen-Achsen re-exprimiert.
-    // local = q_ref⁻¹ ⊗ q_dev, dann kalibrierte Spiegel-Achsen-Umkehr (.conjugate),
-    // dann C ⊗ local ⊗ C⁻¹ (Z-up -> Y-up Basis-Konjugation).
-    dispQ.copy(refInv).multiply(devQ).conjugate();
-    dispQ.premultiply(C_FIX).multiply(C_INV);
-
-    // Double-Cover: kuerzeste Hemisphaere relativ zum aktuellen Ziel
-    if (dispQ.x*targetQuat.x + dispQ.y*targetQuat.y + dispQ.z*targetQuat.z + dispQ.w*targetQuat.w < 0) {
-      dispQ.set(-dispQ.x, -dispQ.y, -dispQ.z, -dispQ.w);
+    for (let i = 0; i < qs.length; i++) {
+      const q = qs[i];
+      if (!q || q.length < 4) continue;
+      devQ.set(q[0], q[1], q[2], q[3]).normalize();
+      if (!refInv) refInv = devQ.clone().invert();  // erstes Sample = Ruhepose
+      // local = q_ref⁻¹ ⊗ q_dev, kalibrierte Spiegel-Achsen-Umkehr (.conjugate),
+      // dann C ⊗ local ⊗ C⁻¹ (Z-up -> Y-up Basis-Konjugation).
+      dispQ.copy(refInv).multiply(devQ).conjugate().premultiply(C_FIX).multiply(C_INV);
+      _queue.push([dispQ.x, dispQ.y, dispQ.z, dispQ.w]);
     }
-    targetQuat.x = dispQ.x; targetQuat.y = dispQ.y; targetQuat.z = dispQ.z; targetQuat.w = dispQ.w;
+    // Latenz begrenzen: nie mehr als ~2 Batches puffern (Netz-Burst-Schutz).
+    if (_queue.length > 24) _queue.splice(0, _queue.length - 24);
 
-    if (wasStale && wrapper) wrapper.quaternion.copy(dispQ);  // aus dem Idle-Spin snappen, kein Swoop
+    if (wasStale && wrapper && _queue.length) {   // Snap aus dem Idle, kein Swoop
+      const q = _queue[_queue.length - 1];
+      wrapper.quaternion.set(q[0], q[1], q[2], q[3]);
+    }
     needsRender = true;
   }
 
