@@ -15,9 +15,25 @@ Erwarteter Trade-off vs. Headline rf_all:
   - im Live-Deployment ehrlich, keinerlei Calibration-Phase noetig
 
 Das Original rf_all.joblib bleibt unangetastet (Headline-Artefakt).
+
+Profil-Wahl (``--profile``):
+  - ``100hz_grav`` (DEFAULT): die 13 nativen Modern-Sessions (100 Hz, je eine
+    andere Person). Die 4 Gravity-Features werden GEDROPPT -> 88 Features,
+    identisch zum Legacy-Feature-Set. Damit ist ``is_modern`` in der Inferenz
+    False (kein Gravity-Guard), das Modell laeuft im bestehenden 88-Feature-
+    Pfad, aber mit ``sample_rate_hz=100`` -> matcht den aktuellen 100-Hz-Watch-
+    Stream (der 50-Hz-Vorgaenger triggerte dort den rate_mismatch-Guard).
+    Cross-subject bringt Gravity nichts (reports/feature_ablation.md), deshalb
+    bewusst weggelassen.
+  - ``50hz``: der Legacy-Pool (22 Sessions, 50hz-Windows inkl. Downsample-Views
+    der Modern-Sessions) -> die urspruengliche 50-Hz-Variante, reproduzierbar.
+
+Beide schreiben in denselben Deployment-Slot ``models/rf_all_live.joblib``
+(der generische Live-Picker-Eintrag "generic").
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -29,33 +45,51 @@ from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+from src.features.gravity import GRAVITY_FEATURE_NAMES  # noqa: E402
 from src.training.train_loso import _select_sessions, _load_windows  # noqa: E402
 
 MODELS = ROOT / "models"
 
+# Profil -> native Sample-Rate, die im Joblib landet (rate_mismatch-Guard).
+_PROFILE_RATE_HZ = {"100hz_grav": 100, "100hz": 100, "50hz": 50}
+
 
 def main() -> None:
-    # Why: rf_all_live ist die Deployment-Variante der Headline — und die
-    # ist der Legacy-Pool (50hz-Windows, inkl. Downsample-Views der
-    # Modern-Sessions). Native Auflösung würde 92-Feature-Modern-Windows
-    # mit 88-Feature-Legacy mischen (NaN-Gravity → RF.fit-Crash).
-    sessions = _select_sessions(include_all=False, min_windows=0, profile="50hz")
-    if sessions.empty:
-        raise SystemExit("no eligible sessions")
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument(
+        "--profile", default="100hz_grav",
+        choices=sorted(_PROFILE_RATE_HZ),
+        help="Windows-Profil (Default 100hz_grav = generisches 100-Hz-Modell)",
+    )
+    args = ap.parse_args()
+    profile = args.profile
+    sample_rate_hz = _PROFILE_RATE_HZ[profile]
 
-    print(f"Loading windows from {len(sessions)} sessions...")
+    sessions = _select_sessions(include_all=False, min_windows=0, profile=profile)
+    if sessions.empty:
+        raise SystemExit(f"no eligible sessions for profile {profile!r}")
+
+    print(f"Profile {profile!r} ({sample_rate_hz} Hz) — "
+          f"loading windows from {len(sessions)} sessions "
+          f"({sessions['person_id'].nunique()} distinct persons)...")
     dfs = []
     for sid in sessions["session_id"]:
-        df = _load_windows(sid, "50hz")
+        df = _load_windows(sid, profile)
         dfs.append(df)
     all_df = pd.concat(dfs, ignore_index=True)
     all_df = all_df.merge(
         sessions[["session_id", "person_id"]], on="session_id", how="left"
     )
-    fcols = [c for c in all_df.columns
-             if c not in {"label", "t_center_ms", "session_id", "person_id",
-                          "task_id", "task_category"}]
-    print(f"Total windows: {len(all_df)}  |  features: {len(fcols)}")
+    # Why: Gravity ist cross-subject kein Generalisierungssignal
+    # (reports/feature_ablation.md, Δacc −0.005) und wuerde das Modell auf
+    # is_modern=92-Feature stellen — dann braucht die Live-Inferenz einen
+    # Gravity-Stream + Guard. Bewusst auf die 88 Legacy-Features reduzieren,
+    # damit das 100-Hz-Modell im bestehenden 88-Feature-Pfad laeuft.
+    drop = {"label", "t_center_ms", "session_id", "person_id",
+            "task_id", "task_category", *GRAVITY_FEATURE_NAMES}
+    fcols = [c for c in all_df.columns if c not in drop]
+    print(f"Total windows: {len(all_df)}  |  features: {len(fcols)} "
+          f"(gravity dropped: {sorted(set(all_df.columns) & set(GRAVITY_FEATURE_NAMES))})")
     print(f"Class balance: {100*all_df.label.mean():.1f}% writing")
 
     # Pooled mu/sigma across the entire corpus (NOT per-session).
@@ -85,18 +119,20 @@ def main() -> None:
         "trained_on": sorted(sessions["session_id"].tolist()),
         "n_windows": len(all_df),
         "person_id": None,
-        "sample_rate_hz": 50,
+        "sample_rate_hz": sample_rate_hz,
         "zscore_mu": mu.to_dict(),
         "zscore_sigma": sigma.to_dict(),
         "normalisation": "pooled",
         "note": (
-            "Live-deployment variant. Trained with POOLED z-score "
+            f"Generic live-deployment model ({profile}, {sample_rate_hz} Hz, "
+            f"{len(fcols)} features, gravity dropped). POOLED z-score baked in "
             "(vs. headline rf_all.joblib which used per-session z-score). "
             "LOSO-Headline numbers refer to the per-session model, not this one."
         ),
     }, out)
     print(f"\n-> {out}")
-    print(f"   mu/sigma baked in over {len(all_df)} pooled windows")
+    print(f"   {sample_rate_hz} Hz | {len(fcols)} feat | "
+          f"mu/sigma baked in over {len(all_df)} pooled windows")
 
 
 if __name__ == "__main__":
