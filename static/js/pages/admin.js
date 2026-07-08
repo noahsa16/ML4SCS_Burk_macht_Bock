@@ -280,6 +280,8 @@ export function onShow() {
   if (c && !_admWatch3d) {
     _admWatch3d = initWatch3D(c);
     setOrientationHandler((q) => _admWatch3d && _admWatch3d.updateOrientation(q));
+    document.getElementById('admWatch3dRecenter')
+      ?.addEventListener('click', () => _admWatch3d && _admWatch3d.recenter());
   }
 }
 

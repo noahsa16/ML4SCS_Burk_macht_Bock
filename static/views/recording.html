@@ -130,7 +130,11 @@
     </header>
     <div class="rec-inference-split">
       <div class="rec-watch3d-panel" id="recWatch3dPanel">
-        <div class="rec-watch3d-eyebrow">/ live wrist orientation</div>
+        <div class="rec-watch3d-head">
+          <div class="rec-watch3d-eyebrow">/ live wrist orientation</div>
+          <button type="button" class="rec-watch3d-recenter" id="recWatch3dRecenter"
+                  title="Arm flach auflegen, dann klicken — setzt die aktuelle Haltung als Nulllage">↻ recenter</button>
+        </div>
         <canvas class="rec-watch3d-canvas" id="recWatch3dCanvas"></canvas>
       </div>
       <div class="rec-inference-grid">
