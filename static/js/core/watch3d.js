@@ -30,6 +30,7 @@ export function initWatch3D(canvas) {
   const targetQuat = { x: 0, y: 0, z: 0, w: 1 };
   let refInv = null;         // q_ref^-1, gesetzt durch recenter()/erstes Sample
   let writing = false;
+  let flip = false;          // DEV: Rotationsrichtung umkehren (Spiegel-Achse-Fix, 'f')
   let lastMsgTs = 0;
   let introT = 0;
   let lastRender = 0;        // performance.now() des letzten gerenderten Frames
@@ -80,23 +81,22 @@ export function initWatch3D(canvas) {
     // per 'b'-Nudger gefunden.
     C_FIX = new THREE.Quaternion(0, 0, 0.7071067811865476, 0.7071067811865476);
     C_INV = C_FIX.clone().invert();
-    // DEV-Einricht-Tool: 'r' = recenter (Ruhepose in kanonischer Handhaltung),
-    // 'b' = naechste der 24 Achsen-Basen durchprobieren, bis die Watch mit-dreht.
-    // Nach dem Festnageln der Basis diesen Block + onKey loeschen.
-    const _bases = (() => {
-      const out = [], seen = new Set();
-      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) {
-        const qq = new THREE.Quaternion().setFromEuler(new THREE.Euler(i*Math.PI/2, j*Math.PI/2, k*Math.PI/2));
-        const a = qq.toArray(); const s = (a.find(v => Math.abs(v) > 1e-6) || 1) > 0 ? 1 : -1;
-        const key = a.map(v => Math.round(v*s*100)).join(',');
-        if (!seen.has(key)) { seen.add(key); out.push(qq); }
-      }
-      return out;
-    })();
-    let _bi = 0;
+    // DEV-Einricht-Tool (nach dem Festnageln diesen Block + onKey loeschen):
+    //   r = recenter (Ruhepose)   f = Spiegel/Flip an-aus (gespiegelte Achse fixen)
+    //   x/y/z = die Bewegungs-Zuordnung 90 Grad um die jeweilige Szenen-Achse drehen.
+    // Bei Match: die geloggte C_FIX-Array + den flip-Wert an den Entwickler geben.
+    const _rot90 = (ax) => {
+      C_FIX.premultiply(new THREE.Quaternion().setFromAxisAngle(ax, Math.PI / 2));
+      C_INV.copy(C_FIX).invert();
+      needsRender = true;
+      console.log('watch3d C_FIX', C_FIX.toArray(), 'flip', flip);
+    };
     onKey = (e) => {
-      if (e.key === 'r') { recenter(); }
-      else if (e.key === 'b') { _bi = (_bi + 1) % _bases.length; C_FIX.copy(_bases[_bi]); C_INV.copy(C_FIX).invert(); console.log('watch3d basis', _bi, C_FIX.toArray()); }
+      if (e.key === 'r') recenter();
+      else if (e.key === 'x') _rot90(new THREE.Vector3(1, 0, 0));
+      else if (e.key === 'y') _rot90(new THREE.Vector3(0, 1, 0));
+      else if (e.key === 'z') _rot90(new THREE.Vector3(0, 0, 1));
+      else if (e.key === 'f') { flip = !flip; needsRender = true; console.log('watch3d flip', flip); }
     };
     window.addEventListener('keydown', onKey);
 
@@ -229,7 +229,9 @@ export function initWatch3D(canvas) {
 
     // q_display = C ⊗ (q_ref⁻¹ ⊗ q_dev) ⊗ C⁻¹  — body-frame relativ (unabhaengig vom
     // arbitraeren CoreMotion-Heading), dann in Szenen-Achsen re-exprimiert.
-    dispQ.copy(refInv).multiply(devQ).premultiply(C_FIX).multiply(C_INV);
+    dispQ.copy(refInv).multiply(devQ);      // local = q_ref⁻¹ ⊗ q_dev
+    if (flip) dispQ.conjugate();            // Rotationsrichtung umkehren (Spiegel-Achse-Fix)
+    dispQ.premultiply(C_FIX).multiply(C_INV);
 
     // Double-Cover: kuerzeste Hemisphaere relativ zum aktuellen Ziel
     if (dispQ.x*targetQuat.x + dispQ.y*targetQuat.y + dispQ.z*targetQuat.z + dispQ.w*targetQuat.w < 0) {
