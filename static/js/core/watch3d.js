@@ -75,9 +75,10 @@ export function initWatch3D(canvas) {
     colorActive = new THREE.Color(0x00e676);
     colorDefault = new THREE.Color(0x000000);
 
-    // Basis-Konjugation: CoreMotion-Attitude ist Z-up, Three.js ist Y-up -> feste
-    // -90-Grad-Drehung um X. In updateOrientation() als C ⊗ q ⊗ C⁻¹ angewandt.
-    C_FIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+    // Basis-Konjugation CoreMotion(Z-up) -> Three.js(Y-up), in updateOrientation()
+    // als C ⊗ q ⊗ C⁻¹ angewandt. Kalibriert: Basis 1 (= 90 Grad um Z), vom Nutzer
+    // per 'b'-Nudger gefunden.
+    C_FIX = new THREE.Quaternion(0, 0, 0.7071067811865476, 0.7071067811865476);
     C_INV = C_FIX.clone().invert();
     // DEV-Einricht-Tool: 'r' = recenter (Ruhepose in kanonischer Handhaltung),
     // 'b' = naechste der 24 Achsen-Basen durchprobieren, bis die Watch mit-dreht.
