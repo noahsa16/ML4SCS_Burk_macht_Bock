@@ -67,7 +67,7 @@
 /* ── Grid (2-col on wide; stacked on iPad portrait/mobile) ── */
 .adm-grid {
   display: grid;
-  grid-template-columns: minmax(340px, 1fr) minmax(0, 1.6fr);
+  grid-template-columns: minmax(240px, 0.9fr) minmax(280px, 1fr) minmax(0, 1.5fr);
   gap: 24px;
 }
 @media (max-width: 1000px) {
@@ -387,9 +387,8 @@
 [data-theme="dark"] .adm-writing-proba { color: oklch(0.70 0.015 65); }
 
 /* ═════ live 3D watch orientation panel ═════════════════════ */
-/* Why: die Watch-Card steht im HTML VOR .adm-grid (eigenstaendig, nicht im
-   2-Spalten-Zellenfluss -> kein Verrutschen). Schmale quadratische Kachel oben. */
-.adm-watch3d { max-width: 220px; position: relative; display: flex; flex-direction: column; gap: 8px; padding: 12px; margin-bottom: 4px; }
+/* Watch-Card = erste Grid-Spalte (links neben current task). adm-card liefert
+   Border/Bg/Padding; hier nur Canvas-Groesse + top-align. */
+.adm-watch3d { align-self: start; position: relative; }
 .adm-watch3d-canvas { width: 100%; aspect-ratio: 1 / 1; height: auto; display: block; }
-.adm-watch3d.is-writing { box-shadow: inset 0 0 60px -20px var(--green); }
-.adm-watch3d-credit { font-size: 8px; opacity: .35; }
+.adm-watch3d.is-writing { border-color: color-mix(in oklch, var(--green) 55%, var(--border)); box-shadow: inset 0 0 60px -24px var(--green); }
