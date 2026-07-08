@@ -38,12 +38,15 @@ export function initWatch3D(canvas) {
   let devQ, localQ, dispQ;   // Reusable quaternions for GC prevention
   let colorActive, colorDefault; // Reusable colors for setWriting()
   let needsRender = true;    // Reactive rendering flag to save CPU/GPU cycles
+  let C_FIX, C_INV;          // Basis-Konjugation CoreMotion(Z-up) -> Three.js(Y-up)
+  let onKey = null;          // Dev-Key-Handler (Basis-Nudger + recenter), in destroy() entfernt
 
   const handle = {
     updateOrientation, setWriting, recenter,
     destroy() {
       disposed = true;
       if (raf) cancelAnimationFrame(raf);
+      if (onKey) window.removeEventListener('keydown', onKey);
       if (ro) ro.disconnect();
       if (envTex) envTex.dispose();
       // Why: geometry is module-cached (_gltfPromise) and shared across instances via
@@ -61,14 +64,41 @@ export function initWatch3D(canvas) {
   _loadThree().then(({ THREE, GLTFLoader, RoomEnvironment }) => {
     if (disposed) return;
     THREE_ = THREE;
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, precision: 'mediump', powerPreference: 'high-performance' });
-    renderer.setPixelRatio(1.0); // Rendert bei CSS-Pixeln, massiver Retina-Boost
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true, powerPreference: 'high-performance' });
+    // Why: antialias ist auf Apple-Tile-GPUs quasi gratis (glaettet die Metallraender);
+    // pixelRatio 1.5 haelt die Fragment-Kosten bei ~2.25x, sieht aber knackig statt weich.
+    // Bei kleiner Canvas (~1/4) ist das billig. precision:'mediump' raus (Banding-Artefakte).
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     tgtQ = new THREE.Quaternion();
     devQ = new THREE.Quaternion();
     localQ = new THREE.Quaternion();
     dispQ = new THREE.Quaternion();
     colorActive = new THREE.Color(0x00e676);
     colorDefault = new THREE.Color(0x000000);
+
+    // Basis-Konjugation: CoreMotion-Attitude ist Z-up, Three.js ist Y-up -> feste
+    // -90-Grad-Drehung um X. In updateOrientation() als C ⊗ q ⊗ C⁻¹ angewandt.
+    C_FIX = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+    C_INV = C_FIX.clone().invert();
+    // DEV-Einricht-Tool: 'r' = recenter (Ruhepose in kanonischer Handhaltung),
+    // 'b' = naechste der 24 Achsen-Basen durchprobieren, bis die Watch mit-dreht.
+    // Nach dem Festnageln der Basis diesen Block + onKey loeschen.
+    const _bases = (() => {
+      const out = [], seen = new Set();
+      for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) for (let k = 0; k < 4; k++) {
+        const qq = new THREE.Quaternion().setFromEuler(new THREE.Euler(i*Math.PI/2, j*Math.PI/2, k*Math.PI/2));
+        const a = qq.toArray(); const s = (a.find(v => Math.abs(v) > 1e-6) || 1) > 0 ? 1 : -1;
+        const key = a.map(v => Math.round(v*s*100)).join(',');
+        if (!seen.has(key)) { seen.add(key); out.push(qq); }
+      }
+      return out;
+    })();
+    let _bi = 0;
+    onKey = (e) => {
+      if (e.key === 'r') { recenter(); }
+      else if (e.key === 'b') { _bi = (_bi + 1) % _bases.length; C_FIX.copy(_bases[_bi]); C_INV.copy(C_FIX).invert(); console.log('watch3d basis', _bi, C_FIX.toArray()); }
+    };
+    window.addEventListener('keydown', onKey);
 
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
@@ -122,18 +152,10 @@ export function initWatch3D(canvas) {
       // texturloser Klumpen aus.
       model.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o._name = o.name; } });
 
-      let caseMesh = null;
-      model.traverse((o) => {
-        if (o.isMesh && (o.name === 'Object_1' || o.name === 'Object_3')) {
-          caseMesh = o;
-        }
-      });
-      const pivot = new THREE.Vector3();
-      if (caseMesh) {
-        new THREE.Box3().setFromObject(caseMesh).getCenter(pivot);
-      } else {
-        new THREE.Box3().setFromObject(model).getCenter(pivot);
-      }
+      // Pivot = Mittelpunkt des ganzen Modells (Box3). Das fruehere Object_1/Object_3-
+      // Namensraten traf oft ein Band-Segment -> die Watch orbitierte um einen Off-Center-
+      // Punkt statt sich an Ort zu drehen ("buggy" Wobble).
+      const pivot = new THREE.Box3().setFromObject(model).getCenter(new THREE.Vector3());
 
       const box = new THREE.Box3().setFromObject(model);
       const size = box.getSize(new THREE.Vector3());
@@ -199,20 +221,23 @@ export function initWatch3D(canvas) {
 
   function updateOrientation(q) {
     if (!THREE_ || !q) return;
+    const wasStale = performance.now() - lastMsgTs > 2000;
     lastMsgTs = performance.now();
-    
+
     devQ.set(q[0], q[1], q[2], q[3]).normalize();
-    if (!refInv) {
-      refInv = devQ.clone().invert();       // first sample is reference pose
-    }
-    
-    dispQ.copy(devQ).multiply(refInv);
-    
-    // Double-Cover: shortest hemisphere relative to current target
+    if (!refInv) refInv = devQ.clone().invert();       // erstes Sample = Ruhepose
+
+    // q_display = C ⊗ (q_ref⁻¹ ⊗ q_dev) ⊗ C⁻¹  — body-frame relativ (unabhaengig vom
+    // arbitraeren CoreMotion-Heading), dann in Szenen-Achsen re-exprimiert.
+    dispQ.copy(refInv).multiply(devQ).premultiply(C_FIX).multiply(C_INV);
+
+    // Double-Cover: kuerzeste Hemisphaere relativ zum aktuellen Ziel
     if (dispQ.x*targetQuat.x + dispQ.y*targetQuat.y + dispQ.z*targetQuat.z + dispQ.w*targetQuat.w < 0) {
       dispQ.set(-dispQ.x, -dispQ.y, -dispQ.z, -dispQ.w);
     }
     targetQuat.x = dispQ.x; targetQuat.y = dispQ.y; targetQuat.z = dispQ.z; targetQuat.w = dispQ.w;
+
+    if (wasStale && wrapper) wrapper.quaternion.copy(dispQ);  // aus dem Idle-Spin snappen, kein Swoop
     needsRender = true;
   }
 
@@ -235,7 +260,7 @@ export function initWatch3D(canvas) {
       if (!o.isMesh) return;
       const isScreen = SCREEN_MESH_NAMES.size === 0 ? true : SCREEN_MESH_NAMES.has(o._name);
       o.material.emissive.copy(color);
-      o.material.emissiveIntensity = isScreen && writing ? 0.9 : 0.0;
+      o.material.emissiveIntensity = isScreen && writing ? 0.3 : 0.0;
     });
   }
 
