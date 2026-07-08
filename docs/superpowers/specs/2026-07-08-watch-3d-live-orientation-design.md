@@ -7,10 +7,16 @@
 ## Ziel
 
 Eine in Echtzeit mitdrehende, **präsentations-schöne** 3D-Watch im Dashboard,
-gespeist aus dem `attitude.quaternion` der Apple Watch. Sie sitzt in der
-„live inference"-Sektion der Recording-Seite (Layout-Variante C: Watch-Viewport
-~57 % links, die drei bestehenden Inferenz-Karten als rechte Spalte). Das
-**Watch-Display leuchtet grün**, wenn die Live-Inferenz „writing" meldet. Zweck:
+gespeist aus dem `attitude.quaternion` der Apple Watch. Sie erscheint an **zwei**
+Stellen, die denselben `watch3d.js`-Helfer mounten:
+- **Recording-Seite** — in der „live inference"-Sektion (Layout-Variante C:
+  Watch-Viewport ~57 % links, die drei bestehenden Inferenz-Karten als rechte Spalte).
+- **Admin-Seite** (VL-Zweitschirm-Monitor, versteckt, per Triple-Click aufs Logo) —
+  als prominentes Panel neben dem gespiegelten Live-Status/Chart, damit die
+  Versuchsleitung die Handgelenk-Bewegung auf einem zweiten Gerät sieht, ohne den
+  Probanden-Screen zu stören.
+
+Das **Watch-Display leuchtet grün**, wenn die Live-Inferenz „writing" meldet. Zweck:
 Wow-Beweis für die Abschlusspräsentation, dass die Watch-Daten echt sind und live
 ausgewertet werden — Bewegung und Auswertung in einem Blick.
 
@@ -180,6 +186,12 @@ der `fn(q)` direkt aufruft (umgeht `handleStatus`).
   Vignette (theme-abhängig), grüner writing-Glow, Credit-Stil.
 - **`static/js/pages/recording.js`** — `onShow()` → `initWatch3D` + `setOrientationHandler`;
   `live_inference`-Tick → `setWriting`; `onHide()` → `destroy()` + Handler abmelden.
+- **`static/views/admin.html` + `static/css/admin.css` + `static/js/pages/admin.js`**
+  — dasselbe: ein Watch-Panel (`<canvas>`) im Monitor-Layout, `onShow()` →
+  `initWatch3D` + `setOrientationHandler`, `live_inference`-Tick → `setWriting`,
+  `onHide()` → `destroy()` + Handler abmelden. Identischer Helfer, identischer
+  Lifecycle — nur ein anderes Panel-Layout (Monitor statt Split-Cockpit). Recenter-
+  Button optional auf Admin (die VL will primär beobachten).
 
 ### Themes (nicht übersehen)
 
@@ -241,7 +253,9 @@ Recording-Seite sichtbar ist.
 - **Three.js-Rendering** bleibt manueller Smoke-Test (kein WebGL/DOM in pytest):
   Watch dreht mit echtem Stream, Display grün bei writing, Idle-Rotate bei Stille,
   sauberer Teardown über mehrere Tab-Wechsel (Context-Count stabil), Legacy-Stream
-  → Idle statt eingefroren, hell/dunkel-Theme beide sauber.
+  → Idle statt eingefroren, hell/dunkel-Theme beide sauber. **Auf beiden Seiten
+  prüfen** (Recording + Admin), inkl. gleichzeitigem Betrieb auf zwei Geräten
+  (Proband-Screen Recording, VL-iPad Admin — beide sollen dieselbe Live-Bewegung zeigen).
 
 ## Betroffene Dateien
 
@@ -254,6 +268,7 @@ Recording-Seite sichtbar ist.
 | `static/views/recording.html` | Split-Layout C + Credit + recenter-Button |
 | `static/css/recording.css` | Split-Grid, Canvas, Vignette, writing-Glow, Credit |
 | `static/js/pages/recording.js` | **§0-B** — init in `onShow`, destroy in `onHide` |
+| `static/views/admin.html` + `static/css/admin.css` + `static/js/pages/admin.js` | Watch-Panel im VL-Monitor (gleicher Helfer/Lifecycle) |
 | `dashboard.html` | Three.js-importmap (gepinnt, vor dashboard.js) |
 | `static/assets/watch/` | **neu** — gltf/bin/license (evtl. gltfpack-komprimiert) |
 | `tests/test_endpoints.py`, `tests/test_dashboard_static.py` | neue Fälle |
