@@ -442,3 +442,45 @@ def test_streams_do_not_overlap_via_validation_endpoint(client, data_dirs):
     assert resp.status_code == 200
     issue_codes = {i["code"] for i in resp.json().get("issues", [])}
     assert "streams_do_not_overlap" in issue_codes
+
+
+# ── POST /watch orientation caching + broadcast ────────────────────────────────
+
+def test_watch_batch_caches_and_broadcasts_orientation(client, data_dirs, monkeypatch):
+    from src.server import state as state_mod
+    from src.server.routes import watch as watch_mod
+
+    sent = []
+    async def fake_broadcast(msg):
+        sent.append(msg)
+    monkeypatch.setattr(watch_mod, "_broadcast", fake_broadcast)
+
+    state_mod.state.last_orientation = None
+    state_mod.state.last_orientation_broadcast_ms = 0
+
+    payload = {"sequence": 1, "samples": [
+        {"ts": 1000, "ax": 0.1, "ay": 0.0, "az": 0.0,
+         "rx": 0.0, "ry": 0.0, "rz": 0.0,
+         "qx": 0.0, "qy": 0.0, "qz": 0.0, "qw": 1.0},
+    ]}
+    r = client.post("/watch", json=payload)
+    assert r.status_code == 200
+    assert state_mod.state.last_orientation == [0.0, 0.0, 0.0, 1.0]
+    assert any(m.get("type") == "orientation" and m.get("q") == [0.0, 0.0, 0.0, 1.0]
+               for m in sent)
+
+
+def test_watch_batch_without_quaternion_leaves_orientation_none(client, data_dirs, monkeypatch):
+    from src.server import state as state_mod
+    from src.server.routes import watch as watch_mod
+    async def fake_broadcast(msg):
+        pass
+    monkeypatch.setattr(watch_mod, "_broadcast", fake_broadcast)
+    state_mod.state.last_orientation = None
+    payload = {"sequence": 2, "samples": [
+        {"ts": 2000, "ax": 0.1, "ay": 0.0, "az": 0.0,
+         "rx": 0.0, "ry": 0.0, "rz": 0.0},
+    ]}
+    r = client.post("/watch", json=payload)
+    assert r.status_code == 200
+    assert state_mod.state.last_orientation is None
