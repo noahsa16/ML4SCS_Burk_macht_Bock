@@ -412,3 +412,16 @@ canvas#imuChart { width: 100% !important; }
 .rec-field--check input[type="checkbox"] {
   cursor: pointer;
 }
+
+.rec-inference-split { display: grid; grid-template-columns: 57% 1fr; gap: 16px; }
+@media (max-width: 820px) { .rec-inference-split { grid-template-columns: 1fr; } }
+.rec-watch3d-panel {
+  position: relative; border-radius: 12px; min-height: 280px;
+  background: radial-gradient(120% 100% at 50% 30%, rgba(99,102,241,.10), transparent 70%);
+  display: flex; flex-direction: column;
+}
+.rec-watch3d-eyebrow { font-size: 11px; letter-spacing: .05em; opacity: .6; padding: 10px 12px 0; text-transform: uppercase; }
+.rec-watch3d-canvas { flex: 1; width: 100%; min-height: 240px; display: block; }
+.rec-watch3d-panel.is-writing { box-shadow: inset 0 0 60px -20px var(--green); }
+.rec-watch3d-recenter { position: absolute; bottom: 8px; left: 12px; background: none; border: 1px solid var(--border); border-radius: 6px; color: inherit; font: inherit; font-size: 10px; padding: 2px 8px; cursor: pointer; opacity: .6; }
+.rec-watch3d-credit { position: absolute; bottom: 8px; right: 12px; font-size: 9px; opacity: .4; }

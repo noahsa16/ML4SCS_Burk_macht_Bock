@@ -128,35 +128,43 @@
       <div class="rec-inference-model-switch" id="inferenceModelSwitch" role="radiogroup"
            aria-label="Inference model"></div>
     </header>
-    <div class="rec-inference-grid">
-      <article class="rec-inference-card rec-inference-card--now">
-        <div class="rec-inference-eyebrow">/ writing right now?</div>
-        <div class="rec-inference-state" id="inferenceState" data-state="idle">
-          <span class="rec-inference-state-dot"></span>
-          <span class="rec-inference-state-label" id="inferenceStateLabel">—</span>
-        </div>
-        <div class="rec-inference-proba">
-          <div class="rec-inference-proba-track">
-            <div class="rec-inference-proba-fill" id="inferenceProbaFill" style="width:0%"></div>
-            <div class="rec-inference-proba-tick" aria-hidden="true"></div>
+    <div class="rec-inference-split">
+      <div class="rec-watch3d-panel" id="recWatch3dPanel">
+        <div class="rec-watch3d-eyebrow">/ live wrist orientation</div>
+        <canvas class="rec-watch3d-canvas" id="recWatch3dCanvas"></canvas>
+        <button type="button" class="rec-watch3d-recenter" id="recWatch3dRecenter">/ recenter</button>
+        <div class="rec-watch3d-credit">„Smartwatch" · _tegarma · CC-BY-4.0</div>
+      </div>
+      <div class="rec-inference-grid">
+        <article class="rec-inference-card rec-inference-card--now">
+          <div class="rec-inference-eyebrow">/ writing right now?</div>
+          <div class="rec-inference-state" id="inferenceState" data-state="idle">
+            <span class="rec-inference-state-dot"></span>
+            <span class="rec-inference-state-label" id="inferenceStateLabel">—</span>
           </div>
-          <div class="rec-inference-proba-text">
-            <span id="inferenceProbaText">—</span><span class="rec-inference-proba-suffix">% writing</span>
+          <div class="rec-inference-proba">
+            <div class="rec-inference-proba-track">
+              <div class="rec-inference-proba-fill" id="inferenceProbaFill" style="width:0%"></div>
+              <div class="rec-inference-proba-tick" aria-hidden="true"></div>
+            </div>
+            <div class="rec-inference-proba-text">
+              <span id="inferenceProbaText">—</span><span class="rec-inference-proba-suffix">% writing</span>
+            </div>
           </div>
-        </div>
-      </article>
-      <article class="rec-inference-card rec-inference-card--spark">
-        <div class="rec-inference-eyebrow">/ last 60 s · proba</div>
-        <div class="rec-inference-spark-wrap">
-          <canvas id="inferenceSparkline" height="120"></canvas>
-          <div class="rec-inference-spark-baseline" aria-hidden="true"></div>
-        </div>
-      </article>
-      <article class="rec-inference-card rec-inference-card--today">
-        <div class="rec-inference-eyebrow">/ writing time tracked</div>
-        <div class="rec-inference-today-val" id="inferenceTodayVal">0:00</div>
-        <div class="rec-inference-today-sub" id="inferenceTodaySub">cumulative since server start</div>
-      </article>
+        </article>
+        <article class="rec-inference-card rec-inference-card--spark">
+          <div class="rec-inference-eyebrow">/ last 60 s · proba</div>
+          <div class="rec-inference-spark-wrap">
+            <canvas id="inferenceSparkline" height="120"></canvas>
+            <div class="rec-inference-spark-baseline" aria-hidden="true"></div>
+          </div>
+        </article>
+        <article class="rec-inference-card rec-inference-card--today">
+          <div class="rec-inference-eyebrow">/ writing time tracked</div>
+          <div class="rec-inference-today-val" id="inferenceTodayVal">0:00</div>
+          <div class="rec-inference-today-sub" id="inferenceTodaySub">cumulative since server start</div>
+        </article>
+      </div>
     </div>
   </section>
 
