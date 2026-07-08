@@ -11,6 +11,13 @@ import { loadSessions } from '/static/js/pages/sessions.js';
 
 let ws, wsReconnectTimer;
 
+// Dedizierter Orientierungs-Subscriber. Die 10-Hz-Watch-Orientierung umgeht
+// bewusst handleStatus/_activePageDispatch (die auf status-foermige Payloads
+// zielen und die Pill/Badge-Pipeline treiben). Genau ein Handler zur Zeit —
+// die aktive Seite registriert in onShow(), meldet in onHide() ab.
+let _orientationHandler = null;
+export function setOrientationHandler(fn) { _orientationHandler = fn; }
+
 export function connectWs() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   ws = new WebSocket(`${proto}://${location.host}/ws`);
@@ -32,6 +39,8 @@ export function connectWs() {
     } else if (msg.type === 'stop') {
       toast(`■ Session ${msg.session_id} stopped`);
       if (document.querySelector('.tab.active')?.dataset.page === 'sessions') loadSessions();
+    } else if (msg.type === 'orientation') {
+      if (_orientationHandler && Array.isArray(msg.q)) _orientationHandler(msg.q);
     }
   };
 
