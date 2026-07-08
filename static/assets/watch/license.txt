@@ -1,0 +1,11 @@
+Model Information:
+* title:	Smartwatch
+* source:	https://sketchfab.com/3d-models/smartwatch-8a0964b8451b40f09b7cb377058f9d3c
+* author:	_tegarma (https://sketchfab.com/tegarma)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Smartwatch" (https://sketchfab.com/3d-models/smartwatch-8a0964b8451b40f09b7cb377058f9d3c) by _tegarma (https://sketchfab.com/tegarma) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
