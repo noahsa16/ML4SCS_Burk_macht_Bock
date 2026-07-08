@@ -53,6 +53,7 @@ def test_bootstrap_module_served_as_js():
         "/static/js/core/status_cluster.js",
         "/static/js/core/theme.js",
         "/static/js/core/toast.js",
+        "/static/js/core/watch3d.js",
         "/static/js/core/ws.js",
         "/static/js/pages/admin.js",
         "/static/js/pages/focus.js",
