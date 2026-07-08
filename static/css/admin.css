@@ -387,7 +387,10 @@
 [data-theme="dark"] .adm-writing-proba { color: oklch(0.70 0.015 65); }
 
 /* ═════ live 3D watch orientation panel ═════════════════════ */
-.adm-watch3d { position: relative; min-height: 260px; display: flex; flex-direction: column; }
-.adm-watch3d-canvas { flex: 1; width: 100%; min-height: 220px; display: block; }
+/* Why: grid-column 1/-1 nimmt die Watch aus dem 2-Spalten-Zellenfluss (sonst
+   verrutscht sie die Task/VL-Spalten). Flacher voll-breiter Streifen oben,
+   kleine Canvas links -- klein = wenig Pixel = fluessig. */
+.adm-watch3d { grid-column: 1 / -1; position: relative; min-height: 0; display: flex; flex-direction: row; align-items: center; gap: 16px; padding: 12px 16px; }
+.adm-watch3d-canvas { flex: 0 0 auto; width: 190px; height: 130px; min-height: 0; display: block; }
 .adm-watch3d.is-writing { box-shadow: inset 0 0 60px -20px var(--green); }
 .adm-watch3d-credit { position: absolute; bottom: 6px; right: 10px; font-size: 9px; opacity: .4; }

@@ -5,7 +5,7 @@
 
 const GLTF_URL = '/static/assets/watch/scene.gltf';
 const CAMERA_FOV = 28;      // lange Brennweite = Produkt-Shot statt Handy-Snapshot
-const SLERP_HALFLIFE = 0.08;
+const SLERP_HALFLIFE = 0.12; // Kompromiss zwischen Latenz und 10-Hz-Glaettung
 
 let _threePromise = null;
 let _gltfPromise = null;
@@ -29,10 +29,15 @@ export function initWatch3D(canvas) {
   let THREE_;
   const targetQuat = { x: 0, y: 0, z: 0, w: 1 };
   let refInv = null;         // q_ref^-1, gesetzt durch recenter()/erstes Sample
-  const axisFix = { x: 0, y: 0, z: 0, w: 1 };  // in Step 3 justiert
   let writing = false;
   let lastMsgTs = 0;
   let introT = 0;
+  let lastRender = 0;        // performance.now() des letzten gerenderten Frames
+  let lastW = 0, lastH = 0;  // Firing-Feedback-Loop-Schutz fuer ResizeObserver
+  let tgtQ;                  // wiederverwendetes Quaternion (keine Per-Frame-Allokation)
+  let devQ, localQ, dispQ;   // Reusable quaternions for GC prevention
+  let colorActive, colorDefault; // Reusable colors for setWriting()
+  let needsRender = true;    // Reactive rendering flag to save CPU/GPU cycles
 
   const handle = {
     updateOrientation, setWriting, recenter,
@@ -56,8 +61,15 @@ export function initWatch3D(canvas) {
   _loadThree().then(({ THREE, GLTFLoader, RoomEnvironment }) => {
     if (disposed) return;
     THREE_ = THREE;
-    renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, precision: 'mediump', powerPreference: 'high-performance' });
+    renderer.setPixelRatio(1.0); // Rendert bei CSS-Pixeln, massiver Retina-Boost
+    tgtQ = new THREE.Quaternion();
+    devQ = new THREE.Quaternion();
+    localQ = new THREE.Quaternion();
+    dispQ = new THREE.Quaternion();
+    colorActive = new THREE.Color(0x00e676);
+    colorDefault = new THREE.Color(0x000000);
+
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.15;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -88,6 +100,8 @@ export function initWatch3D(canvas) {
   function _resize() {
     if (!renderer || !canvas.clientWidth) return;
     const w = canvas.clientWidth, h = canvas.clientHeight || Math.round(w * 0.75);
+    if (w === lastW && h === lastH) return;
+    lastW = w; lastH = h;
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -101,22 +115,49 @@ export function initWatch3D(canvas) {
     _gltfPromise.then((gltf) => {
       if (disposed) return;
       const model = gltf.scene.clone(true);
-      const bodyMat = new THREE.MeshStandardMaterial({
-        color: new THREE.Color(0x2b2e33), metalness: 0.9, roughness: 0.35,
+      // Why: das ORIGINAL-PBR-Material des Modells behalten (mit Env-Map = echte-Uhr-Look),
+      // aber pro Instanz klonen — sonst teilt der clone(true) die Material-Referenz mit dem
+      // Cache/anderen Instanzen und setWriting()'s Emissive-Aenderung + destroy()'s dispose
+      // wuerden global durchschlagen. Der fruehere Dunkelmetall-Override sah wie ein
+      // texturloser Klumpen aus.
+      model.traverse((o) => { if (o.isMesh) { o.material = o.material.clone(); o._name = o.name; } });
+
+      let caseMesh = null;
+      model.traverse((o) => {
+        if (o.isMesh && (o.name === 'Object_1' || o.name === 'Object_3')) {
+          caseMesh = o;
+        }
       });
-      model.traverse((o) => { if (o.isMesh) { o.material = bodyMat; o._name = o.name; } });
+      const pivot = new THREE.Vector3();
+      if (caseMesh) {
+        new THREE.Box3().setFromObject(caseMesh).getCenter(pivot);
+      } else {
+        new THREE.Box3().setFromObject(model).getCenter(pivot);
+      }
 
       const box = new THREE.Box3().setFromObject(model);
-      const center = box.getCenter(new THREE.Vector3());
       const size = box.getSize(new THREE.Vector3());
-      model.position.sub(center);                 // Pivot in den Geometrie-Mittelpunkt
-      const scale = 3.2 / Math.max(size.x, size.y, size.z);
+      model.position.set(-pivot.x, -pivot.y, -pivot.z); // watch-case relativ zur pivotGroup zentrieren
+      
+      const pivotGroup = new THREE.Group();
+      pivotGroup.add(model);
+      pivotGroup.rotation.set(0, Math.PI / 2, 0); // Display nach vorne (+Z), Bänder horizontal (X), Arm vertikal (Y)
+      
+      const scale = 1.8 / Math.max(size.x, size.y, size.z); // Kleiner skaliert, damit es ins Panel passt
       wrapper = new THREE.Group();
       wrapper.userData.baseScale = scale;
       wrapper.scale.setScalar(scale * 0.92);       // Intro-Startskala, siehe _tick()
-      wrapper.add(model);
+      wrapper.add(pivotGroup);
       scene.add(wrapper);
       handle._model = model;                       // fuer Step 5 (Material-Split)
+      try {
+        const bodyStyles = getComputedStyle(document.body);
+        const greenHex = bodyStyles.getPropertyValue('--green').trim() || '#4ade80';
+        colorActive.setStyle(greenHex).convertSRGBToLinear();
+      } catch (e) {
+        colorActive.set(0x4ade80);
+      }
+      setWriting(writing);                         // Aktuellen Status auf geladenes Modell anwenden
     }).catch((e) => console.warn('watch3d: GLTF load failed', e));
   }
 
@@ -125,41 +166,57 @@ export function initWatch3D(canvas) {
     raf = requestAnimationFrame(_tick);
     if (!renderer || !wrapper) return;
     const now = performance.now();
-    const dt = Math.min(0.05, (now - (_tick._prev || now)) / 1000);
-    _tick._prev = now;
+    const dt = Math.min(0.05, (now - (lastRender || now)) / 1000);
+    lastRender = now;
 
-    // Intro: 0.92 -> 1.0 ueber ~600 ms, einmalig nach dem Laden
+    // Intro animation
     if (introT < 1) {
       introT = Math.min(1, introT + dt / 0.6);
       wrapper.scale.setScalar(wrapper.userData.baseScale * (0.92 + 0.08 * introT));
+      needsRender = true;
     }
 
     const stale = now - lastMsgTs > 2000;
     const t = 1 - Math.pow(0.0001, dt / SLERP_HALFLIFE);
+    
     if (stale) {
       wrapper.rotateY(dt * 0.5);                 // Idle-Plattenteller = Liveness-Beweis
+      needsRender = true;
     } else {
-      const tgt = new THREE_.Quaternion(targetQuat.x, targetQuat.y, targetQuat.z, targetQuat.w);
-      wrapper.quaternion.slerp(tgt, t);
+      tgtQ.set(targetQuat.x, targetQuat.y, targetQuat.z, targetQuat.w);
+      // Only slerp and render if we are not already aligned with the target
+      if (wrapper.quaternion.angleTo(tgtQ) > 0.001) {
+        wrapper.quaternion.slerp(tgtQ, t);
+        needsRender = true;
+      }
     }
-    renderer.render(scene, camera);
+    
+    if (needsRender) {
+      renderer.render(scene, camera);
+      needsRender = false;
+    }
   }
 
   function updateOrientation(q) {
     if (!THREE_ || !q) return;
     lastMsgTs = performance.now();
-    const dev = new THREE_.Quaternion(q[0], q[1], q[2], q[3]).normalize();
-    if (!refInv) refInv = dev.clone().invert();       // erstes Sample = Ruhepose
-    const fix = new THREE_.Quaternion(axisFix.x, axisFix.y, axisFix.z, axisFix.w);
-    const disp = fix.multiply(refInv).multiply(dev);
-    // Double-Cover: kuerzeste Hemisphaere relativ zum aktuellen Ziel
-    if (disp.x*targetQuat.x + disp.y*targetQuat.y + disp.z*targetQuat.z + disp.w*targetQuat.w < 0) {
-      disp.set(-disp.x, -disp.y, -disp.z, -disp.w);
+    
+    devQ.set(q[0], q[1], q[2], q[3]).normalize();
+    if (!refInv) {
+      refInv = devQ.clone().invert();       // first sample is reference pose
     }
-    targetQuat.x = disp.x; targetQuat.y = disp.y; targetQuat.z = disp.z; targetQuat.w = disp.w;
+    
+    dispQ.copy(devQ).multiply(refInv);
+    
+    // Double-Cover: shortest hemisphere relative to current target
+    if (dispQ.x*targetQuat.x + dispQ.y*targetQuat.y + dispQ.z*targetQuat.z + dispQ.w*targetQuat.w < 0) {
+      dispQ.set(-dispQ.x, -dispQ.y, -dispQ.z, -dispQ.w);
+    }
+    targetQuat.x = dispQ.x; targetQuat.y = dispQ.y; targetQuat.z = dispQ.z; targetQuat.w = dispQ.w;
+    needsRender = true;
   }
 
-  function recenter() { refInv = null; }   // naechstes Sample wird neue Ruhepose
+  function recenter() { refInv = null; needsRender = true; } // naechstes Sample wird neue Ruhepose
 
   // Screen-Mesh laesst sich nicht per Name isolieren (alle Object_*, ein Material).
   // Diagnose ist ein manueller Schritt (laufender Server + Browser-Konsole) und steht
@@ -168,17 +225,17 @@ export function initWatch3D(canvas) {
   const SCREEN_MESH_NAMES = new Set();
 
   function setWriting(on) {
-    writing = !!on;
+    const nextVal = !!on;
+    if (writing === nextVal && handle._model) return;
+    writing = nextVal;
     if (!handle._model || !THREE_) return;
-    const green = new THREE_.Color().setStyle(
-      getComputedStyle(document.body).getPropertyValue('--green').trim() || '#4ade80'
-    ).convertSRGBToLinear();
+    needsRender = true;
+    const color = writing ? colorActive : colorDefault;
     handle._model.traverse((o) => {
       if (!o.isMesh) return;
       const isScreen = SCREEN_MESH_NAMES.size === 0 ? true : SCREEN_MESH_NAMES.has(o._name);
-      o.material.emissive = isScreen && writing ? green : new THREE_.Color(0x000000);
+      o.material.emissive.copy(color);
       o.material.emissiveIntensity = isScreen && writing ? 0.9 : 0.0;
-      o.material.needsUpdate = true;
     });
   }
 
