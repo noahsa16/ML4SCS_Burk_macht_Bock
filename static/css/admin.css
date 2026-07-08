@@ -392,4 +392,4 @@
 .adm-watch3d { max-width: 220px; position: relative; display: flex; flex-direction: column; gap: 8px; padding: 12px; margin-bottom: 4px; }
 .adm-watch3d-canvas { width: 100%; aspect-ratio: 1 / 1; height: auto; display: block; }
 .adm-watch3d.is-writing { box-shadow: inset 0 0 60px -20px var(--green); }
-.adm-watch3d-credit { position: absolute; bottom: 6px; right: 10px; font-size: 9px; opacity: .4; }
+.adm-watch3d-credit { font-size: 8px; opacity: .35; }

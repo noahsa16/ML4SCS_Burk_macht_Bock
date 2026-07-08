@@ -71,7 +71,6 @@ export function initWatch3D(canvas) {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     tgtQ = new THREE.Quaternion();
     devQ = new THREE.Quaternion();
-    localQ = new THREE.Quaternion();
     dispQ = new THREE.Quaternion();
     colorActive = new THREE.Color(0x00e676);
     colorDefault = new THREE.Color(0x000000);
