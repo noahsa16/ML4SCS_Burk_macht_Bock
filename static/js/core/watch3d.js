@@ -3,7 +3,7 @@
 // importmap in dashboard.html). Jede initWatch3D()-Instanz kapselt Renderer +
 // rAF; die geparste GLTF wird modulweit gecached.
 
-const GLTF_URL = '/static/assets/watch/scene.gltf';
+const GLTF_URL = '/static/assets/watch/scene-lite.glb';  // 7.4k tris (dezimiert von 347k)
 const CAMERA_FOV = 28;      // lange Brennweite = Produkt-Shot statt Handy-Snapshot
 const SLERP_HALFLIFE = 0.12; // Kompromiss zwischen Latenz und 10-Hz-Glaettung
 
@@ -35,7 +35,7 @@ export function initWatch3D(canvas) {
   let lastRender = 0;        // performance.now() des letzten gerenderten Frames
   let lastW = 0, lastH = 0;  // Firing-Feedback-Loop-Schutz fuer ResizeObserver
   let tgtQ;                  // wiederverwendetes Quaternion (keine Per-Frame-Allokation)
-  let devQ, localQ, dispQ;   // Reusable quaternions for GC prevention
+  let devQ, dispQ;           // Reusable quaternions for GC prevention
   let colorActive, colorDefault; // Reusable colors for setWriting()
   let needsRender = true;    // Reactive rendering flag to save CPU/GPU cycles
   let C_FIX, C_INV;          // Basis-Konjugation CoreMotion(Z-up) -> Three.js(Y-up)

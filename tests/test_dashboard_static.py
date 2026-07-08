@@ -71,8 +71,7 @@ def test_bootstrap_module_served_as_js():
         "/static/views/sessions.html",
         "/static/views/settings.html",
         "/static/views/training.html",
-        "/static/assets/watch/scene.gltf",
-        "/static/assets/watch/scene.bin",
+        "/static/assets/watch/scene-lite.glb",
     ],
 )
 def test_static_assets_served(path):
