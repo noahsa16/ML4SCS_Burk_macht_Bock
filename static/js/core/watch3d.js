@@ -41,8 +41,12 @@ export function initWatch3D(canvas) {
       if (raf) cancelAnimationFrame(raf);
       if (ro) ro.disconnect();
       if (envTex) envTex.dispose();
+      // Why: geometry is module-cached (_gltfPromise) and shared across instances via
+      // gltf.scene.clone(true) (a shallow clone — meshes still reference the same
+      // BufferGeometry objects as the cache/other live instances), so it must NOT be
+      // disposed here. Only the per-instance material (fresh MeshStandardMaterial from
+      // _loadModel) is instance-owned and safe to dispose.
       if (scene) scene.traverse((o) => {
-        if (o.geometry) o.geometry.dispose();
         if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => m.dispose());
       });
       if (renderer) { renderer.dispose(); renderer.forceContextLoss(); }
