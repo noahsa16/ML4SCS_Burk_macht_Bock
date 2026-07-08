@@ -390,5 +390,5 @@
 /* Watch-Card = erste Grid-Spalte (links neben current task). adm-card liefert
    Border/Bg/Padding; hier nur Canvas-Groesse + top-align. */
 .adm-watch3d { align-self: start; position: relative; }
-.adm-watch3d-canvas { width: 100%; aspect-ratio: 1 / 1; height: auto; display: block; }
+.adm-watch3d-canvas { width: 100%; height: 220px; display: block; }
 .adm-watch3d.is-writing { border-color: color-mix(in oklch, var(--green) 55%, var(--border)); box-shadow: inset 0 0 60px -24px var(--green); }
