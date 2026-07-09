@@ -5,8 +5,14 @@
 
 const GLTF_URL = '/static/assets/watch/scene-lite.glb';  // 7.4k tris (dezimiert von 347k)
 const CAMERA_FOV = 28;      // lange Brennweite = Produkt-Shot statt Handy-Snapshot
-const SLERP_HALFLIFE = 0.12; // Kompromiss zwischen Latenz und 10-Hz-Glaettung
-const PLAYBACK_SLERP = 0.5;  // Glaettung/Frame beim Queue-Playback der ~100-Hz-Samples
+// Jitter-Buffer-Playback: die Samples kommen gebuendelt (~10 Batches/s à ~10 Stück,
+// mit Netz-Jitter), sollen aber mit KONSTANTER Winkelgeschwindigkeit abgespielt werden
+// (so lief das Offline-Replay fluessig). Ein fraktionaler Lese-Cursor interpoliert
+// zwischen zwei Nachbar-Samples; ein sanfter Regler haelt die Puffertiefe stabil.
+const BUF_LATENCY_FRAC = 0.12; // Ziel-Puffertiefe als Sekundenbruchteil (~120 ms Latenz)
+const BUF_CTRL_GAIN = 0.03;    // Regler-Verstaerkung (klein = ruhige, driftkorrigierende Geschwindigkeit)
+const BUF_SPEED_MIN = 0.6, BUF_SPEED_MAX = 1.5; // Geschwindigkeits-Clamp gegen sichtbares Ruckeln
+const QUEUE_CAP = 24;          // harte Latenz-Obergrenze (~2 Batches) gegen Netz-Bursts
 
 let _threePromise = null;
 let _gltfPromise = null;
@@ -28,7 +34,6 @@ export function initWatch3D(canvas) {
   let raf = 0;
   let renderer, scene, camera, wrapper, ro, envTex;
   let THREE_;
-  const targetQuat = { x: 0, y: 0, z: 0, w: 1 };
   let refInv = null;         // q_ref^-1, gesetzt durch recenter()/erstes Sample
   let writing = false;
   let lastMsgTs = 0;
@@ -36,8 +41,14 @@ export function initWatch3D(canvas) {
   let lastRender = 0;        // performance.now() des letzten gerenderten Frames
   let lastW = 0, lastH = 0;  // Firing-Feedback-Loop-Schutz fuer ResizeObserver
   let tgtQ;                  // wiederverwendetes Quaternion (keine Per-Frame-Allokation)
-  let devQ, dispQ;           // Reusable quaternions for GC prevention
+  let devQ, dispQ, prevQ;    // Reusable quaternions for GC prevention (prevQ = Playback-Startpose)
   const _queue = [];         // gepufferte korrigierte Anzeige-Quaternionen (~100 Hz Playback)
+  // Jitter-Buffer-Playback-Zustand (siehe _tick):
+  let havePrev = false;      // prevQ initialisiert?
+  let frac = 0;              // fraktionaler Cursor prevQ -> _queue[0], in [0,1)
+  let arrRate = 0;           // EMA der Ankunftsrate (Samples/s) = konstantes Playback-Tempo
+  let lastArrT = 0;          // performance.now() des letzten Batches (für arrRate)
+  let bufEMA = 0;            // geglättete Puffertiefe (entkoppelt den Batch-Sägezahn vom Regler)
   let colorActive, colorDefault; // Reusable colors for setWriting()
   let needsRender = true;    // Reactive rendering flag to save CPU/GPU cycles
   let C_FIX, C_INV;          // Basis-Konjugation CoreMotion(Z-up) -> Three.js(Y-up)
@@ -74,6 +85,7 @@ export function initWatch3D(canvas) {
     tgtQ = new THREE.Quaternion();
     devQ = new THREE.Quaternion();
     dispQ = new THREE.Quaternion();
+    prevQ = new THREE.Quaternion();
     colorActive = new THREE.Color(0x00e676);
     colorDefault = new THREE.Color(0x000000);
 
@@ -187,27 +199,38 @@ export function initWatch3D(canvas) {
 
     const stale = now - lastMsgTs > 2000;
 
-    if (_queue.length) {
-      // Queue-Playback der ~100-Hz-Samples bei Display-Rate: pro Frame aufholen,
-      // damit die Latenz ~1 Batch (~50 ms) bleibt und jede Mikrobewegung durchkommt.
-      const consume = Math.max(1, Math.ceil(_queue.length / 3));
-      let next = null;
-      for (let i = 0; i < consume && _queue.length; i++) next = _queue.shift();
-      tgtQ.set(next[0], next[1], next[2], next[3]);
-      if (wrapper.quaternion.dot(tgtQ) < 0) tgtQ.set(-next[0], -next[1], -next[2], -next[3]);
-      targetQuat.x = tgtQ.x; targetQuat.y = tgtQ.y; targetQuat.z = tgtQ.z; targetQuat.w = tgtQ.w;
-      wrapper.quaternion.slerp(tgtQ, PLAYBACK_SLERP);
+    if (havePrev && (_queue.length || frac > 0)) {
+      // Konstant-Geschwindigkeits-Playback: pro Frame um (Ankunftsrate × dt) Samples
+      // vorruecken — NICHT um einen Bruchteil der Puffertiefe (das koppelte die
+      // Winkelgeschwindigkeit an den Batch-Saegezahn und war das sichtbare Ruckeln).
+      const rate = arrRate || 100;
+      // geglaettete Puffertiefe treibt einen sanften Drift-Regler; der rohe
+      // Per-Batch-Saegezahn (0->10->0) wuerde sonst die Geschwindigkeit modulieren.
+      bufEMA = bufEMA * 0.9 + _queue.length * 0.1;
+      const target = Math.max(4, rate * BUF_LATENCY_FRAC);
+      let speed = 1 + BUF_CTRL_GAIN * (bufEMA - target);
+      speed = Math.max(BUF_SPEED_MIN, Math.min(BUF_SPEED_MAX, speed));
+      let step = rate * dt * speed;
+      step = Math.min(step, _queue.length + (1 - frac)); // nie ueber Vorhandenes hinaus
+      frac += step;
+      while (frac >= 1 && _queue.length) {
+        const q = _queue.shift();
+        prevQ.set(q[0], q[1], q[2], q[3]);              // konsumiertes Sample = neue Startpose
+        frac -= 1;
+      }
+      if (_queue.length) {
+        const q = _queue[0];
+        tgtQ.set(q[0], q[1], q[2], q[3]);
+        // slerp waehlt intern den kuerzesten Pfad (Hemisphaeren-Flip) -> keine manuelle Umkehr.
+        wrapper.quaternion.copy(prevQ).slerp(tgtQ, Math.min(1, frac));
+      } else {
+        frac = 0;
+        wrapper.quaternion.copy(prevQ);                 // trockengelaufen: auf letztem Sample halten
+      }
       needsRender = true;
     } else if (stale) {
-      wrapper.rotateY(dt * 0.5);                 // Idle-Plattenteller (nur ganz ohne Daten)
+      wrapper.rotateY(dt * 0.5);                        // Idle-Plattenteller (nur ganz ohne Daten)
       needsRender = true;
-    } else {
-      // Queue leer, Daten kamen kuerzlich -> Rest-Slerp auf die letzte Pose
-      tgtQ.set(targetQuat.x, targetQuat.y, targetQuat.z, targetQuat.w);
-      if (wrapper.quaternion.angleTo(tgtQ) > 0.001) {
-        wrapper.quaternion.slerp(tgtQ, 1 - Math.pow(0.0001, dt / SLERP_HALFLIFE));
-        needsRender = true;
-      }
     }
     
     if (needsRender) {
@@ -217,12 +240,21 @@ export function initWatch3D(canvas) {
   }
 
   // qs = Array von [x,y,z,w] (ein ganzer Watch-Batch, ~100 Hz). Jedes wird korrigiert
-  // und in die Playback-Queue gelegt; _tick() spielt sie bei 60 fps ab.
+  // und in die Playback-Queue gelegt; _tick() spielt sie mit konstantem Tempo ab.
   function updateOrientation(qs) {
     if (!THREE_ || !qs || !qs.length) return;
-    const wasStale = performance.now() - lastMsgTs > 2000;
-    lastMsgTs = performance.now();
-    if (wasStale) _queue.length = 0;              // aus dem Idle-Spin: alten Puffer verwerfen
+    const nowT = performance.now();
+    const wasStale = nowT - lastMsgTs > 2000;
+
+    // Ankunftsrate (Samples/s) als EMA schaetzen -> konstantes Playback-Tempo in _tick.
+    // Nach einer Luecke (wasStale) NICHT messen: das dt waere riesig -> rate-Kollaps.
+    if (lastArrT && !wasStale) {
+      const inst = qs.length / Math.max(0.001, (nowT - lastArrT) / 1000);
+      arrRate = arrRate ? arrRate * 0.8 + inst * 0.2 : inst;
+    }
+    lastArrT = nowT;
+    lastMsgTs = nowT;
+    if (wasStale) { _queue.length = 0; havePrev = false; frac = 0; } // aus dem Idle-Spin
 
     for (let i = 0; i < qs.length; i++) {
       const q = qs[i];
@@ -234,17 +266,27 @@ export function initWatch3D(canvas) {
       dispQ.copy(refInv).multiply(devQ).conjugate().premultiply(C_FIX).multiply(C_INV);
       _queue.push([dispQ.x, dispQ.y, dispQ.z, dispQ.w]);
     }
-    // Latenz begrenzen: nie mehr als ~2 Batches puffern (Netz-Burst-Schutz).
-    if (_queue.length > 24) _queue.splice(0, _queue.length - 24);
+    // Harte Latenz-Obergrenze: nie mehr als ~2 Batches puffern (Netz-Burst-Schutz).
+    if (_queue.length > QUEUE_CAP) _queue.splice(0, _queue.length - QUEUE_CAP);
 
-    if (wasStale && wrapper && _queue.length) {   // Snap aus dem Idle, kein Swoop
-      const q = _queue[_queue.length - 1];
-      wrapper.quaternion.set(q[0], q[1], q[2], q[3]);
+    // Startpose setzen. Nach einer Luecke auf das NEUESTE Sample snappen (kein Swoop,
+    // kein Replay des stale Puffers); beim allerersten Datum auf das aelteste, dann
+    // normal weiterspielen.
+    if (!havePrev && _queue.length) {
+      const q = wasStale ? _queue[_queue.length - 1] : _queue.shift();
+      if (wasStale) _queue.length = 0;
+      prevQ.set(q[0], q[1], q[2], q[3]);
+      havePrev = true; frac = 0;
+      if (wrapper) wrapper.quaternion.copy(prevQ);
     }
     needsRender = true;
   }
 
-  function recenter() { refInv = null; needsRender = true; } // naechstes Sample wird neue Ruhepose
+  // naechstes Sample wird neue Ruhepose; Playback-Zustand zuruecksetzen, damit die
+  // alte Basis nicht in die neue Nulllage swoopt.
+  function recenter() {
+    refInv = null; _queue.length = 0; havePrev = false; frac = 0; needsRender = true;
+  }
 
   // Screen-Mesh laesst sich nicht per Name isolieren (alle Object_*, ein Material).
   // Diagnose ist ein manueller Schritt (laufender Server + Browser-Konsole) und steht

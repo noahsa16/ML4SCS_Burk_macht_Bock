@@ -19,6 +19,12 @@ from ._helpers import _new_command_id
 
 router = APIRouter()
 
+# Why: Obergrenze fuer die pro Batch gesendeten Orientierungs-Quaternionen. Kappt
+# einen Spill-Drain-Burst (hunderte Samples auf einmal) auf einen kleinen WS-Frame,
+# statt ein riesiges Array an ALLE WS-Clients zu broadcasten. Der Live-Client puffert
+# ohnehin nur ~24; aeltere Quaternionen sind fuers Echtzeit-Display stale.
+_ORIENT_QS_MAX = 15
+
 
 @router.get("/watch/ping")
 async def watch_ping(request: Request):
@@ -258,7 +264,7 @@ async def receive_watch(request: Request):
         # jede Mikrobewegung sichtbar + fluessig (wie ein Offline-Replay). Ein WS-Frame
         # pro Batch (~10/s) mit ~10 Quaternionen ist winzig (~400 B).
         state.last_orientation = batch_quats[-1]
-        await _broadcast({"type": "orientation", "qs": batch_quats})
+        await _broadcast({"type": "orientation", "qs": batch_quats[-_ORIENT_QS_MAX:]})
 
     return {
         "ok": True,
