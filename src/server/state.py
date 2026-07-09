@@ -71,11 +71,6 @@ class SessionState:
         self.last_watch_rate_check: float = time.time()
         self.last_watch_count_for_rate: int = 0
         self.last_pen_dot: Optional[dict[str, Any]] = None
-        # Letztes valides Attitude-Quaternion [qx,qy,qz,qw] fuer die Live-3D-Watch.
-        # None, solange kein Quaternion-tragender Sample gesehen wurde (Legacy-Streams).
-        self.last_orientation: Optional[list[float]] = None
-        # Throttle-Marke fuer den Orientierungs-Broadcast (Unix-ms), <=10 Hz.
-        self.last_orientation_broadcast_ms: int = 0
         self.last_pen_log_key: Optional[tuple] = None
         self.pen_rate_hz: float = 0.0
         self.last_pen_rate_check: float = time.time()
@@ -123,7 +118,6 @@ class SessionState:
         self.watch_server_latency_ms = None
         self.watch_clock_skew_ms = None
         self.last_pen_dot = None
-        self.last_orientation = None
         self.last_pen_log_key = None
         self.airpods_sample_count = 0
         self.last_airpods_sample = None

@@ -449,13 +449,7 @@ Cross-cutting concerns in `static/js/core/`:
   message: `updateFromStatus(msg)` → `handleStatus(msg, prevSessionId)`.
   Note the second arg: it carries the pre-update `S.lastStatus.session_id`
   so cross-session canvas clearing still works after state mutation moved
-  into `state.js`. `orientation`-Messages umgehen bewusst `handleStatus`
-  und gehen an genau einen `setOrientationHandler(fn)`-Subscriber
-  (`(qs, fs)`) — die aktive Seite registriert in `onShow()`, meldet in
-  `onHide()` ab.
-- `watch3d.js` — seiten-agnostischer Three.js-Helfer fürs *Live 3D watch*
-  (siehe eigener Abschnitt unten). `initWatch3D(canvas)` →
-  `{updateOrientation, setWriting, recenter, destroy}`.
+  into `state.js`.
 - `status_cluster.js` — `handleStatus` updates the topbar pills/badges
   and ends with `_activePageDispatch(s)`.
 - `router.js` — hash routing, tab indicator, `closeSessionDetail`.
@@ -467,36 +461,6 @@ Cross-cutting concerns in `static/js/core/`:
 
 Per-page styles live in `static/css/<page>.css`; cross-cutting tokens and
 layout are in `static/css/base.css` + `static/css/topbar.css`.
-
-**Live 3D watch (`static/js/core/watch3d.js`, seit 2026-07-08).**
-Ein Three.js-Watch-Modell auf der Recording- **und** Admin-Seite, das die
-Live-Handgelenk-Orientierung spiegelt (aus dem `qs`-Quaternion-Batch des
-`orientation`-WS-Broadcasts) und **grün leuchtet, wenn das Modell „writing"
-predictet** (`setWriting()` aus `onStatus`). Präsi-Showpiece — Wow-Effekt.
-- Three.js r169 via CDN-Importmap (kein Build-Step), `GLTFLoader` +
-  `RoomEnvironment`/PMREM + `ACESFilmicToneMapping`. Modell
-  `static/assets/watch/scene-lite.glb` = **7,4k Tris** (von 347k dezimiert
-  via `npx @gltf-transform/cli optimize` — die 347k-Version war die ganze
-  Lag-Ursache, NICHT Three.js selbst).
-- **Basis-Konjugation** CoreMotion(Z-up) → Three.js(Y-up): `q_display =
-  C ⊗ (q_ref⁻¹ ⊗ q_dev) ⊗ C⁻¹`, empirisch kalibriert `C_FIX =
-  [0, -√½, √½, 0]` + `.conjugate()`. `recenter()` (Button pro Seite) setzt
-  die Ruhepose neu — der Arm auf den Tisch legen und nullen.
-- **Jitter-Buffer-Playback (der Knackpunkt für Live-Flüssigkeit):** die
-  Samples kommen gebündelt (~10 Batches/s à ~10 Stück, Netz-Jitter), werden
-  aber mit **konstanter Winkelgeschwindigkeit** abgespielt — fraktionaler
-  Lese-Cursor, slerp zwischen zwei Nachbar-Samples, Tempo = **bekannte
-  Geräte-`fs`** (aus dem Payload, NICHT aus Ankunftszeiten geschätzt — das
-  war ein Ruckel-Bug, Fable-Review). Sanfter P-Regler auf geglätteter
-  Puffertiefe korrigiert Uhren-Drift. **Bewusster ~2-s-Versatz statt
-  hart-live** (`BUF_TARGET_SEC`, mit Nutzer abgestimmt 2026-07-09): der
-  große Vorpuffer macht Starvation — das Rest-Ruckeln unter Netz-Jitter —
-  praktisch unmöglich, Tempo bleibt bei ~1.0; Prebuffer-Gate wartet auf den
-  vollen Puffer, dann läuft es konstant (Start ~2 s Pose-Halten).
-  Diagnose-Lehre: Live-Ruckeln war das **Signal-Timing** (bursty Delivery +
-  zu kleiner Puffer), nicht das Rendering.
-- Server-Cap `_ORIENT_QS_MAX=15` in `routes/watch.py`: kappt einen
-  Spill-Drain-Burst auf einen kleinen WS-Frame.
 
 **Inline `onclick=` handlers in view partials** reference functions as
 `window.foo()`. Since the bootstrap is a module (functions are not global
@@ -1038,10 +1002,8 @@ qx, qy, qz, qw # Attitude-Quaternion (forward-only); leer für Pre-Quat-Sessions
 sind `motion.gravity` separat, Modern-Pool-Sessions ab 2026-05-26.
 Total acceleration = `(ax+gx, ay+gy, az+gz)` jederzeit ableitbar. `qx/qy/qz/qw`
 sind `motion.attitude.quaternion` (hardware-fusionierte Handgelenk-Orientierung),
-**forward-only Capture** — vom ML/Feature-Set (windows.py) nicht genutzt, aber
-seit 2026-07-08 vom **Live-3D-Watch-Rendering** konsumiert (siehe *Live 3D
-watch* unten): `POST /watch` broadcastet den Quaternion-Batch als
-`{type: "orientation", qs: [...], fs}` über den WS. Siehe *Pool architecture* unten.
+**forward-only Capture** — passive Metadaten, vom ML/Feature-Set (windows.py)
+nicht genutzt; reserviert fürs spätere 3D-Replay. Siehe *Pool architecture* unten.
 
 **Pen CSV** (`data/raw/pen/{session}_pen.csv`):
 ```

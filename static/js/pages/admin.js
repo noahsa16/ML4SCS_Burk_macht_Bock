@@ -13,11 +13,8 @@
 //     from a study-active recording page does not bleed the overlay in.
 
 import { S } from '/static/js/core/state.js';
-import { initWatch3D } from '/static/js/core/watch3d.js';
-import { setOrientationHandler } from '/static/js/core/ws.js';
 
 let _mounted = false;
-let _admWatch3d = null;
 
 // ════════════════════════════════════════════════════════════
 //  CHART — local copy, bound to #admImuChart, with its own buffer
@@ -275,20 +272,10 @@ export function onShow() {
   // proband surface.
   document.body.classList.remove('study-active');
   _drawPen();
-
-  const c = document.getElementById('admWatch3dCanvas');
-  if (c && !_admWatch3d) {
-    _admWatch3d = initWatch3D(c);
-    setOrientationHandler((q) => _admWatch3d && _admWatch3d.updateOrientation(q));
-    document.getElementById('admWatch3dRecenter')
-      ?.addEventListener('click', () => _admWatch3d && _admWatch3d.recenter());
-  }
 }
 
 export function onHide() {
   // No timers / rAF loops to cancel — chart and pen updates are synchronous.
-  setOrientationHandler(null);
-  if (_admWatch3d) { _admWatch3d.destroy(); _admWatch3d = null; }
 }
 
 export function onStatus(s) {
@@ -341,12 +328,6 @@ export function onStatus(s) {
 
   // Model writing prediction
   _renderWritingPrediction(s.live_inference, s.live_sparkline);
-
-  if (_admWatch3d && s.live_inference) {
-    const w = !!s.live_inference.writing;
-    _admWatch3d.setWriting(w);
-    document.querySelector('.adm-watch3d')?.classList.toggle('is-writing', w);
-  }
 }
 
 // ════════════════════════════════════════════════════════════

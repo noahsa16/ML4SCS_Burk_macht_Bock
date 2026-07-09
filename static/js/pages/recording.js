@@ -12,8 +12,6 @@ import { setNumberSmooth } from '/static/js/core/anim.js';
 import { toast } from '/static/js/core/toast.js';
 import { renderState } from '/static/js/core/states.js';
 import { renderStudyView, primeStudyAudio } from '/static/js/pages/recording-study.js';
-import { initWatch3D } from '/static/js/core/watch3d.js';
-import { setOrientationHandler } from '/static/js/core/ws.js';
 
 // ════════════════════════════════════════════════════════════
 //  STUDY MODE — toggle + protocol picker
@@ -65,7 +63,6 @@ async function _ensureProtocolsLoaded() {
 }
 
 let _mounted = false;
-let _watch3d = null;
 
 // ════════════════════════════════════════════════════════════
 //  CHART
@@ -768,21 +765,11 @@ function _markActiveModel(id) {
 export function onShow() {
   // Redraw pen canvas in case it was resized while hidden.
   drawPenCanvas();
-
-  const canvas = document.getElementById('recWatch3dCanvas');
-  if (canvas && !_watch3d) {
-    _watch3d = initWatch3D(canvas);
-    setOrientationHandler((q) => _watch3d && _watch3d.updateOrientation(q));
-    document.getElementById('recWatch3dRecenter')
-      ?.addEventListener('click', () => _watch3d && _watch3d.recenter());
-  }
 }
 
 export function onHide() {
   // No rAF loops to cancel - chart and pen canvas updates are synchronous.
   // Timer keeps running regardless of active tab (session continues in background).
-  setOrientationHandler(null);
-  if (_watch3d) { _watch3d.destroy(); _watch3d = null; }
 }
 
 export function onStatus(s) {
@@ -857,12 +844,6 @@ export function onStatus(s) {
 
   // Live inference panel (Focus Tracker)
   updateInferencePanel(s.live_inference, s.live_sparkline);
-
-  if (_watch3d && s.live_inference) {
-    const w = !!s.live_inference.writing;
-    _watch3d.setWriting(w);
-    document.getElementById('recWatch3dPanel')?.classList.toggle('is-writing', w);
-  }
 }
 
 // ════════════════════════════════════════════════════════════

@@ -19,12 +19,6 @@ from ._helpers import _new_command_id
 
 router = APIRouter()
 
-# Why: Obergrenze fuer die pro Batch gesendeten Orientierungs-Quaternionen. Kappt
-# einen Spill-Drain-Burst (hunderte Samples auf einmal) auf einen kleinen WS-Frame,
-# statt ein riesiges Array an ALLE WS-Clients zu broadcasten. Der Live-Client puffert
-# ohnehin nur ~24; aeltere Quaternionen sind fuers Echtzeit-Display stale.
-_ORIENT_QS_MAX = 15
-
 
 @router.get("/watch/ping")
 async def watch_ping(request: Request):
@@ -155,7 +149,6 @@ async def receive_watch(request: Request):
     first_ts = None
     last_ts = None
     last_sample = None
-    batch_quats = []
 
     w = get_watch_writer(csv_path)
     for s in envelope.samples:
@@ -189,9 +182,6 @@ async def receive_watch(request: Request):
             "qw":  s.qw,
         })
         valid_count += 1
-
-        if None not in (s.qx, s.qy, s.qz, s.qw):
-            batch_quats.append([s.qx, s.qy, s.qz, s.qw])
 
         acc_mag = (
             math.sqrt(s.ax * s.ax + s.ay * s.ay + s.az * s.az)
@@ -257,21 +247,6 @@ async def receive_watch(request: Request):
 
     if state.active:
         state.watch_sample_count += valid_count
-
-    if batch_quats:
-        # Why: den GANZEN Batch an Quaternionen senden (echte ~100 Hz), nicht nur das
-        # letzte gedrosselt auf 10 Hz. Der Client spielt sie als Queue bei 60 fps ab ->
-        # jede Mikrobewegung sichtbar + fluessig (wie ein Offline-Replay). Ein WS-Frame
-        # pro Batch (~10/s) mit ~10 Quaternionen ist winzig (~400 B).
-        state.last_orientation = batch_quats[-1]
-        # Why: fs (die bekannte Geräte-Samplerate, kristall-genau) mitsenden, damit der
-        # Client das Playback-Tempo NICHT aus verrauschten WS-Ankunftszeiten schätzen muss
-        # (koaleszierende Frames -> Rate-Spikes -> Ruckeln). Server kennt sie ohnehin.
-        await _broadcast({
-            "type": "orientation",
-            "qs": batch_quats[-_ORIENT_QS_MAX:],
-            "fs": state.watch_config_rate_hz,
-        })
 
     return {
         "ok": True,
