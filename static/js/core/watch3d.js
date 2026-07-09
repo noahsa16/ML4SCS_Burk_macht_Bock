@@ -9,13 +9,15 @@ const CAMERA_FOV = 28;      // lange Brennweite = Produkt-Shot statt Handy-Snaps
 // mit Netz-Jitter), sollen aber mit KONSTANTER Winkelgeschwindigkeit abgespielt werden
 // (so lief das Offline-Replay fluessig). Ein fraktionaler Lese-Cursor interpoliert
 // zwischen zwei Nachbar-Samples; ein sanfter Regler haelt die Puffertiefe stabil.
-const BUF_LATENCY_FRAC = 0.15; // Ziel-Puffertiefe als Sekundenbruchteil (~150 ms Latenz)
-const BUF_CTRL_GAIN = 0.03;    // Regler-Verstaerkung (klein = ruhige, driftkorrigierende Geschwindigkeit)
-// Geschwindigkeits-Clamp: eng (±20 %), weil die Rate jetzt die BEKANNTE Geräte-fs ist
-// (nicht mehr aus Ankunftszeiten geschätzt) -> der Regler trimmt nur wenige % und bleibt
-// unsichtbar. Weite Clamps wären nur nötig, um eine verrauschte Rate zu maskieren.
-const BUF_SPEED_MIN = 0.85, BUF_SPEED_MAX = 1.2;
-const QUEUE_CAP = 36;          // harte Latenz-Obergrenze (>= Ziel + 2 Batches) gegen Netz-Bursts
+// Bewusster Playback-Versatz statt hart-live: die Samples kommen gebündelt mit
+// Netz-Jitter. Wir puffern ~2 s vor und spielen daraus mit KONSTANTEM Tempo ab ->
+// flüssig wie ein Offline-Replay, um den Preis von ~2 s Latenz (bewusst akzeptiert).
+// Der große Puffer macht Starvation (das Rest-Ruckeln) praktisch unmöglich; der Regler
+// trimmt dann nur noch winzige Uhren-Drift, das Tempo bleibt bei ~1.0.
+const BUF_TARGET_SEC = 2.0;    // Ziel-Puffertiefe = sichtbarer Versatz (hochdrehen = flüssiger/träger)
+const BUF_MAX_SEC = 3.5;       // harte Obergrenze gegen unbegrenztes Puffer-Wachstum
+const BUF_CTRL_GAIN = 0.03;    // Regler-Verstaerkung (Zeitkonstante ~0.33 s, zielgrößen-unabhängig)
+const BUF_SPEED_MIN = 0.9, BUF_SPEED_MAX = 1.1; // enger Clamp: mit großem Puffer nur ~% Korrektur nötig
 
 let _threePromise = null;
 let _gltfPromise = null;
@@ -207,10 +209,11 @@ export function initWatch3D(canvas) {
     // Winkelgeschwindigkeit an den Batch-Saegezahn) und NICHT aus Ankunftszeiten
     // geschaetzt (koaleszierende WS-Frames -> Rate-Spikes). fs ist kristall-genau.
     const rate = fsRate || 100;
-    const target = Math.max(4, rate * BUF_LATENCY_FRAC);
-    // Prebuffer: erst starten, wenn ~½ Ziel gepuffert ist (Modell haelt derweil die
-    // Pose) -> kein Dry-Start-Ruckler bei Beginn / nach Stale-Resume.
-    if (havePrev && !primed && _queue.length >= Math.max(2, target * 0.5)) primed = true;
+    const target = Math.max(4, rate * BUF_TARGET_SEC);
+    // Prebuffer: erst starten, wenn der VOLLE Ziel-Puffer (~2 s) da ist -> Playback
+    // beginnt direkt im Gleichgewicht (Tempo ~1, kein Fill-Transient) und laeuft dann
+    // konstant. Kostet ~2 s Startverzoegerung (gewollt); das Modell haelt derweil die Pose.
+    if (havePrev && !primed && _queue.length >= target) primed = true;
 
     if (havePrev && primed && (_queue.length || frac > 0)) {
       // geglaettete Puffertiefe treibt einen sanften Drift-Regler; der rohe
@@ -270,8 +273,10 @@ export function initWatch3D(canvas) {
       dispQ.copy(refInv).multiply(devQ).conjugate().premultiply(C_FIX).multiply(C_INV);
       _queue.push([dispQ.x, dispQ.y, dispQ.z, dispQ.w]);
     }
-    // Harte Latenz-Obergrenze: nie mehr als ~2 Batches puffern (Netz-Burst-Schutz).
-    if (_queue.length > QUEUE_CAP) _queue.splice(0, _queue.length - QUEUE_CAP);
+    // Harte Obergrenze (~3.5 s), damit ein gestauter Tab / Netz-Burst den Puffer nicht
+    // unbegrenzt wachsen laesst; im Normalbetrieb (Ziel ~2 s) nie erreicht.
+    const cap = Math.round((fsRate || 100) * BUF_MAX_SEC);
+    if (_queue.length > cap) _queue.splice(0, _queue.length - cap);
 
     // Startpose setzen. Nach einer Luecke auf das NEUESTE Sample snappen (kein Swoop,
     // kein Replay des stale Puffers); beim allerersten Datum auf das aelteste, dann

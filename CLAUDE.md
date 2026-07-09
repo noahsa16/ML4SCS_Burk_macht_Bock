@@ -488,9 +488,13 @@ predictet** (`setWriting()` aus `onStatus`). Präsi-Showpiece — Wow-Effekt.
   Lese-Cursor, slerp zwischen zwei Nachbar-Samples, Tempo = **bekannte
   Geräte-`fs`** (aus dem Payload, NICHT aus Ankunftszeiten geschätzt — das
   war ein Ruckel-Bug, Fable-Review). Sanfter P-Regler auf geglätteter
-  Puffertiefe (~150 ms Ziel) korrigiert Drift; Prebuffer-Gate gegen
-  Dry-Start. Diagnose-Lehre: Live-Ruckeln war das **Signal-Timing**
-  (bursty Delivery), nicht das Rendering.
+  Puffertiefe korrigiert Uhren-Drift. **Bewusster ~2-s-Versatz statt
+  hart-live** (`BUF_TARGET_SEC`, mit Nutzer abgestimmt 2026-07-09): der
+  große Vorpuffer macht Starvation — das Rest-Ruckeln unter Netz-Jitter —
+  praktisch unmöglich, Tempo bleibt bei ~1.0; Prebuffer-Gate wartet auf den
+  vollen Puffer, dann läuft es konstant (Start ~2 s Pose-Halten).
+  Diagnose-Lehre: Live-Ruckeln war das **Signal-Timing** (bursty Delivery +
+  zu kleiner Puffer), nicht das Rendering.
 - Server-Cap `_ORIENT_QS_MAX=15` in `routes/watch.py`: kappt einen
   Spill-Drain-Burst auf einen kleinen WS-Frame.
 
