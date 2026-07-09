@@ -264,7 +264,14 @@ async def receive_watch(request: Request):
         # jede Mikrobewegung sichtbar + fluessig (wie ein Offline-Replay). Ein WS-Frame
         # pro Batch (~10/s) mit ~10 Quaternionen ist winzig (~400 B).
         state.last_orientation = batch_quats[-1]
-        await _broadcast({"type": "orientation", "qs": batch_quats[-_ORIENT_QS_MAX:]})
+        # Why: fs (die bekannte Geräte-Samplerate, kristall-genau) mitsenden, damit der
+        # Client das Playback-Tempo NICHT aus verrauschten WS-Ankunftszeiten schätzen muss
+        # (koaleszierende Frames -> Rate-Spikes -> Ruckeln). Server kennt sie ohnehin.
+        await _broadcast({
+            "type": "orientation",
+            "qs": batch_quats[-_ORIENT_QS_MAX:],
+            "fs": state.watch_config_rate_hz,
+        })
 
     return {
         "ok": True,

@@ -9,10 +9,13 @@ const CAMERA_FOV = 28;      // lange Brennweite = Produkt-Shot statt Handy-Snaps
 // mit Netz-Jitter), sollen aber mit KONSTANTER Winkelgeschwindigkeit abgespielt werden
 // (so lief das Offline-Replay fluessig). Ein fraktionaler Lese-Cursor interpoliert
 // zwischen zwei Nachbar-Samples; ein sanfter Regler haelt die Puffertiefe stabil.
-const BUF_LATENCY_FRAC = 0.12; // Ziel-Puffertiefe als Sekundenbruchteil (~120 ms Latenz)
+const BUF_LATENCY_FRAC = 0.15; // Ziel-Puffertiefe als Sekundenbruchteil (~150 ms Latenz)
 const BUF_CTRL_GAIN = 0.03;    // Regler-Verstaerkung (klein = ruhige, driftkorrigierende Geschwindigkeit)
-const BUF_SPEED_MIN = 0.6, BUF_SPEED_MAX = 1.5; // Geschwindigkeits-Clamp gegen sichtbares Ruckeln
-const QUEUE_CAP = 24;          // harte Latenz-Obergrenze (~2 Batches) gegen Netz-Bursts
+// Geschwindigkeits-Clamp: eng (±20 %), weil die Rate jetzt die BEKANNTE Geräte-fs ist
+// (nicht mehr aus Ankunftszeiten geschätzt) -> der Regler trimmt nur wenige % und bleibt
+// unsichtbar. Weite Clamps wären nur nötig, um eine verrauschte Rate zu maskieren.
+const BUF_SPEED_MIN = 0.85, BUF_SPEED_MAX = 1.2;
+const QUEUE_CAP = 36;          // harte Latenz-Obergrenze (>= Ziel + 2 Batches) gegen Netz-Bursts
 
 let _threePromise = null;
 let _gltfPromise = null;
@@ -46,9 +49,9 @@ export function initWatch3D(canvas) {
   // Jitter-Buffer-Playback-Zustand (siehe _tick):
   let havePrev = false;      // prevQ initialisiert?
   let frac = 0;              // fraktionaler Cursor prevQ -> _queue[0], in [0,1)
-  let arrRate = 0;           // EMA der Ankunftsrate (Samples/s) = konstantes Playback-Tempo
-  let lastArrT = 0;          // performance.now() des letzten Batches (für arrRate)
+  let fsRate = 0;            // BEKANNTE Geräte-Samplerate (Hz) aus dem Payload = Playback-Tempo
   let bufEMA = 0;            // geglättete Puffertiefe (entkoppelt den Batch-Sägezahn vom Regler)
+  let primed = false;        // Prebuffer-Gate: erst spielen, wenn ~½ Ziel gepuffert (kein Dry-Start)
   let colorActive, colorDefault; // Reusable colors for setWriting()
   let needsRender = true;    // Reactive rendering flag to save CPU/GPU cycles
   let C_FIX, C_INV;          // Basis-Konjugation CoreMotion(Z-up) -> Three.js(Y-up)
@@ -199,15 +202,20 @@ export function initWatch3D(canvas) {
 
     const stale = now - lastMsgTs > 2000;
 
-    if (havePrev && (_queue.length || frac > 0)) {
-      // Konstant-Geschwindigkeits-Playback: pro Frame um (Ankunftsrate × dt) Samples
-      // vorruecken — NICHT um einen Bruchteil der Puffertiefe (das koppelte die
-      // Winkelgeschwindigkeit an den Batch-Saegezahn und war das sichtbare Ruckeln).
-      const rate = arrRate || 100;
+    // Konstant-Geschwindigkeits-Playback: pro Frame um (Geräte-fs × dt) Samples
+    // vorruecken — NICHT um einen Bruchteil der Puffertiefe (das koppelte die
+    // Winkelgeschwindigkeit an den Batch-Saegezahn) und NICHT aus Ankunftszeiten
+    // geschaetzt (koaleszierende WS-Frames -> Rate-Spikes). fs ist kristall-genau.
+    const rate = fsRate || 100;
+    const target = Math.max(4, rate * BUF_LATENCY_FRAC);
+    // Prebuffer: erst starten, wenn ~½ Ziel gepuffert ist (Modell haelt derweil die
+    // Pose) -> kein Dry-Start-Ruckler bei Beginn / nach Stale-Resume.
+    if (havePrev && !primed && _queue.length >= Math.max(2, target * 0.5)) primed = true;
+
+    if (havePrev && primed && (_queue.length || frac > 0)) {
       // geglaettete Puffertiefe treibt einen sanften Drift-Regler; der rohe
       // Per-Batch-Saegezahn (0->10->0) wuerde sonst die Geschwindigkeit modulieren.
       bufEMA = bufEMA * 0.9 + _queue.length * 0.1;
-      const target = Math.max(4, rate * BUF_LATENCY_FRAC);
       let speed = 1 + BUF_CTRL_GAIN * (bufEMA - target);
       speed = Math.max(BUF_SPEED_MIN, Math.min(BUF_SPEED_MAX, speed));
       let step = rate * dt * speed;
@@ -225,7 +233,8 @@ export function initWatch3D(canvas) {
         wrapper.quaternion.copy(prevQ).slerp(tgtQ, Math.min(1, frac));
       } else {
         frac = 0;
-        wrapper.quaternion.copy(prevQ);                 // trockengelaufen: auf letztem Sample halten
+        primed = false;                                 // trockengelaufen: neu prebuffern
+        wrapper.quaternion.copy(prevQ);                 // auf letztem Sample halten
       }
       needsRender = true;
     } else if (stale) {
@@ -239,22 +248,17 @@ export function initWatch3D(canvas) {
     }
   }
 
-  // qs = Array von [x,y,z,w] (ein ganzer Watch-Batch, ~100 Hz). Jedes wird korrigiert
-  // und in die Playback-Queue gelegt; _tick() spielt sie mit konstantem Tempo ab.
-  function updateOrientation(qs) {
+  // qs = Array von [x,y,z,w] (ein ganzer Watch-Batch, ~100 Hz), fs = bekannte
+  // Geräte-Samplerate (Hz). Jedes Quaternion wird korrigiert und in die Playback-Queue
+  // gelegt; _tick() spielt sie mit konstantem, fs-getaktetem Tempo ab.
+  function updateOrientation(qs, fs) {
     if (!THREE_ || !qs || !qs.length) return;
     const nowT = performance.now();
     const wasStale = nowT - lastMsgTs > 2000;
 
-    // Ankunftsrate (Samples/s) als EMA schaetzen -> konstantes Playback-Tempo in _tick.
-    // Nach einer Luecke (wasStale) NICHT messen: das dt waere riesig -> rate-Kollaps.
-    if (lastArrT && !wasStale) {
-      const inst = qs.length / Math.max(0.001, (nowT - lastArrT) / 1000);
-      arrRate = arrRate ? arrRate * 0.8 + inst * 0.2 : inst;
-    }
-    lastArrT = nowT;
+    if (fs) fsRate = fs;                          // kristall-genaue Rate, keine Schaetzung
     lastMsgTs = nowT;
-    if (wasStale) { _queue.length = 0; havePrev = false; frac = 0; } // aus dem Idle-Spin
+    if (wasStale) { _queue.length = 0; havePrev = false; frac = 0; bufEMA = 0; primed = false; }
 
     for (let i = 0; i < qs.length; i++) {
       const q = qs[i];
@@ -285,7 +289,8 @@ export function initWatch3D(canvas) {
   // naechstes Sample wird neue Ruhepose; Playback-Zustand zuruecksetzen, damit die
   // alte Basis nicht in die neue Nulllage swoopt.
   function recenter() {
-    refInv = null; _queue.length = 0; havePrev = false; frac = 0; needsRender = true;
+    refInv = null; _queue.length = 0; havePrev = false; frac = 0;
+    bufEMA = 0; primed = false; needsRender = true;
   }
 
   // Screen-Mesh laesst sich nicht per Name isolieren (alle Object_*, ein Material).

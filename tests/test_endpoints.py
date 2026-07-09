@@ -466,8 +466,10 @@ def test_watch_batch_caches_and_broadcasts_orientation(client, data_dirs, monkey
     r = client.post("/watch", json=payload)
     assert r.status_code == 200
     assert state_mod.state.last_orientation == [0.0, 0.0, 0.0, 1.0]
-    assert any(m.get("type") == "orientation" and [0.0, 0.0, 0.0, 1.0] in m.get("qs", [])
-               for m in sent)
+    orient = [m for m in sent if m.get("type") == "orientation"]
+    # Why: qs = ganzer Batch, plus fs (Geräte-Samplerate) fürs Client-Playback-Tempo.
+    assert any([0.0, 0.0, 0.0, 1.0] in m.get("qs", []) for m in orient)
+    assert all("fs" in m for m in orient)
 
 
 def test_watch_batch_without_quaternion_leaves_orientation_none(client, data_dirs, monkeypatch):
