@@ -134,11 +134,28 @@ def run(session: str, out_path: Path) -> dict:
     print(f"[{session}] fine search around {coarse_d:.2f}s …")
     (fine_d, fine_min), fine = pen_match(watch, strokes, coarse_d - FINE_HALF, coarse_d + FINE_HALF, FINE_STEP)
     sigma = float((fine_min - fine.mean()) / fine.std())
-    verdict = "STRONG (trusted)" if sigma <= SIGMA_THRESHOLD else "WEAK (rejected)"
+
+    # Why: σ misst nur die Tiefe der Senke, nicht ob sie im Suchraum LIEGT.
+    # Fällt J(δ) monoton zum Rand, meldet argmin den Randwert — mit teils gutem
+    # σ. S094 (2026-08-08) lieferte bei ±20 s δ = +18,2 s und bei ±25 s
+    # δ = −27,15 s (σ = −2,63, also "STRONG"): zwei Suchräume, zwei Antworten,
+    # beide am Rand, J(0) sogar ein Maximum. Ein Randtreffer ist kein Alignment,
+    # egal wie tief σ aussieht.
+    at_edge = abs(fine_d) >= (COARSE_END - COARSE_STEP)
+    if at_edge:
+        verdict = "EDGE OF SEARCH (unreliable)"
+    elif sigma <= SIGMA_THRESHOLD:
+        verdict = "STRONG (trusted)"
+    else:
+        verdict = "WEAK (rejected)"
     print(f"[{session}] δ* = {fine_d:.3f}s | σ = {sigma:.2f} → {verdict}")
+    if at_edge:
+        print(f"[{session}] WARNUNG: δ liegt am Rand des Suchraums "
+              f"(±{COARSE_END:.0f}s) — J(δ) hat kein inneres Minimum. "
+              f"δ NICHT anwenden.")
 
     fig, axes = plt.subplots(2, 2, figsize=(15, 9))
-    quality = "good" if sigma <= SIGMA_THRESHOLD else "bad"
+    quality = "good" if (sigma <= SIGMA_THRESHOLD and not at_edge) else "bad"
     fig.suptitle(
         f"Pen ↔ IMU alignment · session {session} · σ = {sigma:.2f} · {verdict}",
         fontweight="bold", fontsize=13,
