@@ -72,11 +72,22 @@ def setup_logging() -> None:
         root.setLevel(logging.INFO)
     _attach_once(root, file_handler, stream_handler, event_handler)
 
-    # Uvicorn + FastAPI propagieren standardmäßig nicht zum Root —
-    # File + Event-Handler direkt an sie hängen. StreamHandler haben sie selbst.
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access", "fastapi"):
+    # File + Event-Handler direkt an die uvicorn/fastapi-Logger; StreamHandler
+    # haben sie selbst.
+    #
+    # Why: `uvicorn.error` ist bewusst NICHT in dieser Liste. Es ist ein Kind von
+    # `uvicorn` und propagiert dorthin — ein eigener File-Handler würde jeden
+    # Record ein zweites Mal schreiben. `_attach_once` fängt das nicht ab, weil
+    # es nur je Logger dedupliziert, nicht entlang der Propagationskette
+    # (Forensik 2026-08-08: 35 % der Logzeilen waren unmittelbare Duplikate,
+    # inklusive identischer PID).
+    #
+    # propagate=False aus demselben Grund: sonst schreibt zusätzlich der
+    # File-Handler des Root-Loggers denselben Record noch einmal.
+    for name in ("uvicorn", "uvicorn.access", "fastapi"):
         lg = logging.getLogger(name)
         lg.setLevel(logging.INFO)
+        lg.propagate = False
         _attach_once(lg, file_handler, event_handler)
 
 
