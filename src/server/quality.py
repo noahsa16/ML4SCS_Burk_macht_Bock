@@ -20,6 +20,8 @@ Modulare Aufteilung:
   quality.py    _session_facts → _build_issues → drei Views (hier)
 """
 
+import hashlib
+import json
 from datetime import datetime, timezone
 from statistics import median
 from typing import Any
@@ -524,8 +526,69 @@ def _build_issues(facts: dict[str, Any]) -> list[dict[str, Any]]:
 
 # ── View 1: Listen-Quality (für /sessions/quality) ────────────────────────────
 
+def _quality_cache_dir():
+    # Why: aus DATA_RAW_WATCH abgeleitet, damit die data_dirs-Fixture den Cache
+    # mit isoliert — sonst schriebe die Testsuite in echte Daten.
+    return DATA_RAW_WATCH.parent.parent / "processed" / ".quality_cache"
+
+
+def _quality_cache_key(row: dict[str, str]) -> str | None:
+    """mtime+size der drei Roh-CSVs plus die sessions.csv-Zeile selbst.
+
+    Dieselbe Invalidierungs-Semantik wie `_facts_cache`, nur persistent.
+    None, wenn kein Fingerprint bildbar ist (dann nicht cachen).
+    """
+    sid = row.get("session_id", "")
+    if not sid:
+        return None
+    parts = []
+    for base, suffix in ((DATA_RAW_WATCH, "watch"), (DATA_RAW_PEN, "pen"),
+                         (DATA_RAW_AIRPODS, "airpods")):
+        p = base / f"{sid}_{suffix}.csv"
+        try:
+            st = p.stat()
+            parts.append(f"{st.st_mtime_ns}:{st.st_size}")
+        except OSError:
+            parts.append("-")
+    parts.append(str(sorted(row.items())))
+    return hashlib.sha1("|".join(parts).encode()).hexdigest()
+
+
 def _session_quality(row: dict[str, str]) -> dict[str, Any]:
-    """Quality-Snapshot pro Session — kompakt für die Übersichtsseite."""
+    """Quality-Snapshot pro Session — kompakt für die Übersichtsseite.
+
+    Why der Disk-Cache: `_session_facts` parst pro Session die komplette
+    Watch-CSV (über alle Sessions 1,5 GB → ~70 s). Der In-Memory-Cache
+    überlebt keinen Serverneustart, also zahlte der erste Aufruf von
+    /sessions/quality diese Zeit jedes Mal neu. Der Snapshot selbst ist nur
+    ~2,4 KB. Die laufende Session wird bewusst nicht gecacht — ihre CSV
+    wächst im Sekundentakt, jeder Eintrag wäre sofort wieder ungültig.
+    """
+    cache_key = _quality_cache_key(row)
+    cache_file = None
+    if cache_key and (row.get("status") or "").strip() != "active":
+        cache_file = _quality_cache_dir() / f"{row.get('session_id')}.json"
+        try:
+            cached = json.loads(cache_file.read_text())
+            if cached.get("key") == cache_key:
+                return cached["payload"]
+        except (OSError, ValueError, KeyError):
+            pass  # kein/korrupter Cache -> neu rechnen
+
+    payload = _compute_session_quality(row)
+
+    if cache_file is not None:
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps({"key": cache_key, "payload": payload}))
+        except (OSError, TypeError):
+            pass  # Cache ist Beschleunigung, kein Korrektheits-Erfordernis
+
+    return payload
+
+
+def _compute_session_quality(row: dict[str, str]) -> dict[str, Any]:
+    """Ungecachte Berechnung des Quality-Snapshots."""
     facts = _session_facts(row)
     sid = facts["session_id"]
     issues = facts["issues"]
