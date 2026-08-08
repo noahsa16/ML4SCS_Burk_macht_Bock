@@ -152,7 +152,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 682 tests
+pytest tests/         # 747 tests
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -1388,6 +1388,59 @@ Train/Test, schwache Folds überproportional). Tests
 `test_late_arriving_samples_labelled_by_capture_time` +
 `test_t_center_and_closing_follow_capture_clock`.
 
+**Spill-Kontamination (2026-08-08).** Die Watch puffert bei Verbindungsproblemen
+auf Disk (`watch_spill.jsonl`) und liefert beim nächsten Connect nach. `POST
+/watch` stempelt jeden Batch auf die **aktive** Session — nachgelieferte Samples
+einer früheren Aufnahme landen also in der laufenden. **S093 trug so 8.925
+Fremd-Samples (5,55 %), davon 4.651 aus der abgebrochenen S092**, in der
+nachweislich geschrieben wurde → als `label=0` harte falsche Negative.
+**Der größere Schaden war aber die fs-Schätzung:** `infer_fs_hz` rechnet
+`(n-1)*1000/span`; die 302 s Vorlauf ergaben **87,97 statt 99,53 Hz (11,6 %
+Fehler)** — das verzerrte *alle* 3.650 Fenster (Fensterlänge 88 statt 100
+Samples, FFT-Frequenzachse und `× fs_hz`-skalierte Jerk-Features um 12 %
+daneben; `rx_dom_freq` 2,00 statt 2,99). Zusätzlich iteriert `build_windows`
+**index-** statt zeitbasiert, die 209-s-Lücke war für den Loop unsichtbar.
+Drei Schichten adressieren das jetzt: **Prävention** (`routes/watch.py`
+quarantänisiert Batches, deren jüngstes `ts` vor `start_time − 60 s` liegt, nach
+`unsessioned_watch.csv`), **Reparatur** (`merge.py::_drop_pre_session_samples`,
+Abort-Guard bei > 20 % Verwurf — S052/S053 sind Ganz-Session-Spill-Drains),
+**Erkennung** (`data_outside_session_window` prüft zusätzlich die Capture-Achse
+`device_start_ms`; die Ankunftsachse `local_ts_ms` ist für diese Klasse
+prinzipiell blind, weil Spill *rechtzeitig* ankommt und nur alt ist).
+**Detektor ist `ts < start_time − 60 s`** — korpusweit 3 Treffer / 0 Fehlalarme,
+Verteilung bimodal mit leerem Band 0…208,8 s. **Nicht** der Lag
+`local_ts_ms − ts` (S044/S091 haben 15.077 legitime Samples mit Lag > 60 s =
+Nachlieferung der *eigenen* Session) und **nicht** der `sequence`-Reset (feuert
+auf ≥ 7 sauberen Sessions). Alle Guards no-oppen, wenn `ts` keine plausible
+Epoch-ms-Zeit ist oder `start_time` fehlt (sessions.csv ist gitignored).
+
+**δ-Randtreffer (2026-08-08).** `sigma_minimal_variance` misst die *Tiefe* der
+Varianz-Senke, **nicht ob sie im Suchraum liegt**. Fällt J(δ) monoton zum Rand,
+liefert `argmin` den Randwert mit formal brauchbarem σ. **S094: δ = +18,2 s bei
+σ = −2,19** (über einen ±25-s-Suchraum dagegen −27,15 s; J(0) sogar ein
+*Maximum*) — angewandt kostete das **AUC 0,997 → 0,941** bei praktisch
+unveränderter Klassenverteilung (35.551 vs 35.536 writing). Genau deshalb kann
+keine Verteilungsstatistik einen kaputten Merge aufdecken: ein falsches δ
+*verschiebt* die Labels, es ändert ihre Menge nicht — nur ein Modell entlarvt es.
+`plot_alignment.py` flaggt Randtreffer jetzt als `EDGE OF SEARCH (unreliable)`
+statt `STRONG (trusted)`; `merge.py` verwirft δ, wenn das **Coarse**-Minimum am
+Rand liegt (die Fine-Suche verfeinert ±5 s darum und rutscht kosmetisch nach
+innen — ein Guard auf dem finalen δ greift nicht). S094 lag mit coarse
++18,5 s unter dieser Schwelle; deshalb greift zusätzlich eine
+**Plausibilitätsgrenze |δ| > 5 s** (`_DELTA_PLAUSIBLE_SEC`). Begründung: Pen-
+`local_ts_ms` und Watch-`ts` werden beide gegen die Wall-Clock gestempelt, ein
+Versatz über 5 s ist kein Uhrenproblem. **Korpus-Audit (44 Sessions mit
+auswertbarem δ): 37 liegen bei |δ| ≤ 5 s**; von den 4 mit großem angewandtem δ
+waren zwei nachweislich Artefakte — S094 (AUC 0,941 → 0,997) und **S062/P33
+(AUC 0,393 → 0,999, seit 2026-07-03 im Datensatz)** —, S049/S046 sind zu kurz
+für ein Urteil, keine einzige nachweislich echt. Alle vier laufen jetzt mit
+δ = 0; `attrs["pen_clock_delta_rejected"]` trägt den Grund.
+**Konsequenz für P33:** die „Sensor-Floor"-Analyse (`reports/p33_analysis.md`)
+und die N=22-Zahlen liefen auf um 16 s verschobenen P33-Labels — die
+Legacy-View `windows/50hz/S062_windows.csv` ist regeneriert, aber alle daraus
+abgeleiteten Artefakte (inkl. `sweep_data.zip` auf R2) sind
+**regenerations-pflichtig**, und der P33-Befund ist neu zu bewerten.
+
 **Sort-Stability-Bug (2026-05-25).** `pandas.sort_values` ist per Default **nicht
 stabil**; Batch-Samples teilen dieselbe `local_ts_ms` → unstable sort scrambelte
 die Reihenfolge und machte alle order-sensitiven Features (~52 % des Vektors)
@@ -1566,7 +1619,7 @@ Audit, Label-Kinematik) sind bei den jeweiligen Skripten oben +
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (682 cases) — anything that
+`tests/` holds Tier-1 smoke tests (747 cases) — anything that
 could silently poison the training data or the proband-facing flow:
 
 **Daten-/Pipeline-Integrität:** `test_quality.py` (Issue-Codes + stale-CSV-Window-
