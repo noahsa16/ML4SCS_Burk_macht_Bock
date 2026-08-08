@@ -701,3 +701,56 @@ def test_100hz_session_does_not_fire_rate_out_of_range():
     issues = _build_issues(facts)
     codes = {i["code"] for i in issues}
     assert "watch_rate_out_of_range" not in codes
+
+
+def test_spilled_samples_captured_before_session_fire(data_dirs):
+    """S093-Regression (2026-08-08): Watch-Spill liefert Samples einer früheren
+    Session nach. Sie kommen RECHTZEITIG an (local_ts_ms im Fenster), tragen
+    aber eine Capture-`ts` von weit davor. Der alte Check sah nur die
+    Ankunftszeit und hat diese Klasse prinzipiell durchgewunken."""
+    from src.server.quality import _session_facts
+
+    session_start = 1_700_000_000_000
+    session_end = session_start + 1_500_000
+
+    # 100 Spill-Samples: ts 300 s vor Session-Start, Ankunft aber im Fenster.
+    spill = [
+        {**_watch_row(session_start + i * 20, seq=400 + i),
+         "ts": session_start - 300_000 + i * 20}
+        for i in range(100)
+    ]
+    live = [_watch_row(session_start + 2_000 + i * 20, seq=i) for i in range(900)]
+
+    write_watch_csv(data_dirs.watch / "S010_watch.csv", spill + live)
+    write_pen_csv(data_dirs.pen / "S010_pen.csv",
+                  [_pen_row(session_start + 3_000 + i * 25) for i in range(100)])
+    row = _session_row("S010", session_start, session_end,
+                       pen_samples=100, watch_samples=1000)
+
+    facts = _session_facts(row)
+    codes = _issue_codes(facts)
+    assert "data_outside_session_window" in codes, \
+        "Spill auf der Capture-Achse muss erkannt werden"
+    issue = next(i for i in facts["issues"] if i["code"] == "data_outside_session_window")
+    assert "capture" in issue["observed"], \
+        f"die Meldung muss die Capture-Achse benennen, war: {issue['observed']}"
+
+
+def test_clean_session_does_not_fire_capture_window_issue(data_dirs):
+    """Gegenprobe: eine saubere Session darf den Check NICHT auslösen —
+    Fehlalarme wären teurer als ein übersehener Spill, weil sie gute
+    Sessions aus dem Training drängen."""
+    from src.server.quality import _session_facts
+
+    session_start = 1_700_000_000_000
+    session_end = session_start + 1_500_000
+
+    watch_rows = [_watch_row(session_start + 1_000 + i * 20, seq=i) for i in range(1000)]
+    write_watch_csv(data_dirs.watch / "S011_watch.csv", watch_rows)
+    write_pen_csv(data_dirs.pen / "S011_pen.csv",
+                  [_pen_row(session_start + 3_000 + i * 25) for i in range(100)])
+    row = _session_row("S011", session_start, session_end,
+                       pen_samples=100, watch_samples=1000)
+
+    codes = _issue_codes(_session_facts(row))
+    assert "data_outside_session_window" not in codes

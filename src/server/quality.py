@@ -499,6 +499,20 @@ def _build_issues(facts: dict[str, Any]) -> list[dict[str, Any]]:
                 lead = max(0, (s_start - cs) // 1000)
                 trail = max(0, (ce - s_end) // 1000)
                 outliers.append(f"{label}: −{lead}s vor / +{trail}s nach Session")
+
+        # Why: der Loop oben liest die ANKUNFTS-Achse (local_ts_ms). Watch-Spill
+        # kommt rechtzeitig an und ist nur alt — auf dieser Achse ist er
+        # prinzipiell unsichtbar (S093: Ankunft +61,8 s INNERHALB, Capture
+        # −241,7 s außerhalb). Die Capture-Achse `ts` zeigt ihn. Nur Watch:
+        # die Pen-Geräteuhr läuft konstruktionsbedingt ~922 Tage nach, dort
+        # würde derselbe Vergleich immer feuern.
+        w_capture_start = w["clock"].get("device_start_ms")
+        if w_capture_start is not None and w_capture_start < s_start - tol_ms:
+            lead = (s_start - w_capture_start) // 1000
+            outliers.append(
+                f"watch capture: −{lead}s vor Session (Spill-Nachlieferung)"
+            )
+
         if outliers:
             out.append(_make_issue(
                 "data_outside_session_window",
