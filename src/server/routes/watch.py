@@ -17,6 +17,43 @@ from ..state import state
 from ..utils import _now_ms, _round_or_none, _safe_file_id, _utc_iso_from_ms
 from ._helpers import _new_command_id
 
+# Why: gleiche Toleranz wie data_outside_session_window und der Merge-Filter.
+# Die Watch-`ts` ist NTP-nah (<100 ms Skew) — 60 s sind 600-fach überdimensio-
+# niert, damit ein Uhren-Wackler niemals echte Samples verwirft.
+_PRE_SESSION_TOL_MS = 60_000
+
+# Why: Untergrenze für "das ist plausibel eine Epoch-Millisekunden-Zeit"
+# (1e12 ms = 2001-09-09). Der Guard unten urteilt NUR über solche Werte.
+# Läge `ts` je in einer anderen Einheit — Uptime-Zähler, Sekunden statt ms,
+# geänderte Firmware — sähe jedes Sample "vor dem Session-Start" aus und eine
+# komplette Aufnahme verschwände still in der Quarantäne. Lieber einen Spill
+# durchlassen (der Merge-Filter fängt ihn) als eine echte Session verlieren.
+_TS_EPOCH_MS_FLOOR = 1_000_000_000_000
+
+
+def _is_pre_session_batch(envelope: WatchEnvelope, active) -> bool:
+    """True, wenn der GESAMTE Batch vor dem Session-Start aufgenommen wurde.
+
+    Kriterium ist das jüngste Sample: sobald ein einziges im Session-Fenster
+    liegt, ist es ein Live-Batch und wird normal einsortiert. Bei fehlender
+    oder unlesbarer ``start_time`` — oder wenn ``ts`` keine Epoch-ms-Zeit ist —
+    wird nichts quarantänisiert; der Guard darf im Zweifel keine echten Daten
+    aus der Session drängen.
+    """
+    from datetime import datetime
+
+    ts_values = [s.ts for s in envelope.samples if s.ts is not None]
+    if not ts_values:
+        return False
+    newest = max(ts_values)
+    if newest < _TS_EPOCH_MS_FLOOR:
+        return False
+    try:
+        start_ms = datetime.fromisoformat(active.start_time).timestamp() * 1000
+    except (AttributeError, TypeError, ValueError):
+        return False
+    return newest < start_ms - _PRE_SESSION_TOL_MS
+
 router = APIRouter()
 
 
@@ -104,8 +141,16 @@ async def receive_watch(request: Request):
     # und schiebt beim Reconnect (z.B. am nächsten Morgen) verwaiste Samples
     # nach, die sonst still an eine längst gestoppte Session-CSV angehängt
     # würden. Stattdessen in einen Quarantäne-Bucket schreiben.
+    #
+    # Derselbe Bucket fängt Spill-Nachlieferungen WÄHREND einer laufenden
+    # Session: die Watch puffert bei Verbindungsproblemen auf Disk und liefert
+    # beim nächsten Connect nach. Solche Batches tragen eine Capture-`ts` von
+    # vor dem Session-Start, aber der Server stempelt die aktive Session auf
+    # jeden Batch — so kamen 8.925 fremde Samples (davon 4.651 aus der
+    # abgebrochenen S092) in S093.
     session_id = (
-        state.active.session_id if state.active
+        state.active.session_id
+        if state.active and not _is_pre_session_batch(envelope, state.active)
         else "unsessioned"
     )
     session_id = _safe_file_id(session_id)
