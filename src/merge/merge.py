@@ -16,6 +16,9 @@ Ablauf in ``merge_watch_pen()``:
 Output: 1 Zeile pro Watch-Sample (alle Watch-Spalten + ``label_writing``).
 """
 
+import csv
+import datetime as dt
+import logging
 import re
 from pathlib import Path
 
@@ -23,6 +26,7 @@ import numpy as np
 import pandas as pd
 
 from src.alignment import (
+    DEFAULT_PARAMS,
     PenMatchResult,
     match_pen_data,
     reconstruct_watch_wall_clock,
@@ -32,15 +36,115 @@ from .prep import load_csv
 
 WRITING_DOT_TYPES = ("PEN_DOWN", "PEN_MOVE")
 
-# Override hook for tests; production resolves to data/raw/markers.
+# Override hooks for tests; production resolves under data/.
 _MARKERS_DIR_OVERRIDE: Path | None = None
-_SESSION_FROM_PATH = re.compile(r"^(S\d+)_(?:pen|watch)\.csv$")
+_SESSIONS_CSV_OVERRIDE: Path | None = None
+_SESSION_FROM_PATH = re.compile(r"^(S\d+)_(?:pen|watch)(?:_[a-z0-9]+)?\.csv$")
+
+# Why: Watch-Spill kann Samples einer FRÜHEREN Session in die aktuelle
+# nachliefern (S093: 8.925 Samples, davon 4.651 aus der abgebrochenen S092).
+# Sie tragen die aktive session_id (der Server stempelt sie beim Ingest), sind
+# aber an ihrer Capture-`ts` erkennbar. Toleranz 60 s = dieselbe Konstante wie
+# data_outside_session_window; die ts-Achse ist NTP-nah (<100 ms Skew), über
+# den gesamten Korpus liegt zwischen legitimen Samples (frühestens 0,08 s NACH
+# Start) und Spill (ab 209 s davor) ein leeres Band.
+PRE_SESSION_TOL_MS = 60_000
+MAX_PRE_SESSION_DROP_FRACTION = 0.20
+
+# Why: |coarse δ| ab hier gilt als Randtreffer der Grid-Suche (Suchraum ±20 s,
+# ein Coarse-Schritt Sicherheitsabstand) — siehe Kommentar in merge_watch_pen.
+_DELTA_EDGE_SEC = (
+    DEFAULT_PARAMS["coarse_end_delta_sec"] - DEFAULT_PARAMS["coarse_step_sec"]
+)
+
+# Why: Plausibilitätsgrenze für δ. Pen-`local_ts_ms` und Watch-`ts` werden beide
+# gegen die Wall-Clock gestempelt (Server bzw. NTP-nahe Watch) — ein Versatz von
+# über 5 s ist physikalisch kein Uhrenproblem, sondern ein Suchartefakt.
+# Empirie (Korpus-Audit 2026-08-08, 44 Sessions mit auswertbarem δ): 37 liegen
+# bei |δ| ≤ 5 s, die meisten bei ~0. Von den vier Sessions mit großem
+# angewandtem δ waren zwei nachweislich Artefakte — S094 (AUC 0,941 statt 0,997)
+# und S062 (AUC 0,393 statt 0,999) — und keine einzige nachweislich echt.
+_DELTA_PLAUSIBLE_SEC = 5.0
+
+log = logging.getLogger(__name__)
 
 
 def _markers_dir() -> Path:
     if _MARKERS_DIR_OVERRIDE is not None:
         return _MARKERS_DIR_OVERRIDE
     return Path(__file__).parents[2] / "data" / "raw" / "markers"
+
+
+def _sessions_csv() -> Path:
+    if _SESSIONS_CSV_OVERRIDE is not None:
+        return _SESSIONS_CSV_OVERRIDE
+    return Path(__file__).parents[2] / "data" / "sessions.csv"
+
+
+def _session_start_ms(session_id: str | None) -> float | None:
+    """start_time der Session als Epoch-ms, oder None wenn nicht auflösbar.
+
+    sessions.csv ist server-owned und gitignored — auf einem frischen Clone
+    fehlt sie. None heißt dann "nicht filtern", nie "alles verwerfen".
+    """
+    if not session_id:
+        return None
+    path = _sessions_csv()
+    if not path.exists():
+        return None
+    try:
+        with open(path, newline="") as f:
+            for row in csv.DictReader(f):
+                if row.get("session_id") != session_id:
+                    continue
+                start = (row.get("start_time") or "").strip()
+                if not start:
+                    return None
+                return dt.datetime.fromisoformat(start).timestamp() * 1000.0
+    except (OSError, ValueError):
+        return None
+    return None
+
+
+def _drop_pre_session_samples(
+    raw_watch: pd.DataFrame,
+    watch_path: str | Path,
+) -> tuple[pd.DataFrame, int]:
+    """Verwirft Watch-Samples, deren Capture-``ts`` vor dem Session-Start liegt.
+
+    No-op ohne ``ts``-Spalte oder ohne auflösbare ``start_time``. Ein Verwurf
+    über ``MAX_PRE_SESSION_DROP_FRACTION`` bricht ab, statt still einen (fast)
+    leeren Frame zurückzugeben — ein Ganz-Session-Spill-Drain (S052/S053) ist
+    ein Aufnahmefehler, den der Merge nicht kaschieren darf.
+    """
+    if "ts" not in raw_watch.columns or raw_watch.empty:
+        return raw_watch, 0
+
+    session_id = _session_id_from_path(watch_path)
+    start_ms = _session_start_ms(session_id)
+    if start_ms is None:
+        log.info("pre-session filter skipped for %s (no resolvable start_time)",
+                 session_id or Path(watch_path).name)
+        return raw_watch, 0
+
+    ts = pd.to_numeric(raw_watch["ts"], errors="coerce")
+    stale = ts < (start_ms - PRE_SESSION_TOL_MS)
+    n_dropped = int(stale.sum())
+    if n_dropped == 0:
+        return raw_watch, 0
+
+    fraction = n_dropped / len(raw_watch)
+    if fraction > MAX_PRE_SESSION_DROP_FRACTION:
+        raise ValueError(
+            f"{session_id}: pre-session filter would drop {n_dropped} of "
+            f"{len(raw_watch)} samples ({fraction:.1%}) — that is a spill-drain "
+            f"recording, not a session. Refusing to merge."
+        )
+
+    lead_sec = (start_ms - float(ts[stale].min())) / 1000.0
+    log.warning("%s: dropped %d pre-session samples (%.2f%%, oldest %.1fs before start)",
+                session_id, n_dropped, fraction * 100, lead_sec)
+    return raw_watch[~stale], n_dropped
 
 
 def _session_id_from_path(p: str | Path) -> str | None:
@@ -112,15 +216,51 @@ def merge_watch_pen(
     """
     raw_pen = load_csv(pen_path)
     raw_watch = load_csv(watch_path)
+    # Why: vor der δ-Suche filtern — Spill-Samples liegen ausserhalb des
+    # Suchfensters und verfälschen sonst nur die Varianz-Statistik; ausserdem
+    # blähen sie die Zeitspanne auf, aus der windows.py fs schätzt (S093:
+    # 87,97 statt 99,53 Hz = 12 % Fehler auf allen Spektral-/Jerk-Features).
+    raw_watch, pre_session_dropped = _drop_pre_session_samples(raw_watch, watch_path)
 
     delta_sec = 0.0
     sigma = float("nan")
+    delta_rejected: str | None = None
     if align_clocks:
         result = estimate_pen_imu_offset(raw_pen, raw_watch)
         if result is not None and np.isfinite(result.sigma_minimal_variance):
             sigma = result.sigma_minimal_variance
             if sigma <= sigma_threshold:
-                delta_sec = result.delta_sec
+                # Why: σ misst die TIEFE der Varianz-Senke, nicht ob sie im
+                # Suchraum liegt. Fällt J(δ) monoton zum Rand, liefert argmin
+                # den Randwert — mit formal gutem σ. S094 (2026-08-08) gab
+                # δ = +18,2 s bei σ = −2,19, über einen weiteren Suchraum
+                # dagegen δ = −27,15 s: zwei Antworten, beide am Rand, J(0)
+                # sogar ein Maximum. Angewandt kostete das ΔAUC 0,997 → 0,941.
+                # Ein Randtreffer ist kein Alignment; dann lieber δ = 0.
+                #
+                # Geprüft wird die COARSE-Stufe, nicht das finale δ: sie
+                # entscheidet, ob das Minimum überhaupt im Suchraum liegt. Die
+                # Fine-Suche verfeinert nur ±5 s um den Coarse-Treffer und
+                # rutscht dabei kosmetisch nach innen (S094: coarse 20,0 →
+                # fine 18,2). Ein Guard auf `delta_sec` greift deshalb nicht.
+                if abs(result.coarse_delta_sec) >= _DELTA_EDGE_SEC:
+                    delta_rejected = "edge_of_search"
+                    log.warning(
+                        "δ = %+.2fs verworfen: Coarse-Minimum %+.2fs liegt am "
+                        "Rand des Suchraums (±%.0fs) trotz σ = %.2f — "
+                        "Merge läuft mit δ = 0.",
+                        result.delta_sec, result.coarse_delta_sec,
+                        DEFAULT_PARAMS["coarse_end_delta_sec"], sigma,
+                    )
+                elif abs(result.delta_sec) > _DELTA_PLAUSIBLE_SEC:
+                    delta_rejected = "implausible_magnitude"
+                    log.warning(
+                        "δ = %+.2fs verworfen: jenseits der Plausibilitäts-"
+                        "grenze von %.0fs (σ = %.2f) — Merge läuft mit δ = 0.",
+                        result.delta_sec, _DELTA_PLAUSIBLE_SEC, sigma,
+                    )
+                else:
+                    delta_sec = result.delta_sec
 
     if "local_ts_ms" not in raw_watch.columns:
         raise ValueError("Watch CSV is missing local_ts_ms — cannot align.")
@@ -178,6 +318,9 @@ def merge_watch_pen(
     merged = merged.drop(columns=["pen_writing"]).reset_index(drop=True)
     merged.attrs["pen_clock_offset_sec"] = delta_sec
     merged.attrs["pen_clock_sigma"] = sigma
+    merged.attrs["pre_session_dropped"] = pre_session_dropped
+    if delta_rejected:
+        merged.attrs["pen_clock_delta_rejected"] = delta_rejected
 
     # Why: Study Mode emits per-session task markers; sessions without a
     # markers CSV (legacy + non-study) merge unchanged for backward-compat.
