@@ -14,6 +14,7 @@ einzigen Aufrufers vermeidet einen Cross-Import in Gegenrichtung.
 """
 
 import math
+from pathlib import Path
 from statistics import median
 from typing import Any
 
@@ -109,19 +110,34 @@ def _watch_peaks(rows: list[dict[str, Any]], max_peaks: int = 80) -> list[dict[s
     return sorted(peaks, key=lambda r: r["motion_mag"], reverse=True)[:max_peaks]
 
 
-def _estimate_sync_via_pen_match(session_id: str) -> dict[str, Any]:
-    """Variance-minimization pen↔IMU sync (Swiss ETH-Zürich algorithm).
+def _sync_cache_dir() -> Path:
+    # Why: aus DATA_RAW_WATCH abgeleitet statt eigene Konstante, damit die
+    # data_dirs-Fixture (die DATA_RAW_* auf tmp_path umbiegt) den Cache
+    # automatisch mit isoliert — sonst schriebe die Testsuite in echte Daten.
+    return DATA_RAW_WATCH.parent.parent / "processed" / ".sync_cache"
 
-    Loads the raw watch and pen CSVs for ``session_id`` and runs
-    :func:`src.alignment.match_pen_data`. Returns a dict
-    with the same broad shape as the legacy tap-matching result so all
-    existing consumers (``_sync_diagnostic``, reports, frontend) keep
-    working unchanged.
+
+def _sync_cache_stamp(*paths: Path) -> str:
+    """Fingerprint der Eingabedateien: mtime_ns + Größe."""
+    parts = []
+    for p in paths:
+        st = p.stat()
+        parts.append(f"{st.st_mtime_ns}:{st.st_size}")
+    return "|".join(parts)
+
+
+def _estimate_sync_via_pen_match(session_id: str) -> dict[str, Any]:
+    """Variance-minimization pen↔IMU sync, mit Disk-Cache.
+
+    Why der Cache: die Grid-Suche in :func:`src.alignment.match_pen_data`
+    kostet 1080 Shifts × O(N) über jedes IMU-Sample einer 60–100-MB-CSV.
+    ``/sessions/quality`` ruft das für JEDE Session auf; ohne Cache fiel die
+    volle Arbeit bei jedem Seitenaufruf erneut an und die Sessions-Seite lud
+    nicht mehr (Forensik 2026-08-08). Für abgeschlossene Sessions ändern sich
+    die CSVs nie, der Fingerprint bleibt also stabil und die Suche läuft genau
+    einmal pro Session.
     """
-    import pandas as pd
-    from src.alignment import (
-        match_pen_data, reconstruct_watch_wall_clock, strokes_from_dot_types,
-    )
+    import json
 
     watch_path = DATA_RAW_WATCH / f"{session_id}_watch.csv"
     pen_path = DATA_RAW_PEN / f"{session_id}_pen.csv"
@@ -131,6 +147,45 @@ def _estimate_sync_via_pen_match(session_id: str) -> dict[str, Any]:
             "method": "stroke_variance_minimization",
             "reason": "Missing watch or pen CSV.",
         }
+
+    cache_file = _sync_cache_dir() / f"{session_id}.json"
+    try:
+        stamp = _sync_cache_stamp(watch_path, pen_path)
+    except OSError:
+        stamp = None
+
+    if stamp is not None and cache_file.exists():
+        try:
+            cached = json.loads(cache_file.read_text())
+            if cached.get("stamp") == stamp:
+                return cached["payload"]
+        except (OSError, ValueError, KeyError):
+            pass  # korrupter Cache -> neu rechnen
+
+    payload = _compute_sync_via_pen_match(session_id, watch_path, pen_path)
+
+    if stamp is not None:
+        try:
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps({"stamp": stamp, "payload": payload}))
+        except (OSError, TypeError):
+            pass  # Cache ist Beschleunigung, kein Korrektheits-Erfordernis
+
+    return payload
+
+
+def _compute_sync_via_pen_match(
+    session_id: str,
+    watch_path: Path,
+    pen_path: Path,
+) -> dict[str, Any]:
+    """Ungecachte Grid-Suche. Returns dict in derselben Form wie die
+    Legacy-Tap-Matching-Antwort, damit ``_sync_diagnostic``, Reports und
+    Frontend unverändert weiterlaufen."""
+    import pandas as pd
+    from src.alignment import (
+        match_pen_data, reconstruct_watch_wall_clock, strokes_from_dot_types,
+    )
 
     try:
         watch_df = pd.read_csv(watch_path)

@@ -4,7 +4,7 @@
 // onclick="location.hash='#session/<id>'" which triggers router.js
 // _routeFromHash → openSessionDetail; no direct import needed here.
 
-import { api, apiResult } from '/static/js/core/api.js';
+import { apiResult } from '/static/js/core/api.js';
 import { esc, escAttr } from '/static/js/core/dom.js';
 import { fmtDuration, scoreBadge } from '/static/js/core/format.js';
 import { S } from '/static/js/core/state.js';
@@ -201,16 +201,26 @@ export async function loadSessions() {
   if (!S.alignmentBySession) S.alignmentBySession = {};
   renderQualitySummary();
 
-  // Bulk-fetch alignment for every session in parallel so the σ filter and
-  // table column have data without per-row lazy loading. Sessions with no pen
-  // data return an alignment payload whose sigma is null/missing — that's the
-  // "no pen" filter category. Re-applies filters when each result lands.
-  const missing = S.allSessions.filter(s => !S.alignmentBySession[s.session_id]);
-  Promise.all(missing.map(s =>
-    api('/sessions/' + encodeURIComponent(s.session_id) + '/alignment', 'GET')
-      .then(a => { if (a) S.alignmentBySession[s.session_id] = a; })
-      .catch(() => {})
-  )).then(() => applyFilters());
+  // Why: σ for the filter and the table column comes from the quality payload
+  // we already have — /sessions/quality carries it as
+  // diagnostics.sync_estimate.sigma_minimal_variance.
+  //
+  // This used to bulk-fetch /sessions/{id}/alignment for EVERY session in
+  // parallel. That endpoint runs the full coarse+fine variance grid search
+  // (1080 shifts over every IMU sample of a 60–100 MB CSV) and caches nothing,
+  // so opening this page fired 73 uncached requests and re-did the entire
+  // alignment work on every visit — the dominant cause of the page not
+  // loading at all (forensics 2026-08-08). Sessions without pen data have no
+  // sigma, which is the "no pen" filter category, same as before.
+  S.allSessions.forEach(s => {
+    const sid = s.session_id;
+    if (S.alignmentBySession[sid]) return;
+    const sigma = Number(
+      S.qualityBySession[sid]?.diagnostics?.sync_estimate?.sigma_minimal_variance
+    );
+    S.alignmentBySession[sid] = { sigma: Number.isFinite(sigma) ? sigma : null };
+  });
+  applyFilters();
 
   // Restore filter UI from localStorage on first render only.
   if (!S._filtersWired) {

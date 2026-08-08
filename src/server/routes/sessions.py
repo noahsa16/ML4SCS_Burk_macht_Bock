@@ -39,7 +39,7 @@ async def get_sessions():
 
 
 @router.get("/sessions/quality")
-async def get_session_quality():
+def get_session_quality():
     rows = _read_session_rows()
     reports = [_session_quality(row) for row in rows]
     def _summary_for(key: str) -> dict[str, int]:
@@ -66,7 +66,7 @@ async def get_session_quality():
 
 
 @router.get("/sessions/{session_id}/validation")
-async def get_session_validation(session_id: str):
+def get_session_validation(session_id: str):
     result = _session_validation(session_id)
     if any(issue["code"].endswith("missing_or_unreadable") for issue in result["issues"]):
         return JSONResponse(result, status_code=404)
@@ -88,7 +88,7 @@ def _downsample_xy(x: np.ndarray, y: np.ndarray, n: int):
 
 
 @router.get("/sessions/{session_id}/alignment")
-async def get_session_alignment(session_id: str):
+def get_session_alignment(session_id: str):
     """Pen↔IMU stroke-variance alignment diagnostic for the merge step.
 
     Returns δ, σ-confidence, the variance search curve, plus a downsampled
@@ -346,7 +346,7 @@ async def mark_session_as_test(session_id: str) -> dict:
 
 
 @router.get("/sessions/{session_id}/report")
-async def get_session_report(session_id: str, format: str = "json"):
+def get_session_report(session_id: str, format: str = "json"):
     """Pro-Session-Report — JSON oder Markdown.
 
     `?format=md` liefert Markdown als Download (`session_<id>_report.md`).
