@@ -31,18 +31,43 @@ def test_normalise_oof_picks_columns():
 
 
 def test_align_oofs_nearest_by_session():
-    # RF-Gitter bei 0/5000/10000 ms, TCN6 leicht versetzt bei 100/5100/10100
+    # RF-Gitter bei 0/5000/10000 ms, Deep leicht versetzt bei 100/5100/10100
     rf = pd.DataFrame({"session_id": ["S1"] * 3, "t_center_ms": [0.0, 5000.0, 10000.0],
                        "person_id": ["P1"] * 3, "label": [0, 1, 1], "proba": [0.2, 0.8, 0.6]})
-    tcn6 = pd.DataFrame({"session_id": ["S1"] * 3, "t_center_ms": [100.0, 5100.0, 10100.0],
+    deep = pd.DataFrame({"session_id": ["S1"] * 3, "t_center_ms": [100.0, 5100.0, 10100.0],
                          "person_id": ["P1"] * 3, "label": [0, 1, 1], "proba": [0.3, 0.9, 0.55]})
-    a = fus.align_oofs(rf, tcn6)
+    a = fus.align_oofs(rf, deep)
     assert len(a) == 3
+    # generische Deep-Spalte (nicht mehr tcn6-spezifisch) -> beliebiges Deep-Modell
     assert set(a.columns) >= {"session_id", "t_center_ms", "person_id", "y",
-                              "rf_proba", "tcn6_proba"}
-    # jedes RF-Fenster paart mit dem naechsten TCN6-Fenster
-    assert a.sort_values("t_center_ms")["tcn6_proba"].tolist() == [0.3, 0.9, 0.55]
+                              "rf_proba", "deep_proba"}
+    assert "tcn6_proba" not in a.columns
+    # jedes RF-Fenster paart mit dem naechsten Deep-Fenster
+    assert a.sort_values("t_center_ms")["deep_proba"].tolist() == [0.3, 0.9, 0.55]
     assert a.sort_values("t_center_ms")["rf_proba"].tolist() == [0.2, 0.8, 0.6]
+
+
+def test_deep_cache_path_is_model_parametric():
+    # Blocker B: der OOF-Cache-Pfad folgt dem Modellnamen, nicht hartem tcn6
+    assert fus._deep_cache_path("tcn6").name == "tcn6_oof_legacy.csv"
+    assert fus._deep_cache_path("inception").name == "inception_oof_legacy.csv"
+    assert fus._deep_cache_path("tcn_bigru").name == "tcn_bigru_oof_legacy.csv"
+
+
+def test_output_paths_are_model_parametric():
+    # Blocker B: cv-CSV + Report-Namen folgen dem Modell -> kein Clobbern zwischen Laeufen
+    cv_inc, rep_inc = fus._output_paths("inception")
+    cv_tcn, rep_tcn = fus._output_paths("tcn6")
+    assert cv_inc.name == "inception_rf_fusion_cv.csv"
+    assert rep_inc.name == "inception_rf_fusion.md"
+    assert cv_tcn != cv_inc and rep_tcn != rep_inc
+
+
+def test_build_parser_accepts_model_flag():
+    # Blocker B: --model waehlbar, Default bleibt tcn6 (Rueckwaerts-Kompatibilitaet)
+    ns = fus._build_parser().parse_args(["--model", "inception"])
+    assert ns.model == "inception"
+    assert fus._build_parser().parse_args([]).model == "tcn6"
 
 
 def test_per_fold_metrics_shape_and_values():

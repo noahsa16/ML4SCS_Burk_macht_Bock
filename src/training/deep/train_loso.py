@@ -288,13 +288,15 @@ def _load_all_sessions(
     max_gap_ms: float,
     exclude_boundary: tuple[float, float] | None = None,
     zscore: bool = False,
+    gravity: bool = False,
 ) -> dict[str, dict]:
     """Lade alle Sessions als rohe Sequenz-Windows.
 
     ``plan`` mappt session_id -> merged-Suffix (siehe :func:`_pool_plan`).
     Eine fehlende Legacy-View fuehrt zu Skip-mit-Hinweis, nicht zum Crash —
     kein stilles Mischen von Sample-Raten. ``zscore`` reicht den
-    Per-Session-Z-Score-Schalter an :func:`load_session_raw` durch.
+    Per-Session-Z-Score-Schalter an :func:`load_session_raw` durch. ``gravity``
+    haengt die 3 Schwerkraft-Kanaele an (9 statt 6 Kanaele; nur Modern-Pool).
 
     Returns ``{session_id: {"X", "y", "t", "person_id"}}``.
     """
@@ -309,6 +311,7 @@ def _load_all_sessions(
                 stride=stride,
                 max_gap_ms=max_gap_ms,
                 exclude_boundary=exclude_boundary,
+                gravity=gravity,
             )
         except FileNotFoundError as exc:
             print(f"  skip {sid} -- {exc}")
@@ -369,6 +372,7 @@ def train_deep_loso(
     exclude_boundary: tuple[float, float] | None = None,
     zscore: bool = False,
     augment: bool = False,
+    gravity: bool = False,
     on_event=None,
     run_dir: Path | None = None,
     lr_schedule: str = "constant",
@@ -424,7 +428,7 @@ def train_deep_loso(
     plan = _pool_plan(sessions, pool)
     data = _load_all_sessions(
         sessions, seq_len, stride, plan, max_gap_ms, exclude_boundary,
-        zscore=zscore,
+        zscore=zscore, gravity=gravity,
     )
     # person_id -> Liste von session_ids
     persons: dict[str, list[str]] = {}
@@ -484,8 +488,11 @@ def train_deep_loso(
         # Why: SIGINT (Stop-Knopf) faengt im torch-Trainingsloop -- fertige
         # Folds finalisieren statt hart abbrechen, wie der RF-Runner.
         try:
-            model = (MODELS[model_name]() if dropout is None
-                     else MODELS[model_name](dropout=dropout))
+            # n_channels aus den Daten (6 Default / 9 mit Gravity) -- kein
+            # Hardcode, das Modell passt seinen Eingangs-Conv an.
+            n_ch = int(train_X.shape[-1])
+            model = (MODELS[model_name](n_channels=n_ch) if dropout is None
+                     else MODELS[model_name](n_channels=n_ch, dropout=dropout))
             # Why: eigener Aug-RNG pro Fold (seed-abgeleitet, order-unabhaengig);
             # getrennt vom globalen RNG, damit Init+Shuffle bei gleichem Seed
             # zwischen aug/no-aug identisch bleiben -> sauber gepaart.

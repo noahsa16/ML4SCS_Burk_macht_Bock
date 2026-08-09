@@ -442,3 +442,52 @@ def test_streams_do_not_overlap_via_validation_endpoint(client, data_dirs):
     assert resp.status_code == 200
     issue_codes = {i["code"] for i in resp.json().get("issues", [])}
     assert "streams_do_not_overlap" in issue_codes
+
+
+def test_watch_quarantines_batch_captured_before_session_start(client, data_dirs, monkeypatch):
+    """S093-Prävention (2026-08-08): die Watch puffert bei Verbindungsproblemen
+    auf Disk und liefert beim nächsten Connect nach. Trägt so ein Batch eine
+    Capture-`ts` von VOR dem Start der laufenden Session, gehört er einer
+    früheren Aufnahme — er darf nicht in die aktive CSV, sonst landen fremde
+    (teils Schreib-)Samples als idle im Trainingsdatensatz.
+    """
+    from datetime import datetime, timezone
+
+    from src.server.state import ActiveSession, state
+
+    session_start_ms = 1_700_000_000_000
+    state.active = ActiveSession(
+        session_id="S042", person_id="P01", description="",
+        start_time=datetime.fromtimestamp(
+            session_start_ms / 1000, tz=timezone.utc).isoformat(),
+    )
+    try:
+        stale = {
+            "samples": [_imu_sample(session_start_ms - 300_000 + i * 20) for i in range(5)],
+            "sequence": 400, "sampleRateHz": 100.0,
+            "watchSentAt": session_start_ms, "phoneReceivedAt": session_start_ms,
+            "source": "watch_phone_bridge", "sessionId": "S042",
+        }
+        assert client.post("/watch", json=stale).status_code == 200
+
+        live = {
+            "samples": [_imu_sample(session_start_ms + 1_000 + i * 20) for i in range(5)],
+            "sequence": 1, "sampleRateHz": 100.0,
+            "watchSentAt": session_start_ms, "phoneReceivedAt": session_start_ms,
+            "source": "watch_phone_bridge", "sessionId": "S042",
+        }
+        assert client.post("/watch", json=live).status_code == 200
+        _flush_watch_writers()
+
+        session_csv = data_dirs.watch / "S042_watch.csv"
+        with open(session_csv) as f:
+            rows = list(csv.DictReader(f))
+        assert len(rows) == 5, "nur der Live-Batch gehört in die Session-CSV"
+        assert all(float(r["ts"]) >= session_start_ms for r in rows)
+
+        quarantine = data_dirs.watch / "unsessioned_watch.csv"
+        assert quarantine.exists(), "der Spill-Batch muss quarantänisiert werden"
+        with open(quarantine) as f:
+            assert len(list(csv.DictReader(f))) == 5
+    finally:
+        state.active = None

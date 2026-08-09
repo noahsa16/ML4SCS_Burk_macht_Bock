@@ -13,8 +13,9 @@ Feature-Paritaet zum Training: wir rufen _window_features() aus
 src.features.windows direkt auf. Dasselbe was im Trainings-CSV-Pfad
 laeuft, also keine Drift-Quelle.
 
-Modellwahl: rf_noah.joblib (personalisiert) wenn vorhanden, sonst
-rf_all.joblib (generisch). Erlaubt schmerzfreien Toggle spaeter.
+Modellwahl (Default-Reihenfolge): rf_all_live.joblib (generisch, 100 Hz,
+pooled Z-Score) wenn vorhanden, sonst rf_noah.joblib (personalisiert).
+Der Picker erlaubt den schmerzfreien Toggle Generic <-> Personal.
 
 Optionaler Per-User-Z-Score: wenn das Joblib zscore_mu/sigma traegt,
 werden Features vor predict mit diesen festen Statistiken normiert.
@@ -50,9 +51,14 @@ MODELS = ROOT / "models"
 # einem legitimen no-zscore-Modell (rf_noah) am Bundle nicht unterscheidbar,
 # also gehoert es weder in die Auto-Fallback-Kette noch in den Picker. Nur
 # rf_noah (no-zscore) + rf_all_live (baked mu/sigma) sind live-deploybar.
+# Reihenfolge = Default-Auswahl beim Boot (erstes existierendes File wird
+# geladen). Das generische rf_all_live steht bewusst VORNE: fuer einen
+# beliebigen Traeger ist das cross-subject-Modell die richtige Ausgangswahl;
+# das personalisierte rf_noah (Noahs Handgelenk) ist nur ueber den Picker
+# aktiv. Beide sind 100 Hz -> matchen den aktuellen Watch-Stream.
 _DEFAULT_MODEL_PATHS = (
-    MODELS / "rf_noah.joblib",
     MODELS / "rf_all_live.joblib",
+    MODELS / "rf_noah.joblib",
 )
 
 # Why: nur Modelle, die als Live-Inferenz gemeint sind, sollen im UI-Picker

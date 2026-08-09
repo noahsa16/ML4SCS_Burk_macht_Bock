@@ -552,21 +552,46 @@ class TCNBiGRUHybrid(nn.Module):
     """
 
     def __init__(self, n_channels: int = 6, dropout: float = 0.2,
-                 rnn_hidden: int = 32) -> None:
+                 rnn_hidden: int = 32, trunk_hidden: int = 16) -> None:
         super().__init__()
-        self.trunk = _build_tcn_trunk(n_channels, hidden=16, levels=6,
+        # trunk_hidden fliesst konsistent in Trunk-Breite UND GRU.input_size --
+        # Default 16 ist bit-identisch zur urspruenglichen fixen Verdrahtung.
+        self.trunk = _build_tcn_trunk(n_channels, hidden=trunk_hidden, levels=6,
                                       dropout=dropout)
-        self.gru = nn.GRU(input_size=16, hidden_size=rnn_hidden,
+        self.gru = nn.GRU(input_size=trunk_hidden, hidden_size=rnn_hidden,
                           batch_first=True, bidirectional=True)
         self.head = nn.Sequential(nn.Dropout(dropout),
                                   nn.Linear(2 * rnn_hidden, 1))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x.transpose(1, 2)
-        feat = self.trunk(x).transpose(1, 2)      # (batch, seq, 16)
+        feat = self.trunk(x).transpose(1, 2)      # (batch, seq, trunk_hidden)
         _, h_n = self.gru(feat)                   # (2, batch, rnn_hidden)
         h = torch.cat([h_n[0], h_n[1]], dim=1)    # (batch, 2*rnn_hidden)
         return self.head(h).squeeze(-1)
+
+
+class TCNBiGRUWide32_24(TCNBiGRUHybrid):
+    """tcn_bigru mit breiterem Trunk (16->24), GRU unveraendert (32) -- die
+    Trunk-Kapazitaets-Achse isoliert (Blocker-A-Kapazitaets-Probe)."""
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels, dropout, rnn_hidden=32, trunk_hidden=24)
+
+
+class TCNBiGRUWide64_16(TCNBiGRUHybrid):
+    """tcn_bigru mit breiterem GRU (32->64), Trunk unveraendert (16) -- die
+    Rekurrenz-Kapazitaets-Achse isoliert."""
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels, dropout, rnn_hidden=64, trunk_hidden=16)
+
+
+class TCNBiGRUWide64_24(TCNBiGRUHybrid):
+    """tcn_bigru breit auf beiden Achsen (Trunk 24, GRU 64)."""
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__(n_channels, dropout, rnn_hidden=64, trunk_hidden=24)
 
 
 class TCNGRUAttnHybrid(nn.Module):
@@ -596,6 +621,39 @@ class TCNGRUAttnHybrid(nn.Module):
         feat = self.trunk(x).transpose(1, 2)         # (batch, seq, 16)
         out, _ = self.gru(feat)                      # (batch, seq, rnn_hidden)
         pooled = self.pool(out.transpose(1, 2))      # (batch, rnn_hidden, 1)
+        return self.head(pooled.squeeze(-1)).squeeze(-1)
+
+
+class TCNBiGRUAttnHybrid(nn.Module):
+    """TCN6-Trunk + BIDIREKTIONALER GRU + Attention-Pooling ueber alle Outputs.
+
+    Kreuzung der beiden Einzel-Deltas: bidirektionaler GRU-Head (wie
+    ``TCNBiGRUHybrid`` -- liest vorwaerts UND rueckwaerts) UND gelerntes
+    Attention-Pooling ueber die gesamte Ausgabesequenz (wie ``TCNGRUAttnHybrid``
+    -- statt nur der finalen Hidden-States). Ein bidirektionaler GRU liefert pro
+    Zeitschritt ``2*rnn_hidden`` Kanaele (Vorwaerts+Rueckwaerts konkateniert),
+    also poolt ``AttnPool1d`` ueber ``2*rnn_hidden``: das Netz waehlt selbst die
+    entscheidungstragenden Zeitschritte UND sieht an jeder Position beide
+    Zeitrichtungen. Fenster-weit (nutzt die Zukunft), fuer die Batch-Fenster-
+    Entscheidung zulaessig, nicht kausal streambar. ~19k Parameter.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2,
+                 rnn_hidden: int = 32) -> None:
+        super().__init__()
+        self.trunk = _build_tcn_trunk(n_channels, hidden=16, levels=6,
+                                      dropout=dropout)
+        self.gru = nn.GRU(input_size=16, hidden_size=rnn_hidden,
+                          batch_first=True, bidirectional=True)
+        self.pool = AttnPool1d(2 * rnn_hidden)
+        self.head = nn.Sequential(nn.Dropout(dropout),
+                                  nn.Linear(2 * rnn_hidden, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x.transpose(1, 2)
+        feat = self.trunk(x).transpose(1, 2)      # (batch, seq, 16)
+        out, _ = self.gru(feat)                   # (batch, seq, 2*rnn_hidden)
+        pooled = self.pool(out.transpose(1, 2))   # (batch, 2*rnn_hidden, 1)
         return self.head(pooled.squeeze(-1)).squeeze(-1)
 
 
@@ -661,9 +719,11 @@ class InceptionTime(nn.Module):
                 )
                 res_in = out_ch
         self.gap = nn.AdaptiveAvgPool1d(1)
+        self.out_ch = out_ch  # Feature-Dim vor dem Kopf (fuer Feature-Level-Fusion)
         self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(out_ch, 1))
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def features(self, x: torch.Tensor) -> torch.Tensor:
+        """Pre-Head-Features ``(batch, out_ch)`` -- Tap-Punkt fuer Zwei-Branch-Fusion."""
         x = x.transpose(1, 2)  # (batch, seq, 6) -> (batch, 6, seq)
         res = x
         out = x
@@ -672,8 +732,39 @@ class InceptionTime(nn.Module):
             if str(d) in self.residuals:
                 out = torch.relu(out + self.residuals[str(d)](res))
                 res = out
-        out = self.gap(out).squeeze(-1)  # (batch, out_ch)
-        return self.head(out).squeeze(-1)  # (batch,)
+        return self.gap(out).squeeze(-1)  # (batch, out_ch)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.head(self.features(x)).squeeze(-1)  # (batch,)
+
+
+class TCN6InceptionHybrid(nn.Module):
+    """Zwei-Branch-Netz: TCN6-Trunk ‖ InceptionTime, Features konkateniert, EIN
+    gemeinsamer Kopf, end-to-end zusammen trainiert.
+
+    Echte Feature-Level-Fusion (kein Proba-Ensemble getrennt trainierter Netze):
+    der TCN6-Zweig (dilatierte Kausal-Convs, 16-dim) und der Inception-Zweig
+    (parallele Multi-Scale-Kernel 9/19/39, 64-dim) sehen dasselbe Roh-Signal aus
+    verschiedenen rezeptiven Feldern; der gemeinsame Kopf lernt ueber beide
+    Repraesentationen gemeinsam. Beide Branch-Feature-Extraktoren sind wieder-
+    verwendet (``_build_tcn_trunk`` bzw. ``InceptionTime.features``) statt
+    dupliziert.
+    """
+
+    def __init__(self, n_channels: int = 6, dropout: float = 0.2) -> None:
+        super().__init__()
+        self.tcn_trunk = _build_tcn_trunk(n_channels, hidden=16, levels=6,
+                                          dropout=dropout)
+        self.tcn_pool = nn.AdaptiveAvgPool1d(1)
+        self.inception = InceptionTime(n_channels=n_channels, dropout=dropout)
+        feat_dim = 16 + self.inception.out_ch  # 16 (TCN6) + 64 (Inception)
+        self.head = nn.Sequential(nn.Dropout(dropout), nn.Linear(feat_dim, 1))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        xt = x.transpose(1, 2)                                   # (B, 6, seq)
+        t = self.tcn_pool(self.tcn_trunk(xt)).squeeze(-1)       # (B, 16)
+        i = self.inception.features(x)                           # (B, 64)
+        return self.head(torch.cat([t, i], dim=1)).squeeze(-1)  # (B,)
 
 
 MODELS: dict[str, type[nn.Module]] = {
@@ -696,5 +787,10 @@ MODELS: dict[str, type[nn.Module]] = {
     "tcn_gru": TCNGRUHybrid,
     "tcn_bigru": TCNBiGRUHybrid,
     "tcn_gru_attn": TCNGRUAttnHybrid,
+    "tcn_bigru_attn": TCNBiGRUAttnHybrid,
     "tcn_transformer": TCNTransformerHybrid,
+    "tcn_bigru_w32_24": TCNBiGRUWide32_24,
+    "tcn_bigru_w64_16": TCNBiGRUWide64_16,
+    "tcn_bigru_w64_24": TCNBiGRUWide64_24,
+    "tcn6_inception": TCN6InceptionHybrid,
 }

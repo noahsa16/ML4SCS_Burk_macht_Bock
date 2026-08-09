@@ -97,6 +97,15 @@ def _summary(rows: list[dict]) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--pool", default="legacy", choices=["legacy", "modern"])
+    ap.add_argument(
+        "--save-oof",
+        type=Path,
+        default=None,
+        help="Per-Window-OOF-Proba des pooled (leak-freien) Arms als CSV "
+        "dumpen (session_id, person_id, t_center_ms, label, proba_raw, "
+        "proba_cal). Jede Held-out-Fold stammt von einem Modell ohne diese "
+        "Person — die deploybare, ehrliche Generalisierungs-Prediction.",
+    )
     args = ap.parse_args()
 
     raw, fcols = _load(args.pool)
@@ -104,6 +113,14 @@ def main() -> None:
 
     ps_rows = _run_arm(raw, fcols, "per_session")
     pl_rows = _run_arm(raw, fcols, "pooled")
+
+    if args.save_oof is not None:
+        oof = pd.concat([r["oof"] for r in pl_rows], ignore_index=True)
+        args.save_oof.parent.mkdir(parents=True, exist_ok=True)
+        oof.to_csv(args.save_oof, index=False)
+        print(f"→ pooled OOF ({len(oof)} Fenster, {oof['session_id'].nunique()} "
+              f"Sessions) gespeichert: {args.save_oof}\n")
+
     ps, pl = _summary(ps_rows), _summary(pl_rows)
 
     print(f"{'Norm':<14}{'acc(1s)':>10}{'AUC(1s)':>10}{'F1w':>8}"

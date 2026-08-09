@@ -53,20 +53,26 @@ def class_priors(
 
 
 def scaled_likelihoods(
-    proba: Sequence[float], priors: Sequence[float], eps: float = 1e-3
+    proba: Sequence[float], priors: Sequence[float], eps: float = 1e-3,
+    gamma: float = 1.0,
 ) -> np.ndarray:
-    """Skalierte Likelihood ``b[t, s] = P(o_t | s) ∝ P(s | o_t) / P(s)``.
+    """Skalierte Likelihood ``b[t, s] = P(o_t | s) ∝ (P(s | o_t) / P(s)) ** gamma``.
 
     ``proba`` ist der RF-Posterior ``P(writing | o_t)``. Die Skalierung mit dem
     Klassen-Prior macht daraus eine (unnormierte) Emissions-Likelihood, mit der
     das HMM rechnet. Clipping auf ``[eps, 1 - eps]`` hält das Verhältnis endlich
     (isotone Kalibrierung kann exakte 0/1 ausgeben).
+
+    ``gamma`` ist die **Acoustic Scale** (Hybrid-HMM): sie potenziert das
+    Emissions-Verhältnis. ``gamma < 1`` dämpft das Vertrauen in die
+    Classifier-Emission (die HMM-Zeitstruktur bekommt mehr Gewicht), ``gamma > 1``
+    verstärkt es. Default ``1.0`` = ungewichtet (bit-identisch).
     """
     p = np.clip(np.asarray(proba, dtype=float), eps, 1.0 - eps)
     pi_idle, pi_writing = float(priors[0]), float(priors[1])
     b = np.empty((p.shape[0], 2), dtype=float)
-    b[:, 0] = (1.0 - p) / pi_idle
-    b[:, 1] = p / pi_writing
+    b[:, 0] = ((1.0 - p) / pi_idle) ** gamma
+    b[:, 1] = (p / pi_writing) ** gamma
     return b
 
 

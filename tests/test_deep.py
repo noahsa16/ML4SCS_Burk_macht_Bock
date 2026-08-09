@@ -8,7 +8,8 @@ import torch
 
 from src.training.deep import data as deep_data
 from src.training.deep.data import build_raw_windows, load_session_raw, zscore_channels
-from src.training.deep.models import CNN1D, MODELS, TCN, TemporalBlock
+from src.training.deep.models import (
+    CNN1D, MODELS, TCN, InceptionTime, TCNBiGRUHybrid, TemporalBlock)
 from src.training.deep.train_loso import (
     DEVICE,
     POOL_FS,
@@ -74,6 +75,37 @@ def test_build_raw_windows_missing_column_raises():
     merged = _synthetic_merged().drop(columns=["rz"])
     with pytest.raises(ValueError, match="missing columns"):
         build_raw_windows(merged, seq_len=50)
+
+
+def _synthetic_merged_grav(n_samples: int = 600) -> pd.DataFrame:
+    m = _synthetic_merged(n_samples)
+    m["gx"] = 0.1
+    m["gy"] = 0.2
+    m["gz"] = 0.9
+    return m
+
+
+def test_build_raw_windows_gravity_appends_3_channels():
+    merged = _synthetic_merged_grav()
+    X6, _, _ = build_raw_windows(merged, seq_len=50, stride=25)                 # default 6ch
+    X9, y9, t9 = build_raw_windows(merged, seq_len=50, stride=25, gravity=True)  # 9ch
+    assert X6.shape == (23, 50, 6)
+    assert X9.shape == (23, 50, 9)
+    assert X9.shape[:2] == X6.shape[:2]
+    np.testing.assert_array_equal(X9[..., :6], X6)             # erste 6 Kanaele bit-identisch
+    np.testing.assert_allclose(X9[0, 0, 6:], [0.1, 0.2, 0.9])  # gx/gy/gz angehaengt
+
+
+def test_build_raw_windows_gravity_missing_gx_raises():
+    merged = _synthetic_merged()  # ohne gx/gy/gz
+    with pytest.raises(ValueError, match="missing columns"):
+        build_raw_windows(merged, seq_len=50, gravity=True)
+
+
+def test_build_raw_windows_empty_respects_gravity_channels():
+    merged = _synthetic_merged_grav(n_samples=10)  # zu kurz -> leer
+    X, _, _ = build_raw_windows(merged, seq_len=50, stride=25, gravity=True)
+    assert X.shape == (0, 50, 9)
 
 
 @pytest.mark.parametrize("seq_len,stride", [(1, 25), (0, 25), (50, 0)])
@@ -149,7 +181,71 @@ def test_models_registry_keys():
                                   "tcn6w32", "tcn6k5", "tcn6wn", "tcn6ap",
                                   "tcn6se", "tcn8", "transformer",
                                   "transformer_p5", "tcn_gru", "tcn_bigru",
-                                  "tcn_gru_attn", "tcn_transformer"}
+                                  "tcn_gru_attn", "tcn_bigru_attn",
+                                  "tcn_transformer", "tcn_bigru_w32_24",
+                                  "tcn_bigru_w64_16", "tcn_bigru_w64_24",
+                                  "tcn6_inception"}
+
+
+@pytest.mark.parametrize("name", ["tcn_bigru", "tcn_gru_attn", "tcn_bigru_attn",
+                                  "tcn_bigru_w32_24", "tcn_bigru_w64_16",
+                                  "tcn_bigru_w64_24"])
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_tcn_gru_hybrid_variant_forward(name, seq_len):
+    """BiGRU / Attention-Pooling / beides kombiniert + Wide-Kapazitaets-Varianten
+    -- gleiche Signatur wie tcn_gru. Faengt insb. den 2*rnn_hidden-AttnPool-Dim-
+    Bug ab und dass ein breiterer trunk_hidden konsistent in GRU.input_size
+    fliesst (sonst Shape-Mismatch)."""
+    out = MODELS[name](dropout=0.1)(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn_bigru_trunk_hidden_default_is_bit_identical():
+    # Blocker A: trunk_hidden-Param eingefuehrt, Default 16 == alter fixer Wert
+    n = lambda m: sum(p.numel() for p in m.parameters())  # noqa: E731
+    assert n(TCNBiGRUHybrid()) == n(TCNBiGRUHybrid(rnn_hidden=32, trunk_hidden=16))
+
+
+def test_tcn_bigru_wide_variants_are_wider():
+    # beide Kapazitaets-Achsen vergroessern die Parameterzahl gegenueber dem Basis-tcn_bigru
+    n = lambda m: sum(p.numel() for p in m.parameters())  # noqa: E731
+    base = n(MODELS["tcn_bigru"]())
+    assert n(MODELS["tcn_bigru_w32_24"]()) > base   # breiterer Trunk (16->24)
+    assert n(MODELS["tcn_bigru_w64_16"]()) > base   # breiterer GRU (32->64)
+    assert n(MODELS["tcn_bigru_w64_24"]()) > base   # beides
+
+
+def test_inception_features_extract_and_forward_identity():
+    # features() liefert die Pre-Head-Features (B, out_ch); forward == head(features)
+    m = InceptionTime(dropout=0.0)
+    m.eval()
+    x = torch.randn(4, 50, 6)
+    feat = m.features(x)
+    assert feat.shape == (4, m.out_ch)          # (4, 64)
+    torch.testing.assert_close(m(x), m.head(feat).squeeze(-1))
+
+
+@pytest.mark.parametrize("seq_len", [50, 250])
+def test_tcn6_inception_forward_shape(seq_len):
+    out = MODELS["tcn6_inception"](dropout=0.1)(torch.randn(8, seq_len, 6))
+    assert out.shape == (8,)
+    assert torch.all(torch.isfinite(out))
+
+
+def test_tcn6_inception_head_consumes_both_branches():
+    # das Zwei-Branch-Netz konkateniert TCN6-Feature (16) + Inception-Feature (64) = 80
+    m = MODELS["tcn6_inception"]()
+    assert m.head[-1].in_features == 16 + 64
+
+
+@pytest.mark.parametrize("name", ["tcn6", "tcn_bigru", "tcn6_inception", "inception"])
+def test_models_accept_9_channels_gravity(name):
+    # Gravity-Fall: 9-Kanal-Input; die Modelle passen den Eingangs-Conv an n_channels an.
+    m = MODELS[name](n_channels=9, dropout=0.1)
+    out = m(torch.randn(4, 100, 9))
+    assert out.shape == (4,)
+    assert torch.all(torch.isfinite(out))
 
 
 @pytest.mark.parametrize("seq_len", [50, 250, 500])
@@ -532,6 +628,14 @@ def test_load_session_raw_missing_legacy_view_hints_downsample(tmp_path, monkeyp
         load_session_raw("S999", seq_len=50, merged_suffix="legacy")
 
 
+def test_load_session_raw_gravity_9_channels(tmp_path, monkeypatch):
+    # gravity=True wird von load_session_raw an build_raw_windows durchgereicht -> 9 Kanaele
+    monkeypatch.setattr(deep_data, "DATA_PROC", tmp_path)
+    _synthetic_merged_grav().to_csv(tmp_path / "S999_merged.csv", index=False)
+    X, _, _ = load_session_raw("S999", 50, gravity=True)
+    assert X.shape[-1] == 9
+
+
 def _sessions(rows: list[tuple[str, str, str]]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=["session_id", "person_id", "watch_profile"])
 
@@ -580,7 +684,7 @@ def test_train_deep_loso_emits_events_and_writes_artifacts(monkeypatch, tmp_path
     monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
 
     def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
-                      exclude_boundary=None, zscore=False):
+                      exclude_boundary=None, zscore=False, gravity=False):
         out = {}
         for sid, pid in zip(sessions.session_id, sessions.person_id):
             n = 40
@@ -672,7 +776,7 @@ def test_train_deep_loso_passes_augmenter_per_flag(monkeypatch):
     monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
 
     def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
-                      exclude_boundary=None, zscore=False):
+                      exclude_boundary=None, zscore=False, gravity=False):
         out = {}
         for sid, pid in zip(sessions.session_id, sessions.person_id):
             n = 40
@@ -780,7 +884,7 @@ def test_train_deep_loso_threads_hp(monkeypatch):
     sessions = pd.DataFrame({"session_id": ["S1","S2","S3"], "person_id": ["P1","P2","P3"],
                              "watch_profile": ["50hz","50hz","50hz"]})
     monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
-    def fake_load(sess, seq_len, stride, plan, max_gap_ms, exclude_boundary=None, zscore=False):
+    def fake_load(sess, seq_len, stride, plan, max_gap_ms, exclude_boundary=None, zscore=False, gravity=False):
         return {s: {"X": np.zeros((40, seq_len, 6), np.float32),
                     "y": np.tile([0,1],20).astype(np.int64),
                     "t": (np.arange(40)*500.).astype(float), "person_id": p}

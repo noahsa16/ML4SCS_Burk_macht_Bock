@@ -5,8 +5,8 @@ import json
 import pandas as pd
 import subprocess
 
-# Projekt-Root zum Python-Path hinzufügen
-ROOT = Path(__file__).resolve().parents[1]
+# Projekt-Root zum Python-Path hinzufügen (Datei liegt in scripts/ml/ → parents[2])
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
 try:

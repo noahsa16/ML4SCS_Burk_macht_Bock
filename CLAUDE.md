@@ -41,12 +41,41 @@ task-/subjekt-spezifisch (keyboard/phone-Tippen-Verwechslung, siehe
 `models/loso_oof_legacy.csv`; die kanonischen Artefakte
 `loso_cv_legacy.csv` / `rf_all.joblib` sind noch auf N=15 und
 regenerations-pflichtig (ebenso `rf_all_live.joblib`, noch N=14 pre-fix).
-**Kohorte inzwischen N=22** (P33/S062 + P34/S063 collected & `usable`,
-Legacy-Views lokal gebaut) — die *computed* Headline bleibt bis auf
-Weiteres N=20 (`loso_oof_legacy.csv`), der N=22-Refresh + Winner-Retrain
-läuft ein andermal **auf dem Pod** (bewusst nicht lokal). Der Config-Rang
-der HP-Suche ist robust gegen ±2 Probanden, daher bleibt die N=20-Suche
-für Stufe-1-Selektion gültig.
+**Kohorte N=22.** N=22-RF-Refresh gerechnet (2026-07-07, auf dem Pod):
+**1s-acc 0.863 ± 0.051, ROC-AUC 0.937 ± 0.053** (leicht unter N=20 0.869/0.946
+— der Rückgang kommt zu 100 % aus P33/P34, nicht kohorten-weit; P33 =
+Extrem-Soft-Writer, siehe `reports/p33_analysis.md`). Das lokale kanonische
+`loso_oof_legacy.csv`/`loso_cv_legacy.csv` sind weiterhin **N=20** (der
+Pod-Refresh wurde nicht lokal persistiert; für lokale Reproduktion neu rechnen).
+**Reporting-Metrik ist jetzt grouped-5-fold** (mit ETH Zürich vereinbart;
+leakage-frei via GroupKFold-by-person — `free_writing`-Kontrolle in p33_analysis) —
+die LOSO-20-Stage-2-Bestätigung entfällt.
+
+**Session 2026-07-07 (durable):**
+- **Deep N=22 grouped-5-fold @3 Seeds:** tcn_bigru 0.9114 ± 0.005, tcn6
+  0.9086 ± 0.003 — effektiv gleichauf, beide ~1–2 pp unter ihren N=20-
+  Einzel-Seed-Leaderboard-Maxes (0.9314/0.9196) → Selektions-Inflation bestätigt.
+- **HMM-HP-Sweep null** (`scripts/ml/hmm_hyperparameter_sweep.py`, 450 Kombis,
+  signifikanz-gegated): smoothing/eps/**gamma** (Acoustic Scale, neu in
+  `scaled_likelihoods`, Default 1.0 bit-identisch) alle im Rauschen → Defaults
+  optimal. **Der echte Hebel ist der Decode-MODUS:** nicht-kausaler smoother
+  (Scrybe-Tagestracker) 0.917 vs kausaler filter (Live-Gimmick) 0.898 = **+1,8 pp,
+  p≈0, 20/20 Folds** (N=22: +1,75 pp, 19/22). Live bleibt filter, Tagestracker → smoother.
+- **Gravity fürs Deep-Netz** (`build_raw_windows(gravity=True)` → 9 statt 6 Kanäle,
+  `GridSpec.gravity`, `n_channels` aus den Daten) — **nie zuvor gefüttert** (auch
+  die alte Modern-tcn6-Headline war 6ch). **Ergebnis (Modern-Deep, 3-Seed):
+  Gravity hilft nicht** — tcn6 6ch 0.858 → 9ch 0.858 (+0.0005, Rauschen),
+  tcn_bigru 6ch 0.889 → 9ch 0.862 (**−0.027, schadet**). Wie beim RF
+  (cross-subject −0.005): Personalisierungs-, kein Generalisierungs-Signal.
+- **deep×deep-Fusion null** (`inception × tcn_bigru`, r(Residuen)=0.708 → kein
+  signifikanter Lift) — bestätigt: nur cross-paradigma (Deep×RF) hebt.
+- Neue Tools: `scripts/ml/ensemble_committee.py` (N-Wege-Komitee) +
+  `src/evaluation/fusion_utils.py` (geteilte 2-/N-Wege-Fusionslogik);
+  `tcn_rf_fusion.py --model`. Neue Modelle: `tcn_bigru_w{32_24,64_16,64_24}`
+  (Wide), `tcn6_inception` (Zwei-Branch-Joint-Fusion, kein Ensemble).
+- **Daten-Decke bestätigt:** jede Achse außer *mehr Probanden* diese Session
+  null/marginal (Fusion, Gravity, HP, Reweighting) — die Decke bewegt sich mit
+  Daten, nicht Compute.
 
 **Vorgänger-Headlines (N=3 → N=15, volle Zahlen-Ahnenreihe) +
 Deep-Modell-Headlines:
@@ -123,7 +152,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 682 tests
+pytest tests/         # 747 tests
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -245,7 +274,11 @@ study.py           Study Mode internals: protocol loader (Pydantic
                    / paused / done). Pure Python — no FastAPI imports,
                    fully unit-testable.
 inference.py       LiveInference singleton: rolling watch-sample buffer,
-                   lazy joblib load (rf_noah preferred, fallback rf_all_live;
+                   lazy joblib load (seit 2026-07-08 **rf_all_live** =
+                   generisch/100 Hz/pooled Z-Score als Boot-Default VORNE,
+                   fallback rf_noah = personalisiert; der generische Detektor
+                   ist die ehrliche Story für einen fremden Träger,
+                   rf_noah nur über den Picker;
                    rf_all NICHT live-tauglich — per-Session-Z-Score ohne baked
                    mu/sigma, daher aus Fallback + Picker ausgeschlossen),
                    per-window predict() with
@@ -636,6 +669,18 @@ no longer vibrates continuously when the server is down.
   `scripts/ml/pull_wandb_runs.py [--out models/hp_grid/wandb_runs.csv]`.
   **Bei GPU-Compute-Fragen RunPod vorschlagen; für HP-Grid-Ergebnisse zuerst
   `pull_wandb_runs.py` laufen lassen.**
+  **RunPod-Gotchas (2026-07-07):** `/workspace` überlebt einen Pod-Restart, aber
+  **pip-Deps, Creds (`rclone.conf`, wandb-`~/.netrc`) und Env sind weg** →
+  re-provisionieren (`pip install --break-system-packages …`, wandb-Login,
+  `RCLONE_CONFIG_R2_*`-Env). `run_grid_wandb` **crasht mit EXIT:1 am ENDE am
+  rclone-R2-Backup**, wenn R2-Creds fehlen — Training + wandb sind dann längst
+  durch (Ergebnisse sicher in wandb), rein kosmetisch. **Resume-Skip:** ein
+  Leftover-Outdir (`run_meta.json` ohne `trial_*.csv`, Rest eines gekillten Laufs)
+  lässt eine Config **still ausfallen** → Outdir löschen erzwingt Re-Run.
+  R2-Bucket `ml4scs-sweep`, Creds lokal in `.env` (gitignored), `sweep_data.zip`
+  (N=22) hochgeladen. Pod pullt Daten aus R2 + Code aus `origin` (= noahsa16-Fork,
+  NICHT `org` = divergentes Team-Repo). wandb-Run-Namen kollidieren für gleiches
+  (model, seed) über pool/gravity — per Config-Feldern unterscheiden.
 - `src/training/deep/harnet*.py` — **Transfer-Learning mit dem Oxford
   `ssl-wearables`-Foundation-Model (harnet).** `harnet_data.py` (Bridge
   merged→harnet-Fenster: resample 50/100→30 Hz, `(N,3,150)` harnet5 /
@@ -668,11 +713,10 @@ no longer vibrates continuously when the server is down.
   Driven-Development, Commits `027d07c..2a16172` auf `development`). **In git
   committet sind 15 Einträge** (`cnn, lstm, gru, tcn, tcn6, tcn6w32, tcn6k5,
   tcn6wn, tcn6ap, tcn6se, tcn8, transformer, transformer_p5, tcn_gru,
-  tcn_transformer`); **5 weitere leben nur im lokalen Working-Tree + auf dem
-  RunPod-Pod, NICHT in git** (`gru2, bigru, inception, tcn_bigru, tcn_gru_attn`
-  → `MODELS` hat lokal **20** Einträge). Vor jedem Zitat einer Accuracy für
-  diese fünf: `models/hp_grid/wandb_runs.csv` bzw. den Pod prüfen — ein frischer
-  Clone hat sie nicht. Gemeinsame Grundlage aller TCN-Varianten:
+  tcn_transformer`); (`gru2, bigru, inception, tcn_bigru, tcn_gru_attn` sind seit 252cbf1/2aac3a7
+  **committet**; ebenso die 2026-07-07-Neuzugänge tcn_bigru-Wide + tcn6_inception
+  — ein frischer Clone hat sie also). Deren **Accuracies** liegen aber in wandb,
+  nicht lokal: vor jedem Zitat `models/hp_grid/wandb_runs.csv` bzw. den Pod prüfen. Gemeinsame Grundlage aller TCN-Varianten:
   `_build_tcn_trunk(n_channels, hidden, levels, kernel_size=3, dropout=0.2,
   norm="batch")`, bit-identisch aus `TCN.__init__` extrahiert (volle Test-Suite
   vorher/nachher grün), damit Hybride denselben dilatierten Causal-Conv-Stack
@@ -858,7 +902,12 @@ no longer vibrates continuously when the server is down.
   μ/σ ins Joblib eingebacken wird und keine Calibration-Phase pro Session
   braucht). Speichert `models/rf_all_live.joblib`. LOSO-Headline-Artefakt
   `rf_all.joblib` bleibt unangetastet (per-session Z-Score, nicht
-  live-tauglich).
+  live-tauglich). **`--profile` (Default `100hz_grav`)** wählt den
+  Windows-Pool; bei einem Gravity-Profil werden die 4 Gravity-Features
+  gedroppt → 88-Feature-Modell (cross-subject hilft Gravity nicht, siehe
+  Gravity-Verdikt). Der 2026-07-08-Refresh trainierte so ein generisches
+  **100 Hz / ohne Gravity**-RF, das seither der **Live-Boot-Default** ist
+  (`_DEFAULT_MODEL_PATHS` in `inference.py`, rf_all_live vorne).
 - `scripts/ml/replay_live_inference.py` — Diagnose-Tool: füttert eine
   bekannte Watch-CSV Sample-für-Sample durch `LiveInference` und
   vergleicht Predictions mit den gespeicherten Window-Labels. Quelle der
@@ -1339,6 +1388,59 @@ Train/Test, schwache Folds überproportional). Tests
 `test_late_arriving_samples_labelled_by_capture_time` +
 `test_t_center_and_closing_follow_capture_clock`.
 
+**Spill-Kontamination (2026-08-08).** Die Watch puffert bei Verbindungsproblemen
+auf Disk (`watch_spill.jsonl`) und liefert beim nächsten Connect nach. `POST
+/watch` stempelt jeden Batch auf die **aktive** Session — nachgelieferte Samples
+einer früheren Aufnahme landen also in der laufenden. **S093 trug so 8.925
+Fremd-Samples (5,55 %), davon 4.651 aus der abgebrochenen S092**, in der
+nachweislich geschrieben wurde → als `label=0` harte falsche Negative.
+**Der größere Schaden war aber die fs-Schätzung:** `infer_fs_hz` rechnet
+`(n-1)*1000/span`; die 302 s Vorlauf ergaben **87,97 statt 99,53 Hz (11,6 %
+Fehler)** — das verzerrte *alle* 3.650 Fenster (Fensterlänge 88 statt 100
+Samples, FFT-Frequenzachse und `× fs_hz`-skalierte Jerk-Features um 12 %
+daneben; `rx_dom_freq` 2,00 statt 2,99). Zusätzlich iteriert `build_windows`
+**index-** statt zeitbasiert, die 209-s-Lücke war für den Loop unsichtbar.
+Drei Schichten adressieren das jetzt: **Prävention** (`routes/watch.py`
+quarantänisiert Batches, deren jüngstes `ts` vor `start_time − 60 s` liegt, nach
+`unsessioned_watch.csv`), **Reparatur** (`merge.py::_drop_pre_session_samples`,
+Abort-Guard bei > 20 % Verwurf — S052/S053 sind Ganz-Session-Spill-Drains),
+**Erkennung** (`data_outside_session_window` prüft zusätzlich die Capture-Achse
+`device_start_ms`; die Ankunftsachse `local_ts_ms` ist für diese Klasse
+prinzipiell blind, weil Spill *rechtzeitig* ankommt und nur alt ist).
+**Detektor ist `ts < start_time − 60 s`** — korpusweit 3 Treffer / 0 Fehlalarme,
+Verteilung bimodal mit leerem Band 0…208,8 s. **Nicht** der Lag
+`local_ts_ms − ts` (S044/S091 haben 15.077 legitime Samples mit Lag > 60 s =
+Nachlieferung der *eigenen* Session) und **nicht** der `sequence`-Reset (feuert
+auf ≥ 7 sauberen Sessions). Alle Guards no-oppen, wenn `ts` keine plausible
+Epoch-ms-Zeit ist oder `start_time` fehlt (sessions.csv ist gitignored).
+
+**δ-Randtreffer (2026-08-08).** `sigma_minimal_variance` misst die *Tiefe* der
+Varianz-Senke, **nicht ob sie im Suchraum liegt**. Fällt J(δ) monoton zum Rand,
+liefert `argmin` den Randwert mit formal brauchbarem σ. **S094: δ = +18,2 s bei
+σ = −2,19** (über einen ±25-s-Suchraum dagegen −27,15 s; J(0) sogar ein
+*Maximum*) — angewandt kostete das **AUC 0,997 → 0,941** bei praktisch
+unveränderter Klassenverteilung (35.551 vs 35.536 writing). Genau deshalb kann
+keine Verteilungsstatistik einen kaputten Merge aufdecken: ein falsches δ
+*verschiebt* die Labels, es ändert ihre Menge nicht — nur ein Modell entlarvt es.
+`plot_alignment.py` flaggt Randtreffer jetzt als `EDGE OF SEARCH (unreliable)`
+statt `STRONG (trusted)`; `merge.py` verwirft δ, wenn das **Coarse**-Minimum am
+Rand liegt (die Fine-Suche verfeinert ±5 s darum und rutscht kosmetisch nach
+innen — ein Guard auf dem finalen δ greift nicht). S094 lag mit coarse
++18,5 s unter dieser Schwelle; deshalb greift zusätzlich eine
+**Plausibilitätsgrenze |δ| > 5 s** (`_DELTA_PLAUSIBLE_SEC`). Begründung: Pen-
+`local_ts_ms` und Watch-`ts` werden beide gegen die Wall-Clock gestempelt, ein
+Versatz über 5 s ist kein Uhrenproblem. **Korpus-Audit (44 Sessions mit
+auswertbarem δ): 37 liegen bei |δ| ≤ 5 s**; von den 4 mit großem angewandtem δ
+waren zwei nachweislich Artefakte — S094 (AUC 0,941 → 0,997) und **S062/P33
+(AUC 0,393 → 0,999, seit 2026-07-03 im Datensatz)** —, S049/S046 sind zu kurz
+für ein Urteil, keine einzige nachweislich echt. Alle vier laufen jetzt mit
+δ = 0; `attrs["pen_clock_delta_rejected"]` trägt den Grund.
+**Konsequenz für P33:** die „Sensor-Floor"-Analyse (`reports/p33_analysis.md`)
+und die N=22-Zahlen liefen auf um 16 s verschobenen P33-Labels — die
+Legacy-View `windows/50hz/S062_windows.csv` ist regeneriert, aber alle daraus
+abgeleiteten Artefakte (inkl. `sweep_data.zip` auf R2) sind
+**regenerations-pflichtig**, und der P33-Befund ist neu zu bewerten.
+
 **Sort-Stability-Bug (2026-05-25).** `pandas.sort_values` ist per Default **nicht
 stabil**; Batch-Samples teilen dieselbe `local_ts_ms` → unstable sort scrambelte
 die Reihenfolge und machte alle order-sensitiven Features (~52 % des Vektors)
@@ -1517,7 +1619,7 @@ Audit, Label-Kinematik) sind bei den jeweiligen Skripten oben +
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (682 cases) — anything that
+`tests/` holds Tier-1 smoke tests (747 cases) — anything that
 could silently poison the training data or the proband-facing flow:
 
 **Daten-/Pipeline-Integrität:** `test_quality.py` (Issue-Codes + stale-CSV-Window-

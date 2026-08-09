@@ -70,6 +70,7 @@ class GridSpec(BaseModel):
     seeds: list[int] = Field(min_length=1)
     max_epochs: int = Field(gt=0)
     patience: int = Field(gt=0)
+    gravity: bool = False  # 9 statt 6 Kanaele (gx/gy/gz); nur Modern-Pool
     grid: GridDef
 
     @field_validator("model")
@@ -162,7 +163,7 @@ def run_grid(config_path: Path, on_event=None, after_trial=None) -> Path:
                     lr=cfg["lr"], dropout=cfg["dropout"],
                     batch_size=cfg["batch_size"], weight_decay=cfg["weight_decay"],
                     patience=spec.patience, max_epochs=spec.max_epochs,
-                    folds=spec.folds, on_event=events,
+                    folds=spec.folds, gravity=spec.gravity, on_event=events,
                 )
                 pd.DataFrame([{
                     "model": spec.model, "cfg_id": cfg_id, **cfg, "seed": seed,

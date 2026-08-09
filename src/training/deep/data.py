@@ -18,6 +18,9 @@ from src.features.windows import IMU_COLS, smooth_labels
 ROOT = Path(__file__).parents[3]
 DATA_PROC = ROOT / "data" / "processed"
 
+# Modern-Pool-Schwerkraft-Kanaele (motion.gravity). Nur mit gravity=True gefuettert.
+GRAVITY_COLS = ("gx", "gy", "gz")
+
 
 def build_raw_windows(
     merged: pd.DataFrame,
@@ -26,6 +29,7 @@ def build_raw_windows(
     min_label_ratio: float = 0.6,
     max_gap_ms: float = 2500.0,
     exclude_boundary: tuple[float, float] | None = None,
+    gravity: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Baue rohe Sequenz-Fenster aus einer watch-base gemergten CSV.
 
@@ -53,7 +57,9 @@ def build_raw_windows(
     if seq_len < 2 or stride < 1:
         raise ValueError(f"seq_len/stride too small: seq_len={seq_len}, stride={stride}")
 
-    needed = {*IMU_COLS, "label_writing", "local_ts_ms"}
+    cols = list(IMU_COLS) + (list(GRAVITY_COLS) if gravity else [])
+    n_ch = len(cols)  # 6 (Default) oder 9 (mit Gravity gx/gy/gz)
+    needed = {*cols, "label_writing", "local_ts_ms"}
     missing = needed - set(merged.columns)
     if missing:
         raise ValueError(f"merged CSV is missing columns: {sorted(missing)}")
@@ -64,16 +70,16 @@ def build_raw_windows(
     # scrambled within-batch order and gave Deep models order-corrupted
     # raw sequences.
     sort_col = "ts" if "ts" in merged.columns else "local_ts_ms"
-    df = merged.dropna(subset=[*IMU_COLS, sort_col]).sort_values(sort_col, kind="stable")
+    df = merged.dropna(subset=[*cols, sort_col]).sort_values(sort_col, kind="stable")
     empty = (
-        np.empty((0, seq_len, 6), dtype=np.float32),
+        np.empty((0, seq_len, n_ch), dtype=np.float32),
         np.empty(0, dtype=np.int64),
         np.empty(0, dtype=np.float64),
     )
     if len(df) < seq_len:
         return empty
 
-    imu = df[IMU_COLS].to_numpy(dtype=np.float32)
+    imu = df[cols].to_numpy(dtype=np.float32)
     times = df["local_ts_ms"].to_numpy(dtype=float)
     raw_labels = df["label_writing"].to_numpy(dtype=int)
     labels = smooth_labels(raw_labels, times, max_gap_ms=max_gap_ms).astype(float)

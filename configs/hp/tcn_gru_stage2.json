@@ -1,0 +1,27 @@
+{
+  "model": "tcn_gru",
+  "pool": "legacy",
+  "win": 5,
+  "folds": null,
+  "seeds": [
+    42,
+    43,
+    44
+  ],
+  "max_epochs": 120,
+  "patience": 8,
+  "grid": {
+    "lr": [
+      0.0003
+    ],
+    "dropout": [
+      0.05
+    ],
+    "batch_size": [
+      64
+    ],
+    "weight_decay": [
+      1e-05
+    ]
+  }
+}

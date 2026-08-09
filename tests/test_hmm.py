@@ -101,6 +101,35 @@ def test_scaled_likelihoods_higher_proba_favours_writing():
     assert r_high > r_low
 
 
+def test_scaled_likelihoods_gamma_one_is_bit_identical():
+    # Acoustic-Scale gamma: Default 1.0 muss bit-identisch zur ungewichteten Version sein
+    proba = np.array([0.2, 0.5, 0.8])
+    pri = np.array([0.6, 0.4])
+    np.testing.assert_array_equal(
+        scaled_likelihoods(proba, pri),
+        scaled_likelihoods(proba, pri, gamma=1.0))
+
+
+def test_scaled_likelihoods_gamma_is_elementwise_power():
+    # jede Emission ist die gamma-Potenz der gamma=1-Version
+    proba = np.array([0.2, 0.8])
+    pri = np.array([0.6, 0.4])
+    b1 = scaled_likelihoods(proba, pri, gamma=1.0)
+    bg = scaled_likelihoods(proba, pri, gamma=0.5)
+    np.testing.assert_allclose(bg, b1 ** 0.5)
+
+
+def test_scaled_likelihoods_gamma_below_one_shrinks_confidence():
+    # gamma<1 zieht das writing/idle-Verhaeltnis Richtung 1 (weniger Emissions-Vertrauen)
+    proba = np.array([0.9])
+    pri = np.array([0.5, 0.5])
+    b1 = scaled_likelihoods(proba, pri, gamma=1.0)
+    bg = scaled_likelihoods(proba, pri, gamma=0.5)
+    r1 = b1[0, 1] / b1[0, 0]
+    rg = bg[0, 1] / bg[0, 0]
+    assert 1.0 < rg < r1
+
+
 # --- Forward filter (causal) ----------------------------------------------
 
 def test_forward_filter_posterior_is_normalised():
