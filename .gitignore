@@ -23,6 +23,18 @@ build/
 # Data / outputs — regenerierbar (python -m src.merge, plot_alignment.py …)
 data/processed/
 data/raw/
+# Why: Fremd-Probandendaten des Schweizer Kooperationspartners — menschliche
+# IMU-/Pen-Rohdaten, dieselbe Schutzklasse wie die eigenen Sessions. Lagen am
+# 2026-08-08 versehentlich in einem Commit (bereits gestaged, beim Committen
+# einer unbeteiligten Änderung mitgeschrieben) und mussten per git filter-repo
+# aus der History beider Remotes entfernt werden.
+data/foreign_data/
+# Why: der Adapter-CODE ist versioniert, seine Ausgabe nicht — output/ trägt die
+# konvertierten Fremd-Probandendaten (1,4 GB) und entsteht aus foreign_adapter/
+# plus data/foreign_data/ jederzeit neu.
+foreign_adapter/output/
+# Why: Team-IMU-Aufnahmen aus der Frühphase, von keinem Modul referenziert.
+data/_archive/
 # Why: gepacktes Daten-Bundle (menschliche Probanden-IMU-Daten) für den CI-Sweep —
 # lokal gepackt, out-of-repo gehostet. Darf NIE in dieses PUBLIC-Repo gelangen.
 sweep_data.zip
@@ -36,6 +48,10 @@ models/*
 results/plots/*.png
 results/plots/*.jpg
 results/metrics/*.csv
+
+# IDE- und Tooling-State — regeneriert sich beim Öffnen, erzeugt nur Diff-Rauschen
+.idea/
+.ai/
 
 # Misc
 .env
