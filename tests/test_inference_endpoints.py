@@ -29,7 +29,7 @@ def test_get_models_lists_available(client):
     assert isinstance(body["models"], list)
     ids = {m["id"] for m in body["models"]}
     # rf_noah was trained earlier in the test session pipeline; rf_all_live
-    # was trained by scripts/ml/train_rf_all_live.py. At least one of them
+    # was trained by scripts/pipeline/train_rf_all_live.py. At least one of them
     # must exist for the picker to make sense.
     assert "rf_noah" in ids or "rf_all_live" in ids
 
