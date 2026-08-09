@@ -1,5 +1,5 @@
 import numpy as np
-from scripts.ml.validate_invariant_deploy import invariant_features
+from scripts.pipeline.validate_invariant_deploy import invariant_features
 
 
 def test_features_unchanged_by_constant_gravity_offset():

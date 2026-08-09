@@ -33,7 +33,7 @@ läuft.
       Der Tunnel ist nur das Netz; die Demo läuft idealerweise über **LAN**
       (niedrigste Latenz). Notiere die ausgegebene LAN-IP.
 - [ ] **HMM-Live-Parameter vorhanden**: `models/hmm_live.json` existiert
-      (committet). Fehlt es, einmal `python scripts/ml/export_hmm_live.py`.
+      (committet). Fehlt es, einmal `python scripts/pipeline/export_hmm_live.py`.
 - [ ] **Live-Modell**: im Dashboard → Recording → Inferenz-Karte das **Personal**-
       Modell (`rf_noah`) wählen, wenn die tragende Person Noah ist; sonst
       **Generic** (`rf_all_live`). Beim Generic die Kalibrier-Sekunden abwarten.

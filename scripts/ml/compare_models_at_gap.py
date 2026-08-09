@@ -25,7 +25,7 @@ from sklearn.metrics import f1_score, roc_auc_score
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from src.features.windows import build_windows  # noqa: E402
-from scripts.compare_models import _models, _eval_fold  # noqa: E402
+from scripts.ml.compare_models import _models, _eval_fold  # noqa: E402
 
 
 def _zscore_per_session(df: pd.DataFrame, fcols: list[str]) -> pd.DataFrame:
