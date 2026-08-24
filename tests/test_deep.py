@@ -1020,3 +1020,87 @@ def test_tcn_transformer_patches_reduce_tokens():
     out = m(torch.randn(4, 250, 6))
     assert out.shape == (4,)
     assert seen["tokens"] == 50
+
+
+def _deep_loso_stub(monkeypatch):
+    """Gemeinsames Stub-Setup: 3 Personen, torch-Training weggepatcht."""
+    from src.training.deep import train_loso as DL
+
+    sessions = pd.DataFrame({
+        "session_id": ["S1", "S2", "S3"],
+        "person_id": ["P1", "P2", "P3"],
+        "watch_profile": ["50hz", "50hz", "50hz"],
+    })
+    monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
+
+    def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
+                      exclude_boundary=None, zscore=False, gravity=False):
+        return {
+            sid: {
+                # (N, seq, channels) -- so erwarten es die Modelle (forward
+                # transponiert selbst nach Conv1d-Layout).
+                "X": np.zeros((40, seq_len, 6), dtype=np.float32),
+                "y": np.tile([0, 1], 20).astype(np.int64),
+                "t": (np.arange(40) * 500).astype(float),
+                "person_id": pid,
+            }
+            for sid, pid in zip(sessions.session_id, sessions.person_id)
+        }
+
+    rng = np.random.default_rng(0)
+    monkeypatch.setattr(DL, "_load_all_sessions", fake_load_all)
+    monkeypatch.setattr(DL, "train_one_model", lambda m, *a, **k: (m, 3))
+    monkeypatch.setattr(DL, "predict_proba", lambda m, X: rng.random(len(X)))
+    return DL
+
+
+def test_train_deep_loso_saves_checkpoints_with_meta(monkeypatch, tmp_path):
+    """checkpoint_dir schreibt pro Fold ein .pt plus ein final.pt mit Metadaten.
+
+    Fixiert das Deployment-Artefakt: ohne eingebettete Kanalzahl/Fensterlaenge
+    waere ein state_dict spaeter nicht rekonstruierbar.
+    """
+    import torch
+
+    DL = _deep_loso_stub(monkeypatch)
+    ckpt = tmp_path / "ckpt"
+    DL.train_deep_loso("cnn", 1, pool="legacy", include_all=True,
+                       checkpoint_dir=ckpt)
+
+    folds = sorted(ckpt.glob("fold*.pt"))
+    assert [f.name for f in folds] == ["fold00.pt", "fold01.pt", "fold02.pt"]
+    assert (ckpt / "final.pt").exists()
+
+    blob = torch.load(ckpt / "final.pt", weights_only=False)
+    assert set(blob) == {"state_dict", "meta"}
+    meta = blob["meta"]
+    # Ohne diese Felder ist das Artefakt nicht wieder aufzubauen.
+    for key in ("model", "window_sec", "pool", "fs_hz", "n_channels",
+                "seed", "lr", "batch_size", "persons", "git_sha"):
+        assert key in meta, key
+    assert meta["model"] == "cnn"
+    assert meta["n_channels"] == 6
+    assert meta["kind"] == "final"
+    # Final-Fit haelt genau eine Person als Val-Set zurueck.
+    assert meta["val_person"] not in meta["trained_on_persons"]
+    assert meta["n_train_persons"] == 2
+    assert meta["persons"] == ["P1", "P2", "P3"]
+
+    fold = torch.load(folds[0], weights_only=False)
+    assert fold["meta"]["kind"] == "fold"
+    assert fold["meta"]["held_out"] == "P1"
+    assert "test_accuracy" in fold["meta"]
+    # Gewichte sind echt und passen zur Architektur.
+    model = DL.MODELS["cnn"](n_channels=6)
+    model.load_state_dict(fold["state_dict"])
+
+
+def test_train_deep_loso_writes_no_checkpoints_by_default(monkeypatch, tmp_path):
+    """Ohne checkpoint_dir entsteht kein .pt -- Default bleibt unveraendert."""
+    DL = _deep_loso_stub(monkeypatch)
+    run_dir = tmp_path / "run"
+    DL.train_deep_loso("cnn", 1, pool="legacy", include_all=True,
+                       run_dir=run_dir)
+
+    assert (run_dir / "cv.csv").exists()
+    assert list(tmp_path.rglob("*.pt")) == []

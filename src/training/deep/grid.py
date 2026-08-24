@@ -164,6 +164,7 @@ def run_grid(config_path: Path, on_event=None, after_trial=None) -> Path:
                     batch_size=cfg["batch_size"], weight_decay=cfg["weight_decay"],
                     patience=spec.patience, max_epochs=spec.max_epochs,
                     folds=spec.folds, gravity=spec.gravity, on_event=events,
+                    checkpoint_dir=outdir / f"models_{name}",
                 )
                 pd.DataFrame([{
                     "model": spec.model, "cfg_id": cfg_id, **cfg, "seed": seed,

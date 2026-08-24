@@ -37,7 +37,9 @@ foreign_adapter/output/
 data/_archive/
 # Why: gepacktes Daten-Bundle (menschliche Probanden-IMU-Daten) für den CI-Sweep —
 # lokal gepackt, out-of-repo gehostet. Darf NIE in dieses PUBLIC-Repo gelangen.
-sweep_data.zip
+# Glob statt Literal: die pool-spezifischen Bundles (sweep_data_50hz.zip,
+# sweep_data_100hz_grav.zip) sind dieselben Probandendaten unter anderem Namen.
+sweep_data*.zip
 # Why: die Joblibs sind zu groß (MB) und regenerierbar, daher models/-Inhalte
 # ignored. hmm_live.json ist dagegen ein winziges, deploybares Live-Artefakt
 # (2x2-Matrix + Prior), das die Inferenz zur Laufzeit braucht -> per Negation
@@ -104,3 +106,7 @@ forecast/
 # Pasted macOS screenshots (verification artifacts, not repo docs).
 Bildschirmfoto*.png
 Screenshot*.png
+
+# Probandendaten-Bundle (Drive-Download, Quelle fuer die Datenpublikation).
+# Niemals committen - origin ist PUBLIC.
+alldata/

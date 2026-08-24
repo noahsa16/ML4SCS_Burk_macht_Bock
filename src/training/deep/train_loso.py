@@ -8,6 +8,8 @@ Stopping auf einem Person-Holdout trainiert.
 from __future__ import annotations
 
 import math
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -355,6 +357,34 @@ def _fold_splits(
     return splits
 
 
+def _git_sha() -> str:
+    """Kurzer Commit-Hash des Repos; leer, wenn nicht ermittelbar."""
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], cwd=ROOT,
+            capture_output=True, text=True, check=True).stdout.strip()
+    except Exception:
+        return ""
+
+
+def _save_checkpoint(model: torch.nn.Module, path: Path, meta: dict) -> None:
+    """Gewichte + Herkunfts-Metadaten in eine ``.pt``-Datei.
+
+    Why: ein nacktes ``state_dict`` ist nicht ladbar, ohne Kanalzahl und
+    Fensterlaenge zu kennen -- die Modelle sind zwar seq-len-agnostisch, die
+    Eingangs-Conv aber nicht kanal-agnostisch. Das RF-Joblib vermeidet
+    dieselbe Falle, indem es ``person_id``/``sample_rate_hz`` einbettet; hier
+    reist die Herkunft aus demselben Grund im File mit.
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(
+        {"state_dict": {k: v.detach().cpu()
+                        for k, v in model.state_dict().items()},
+         "meta": meta},
+        path,
+    )
+
+
 def train_deep_loso(
     model_name: str,
     window_sec: int,
@@ -375,6 +405,7 @@ def train_deep_loso(
     gravity: bool = False,
     on_event=None,
     run_dir: Path | None = None,
+    checkpoint_dir: Path | None = None,
     lr_schedule: str = "constant",
 ) -> pd.DataFrame:
     """LOSO-by-person fuer ein Deep-Modell. Returns per-fold Metrik-Tabelle.
@@ -395,6 +426,12 @@ def train_deep_loso(
     ``exclude_boundary`` wird an :func:`build_raw_windows` durchgereicht —
     fuer das Label-Qualitaets-Experiment (mehrdeutige Uebergangs-Fenster
     ausschliessen).
+
+    ``checkpoint_dir`` (optional, Default ``None`` = bit-identisch zu vorher)
+    schreibt pro Fold ein ``fold{i}.pt`` und am Ende ein ``final.pt`` -- das
+    Deployment-Artefakt, auf allen Personen ausser einer deterministischen
+    Val-Person trainiert. Jedes File traegt seine Metadaten (Architektur, HP,
+    Kanalzahl, Fensterlaenge, Kohorte, git-SHA) im selben Dict.
 
     ``on_event`` / ``run_dir`` verdrahten den Lauf ins Web-Training-Cockpit
     (Muster wie :func:`src.training.train_loso.train_loso`). ``on_event``
@@ -451,6 +488,18 @@ def train_deep_loso(
     person_of_session = {s: p for p, ss in persons.items() for s in ss}
     emit({"type": _events.RUN_START, "model": model_name, "by": "person",
           "pool": pool, "n_folds": len(splits)})
+
+    base_meta = {
+        "model": model_name, "window_sec": window_sec, "pool": pool,
+        "fs_hz": POOL_FS[pool], "gravity": gravity, "zscore": zscore,
+        "seed": seed, "lr": lr, "dropout": dropout,
+        "batch_size": batch_size, "weight_decay": weight_decay,
+        "patience": patience, "max_epochs": max_epochs,
+        "max_gap_ms": max_gap_ms, "folds": folds,
+        "n_persons": len(person_ids), "persons": sorted(person_ids),
+        "git_sha": _git_sha(), "torch_version": torch.__version__,
+        "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
 
     rows: list[dict] = []
     oof_frames: list[pd.DataFrame] = []
@@ -549,6 +598,14 @@ def train_deep_loso(
             row[f"acc_{scale}"] = bm["accuracy"]
             row[f"auc_{scale}"] = bm["roc_auc"]
         rows.append(row)
+        if checkpoint_dir is not None:
+            _save_checkpoint(
+                model, Path(checkpoint_dir) / f"fold{i:02d}.pt",
+                {**base_meta, "kind": "fold", "fold_index": i,
+                 "held_out": held_out, "val_person": val_p,
+                 "n_channels": int(train_X.shape[-1]),
+                 "best_epoch": best_epoch,
+                 "test_accuracy": m["accuracy"], "test_roc_auc": m["roc_auc"]})
         # OOF fuer ROC-Kurve + Fehler-nach-Task im Cockpit-Drawer. proba/test_y
         # liegen in derselben Reihenfolge wie test_df (beide ueber test_sessions
         # gestackt) -> spaltenweise ausrichtbar.
@@ -575,6 +632,40 @@ def train_deep_loso(
         )
 
     folds_df = pd.DataFrame(rows)
+
+    if checkpoint_dir is not None and not interrupted and len(person_ids) > 1:
+        # Why: das Deployment-Artefakt ist ein Modell ueber ALLE Personen, nicht
+        # der beste Fold -- einen Fold nach seinem Test-Score auszuwaehlen waere
+        # genau die Selektions-Inflation, die dieses Projekt schon mehrfach
+        # gemessen hat. Eine Person bleibt deterministisch als Val-Set fuers
+        # Early Stopping draussen, damit die bestehende Trainingsschleife
+        # unveraendert wiederverwendet wird statt eine zweite zu duplizieren.
+        final_val = sorted(person_ids)[seed % len(person_ids)]
+        final_train = [p for p in person_ids if p != final_val]
+        fX = _stack_persons(final_train, "X", data, persons)
+        fy = _stack_persons(final_train, "y", data, persons)
+        vX = _stack_persons([final_val], "X", data, persons)
+        vy = _stack_persons([final_val], "y", data, persons)
+        n_ch = int(fX.shape[-1])
+        fmodel = (MODELS[model_name](n_channels=n_ch) if dropout is None
+                  else MODELS[model_name](n_channels=n_ch, dropout=dropout))
+        print(f"  Final-Fit auf {len(final_train)} Personen "
+              f"(Val: {final_val}) …")
+        fmodel, fbest = train_one_model(
+            fmodel, fX, fy, vX, vy, lr=lr, batch_size=batch_size,
+            weight_decay=weight_decay, patience=patience,
+            max_epochs=max_epochs, lr_schedule=lr_schedule)
+        _save_checkpoint(
+            fmodel, Path(checkpoint_dir) / "final.pt",
+            {**base_meta, "kind": "final", "val_person": final_val,
+             "n_channels": n_ch, "best_epoch": fbest,
+             "trained_on_persons": sorted(final_train),
+             "n_train_persons": len(final_train),
+             "cv_accuracy_mean": (float(folds_df["accuracy"].mean())
+                                  if not folds_df.empty else None),
+             "cv_roc_auc_mean": (float(folds_df["roc_auc"].mean())
+                                 if not folds_df.empty else None)})
+
     _emit_run_end(emit, folds_df, oof_frames, run_dir, interrupted)
     return folds_df
 
