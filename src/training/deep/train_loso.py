@@ -36,10 +36,19 @@ MODEL_DIR = ROOT / "models"
 # Sample-Rate je Pool (Hz). seq_len/stride werden hieraus abgeleitet statt
 # 50 Hz hart anzunehmen — ein 1-s-Fenster ist 50 Samples im Legacy-Pool und
 # 100 im Modern-Pool. Kein "auto": rohe Sequenzen koennen keine fs mischen.
-POOL_FS: dict[str, int] = {"legacy": 50, "modern": 100}
+# "modern50" ist der Passiv-Deployment-Pool: dieselben Modern-Sessions wie
+# "modern", aber auf 50 Hz dezimiert -- die Rate, mit der CMSensorRecorder
+# aufzeichnet. Er braucht einen eigenen Eintrag, weil "legacy" zwar 50 Hz
+# liefert, seine Views aber ohne gx/gy/gz gebaut werden und damit das rohe
+# Accel-Signal nicht mehr rekonstruierbar waere.
+POOL_FS: dict[str, int] = {"legacy": 50, "modern": 100, "modern50": 50}
 # Pool -> natives watch_profile (sessions.csv) der Pool-eigenen Sessions.
 # Legacy-Pool zieht zusaetzlich Modern-Sessions als 50-Hz-View mit.
-_POOL_NATIVE_PROFILE: dict[str, str] = {"legacy": "50hz", "modern": "100hz_grav"}
+_POOL_NATIVE_PROFILE: dict[str, str] = {
+    "legacy": "50hz", "modern": "100hz_grav", "modern50": "100hz_grav"}
+# Merged-Suffix der 50-Hz-MIT-Gravity-View (src.features.downsample
+# --keep-gravity --suffix raw50). Nur der modern50-Pool liest sie.
+_RAW50_SUFFIX = "raw50"
 
 DEVICE = torch.device(
     "cuda" if torch.cuda.is_available()
@@ -69,6 +78,11 @@ def _pool_plan(sessions: pd.DataFrame, pool: str) -> dict[str, str | None]:
             "sessions.csv fehlt die 'watch_profile'-Spalte — Quality-Refresh "
             "laufen lassen (Stop/Refresh schreibt sie)."
         )
+    if pool == "modern50":
+        # Why: hier passt KEINE der beiden Standardquellen -- die native
+        # merged hat 100 Hz, die legacy-View hat keine Gravity. Also
+        # ausnahmslos die raw50-View, die beides mitbringt.
+        return {row.session_id: _RAW50_SUFFIX for row in sessions.itertuples()}
     native = _POOL_NATIVE_PROFILE[pool]
     plan: dict[str, str | None] = {}
     for row in sessions.itertuples():
@@ -291,6 +305,7 @@ def _load_all_sessions(
     exclude_boundary: tuple[float, float] | None = None,
     zscore: bool = False,
     gravity: bool = False,
+    channels: str = "imu",
 ) -> dict[str, dict]:
     """Lade alle Sessions als rohe Sequenz-Windows.
 
@@ -314,8 +329,15 @@ def _load_all_sessions(
                 max_gap_ms=max_gap_ms,
                 exclude_boundary=exclude_boundary,
                 gravity=gravity,
+                channels=channels,
             )
         except FileNotFoundError as exc:
+            print(f"  skip {sid} -- {exc}")
+            continue
+        except ValueError as exc:
+            # Why: eine Session ohne gx/gy/gz kann kein Roh-Accel liefern.
+            # Wie beim fehlenden File: ueberspringen mit Hinweis statt den
+            # ganzen Lauf zu killen -- kein stilles Mischen von Kanalsaetzen.
             print(f"  skip {sid} -- {exc}")
             continue
         if len(X) == 0:
@@ -403,6 +425,7 @@ def train_deep_loso(
     zscore: bool = False,
     augment: bool = False,
     gravity: bool = False,
+    channels: str = "imu",
     on_event=None,
     run_dir: Path | None = None,
     checkpoint_dir: Path | None = None,
@@ -465,7 +488,7 @@ def train_deep_loso(
     plan = _pool_plan(sessions, pool)
     data = _load_all_sessions(
         sessions, seq_len, stride, plan, max_gap_ms, exclude_boundary,
-        zscore=zscore, gravity=gravity,
+        zscore=zscore, gravity=gravity, channels=channels,
     )
     # person_id -> Liste von session_ids
     persons: dict[str, list[str]] = {}
@@ -491,7 +514,8 @@ def train_deep_loso(
 
     base_meta = {
         "model": model_name, "window_sec": window_sec, "pool": pool,
-        "fs_hz": POOL_FS[pool], "gravity": gravity, "zscore": zscore,
+        "fs_hz": POOL_FS[pool], "gravity": gravity, "channels": channels,
+        "zscore": zscore,
         "seed": seed, "lr": lr, "dropout": dropout,
         "batch_size": batch_size, "weight_decay": weight_decay,
         "patience": patience, "max_epochs": max_epochs,

@@ -108,6 +108,74 @@ def test_build_raw_windows_empty_respects_gravity_channels():
     assert X.shape == (0, 50, 9)
 
 
+# ---------------------------------------------------------------- channels
+# Passiv-Deployment: CMSensorRecorder liefert nur das Accelerometer, und zwar
+# die ROHE Gesamtbeschleunigung (userAccel + Schwerkraft). Die drei Kanalsaetze
+# trennen die beiden Variablen "accel-only" und "roh vs. gyro-fusioniert".
+
+
+def test_channels_raw_accel_reconstructs_user_plus_gravity():
+    merged = _synthetic_merged_grav()
+    X6, _, _ = build_raw_windows(merged, seq_len=50, stride=25)
+    X3, y3, t3 = build_raw_windows(merged, seq_len=50, stride=25,
+                                   channels="raw_accel")
+    assert X3.shape == (23, 50, 3)
+    assert y3.shape == (23,) and t3.shape == (23,)
+    # roh = userAcceleration + gravity, kanalweise
+    expected = X6[..., :3] + np.array([0.1, 0.2, 0.9], dtype=np.float32)
+    np.testing.assert_allclose(X3, expected, rtol=1e-6)
+
+
+def test_channels_user_accel_is_the_first_three_imu_channels():
+    merged = _synthetic_merged_grav()
+    X6, _, _ = build_raw_windows(merged, seq_len=50, stride=25)
+    X3, _, _ = build_raw_windows(merged, seq_len=50, stride=25,
+                                 channels="user_accel")
+    assert X3.shape == (23, 50, 3)
+    np.testing.assert_array_equal(X3, X6[..., :3])
+
+
+def test_channels_user_accel_needs_no_gravity_columns():
+    merged = _synthetic_merged()  # ohne gx/gy/gz
+    X3, _, _ = build_raw_windows(merged, seq_len=50, stride=25,
+                                 channels="user_accel")
+    assert X3.shape == (23, 50, 3)
+
+
+def test_channels_default_is_bit_identical_to_imu():
+    merged = _synthetic_merged_grav()
+    a, ya, ta = build_raw_windows(merged, seq_len=50, stride=25)
+    b, yb, tb = build_raw_windows(merged, seq_len=50, stride=25, channels="imu")
+    np.testing.assert_array_equal(a, b)
+    np.testing.assert_array_equal(ya, yb)
+    np.testing.assert_array_equal(ta, tb)
+
+
+def test_channels_raw_accel_without_gravity_columns_raises():
+    merged = _synthetic_merged()  # ohne gx/gy/gz -> roh nicht rekonstruierbar
+    with pytest.raises(ValueError, match="missing columns"):
+        build_raw_windows(merged, seq_len=50, channels="raw_accel")
+
+
+def test_channels_and_gravity_flag_are_mutually_exclusive():
+    merged = _synthetic_merged_grav()
+    with pytest.raises(ValueError, match="gravity"):
+        build_raw_windows(merged, seq_len=50, channels="raw_accel", gravity=True)
+
+
+def test_channels_unknown_value_raises():
+    merged = _synthetic_merged_grav()
+    with pytest.raises(ValueError, match="channels"):
+        build_raw_windows(merged, seq_len=50, channels="magnetometer")
+
+
+def test_channels_empty_result_respects_channel_count():
+    merged = _synthetic_merged_grav(n_samples=10)  # zu kurz -> leer
+    X, _, _ = build_raw_windows(merged, seq_len=50, stride=25,
+                                channels="raw_accel")
+    assert X.shape == (0, 50, 3)
+
+
 @pytest.mark.parametrize("seq_len,stride", [(1, 25), (0, 25), (50, 0)])
 def test_build_raw_windows_bad_bounds_raise(seq_len, stride):
     merged = _synthetic_merged()
@@ -665,7 +733,23 @@ def test_pool_plan_requires_watch_profile():
 
 
 def test_pool_fs_values():
-    assert POOL_FS == {"legacy": 50, "modern": 100}
+    assert POOL_FS == {"legacy": 50, "modern": 100, "modern50": 50}
+
+
+def test_pool_plan_modern50_uses_raw50_view():
+    """modern50: 50 Hz MIT Gravity -> immer die raw50-View.
+
+    Die native 100-Hz-merged hat die falsche Rate, die legacy-View hat keine
+    Gravity (downsample droppt gx/gy/gz per Default) -- also kann keine der
+    beiden das Roh-Signal liefern.
+    """
+    sessions = _sessions([("S038", "P12", "100hz_grav"), ("S039", "P13", "100hz_grav")])
+    assert _pool_plan(sessions, "modern50") == {"S038": "raw50", "S039": "raw50"}
+
+
+def test_pool_plan_modern50_seq_len_is_50hz_based():
+    """Der Pool muss 50 Hz melden, sonst baut train_deep_loso 500er-Fenster."""
+    assert POOL_FS["modern50"] == 50
 
 
 def test_train_deep_loso_emits_events_and_writes_artifacts(monkeypatch, tmp_path):
@@ -684,7 +768,7 @@ def test_train_deep_loso_emits_events_and_writes_artifacts(monkeypatch, tmp_path
     monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
 
     def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
-                      exclude_boundary=None, zscore=False, gravity=False):
+                      exclude_boundary=None, zscore=False, gravity=False, channels="imu"):
         out = {}
         for sid, pid in zip(sessions.session_id, sessions.person_id):
             n = 40
@@ -776,7 +860,7 @@ def test_train_deep_loso_passes_augmenter_per_flag(monkeypatch):
     monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
 
     def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
-                      exclude_boundary=None, zscore=False, gravity=False):
+                      exclude_boundary=None, zscore=False, gravity=False, channels="imu"):
         out = {}
         for sid, pid in zip(sessions.session_id, sessions.person_id):
             n = 40
@@ -884,7 +968,7 @@ def test_train_deep_loso_threads_hp(monkeypatch):
     sessions = pd.DataFrame({"session_id": ["S1","S2","S3"], "person_id": ["P1","P2","P3"],
                              "watch_profile": ["50hz","50hz","50hz"]})
     monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
-    def fake_load(sess, seq_len, stride, plan, max_gap_ms, exclude_boundary=None, zscore=False, gravity=False):
+    def fake_load(sess, seq_len, stride, plan, max_gap_ms, exclude_boundary=None, zscore=False, gravity=False, channels="imu"):
         return {s: {"X": np.zeros((40, seq_len, 6), np.float32),
                     "y": np.tile([0,1],20).astype(np.int64),
                     "t": (np.arange(40)*500.).astype(float), "person_id": p}
@@ -1034,7 +1118,7 @@ def _deep_loso_stub(monkeypatch):
     monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
 
     def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
-                      exclude_boundary=None, zscore=False, gravity=False):
+                      exclude_boundary=None, zscore=False, gravity=False, channels="imu"):
         return {
             sid: {
                 # (N, seq, channels) -- so erwarten es die Modelle (forward

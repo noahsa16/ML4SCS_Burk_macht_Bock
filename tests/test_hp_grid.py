@@ -149,9 +149,14 @@ def test_all_canonical_configs_load_and_share_grid():
     all_paths = sorted(p for p in cfg_dir.glob("*.json") if not p.stem.startswith("smoke"))
     # *_stage2 = LOSO-Bestaetigungslaeufe (folds=null, Multi-Seed, model != stem) --
     # wie die focused probes von der Shared-Grid-Invariante ausgenommen.
+    # Why: "_confirm" matcht per `in` statt `endswith` -- die Modern-Confirm-
+    # Configs heissen tcn6_confirm_modern_grav o.ae. und wurden vom alten
+    # endswith-Filter durchgelassen. "_raw50" sind die Passiv-Deployment-Probes
+    # (3-Kanal-Roh-Accel @50 Hz); beide tragen bewusst verengte Ein-Wert-Grids
+    # und stehen damit ausserhalb der Fairness-Invariante.
     paths = [p for p in all_paths
              if p.stem not in _FOCUSED_PROBES and not p.stem.endswith("_stage2")
-             and not p.stem.endswith("_confirm")]
+             and "_confirm" not in p.stem and not p.stem.endswith("_raw50")]
     assert len(paths) == 15
     specs = [load_grid_spec(p) for p in paths]
     assert {s.model for s in specs} == {p.stem for p in paths}
