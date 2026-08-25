@@ -3,14 +3,29 @@
   "pool": "modern50",
   "win": 5,
   "folds": 5,
-  "seeds": [42, 43, 44],
+  "seeds": [
+    42,
+    43,
+    44
+  ],
   "max_epochs": 120,
   "patience": 8,
   "channels": "raw_accel",
   "grid": {
-    "lr": [0.0003],
-    "dropout": [0.2],
-    "batch_size": [64],
-    "weight_decay": [1e-05]
-  }
+    "lr": [
+      0.0003
+    ],
+    "dropout": [
+      0.2
+    ],
+    "batch_size": [
+      64
+    ],
+    "weight_decay": [
+      1e-05
+    ]
+  },
+  "exclude": [
+    "S095"
+  ]
 }

@@ -752,6 +752,40 @@ def test_pool_plan_modern50_seq_len_is_50hz_based():
     assert POOL_FS["modern50"] == 50
 
 
+def test_drop_excluded_removes_named_sessions():
+    """Ausschluss-Liste: eine Session raus, Rest unveraendert."""
+    from src.training.deep.train_loso import _drop_excluded
+    s = _sessions([("S038", "P12", "100hz_grav"), ("S095", "P62", "100hz_grav")])
+    out = _drop_excluded(s, ["S095"])
+    assert list(out.session_id) == ["S038"]
+
+
+def test_drop_excluded_empty_list_is_identity():
+    from src.training.deep.train_loso import _drop_excluded
+    s = _sessions([("S038", "P12", "100hz_grav"), ("S095", "P62", "100hz_grav")])
+    for excl in (None, []):
+        assert list(_drop_excluded(s, excl).session_id) == ["S038", "S095"]
+
+
+def test_drop_excluded_unknown_id_raises():
+    """Tippfehler in der Config duerfen nicht still durchgehen -- sonst laeuft
+    ein Experiment mit der falschen Kohorte und niemand merkt es."""
+    from src.training.deep.train_loso import _drop_excluded
+    s = _sessions([("S038", "P12", "100hz_grav")])
+    with pytest.raises(ValueError, match="S999"):
+        _drop_excluded(s, ["S999"])
+
+
+def test_grid_spec_exclude_defaults_empty():
+    import json
+    from pathlib import Path as _P
+
+    from src.training.deep.grid import GridSpec
+    cfg = _P(__file__).parents[1] / "configs" / "hp" / "tcn6_raw50.json"
+    spec = GridSpec(**json.loads(cfg.read_text()))
+    assert spec.exclude == ["S095"]
+
+
 def test_train_deep_loso_emits_events_and_writes_artifacts(monkeypatch, tmp_path):
     """Cockpit-Instrumentierung: Events + cv.csv/oof.csv, KEIN model.joblib.
 

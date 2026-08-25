@@ -92,6 +92,30 @@ def _pool_plan(sessions: pd.DataFrame, pool: str) -> dict[str, str | None]:
     return plan
 
 
+def _drop_excluded(sessions: pd.DataFrame, exclude) -> pd.DataFrame:
+    """Entferne benannte Sessions aus der Auswahl.
+
+    Why: manche Sessions sind formal ``usable``, taugen aber fuer ein
+    bestimmtes Experiment nicht -- S095 etwa hat ein uebersprungenes
+    Pen-Alignment (sigma = -1.28, schwaecher als die -2-Schwelle), ihre Labels
+    sind also nicht zeitlich bestaetigt. Der Ausschluss steht in der
+    Experiment-Config statt in der server-eigenen sessions.csv: er ist damit
+    reproduzierbar, versioniert und experiment-lokal.
+
+    Eine unbekannte ID ist ein **Fehler**, kein No-op -- ein Tippfehler wuerde
+    sonst still die falsche Kohorte trainieren.
+    """
+    if not exclude:
+        return sessions
+    known = set(sessions["session_id"])
+    missing = [s for s in exclude if s not in known]
+    if missing:
+        raise ValueError(
+            f"exclude nennt unbekannte session_id(s): {missing} -- "
+            f"verfuegbar sind {sorted(known)}")
+    return sessions[~sessions["session_id"].isin(exclude)].reset_index(drop=True)
+
+
 def _lr_factor(epoch: int, warmup: int = 3, horizon: int = 40,
                floor: float = 0.05) -> float:
     """LambdaLR-Faktor: linearer Warmup -> Cosine-Decay -> Floor.
@@ -426,6 +450,7 @@ def train_deep_loso(
     augment: bool = False,
     gravity: bool = False,
     channels: str = "imu",
+    exclude: list[str] | None = None,
     on_event=None,
     run_dir: Path | None = None,
     checkpoint_dir: Path | None = None,
@@ -484,6 +509,9 @@ def train_deep_loso(
             f"Keine Sessions fuer pool={pool!r} -- sessions.csv / verdict-Gate / "
             f"windows/{profile}/ pruefen."
         )
+    sessions = _drop_excluded(sessions, exclude)
+    if exclude:
+        print(f"  ausgeschlossen: {', '.join(exclude)}")
 
     plan = _pool_plan(sessions, pool)
     data = _load_all_sessions(
@@ -521,6 +549,7 @@ def train_deep_loso(
         "patience": patience, "max_epochs": max_epochs,
         "max_gap_ms": max_gap_ms, "folds": folds,
         "n_persons": len(person_ids), "persons": sorted(person_ids),
+        "excluded_sessions": sorted(exclude) if exclude else [],
         "git_sha": _git_sha(), "torch_version": torch.__version__,
         "created_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
