@@ -1,0 +1,17 @@
+{
+ "artifact": "ScrybePassive.mlpackage",
+ "sha256": "4e5a674c656b529e2e2f0e6f755eaf4f1438a765250d90839fe5ae89b164a452",
+ "model": "tcn6",
+ "channels": "raw_accel",
+ "n_channels": 3,
+ "seq_len": 250,
+ "fs_hz": 50,
+ "threshold": 0.5,
+ "compute_precision": "FLOAT32",
+ "input_name": "window",
+ "output_name": "logit",
+ "source_checkpoint": "models/runs/pod_raw50/hp_grid/modern50/tcn6_raw50/models_tcn6-g00-s42/final.pt",
+ "source_checkpoint_sha256": "f4462619c0ddc713acd8d9c7d4a5207944a200a669f61a8143fbfc0f03dd8fe0",
+ "coremltools": "9.0",
+ "torch": "2.9.1"
+}
