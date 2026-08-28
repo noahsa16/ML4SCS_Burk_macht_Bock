@@ -110,3 +110,6 @@ Screenshot*.png
 # Probandendaten-Bundle (Drive-Download, Quelle fuer die Datenpublikation).
 # Niemals committen - origin ist PUBLIC.
 alldata/
+
+# Isoliertes venv fuer die Core-ML-Konvertierung (siehe requirements-coreml.txt)
+.venv-coreml/
