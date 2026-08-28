@@ -1795,9 +1795,18 @@ git commit -m "test(deploy): verify model parity on the watch"
 
 Nach Task 11 ist der Zustand:
 
-- gemessen, ob `CMSensorRecorder` auf der Series 7 trägt (Task 4);
+- der Spike-Mechanismus (1h/12h-Sensor-Probe-Commands + Auswertung) ist gebaut
+  und unit-getestet; die eigentliche Messung auf der Series 7 (Task 4) ist ein
+  manueller Schritt mit bis zu zwölf Stunden Wandzeit und steht noch aus;
 - beide Modelle nach Core ML konvertiert, mit festgenagelter FP32-Konfiguration;
-- Gleichheit mit PyTorch bewiesen auf Mac (P1), iPhone (P2) und Watch (P3);
+- Gleichheit mit PyTorch gemessen auf Mac (P1) und im iPhone-Simulator (P2);
+  der P3-Command-Pfad (physische Watch) ist gebaut, aber die Messung selbst
+  ist ebenfalls ein noch ausstehender manueller Hardware-Schritt;
 - **kein** App-Feature gebaut — das ist Teilprojekt 2.
 
-Damit sind die Voraussetzungen für die eigene Spec zu Teilprojekt 2 (aktive Schreibphase) erfüllt. Fällt der Spike durch, entfällt Teilprojekt 3 und Teilprojekt 2 wird zum Hauptprodukt.
+Der 1h/12h-Spike und die P3-Paritätsprüfung sind die drei noch offenen
+Messungen; ihre Akzeptanzkriterien und leeren Ergebnisfelder stehen bereit
+in `reports/sensor_probe.md`. Damit sind die Voraussetzungen für die eigene
+Spec zu Teilprojekt 2 (aktive Schreibphase) erfüllt; Teilprojekt 3 hängt
+zusätzlich am bestandenen Spike. Fällt der Spike durch, entfällt Teilprojekt 3
+und Teilprojekt 2 wird zum Hauptprodukt.

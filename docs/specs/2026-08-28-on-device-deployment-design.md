@@ -362,8 +362,12 @@ Dieselbe Datei wird auf **drei Ebenen** konsumiert. Zwei davon reichen nicht:
 | Ebene | Ort | Beweist |
 |---|---|---|
 | **P1** | Python: PyTorch ↔ Core ML | die Konvertierung ist verlustfrei |
-| **P2** | iPhone: `ScrybeActive` | das aktive Modell lädt und rechnet auf dem Zielgerät |
+| **P2** | iPhone-**Simulator**: `ScrybeActive` | `coremlc`-Kompilierung, Bundle-Resource-Auflösung, `MLMultiArray`-Packing und Fixture-Dekodierung unter iOS — **nicht** Ausführung auf der Zielhardware: der Simulator rechnet auf der Mac-CPU mit der Mac-Core-ML-Laufzeit, exakt das Argument, mit dem diese Spec P3 begründet |
 | **P3** | **physische Series 7**: `ScrybePassive` | das passive Modell lädt und rechnet auf **der** Hardware, auf der es laufen soll |
+
+Den `ScrybeTests`-Lauf einmal auf einem physischen iPhone statt im Simulator
+auszuführen, ist neben der Watch-Session nahezu kostenlos und schließt die
+P2-Lücke — dieser einmalige Lauf steht noch aus.
 
 P3 ist nicht optional und nicht durch den Simulator ersetzbar: Rechenwerk,
 Speicher und Core-ML-Backend der Watch unterscheiden sich vom Mac. Das
