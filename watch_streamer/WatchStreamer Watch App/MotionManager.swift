@@ -883,6 +883,17 @@ extension MotionManager: WCSessionDelegate {
                 "isRunning": isRunning,
                 "spilled_samples": spilledSampleCount,
             ]
+        case "sensor_probe_start":
+            let duration = (message["duration_seconds"] as? Double) ?? 3600
+            var reply = SensorProbe.start(durationSeconds: duration)
+            reply["command"] = command
+            reply["command_id"] = commandId ?? ""
+            return reply
+        case "sensor_probe_report":
+            var reply = SensorProbe.report()
+            reply["command"] = command
+            reply["command_id"] = commandId ?? ""
+            return reply
         case "clear_spill":
             // Destruktiv: Spill verwerfen. clearSpill() weigert sich, wenn
             // gerade aufgenommen wird — schützt Live-Puffer gegen einen evtl.
