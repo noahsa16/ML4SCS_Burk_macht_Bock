@@ -10,6 +10,12 @@ struct SensorProbeStats: Codable, Equatable {
     var lastTimestamp: Double
     /// Dauer, die beim Aufzeichnungsauftrag angefordert wurde.
     var requestedSeconds: Double
+    /// Wall-Clock-Zeit seit Aufzeichnungsstart, so wie ``SensorProbe.report()``
+    /// sie kappt (Headroom + 12h-Fetch-Limit). Kann kleiner als
+    /// ``requestedSeconds`` sein, wenn ausgewertet wird, bevor der Auftrag
+    /// fertig ist — Coverage muss dagegen gemessen werden, nicht gegen die
+    /// volle angeforderte Dauer (siehe SensorProbeEvaluator.evaluate).
+    var actualSpanSeconds: Double
     /// Histogramm der Abstaende aufeinanderfolgender Samples. Schluessel ist
     /// die untere Bucket-Grenze in Millisekunden.
     var intervalBucketsMs: [Int: Int]
@@ -48,7 +54,14 @@ enum SensorProbeEvaluator {
 
         let span = max(s.lastTimestamp - s.firstTimestamp, 0)
         let rate = span > 0 ? Double(s.sampleCount - 1) / span : 0
-        let expected = s.requestedSeconds * nominalRateHz
+        // Why: an operator can tap "Auswerten" before requestedSeconds have
+        // elapsed — the button is always live. Judging coverage against the
+        // full requested duration then flags a perfectly healthy, still-
+        // running recording as a coverage failure. min(requested, elapsed)
+        // keeps a genuinely short/dead recording caught (elapsed has fully
+        // passed, sampleCount still short) while clearing an early check.
+        let elapsed = min(s.requestedSeconds, s.actualSpanSeconds)
+        let expected = elapsed * nominalRateHz
         let coverage = expected > 0 ? Double(s.sampleCount) / expected : 0
 
         let intervalTotal = s.intervalBucketsMs.values.reduce(0, +)

@@ -321,9 +321,21 @@ class ServerCommandListener: NSObject, ObservableObject {
 
     @Published var sensorProbeVerdict: SensorProbeVerdict?
     @Published var sensorProbeRaw: String?
+    /// Wall-Zeit, die `SensorProbe.report()` fuer den CMSensorRecorder-Read
+    /// gebraucht hat — Diagnose-Gold fuer einen Schritt, der nur wenige Male
+    /// laufen kann: unterscheidet einen langsamen, aber funktionierenden Read
+    /// von einem, der in den sendMessage-Timeout gelaufen ist.
+    @Published var sensorProbeReadDuration: Double?
     @Published var parityResult: String?
+    @Published var parityRaw: String?
 
     func startSensorProbe(durationSeconds: Double) {
+        // Why: a stale verdict/raw from a previous probe left standing while
+        // this one runs is the worst outcome for a step the operator can
+        // only repeat a few times — reset before the new run, not after.
+        sensorProbeVerdict = nil
+        sensorProbeRaw = nil
+        sensorProbeReadDuration = nil
         forwardToWatch(["command": "sensor_probe_start",
                         "duration_seconds": durationSeconds]) { [weak self] reply in
             self?.sensorProbeRaw = String(describing: reply)
@@ -331,8 +343,12 @@ class ServerCommandListener: NSObject, ObservableObject {
     }
 
     func fetchSensorProbeReport() {
+        sensorProbeVerdict = nil
+        sensorProbeRaw = nil
+        sensorProbeReadDuration = nil
         forwardToWatch(["command": "sensor_probe_report"]) { [weak self] reply in
             self?.sensorProbeRaw = String(describing: reply)
+            self?.sensorProbeReadDuration = reply["readDurationSeconds"] as? Double
             self?.sensorProbeVerdict = Self.verdict(from: reply)
         }
     }
@@ -341,14 +357,26 @@ class ServerCommandListener: NSObject, ObservableObject {
     /// der Watch an (WatchParityCheck.run()) und übersetzt die Antwort in
     /// einen lesbaren Status für das Admin-Panel.
     func runWatchParityCheck() {
+        parityResult = nil
+        parityRaw = nil
         forwardToWatch(["command": "parity_check"]) { [weak self] reply in
+            self?.parityRaw = String(describing: reply)
+            let ok = (reply["ok"] as? Bool) ?? true
+            guard ok else {
+                self?.parityResult = "Fehler: " + ((reply["error"] as? String) ?? "unbekannt")
+                return
+            }
             let total = (reply["total"] as? Int) ?? 0
             let passed = (reply["passed"] as? Int) ?? 0
             let maxDiff = (reply["maxAbsDiff"] as? Double) ?? .nan
             let mismatch = (reply["classMismatches"] as? Int) ?? -1
-            self?.parityResult = String(
+            var text = String(
                 format: "%d/%d bestanden, max |Δ| = %.2e, Klassenwechsel: %d",
                 passed, total, maxDiff, mismatch)
+            if passed < total, let failedIds = reply["failedIds"] as? [String], !failedIds.isEmpty {
+                text += " — fehlgeschlagen: " + failedIds.joined(separator: ", ")
+            }
+            self?.parityResult = text
         }
     }
 
@@ -360,11 +388,16 @@ class ServerCommandListener: NSObject, ObservableObject {
         let rawBuckets = (reply["intervalBucketsMs"] as? [String: Int]) ?? [:]
         var buckets: [Int: Int] = [:]
         for (k, v) in rawBuckets { if let key = Int(k) { buckets[key] = v } }
+        let requestedSeconds = (reply["requestedSeconds"] as? Double) ?? 0
         let stats = SensorProbeStats(
             sampleCount: count,
             firstTimestamp: (reply["firstTimestamp"] as? Double) ?? 0,
             lastTimestamp: (reply["lastTimestamp"] as? Double) ?? 0,
-            requestedSeconds: (reply["requestedSeconds"] as? Double) ?? 0,
+            requestedSeconds: requestedSeconds,
+            // Why: older replies without the field default to "fully
+            // elapsed" so coverage falls back to the pre-fix behaviour
+            // rather than silently reading 0.
+            actualSpanSeconds: (reply["actualSpanSeconds"] as? Double) ?? requestedSeconds,
             intervalBucketsMs: buckets,
             maxGapSeconds: (reply["maxGapSeconds"] as? Double) ?? 0,
             nonMonotonicCount: (reply["nonMonotonicCount"] as? Int) ?? 0,
@@ -467,6 +500,18 @@ class ServerCommandListener: NSObject, ObservableObject {
             DispatchQueue.main.async {
                 self?.transferUserInfoToWatch(payload,
                                               command: command)
+                // Why: transferUserInfo has no reply channel back to the
+                // iPhone, so a diagnostic caller (sensor probe / parity
+                // check) would otherwise wait forever with no feedback at
+                // all — exactly the "Watch unreachable" state the spike
+                // protocol's app-kill step produces. Surface the transport
+                // failure so the card can say so instead of staying blank.
+                onReply?([
+                    "ok": false,
+                    "command": command,
+                    "error": "sendMessage failed (\(error.localizedDescription)); "
+                        + "queued via transferUserInfo, no reply will follow"
+                ])
             }
         })
     }

@@ -6,13 +6,17 @@ import Foundation
 struct SensorProbeEvaluatorTests {
 
     /// 1 Stunde bei sauberen 50 Hz: 180_000 Samples, alle Intervalle 20 ms.
-    private func healthy(durationSeconds: Double = 3600) -> SensorProbeStats {
+    /// `actualSpanSeconds` defaultet auf `durationSeconds` — der Normalfall,
+    /// in dem die angeforderte Dauer bereits vollstaendig verstrichen ist.
+    private func healthy(durationSeconds: Double = 3600,
+                         actualSpanSeconds: Double? = nil) -> SensorProbeStats {
         let n = Int(durationSeconds * 50)
         return SensorProbeStats(
             sampleCount: n,
             firstTimestamp: 0,
             lastTimestamp: durationSeconds,
             requestedSeconds: durationSeconds,
+            actualSpanSeconds: actualSpanSeconds ?? durationSeconds,
             intervalBucketsMs: [0: 0, 20: n - 1, 40: 0, 100: 0, 1000: 0],
             maxGapSeconds: 0.02,
             nonMonotonicCount: 0,
@@ -73,14 +77,28 @@ struct SensorProbeEvaluatorTests {
         #expect(v.failures.contains(.coverage))
     }
 
-    @Test("Coverage wird gegen die angeforderte Dauer gerechnet, nicht gegen die gelieferte Spanne")
-    func coverageUsesRequestedDuration() {
+    @Test("echt abgebrochene Aufzeichnung schlaegt fehl, wenn die volle Dauer verstrichen ist")
+    func genuinelyShortRecordingFailsCoverage() {
         // Why: eine Aufzeichnung, die nach 10 min abbricht, hat ueber ihre
-        // eigene Spanne perfekte Coverage — der Ausfall zeigt sich nur gegen
-        // die angeforderten 3600 s.
-        var s = healthy(durationSeconds: 600)
+        // eigene Datenspanne perfekte Coverage — der Ausfall zeigt sich nur,
+        // wenn man gegen die tatsaechlich verstrichene Zeit prueft (hier: die
+        // vollen angeforderten 3600 s sind laengst vorbei, es liegen aber nur
+        // 10 Minuten Daten vor).
+        var s = healthy(durationSeconds: 600, actualSpanSeconds: 3600)
         s.requestedSeconds = 3600
         #expect(SensorProbeEvaluator.evaluate(s).failures.contains(.coverage))
+    }
+
+    @Test("frueh ausgewertete, aber gesunde Aufzeichnung besteht Coverage")
+    func earlyEvaluationOfHealthyRecordingPasses() {
+        // Why: der "Auswerten"-Knopf ist jederzeit bedienbar. Ein Operator,
+        // der nach 10 Minuten einer angeforderten 60-Minuten-Aufzeichnung
+        // auswertet, darf keinen Coverage-Fehlschlag fuer eine voellig
+        // gesunde, noch laufende Aufzeichnung sehen (Spec §6 / Review I5).
+        var s = healthy(durationSeconds: 600, actualSpanSeconds: 600)
+        s.requestedSeconds = 3600
+        let v = SensorProbeEvaluator.evaluate(s)
+        #expect(!v.failures.contains(.coverage))
     }
 
     @Test("Verdikt zaehlt mehrere Fehlschlaege gleichzeitig")

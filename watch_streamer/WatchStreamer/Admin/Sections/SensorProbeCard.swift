@@ -17,6 +17,11 @@ struct SensorProbeCard: View {
                 if let verdict = server.sensorProbeVerdict {
                     result(verdict)
                 }
+                if let readDuration = server.sensorProbeReadDuration {
+                    Text(String(format: "Lesevorgang: %.1f s", readDuration))
+                        .font(.caption)
+                        .foregroundStyle(theme.ink.opacity(0.7))
+                }
                 if let raw = server.sensorProbeRaw {
                     Text(raw)
                         .font(.caption2)

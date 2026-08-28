@@ -53,6 +53,14 @@ enum SensorProbe {
             return ["ok": false, "error": "probe window not ready yet"]
         }
 
+        // Why: elapsed wall-clock time since the probe started, capped the
+        // same way the fetch window itself is capped. Distinct from the
+        // returned samples' own (firstTimestamp, lastTimestamp) span — an
+        // operator can evaluate before `requestedSeconds` have elapsed, and
+        // coverage must be judged against how much time has actually passed,
+        // not against the full requested duration (see SensorProbeEvaluator).
+        let actualSpan = until.timeIntervalSince(from)
+        let readStartedAt = Date()
         guard let list = recorder.accelerometerData(from: from, to: until) else {
             return [
                 "ok": true,
@@ -60,10 +68,12 @@ enum SensorProbe {
                 "firstTimestamp": 0.0,
                 "lastTimestamp": 0.0,
                 "requestedSeconds": requested,
+                "actualSpanSeconds": actualSpan,
                 "intervalBucketsMs": [String: Int](),
                 "maxGapSeconds": 0.0,
                 "nonMonotonicCount": 0,
                 "fetchReturnedNil": true,
+                "readDurationSeconds": Date().timeIntervalSince(readStartedAt),
                 "authorization": authorizationDescription()
             ]
         }
@@ -100,10 +110,15 @@ enum SensorProbe {
             "firstTimestamp": first,
             "lastTimestamp": last,
             "requestedSeconds": requested,
+            "actualSpanSeconds": actualSpan,
             "intervalBucketsMs": counts,
             "maxGapSeconds": maxGap,
             "nonMonotonicCount": nonMonotonic,
             "fetchReturnedNil": false,
+            // Why: diagnostic gold for a spike that can only be run a few
+            // times — lets the operator tell a slow-but-working read apart
+            // from one that hit the sendMessage timeout on the iPhone side.
+            "readDurationSeconds": Date().timeIntervalSince(readStartedAt),
             "authorization": authorizationDescription()
         ]
     }

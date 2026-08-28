@@ -11,13 +11,19 @@ struct ModelParityCard: View {
     var body: some View {
         AdminCard(title: "On-Device-Diagnose") {
             VStack(alignment: .leading, spacing: 12) {
-                actionButton("Modell-Paritaet auf der Watch pruefen", systemImage: "checkmark.seal") {
+                actionButton("Modell-Parität auf der Watch prüfen", systemImage: "checkmark.seal") {
                     server.runWatchParityCheck()
                 }
                 if let r = server.parityResult {
                     LabeledContent("P3", value: r)
                         .font(.caption)
                         .foregroundStyle(theme.ink.opacity(0.7))
+                }
+                if let raw = server.parityRaw {
+                    Text(raw)
+                        .font(.caption2)
+                        .foregroundStyle(theme.ink.opacity(0.5))
+                        .textSelection(.enabled)
                 }
             }
         }
