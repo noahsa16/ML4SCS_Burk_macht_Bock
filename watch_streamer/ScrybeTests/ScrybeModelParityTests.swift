@@ -22,7 +22,7 @@ struct ScrybeModelParityTests {
 
     private func fixture() throws -> GoldenFixture {
         let url = try #require(Bundle(for: BundleMarker.self)
-            .url(forResource: "golden_windows_empty_DEMO", withExtension: "json"))
+            .url(forResource: "golden_windows_active", withExtension: "json"))
         return try JSONDecoder().decode(GoldenFixture.self,
                                         from: Data(contentsOf: url))
     }
