@@ -1,24 +1,24 @@
-æ
+æ
 
 window*
 
 ú €R
 logit	*
  €¢¶
-?tcn_bigru â€” imu, 6 Kanaele, 250 Samples @ 50 Hz, Schwelle 0.5tcn_bigru-s42-fbbee13¢3
-#com.github.apple.coremltools.sourcetorch==2.9.1¢:
+?tcn_bigru â€” imu, 6 Kanaele, 250 Samples @ 50 Hz, Schwelle 0.5tcn_bigru-s42-fbbee13¢+
+$com.github.apple.coremltools.version9.0¢:
 ,com.github.apple.coremltools.conversion_date
-2026-08-28¢:
-+com.github.apple.coremltools.source_dialectTorchScript¢+
-$com.github.apple.coremltools.version9.0²‡Ø™Ö
-mainÖ
+2026-08-28¢3
+#com.github.apple.coremltools.sourcetorch==2.9.1¢:
++com.github.apple.coremltools.source_dialectTorchScript²‘À£¾
+main™¾
 #
 window
 
 
 ú
-CoreML7İÕ
-CoreML7ĞÕlogit
+CoreML6ç½
+CoreML6Ú½logit
 const"
 trunk_0_net_0_bias
 
@@ -1225,25 +1225,25 @@ $com.github.apple.coremltools.version9.0²‡Ø™Ö
 
 "
 transpose_3«
-conv
-groups
-
-x_3_groups_0 
-	dilations
-
-x_3_dilations_0
-pad_type
-
-x_3_pad_type_0
-pad
-
-	x_3_pad_0
+conv
 strides
 
 x_3_strides_0
 bias
 
-trunk_0_net_0_bias"
+trunk_0_net_0_bias
+pad_type
+
+x_3_pad_type_0
+pad
+
+	x_3_pad_0
+groups
+
+x_3_groups_0 
+	dilations
+
+x_3_dilations_0"
 weight
 
 trunk_0_net_0_weight
@@ -1305,16 +1305,16 @@ $com.github.apple.coremltools.version9.0²‡Ø™Ö
 	
 
  ¿
-slice_by_index
-begin
-
-input_3_begin_0"
+slice_by_index"
 end_mask
 
 input_3_end_mask_0
 end
 
-input_3_end_0
+input_3_end_0
+begin
+
+input_3_begin_0
 x
 
 x_3$
@@ -1328,23 +1328,23 @@ $com.github.apple.coremltools.version9.0²‡Ø™Ö
 "	
 input_3
 
-batch_norm)
-variance
-
-trunk_0_net_2_running_var!
-gamma
-
-trunk_0_net_2_weight
-beta
-
-trunk_0_net_2_bias&
-mean
-
-trunk_0_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_0_net_2_bias!
+gamma
+
+trunk_0_net_2_weight&
+mean
+
+trunk_0_net_2_running_mean)
+variance
+
+trunk_0_net_2_running_var
 x
 	
 input_3$
@@ -1438,25 +1438,25 @@ batch_norm)
 
 
 «
-conv
-groups
-
-x_5_groups_0 
-	dilations
-
-x_5_dilations_0
-pad_type
-
-x_5_pad_type_0
-pad
-
-	x_5_pad_0
+conv
 strides
 
 x_5_strides_0
 bias
 
-trunk_0_net_5_bias"
+trunk_0_net_5_bias
+pad_type
+
+x_5_pad_type_0
+pad
+
+	x_5_pad_0
+groups
+
+x_5_groups_0 
+	dilations
+
+x_5_dilations_0"
 weight
 
 trunk_0_net_5_weight
@@ -1518,16 +1518,16 @@ batch_norm)
 	
 
  Ä
-slice_by_index
-begin
-
-input_11_begin_0#
+slice_by_index#
 end_mask
 
 input_11_end_mask_0
 end
 
-input_11_end_0
+input_11_end_0
+begin
+
+input_11_begin_0
 x
 
 x_5%
@@ -1542,23 +1542,23 @@ batch_norm)
 
 input_11“
 
-batch_norm)
-variance
-
-trunk_0_net_7_running_var!
-gamma
-
-trunk_0_net_7_weight
-beta
-
-trunk_0_net_7_bias&
-mean
-
-trunk_0_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_0_net_7_bias!
+gamma
+
+trunk_0_net_7_weight&
+mean
+
+trunk_0_net_7_running_mean)
+variance
+
+trunk_0_net_7_running_var
 x
 
 
@@ -1655,25 +1655,25 @@ batch_norm)
 
 
 É
-conv
-groups
-
-var_75_groups_0#
-	dilations
-
-var_75_dilations_0!
-pad_type
-
-var_75_pad_type_0
-pad
-
-var_75_pad_0
+conv
 strides
 
 var_75_strides_0#
 bias
 
-trunk_0_downsample_bias'
+trunk_0_downsample_bias!
+pad_type
+
+var_75_pad_type_0
+pad
+
+var_75_pad_0
+groups
+
+var_75_groups_0#
+	dilations
+
+var_75_dilations_0'
 weight
 
 trunk_0_downsample_weight
@@ -1791,25 +1791,25 @@ batch_norm)
 
 
 ¬
-conv
-groups
-
-x_7_groups_0 
-	dilations
-
-x_7_dilations_0
-pad_type
-
-x_7_pad_type_0
-pad
-
-	x_7_pad_0
+conv
 strides
 
 x_7_strides_0
 bias
 
-trunk_1_net_0_bias"
+trunk_1_net_0_bias
+pad_type
+
+x_7_pad_type_0
+pad
+
+	x_7_pad_0
+groups
+
+x_7_groups_0 
+	dilations
+
+x_7_dilations_0"
 weight
 
 trunk_1_net_0_weight
@@ -1872,16 +1872,16 @@ batch_norm)
 	
 
  Ä
-slice_by_index
-begin
-
-input_21_begin_0#
+slice_by_index#
 end_mask
 
 input_21_end_mask_0
 end
 
-input_21_end_0
+input_21_end_0
+begin
+
+input_21_begin_0
 x
 
 x_7%
@@ -1896,23 +1896,23 @@ batch_norm)
 
 input_21“
 
-batch_norm)
-variance
-
-trunk_1_net_2_running_var!
-gamma
-
-trunk_1_net_2_weight
-beta
-
-trunk_1_net_2_bias&
-mean
-
-trunk_1_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_1_net_2_bias!
+gamma
+
+trunk_1_net_2_weight&
+mean
+
+trunk_1_net_2_running_mean)
+variance
+
+trunk_1_net_2_running_var
 x
 
 
@@ -2010,25 +2010,25 @@ batch_norm)
 
 
 ¬
-conv
-groups
-
-x_9_groups_0 
-	dilations
-
-x_9_dilations_0
-pad_type
-
-x_9_pad_type_0
-pad
-
-	x_9_pad_0
+conv
 strides
 
 x_9_strides_0
 bias
 
-trunk_1_net_5_bias"
+trunk_1_net_5_bias
+pad_type
+
+x_9_pad_type_0
+pad
+
+	x_9_pad_0
+groups
+
+x_9_groups_0 
+	dilations
+
+x_9_dilations_0"
 weight
 
 trunk_1_net_5_weight
@@ -2091,16 +2091,16 @@ batch_norm)
 	
 
  Ä
-slice_by_index
-begin
-
-input_29_begin_0#
+slice_by_index#
 end_mask
 
 input_29_end_mask_0
 end
 
-input_29_end_0
+input_29_end_0
+begin
+
+input_29_begin_0
 x
 
 x_9%
@@ -2115,23 +2115,23 @@ batch_norm)
 
 input_29“
 
-batch_norm)
-variance
-
-trunk_1_net_7_running_var!
-gamma
-
-trunk_1_net_7_weight
-beta
-
-trunk_1_net_7_bias&
-mean
-
-trunk_1_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_1_net_7_bias!
+gamma
+
+trunk_1_net_7_weight&
+mean
+
+trunk_1_net_7_running_mean)
+variance
+
+trunk_1_net_7_running_var
 x
 
 
@@ -2265,26 +2265,26 @@ x_11_pad_0*
 
 
 ³
-conv
-groups
-
-x_11_groups_0!
-	dilations
-
-x_11_dilations_0
+conv
+strides
+
+x_11_strides_0
+bias
+
+trunk_2_net_0_bias
 pad_type
 
 x_11_pad_type_0
 pad
 
 
-x_11_pad_0
-strides
-
-x_11_strides_0
-bias
-
-trunk_2_net_0_bias"
+x_11_pad_0
+groups
+
+x_11_groups_0!
+	dilations
+
+x_11_dilations_0"
 weight
 
 trunk_2_net_0_weight
@@ -2348,16 +2348,16 @@ x_11_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_39_begin_0#
+slice_by_index#
 end_mask
 
 input_39_end_mask_0
 end
 
-input_39_end_0
+input_39_end_0
+begin
+
+input_39_begin_0
 x
 
 x_11%
@@ -2372,23 +2372,23 @@ x_11_pad_0
 
 input_39“
 
-batch_norm)
-variance
-
-trunk_2_net_2_running_var!
-gamma
-
-trunk_2_net_2_weight
-beta
-
-trunk_2_net_2_bias&
-mean
-
-trunk_2_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_2_net_2_bias!
+gamma
+
+trunk_2_net_2_weight&
+mean
+
+trunk_2_net_2_running_mean)
+variance
+
+trunk_2_net_2_running_var
 x
 
 
@@ -2488,26 +2488,26 @@ x_13_pad_0*
 
 
 ³
-conv
-groups
-
-x_13_groups_0!
-	dilations
-
-x_13_dilations_0
+conv
+strides
+
+x_13_strides_0
+bias
+
+trunk_2_net_5_bias
 pad_type
 
 x_13_pad_type_0
 pad
 
 
-x_13_pad_0
-strides
-
-x_13_strides_0
-bias
-
-trunk_2_net_5_bias"
+x_13_pad_0
+groups
+
+x_13_groups_0!
+	dilations
+
+x_13_dilations_0"
 weight
 
 trunk_2_net_5_weight
@@ -2571,16 +2571,16 @@ x_13_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_47_begin_0#
+slice_by_index#
 end_mask
 
 input_47_end_mask_0
 end
 
-input_47_end_0
+input_47_end_0
+begin
+
+input_47_begin_0
 x
 
 x_13%
@@ -2595,23 +2595,23 @@ x_13_pad_0
 
 input_47“
 
-batch_norm)
-variance
-
-trunk_2_net_7_running_var!
-gamma
-
-trunk_2_net_7_weight
-beta
-
-trunk_2_net_7_bias&
-mean
-
-trunk_2_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_2_net_7_bias!
+gamma
+
+trunk_2_net_7_weight&
+mean
+
+trunk_2_net_7_running_mean)
+variance
+
+trunk_2_net_7_running_var
 x
 
 
@@ -2745,26 +2745,26 @@ x_15_pad_0*
 
 
 ³
-conv
-groups
-
-x_15_groups_0!
-	dilations
-
-x_15_dilations_0
+conv
+strides
+
+x_15_strides_0
+bias
+
+trunk_3_net_0_bias
 pad_type
 
 x_15_pad_type_0
 pad
 
 
-x_15_pad_0
-strides
-
-x_15_strides_0
-bias
-
-trunk_3_net_0_bias"
+x_15_pad_0
+groups
+
+x_15_groups_0!
+	dilations
+
+x_15_dilations_0"
 weight
 
 trunk_3_net_0_weight
@@ -2828,16 +2828,16 @@ x_15_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_57_begin_0#
+slice_by_index#
 end_mask
 
 input_57_end_mask_0
 end
 
-input_57_end_0
+input_57_end_0
+begin
+
+input_57_begin_0
 x
 
 x_15%
@@ -2852,23 +2852,23 @@ x_15_pad_0
 
 input_57“
 
-batch_norm)
-variance
-
-trunk_3_net_2_running_var!
-gamma
-
-trunk_3_net_2_weight
-beta
-
-trunk_3_net_2_bias&
-mean
-
-trunk_3_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_3_net_2_bias!
+gamma
+
+trunk_3_net_2_weight&
+mean
+
+trunk_3_net_2_running_mean)
+variance
+
+trunk_3_net_2_running_var
 x
 
 
@@ -2968,26 +2968,26 @@ x_17_pad_0*
 
 
 ³
-conv
-groups
-
-x_17_groups_0!
-	dilations
-
-x_17_dilations_0
+conv
+strides
+
+x_17_strides_0
+bias
+
+trunk_3_net_5_bias
 pad_type
 
 x_17_pad_type_0
 pad
 
 
-x_17_pad_0
-strides
-
-x_17_strides_0
-bias
-
-trunk_3_net_5_bias"
+x_17_pad_0
+groups
+
+x_17_groups_0!
+	dilations
+
+x_17_dilations_0"
 weight
 
 trunk_3_net_5_weight
@@ -3051,16 +3051,16 @@ x_17_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_65_begin_0#
+slice_by_index#
 end_mask
 
 input_65_end_mask_0
 end
 
-input_65_end_0
+input_65_end_0
+begin
+
+input_65_begin_0
 x
 
 x_17%
@@ -3075,23 +3075,23 @@ x_17_pad_0
 
 input_65“
 
-batch_norm)
-variance
-
-trunk_3_net_7_running_var!
-gamma
-
-trunk_3_net_7_weight
-beta
-
-trunk_3_net_7_bias&
-mean
-
-trunk_3_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_3_net_7_bias!
+gamma
+
+trunk_3_net_7_weight&
+mean
+
+trunk_3_net_7_running_mean)
+variance
+
+trunk_3_net_7_running_var
 x
 
 
@@ -3225,26 +3225,26 @@ x_19_pad_0*
 
 
 ³
-conv
-groups
-
-x_19_groups_0!
-	dilations
-
-x_19_dilations_0
+conv
+strides
+
+x_19_strides_0
+bias
+
+trunk_4_net_0_bias
 pad_type
 
 x_19_pad_type_0
 pad
 
 
-x_19_pad_0
-strides
-
-x_19_strides_0
-bias
-
-trunk_4_net_0_bias"
+x_19_pad_0
+groups
+
+x_19_groups_0!
+	dilations
+
+x_19_dilations_0"
 weight
 
 trunk_4_net_0_weight
@@ -3308,16 +3308,16 @@ x_19_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_75_begin_0#
+slice_by_index#
 end_mask
 
 input_75_end_mask_0
 end
 
-input_75_end_0
+input_75_end_0
+begin
+
+input_75_begin_0
 x
 
 x_19%
@@ -3332,23 +3332,23 @@ x_19_pad_0
 
 input_75“
 
-batch_norm)
-variance
-
-trunk_4_net_2_running_var!
-gamma
-
-trunk_4_net_2_weight
-beta
-
-trunk_4_net_2_bias&
-mean
-
-trunk_4_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_4_net_2_bias!
+gamma
+
+trunk_4_net_2_weight&
+mean
+
+trunk_4_net_2_running_mean)
+variance
+
+trunk_4_net_2_running_var
 x
 
 
@@ -3448,26 +3448,26 @@ x_21_pad_0*
 
 
 ³
-conv
-groups
-
-x_21_groups_0!
-	dilations
-
-x_21_dilations_0
+conv
+strides
+
+x_21_strides_0
+bias
+
+trunk_4_net_5_bias
 pad_type
 
 x_21_pad_type_0
 pad
 
 
-x_21_pad_0
-strides
-
-x_21_strides_0
-bias
-
-trunk_4_net_5_bias"
+x_21_pad_0
+groups
+
+x_21_groups_0!
+	dilations
+
+x_21_dilations_0"
 weight
 
 trunk_4_net_5_weight
@@ -3531,16 +3531,16 @@ x_21_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_83_begin_0#
+slice_by_index#
 end_mask
 
 input_83_end_mask_0
 end
 
-input_83_end_0
+input_83_end_0
+begin
+
+input_83_begin_0
 x
 
 x_21%
@@ -3555,23 +3555,23 @@ x_21_pad_0
 
 input_83“
 
-batch_norm)
-variance
-
-trunk_4_net_7_running_var!
-gamma
-
-trunk_4_net_7_weight
-beta
-
-trunk_4_net_7_bias&
-mean
-
-trunk_4_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_4_net_7_bias!
+gamma
+
+trunk_4_net_7_weight&
+mean
+
+trunk_4_net_7_running_mean)
+variance
+
+trunk_4_net_7_running_var
 x
 
 
@@ -3705,26 +3705,26 @@ x_23_pad_0*
 
 
 ³
-conv
-groups
-
-x_23_groups_0!
-	dilations
-
-x_23_dilations_0
+conv
+strides
+
+x_23_strides_0
+bias
+
+trunk_5_net_0_bias
 pad_type
 
 x_23_pad_type_0
 pad
 
 
-x_23_pad_0
-strides
-
-x_23_strides_0
-bias
-
-trunk_5_net_0_bias"
+x_23_pad_0
+groups
+
+x_23_groups_0!
+	dilations
+
+x_23_dilations_0"
 weight
 
 trunk_5_net_0_weight
@@ -3788,16 +3788,16 @@ x_23_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_93_begin_0#
+slice_by_index#
 end_mask
 
 input_93_end_mask_0
 end
 
-input_93_end_0
+input_93_end_0
+begin
+
+input_93_begin_0
 x
 
 x_23%
@@ -3812,23 +3812,23 @@ x_23_pad_0
 
 input_93“
 
-batch_norm)
-variance
-
-trunk_5_net_2_running_var!
-gamma
-
-trunk_5_net_2_weight
-beta
-
-trunk_5_net_2_bias&
-mean
-
-trunk_5_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_5_net_2_bias!
+gamma
+
+trunk_5_net_2_weight&
+mean
+
+trunk_5_net_2_running_mean)
+variance
+
+trunk_5_net_2_running_var
 x
 
 
@@ -3928,26 +3928,26 @@ x_groups_0*
 
 
 
-conv
+conv
+strides
+
+x_strides_0
+bias
+
+trunk_5_net_5_bias
+pad_type
+
+x_pad_type_0
+pad
+	
+x_pad_0
 groups
 
 
 x_groups_0
 	dilations
 
-x_dilations_0
-pad_type
-
-x_pad_type_0
-pad
-	
-x_pad_0
-strides
-
-x_strides_0
-bias
-
-trunk_5_net_5_bias"
+x_dilations_0"
 weight
 
 trunk_5_net_5_weight
@@ -4010,16 +4010,16 @@ x_groups_0
 	
 
  Ç
-slice_by_index
-begin
-
-input_101_begin_0$
+slice_by_index$
 end_mask
 
 input_101_end_mask_0
 end
 
-input_101_end_0
+input_101_end_0
+begin
+
+input_101_begin_0
 
 x
 
@@ -4034,23 +4034,23 @@ x_groups_0
 "
 	input_101–
 
-batch_norm)
-variance
-
-trunk_5_net_7_running_var!
-gamma
-
-trunk_5_net_7_weight
-beta
-
-trunk_5_net_7_bias&
-mean
-
-trunk_5_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_20
+var_20
+beta
+
+trunk_5_net_7_bias!
+gamma
+
+trunk_5_net_7_weight&
+mean
+
+trunk_5_net_7_running_mean)
+variance
+
+trunk_5_net_7_running_var
 x
 
 	input_101&
@@ -4184,7 +4184,7 @@ batch_norm)
 name
 
 "
-transpose_2Ö@
+transpose_2Û4
 
 while_loop6
 	loop_vars)
@@ -4228,7 +4228,7 @@ $
 
 
 "
-less_1"¨=
+less_1"­1
 2
 "while_loop_0_loop_vars0_0_x0_1_1_1
 
@@ -4239,7 +4239,18 @@ $
 
 û
 
- add_9	scatter_1k
+ add_9	scatter_1_
+const
+gather_2_axis_0
+*%
+name
+
+"
+gather_2_axis_0*
+val
+
+
+ k
 const
 gather_2_batch_dims_0
 *+
@@ -4250,117 +4261,18 @@ $
 val
 
 
- w
-const#
-gather_2_validate_indices_0
-*1
-name)
-!
-"
-gather_2_validate_indices_0*
-val
-
-
- g
-const
-greater_equal_0_y_0
-*)
-name!
-
-"
-greater_equal_0_y_0*
-val
-
-
- ¢
-greater_equal
-y
-
-greater_equal_0_y_0+
-x&
-$
-"while_loop_0_loop_vars0_0_x0_1_1_1
-greater_equal_0
-
-
-*%
-name
-
-"
-greater_equal_0b
-const
-slice_by_index_6
-*&
-name
-
-"
-slice_by_index_6*
-val
-
-
-úƒ
-add
-y
-
-slice_by_index_6+
-x&
-$
-"while_loop_0_loop_vars0_0_x0_1_1_1
-add_20
-
-
-*
-name
-
-
-"
-add_20
-select+
-a&
-$
-"while_loop_0_loop_vars0_0_x0_1_1_1
-cond
+ İ
+gather
+axis
 
-greater_equal_0
-b
-
-
-add_20
-select_0
-
-
-*
-name
-
-"
-
-select_0_
-const
-gather_2_axis_1
-*%
-name
-
-"
-gather_2_axis_1*
-val
-
-
- ø
-gather'
+gather_2_axis_01
+indices&
+$
+"while_loop_0_loop_vars0_0_x0_1_1_1'
 
 batch_dims
 
-gather_2_batch_dims_0
-indices
-
-
-select_0
-axis
-
-gather_2_axis_13
-validate_indices
-
-gather_2_validate_indices_0
+gather_2_batch_dims_0
 x
 
 transpose_1$
@@ -4373,7 +4285,18 @@ batch_dims
 
 "
 
-gather_2k
+gather_2_
+const
+gather_3_axis_0
+*%
+name
+
+"
+gather_3_axis_0*
+val
+
+
+ k
 const
 gather_3_batch_dims_0
 *+
@@ -4384,91 +4307,18 @@ batch_dims
 val
 
 
- w
-const#
-gather_3_validate_indices_0
-*1
-name)
-!
-"
-gather_3_validate_indices_0*
-val
-
-
- b
-const
-slice_by_index_7
-*&
-name
-
-"
-slice_by_index_7*
-val
-
-
-ûƒ
-add
-y
-
-slice_by_index_7+
-x&
-$
-"while_loop_0_loop_vars0_0_x0_1_1_1
-add_21
-
-
-*
-name
-
-
-"
-add_21
-select+
-a&
-$
-"while_loop_0_loop_vars0_0_x0_1_1_1
-cond
+ ã
+gather
+axis
 
-greater_equal_0
-b
-
-
-add_21
-select_1
-
-
-*
-name
-
-"
-
-select_1_
-const
-gather_3_axis_1
-*%
-name
-
-"
-gather_3_axis_1*
-val
-
-
- ş
-gather'
+gather_3_axis_01
+indices&
+$
+"while_loop_0_loop_vars0_0_x0_1_1_1'
 
 batch_dims
 
-gather_3_batch_dims_0
-indices
-
-
-select_1
-axis
-
-gather_3_axis_13
-validate_indices
-
-gather_3_validate_indices_0
+gather_3_batch_dims_0
 x
 
 concat_1_x0_1_1_1$
@@ -5077,37 +4927,23 @@ $
 val
 	
 "
-addy
-const$
-scatter_1_validate_indices_0
-*2
-name*
-"
- "
-scatter_1_validate_indices_0*
-val
-
-
- —
+addá
 scatter
-updates
-
-expand_dims_14
-validate_indices 
-
-scatter_1_validate_indices_0
-indices	
-
-add_9
-axis
-
-scatter_1_axis_0
-data
-
-concat_1_x0_1_1_1
 mode
 
-scatter_1_mode_0&
+scatter_1_mode_0
+axis
+
+scatter_1_axis_0
+updates
+
+expand_dims_1
+indices	
+
+add_9
+data
+
+concat_1_x0_1_1_1&
 	scatter_1
 
 û
@@ -5181,20 +5017,20 @@ $
 	
 
 ¹
-slice_by_index2
+slice_by_index.
+end_mask"
+ 
+var_288_tmp_forward_end_mask_0$
+end
+
+var_288_tmp_forward_end_02
 
 begin_mask$
 "
  var_288_tmp_forward_begin_mask_0(
 begin
 
-var_288_tmp_forward_begin_0.
-end_mask"
- 
-var_288_tmp_forward_end_mask_0$
-end
-
-var_288_tmp_forward_end_0
+var_288_tmp_forward_begin_0
 x
 
 while_loop_0_10
@@ -5282,23 +5118,23 @@ $""
 
 
 ÿÿÿÿÿÿÿÿÿê
-slice_by_index2
+slice_by_index*
+stride 
+
+h_n_layer_0_forward_stride_0.
+end_mask"
+ 
+h_n_layer_0_forward_end_mask_02
 
 begin_mask$
 "
- h_n_layer_0_forward_begin_mask_0*
-stride 
-
-h_n_layer_0_forward_stride_0(
-begin
-
-h_n_layer_0_forward_begin_0.
-end_mask"
- 
-h_n_layer_0_forward_end_mask_0$
+ h_n_layer_0_forward_begin_mask_0$
 end
 
-h_n_layer_0_forward_end_0
+h_n_layer_0_forward_end_0(
+begin
+
+h_n_layer_0_forward_begin_0
 x
 
 var_288_tmp_forward/
@@ -5371,7 +5207,7 @@ begin_mask$
 
 
 
- ‘A
+ –5
 
 while_loop6
 	loop_vars)
@@ -5415,7 +5251,7 @@ $
 
 
 "
-less_3"ã=
+less_3"è1
 2
 "while_loop_1_loop_vars0_0_x0_1_1_1
 
@@ -5426,7 +5262,18 @@ $
 
 û
 
- add_19	scatter_3k
+ add_19	scatter_3_
+const
+gather_6_axis_0
+*%
+name
+
+"
+gather_6_axis_0*
+val
+
+
+ k
 const
 gather_6_batch_dims_0
 *+
@@ -5437,117 +5284,18 @@ $
 val
 
 
- w
-const#
-gather_6_validate_indices_0
-*1
-name)
-!
-"
-gather_6_validate_indices_0*
-val
-
-
- g
-const
-greater_equal_2_y_0
-*)
-name!
-
-"
-greater_equal_2_y_0*
-val
-
-
- ¢
-greater_equal
-y
-
-greater_equal_2_y_0+
-x&
-$
-"while_loop_1_loop_vars0_0_x0_1_1_1
-greater_equal_2
-
-
-*%
-name
-
-"
-greater_equal_2b
-const
-slice_by_index_8
-*&
-name
-
-"
-slice_by_index_8*
-val
-
-
-úƒ
-add
-y
-
-slice_by_index_8+
-x&
-$
-"while_loop_1_loop_vars0_0_x0_1_1_1
-add_22
-
-
-*
-name
-
-
-"
-add_22
-select+
-a&
-$
-"while_loop_1_loop_vars0_0_x0_1_1_1
-cond
+ Û
+gather
+axis
 
-greater_equal_2
-b
-
-
-add_22
-select_2
-
-
-*
-name
-
-"
-
-select_2_
-const
-gather_6_axis_1
-*%
-name
-
-"
-gather_6_axis_1*
-val
-
-
- ö
-gather'
+gather_6_axis_01
+indices&
+$
+"while_loop_1_loop_vars0_0_x0_1_1_1'
 
 batch_dims
 
-gather_6_batch_dims_0
-indices
-
-
-select_2
-axis
-
-gather_6_axis_13
-validate_indices
-
-gather_6_validate_indices_0
+gather_6_batch_dims_0
 x
 
 	reverse_0$
@@ -5560,7 +5308,18 @@ batch_dims
 
 "
 
-gather_6k
+gather_6_
+const
+gather_7_axis_0
+*%
+name
+
+"
+gather_7_axis_0*
+val
+
+
+ k
 const
 gather_7_batch_dims_0
 *+
@@ -5571,91 +5330,18 @@ batch_dims
 val
 
 
- w
-const#
-gather_7_validate_indices_0
-*1
-name)
-!
-"
-gather_7_validate_indices_0*
-val
-
-
- b
-const
-slice_by_index_9
-*&
-name
-
-"
-slice_by_index_9*
-val
-
-
-ûƒ
-add
-y
-
-slice_by_index_9+
-x&
-$
-"while_loop_1_loop_vars0_0_x0_1_1_1
-add_23
-
-
-*
-name
-
-
-"
-add_23
-select+
-a&
-$
-"while_loop_1_loop_vars0_0_x0_1_1_1
-cond
+ ã
+gather
+axis
 
-greater_equal_2
-b
-
-
-add_23
-select_3
-
-
-*
-name
-
-"
-
-select_3_
-const
-gather_7_axis_1
-*%
-name
-
-"
-gather_7_axis_1*
-val
-
-
- ş
-gather'
+gather_7_axis_01
+indices&
+$
+"while_loop_1_loop_vars0_0_x0_1_1_1'
 
 batch_dims
 
-gather_7_batch_dims_0
-indices
-
-
-select_3
-axis
-
-gather_7_axis_13
-validate_indices
-
-gather_7_validate_indices_0
+gather_7_batch_dims_0
 x
 
 concat_3_x0_1_1_1$
@@ -6272,38 +5958,24 @@ $
 val
 	
 "
-addy
-const$
-scatter_3_validate_indices_0
-*2
-name*
-"
- "
-scatter_3_validate_indices_0*
-val
-
-
- ˜
+addâ
 scatter
+mode
+
+scatter_3_mode_0
+axis
+
+scatter_3_axis_0
 updates
 
-expand_dims_34
-validate_indices 
-
-scatter_3_validate_indices_0
+expand_dims_3
 indices
 
 
-add_19
-axis
-
-scatter_3_axis_0
+add_19
 data
 
-concat_3_x0_1_1_1
-mode
-
-scatter_3_mode_0&
+concat_3_x0_1_1_1&
 	scatter_3
 
 û
@@ -6377,20 +6049,20 @@ $var_288_tmp_backward_reverse_begin_0
 	
 
 ï
-slice_by_index;
+slice_by_index7
+end_mask+
+)
+'var_288_tmp_backward_reverse_end_mask_0-
+end&
+$
+"var_288_tmp_backward_reverse_end_0;
 
 begin_mask-
 +
 )var_288_tmp_backward_reverse_begin_mask_01
 begin(
 &
-$var_288_tmp_backward_reverse_begin_07
-end_mask+
-)
-'var_288_tmp_backward_reverse_end_mask_0-
-end&
-$
-"var_288_tmp_backward_reverse_end_0
+$var_288_tmp_backward_reverse_begin_0
 x
 
 while_loop_1_19
@@ -6478,23 +6150,23 @@ $
 
 
 ÿÿÿÿÿÿÿÿÿú
-slice_by_index3
+slice_by_index+
+stride!
+
+h_n_layer_0_backward_stride_0/
+end_mask#
+!
+h_n_layer_0_backward_end_mask_03
 
 begin_mask%
 #
-!h_n_layer_0_backward_begin_mask_0+
-stride!
-
-h_n_layer_0_backward_stride_0)
-begin 
-
-h_n_layer_0_backward_begin_0/
-end_mask#
-!
-h_n_layer_0_backward_end_mask_0%
+!h_n_layer_0_backward_begin_mask_0%
 end
 
-h_n_layer_0_backward_end_0%
+h_n_layer_0_backward_end_0)
+begin 
+
+h_n_layer_0_backward_begin_0%
 x 
 
 var_288_tmp_backward_reverse0
@@ -6529,7 +6201,10 @@ begin_mask%
 
 
  Û
-concat9
+concat
+axis
+
+h_n_layer_0_axis_09
 values/
 
 h_n_layer_0_forward
@@ -6538,10 +6213,7 @@ begin_mask%
 
 interleave
 
-h_n_layer_0_interleave_0
-axis
-
-h_n_layer_0_axis_0'
+h_n_layer_0_interleave_0'
 h_n_layer_0
 
 
@@ -6611,19 +6283,19 @@ interleave
 	
 
   ë
-slice_by_index
-begin
-
-var_292_begin_0
-end
-
-var_292_end_0"
+slice_by_index"
 end_mask
 
-var_292_end_mask_0*
+var_292_end_mask_0
+end
+
+var_292_end_0*
 squeeze_mask
 
-var_292_squeeze_mask_0
+var_292_squeeze_mask_0
+begin
+
+var_292_begin_0
 x
 
 h_n_layer_0
@@ -6696,19 +6368,19 @@ interleave
 	
 
   ë
-slice_by_index
-begin
-
-var_295_begin_0
-end
-
-var_295_end_0"
+slice_by_index"
 end_mask
 
-var_295_end_mask_0*
+var_295_end_mask_0
+end
+
+var_295_end_0*
 squeeze_mask
 
-var_295_squeeze_mask_0
+var_295_squeeze_mask_0
+begin
+
+var_295_begin_0
 x
 
 h_n_layer_0
@@ -6744,7 +6416,10 @@ interleave
 
 
  «
-concat 
+concat
+axis
+	
+var_297 
 values
 	
 var_292
@@ -6753,10 +6428,7 @@ interleave
 
 interleave
 
-input_111_interleave_0
-axis
-	
-var_297
+input_111_interleave_0
 	input_111
 
 

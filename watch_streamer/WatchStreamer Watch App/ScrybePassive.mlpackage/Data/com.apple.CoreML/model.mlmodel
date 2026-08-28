@@ -1,24 +1,24 @@
-â
+â
 
 window*
 
 ú €R
 logit	*
  €¢²
-@tcn6 â€” raw_accel, 3 Kanaele, 250 Samples @ 50 Hz, Schwelle 0.5tcn6-s42-6127979¢3
-#com.github.apple.coremltools.sourcetorch==2.9.1¢:
+@tcn6 â€” raw_accel, 3 Kanaele, 250 Samples @ 50 Hz, Schwelle 0.5tcn6-s42-6127979¢+
+$com.github.apple.coremltools.version9.0¢:
 ,com.github.apple.coremltools.conversion_date
-2026-08-28¢:
-+com.github.apple.coremltools.source_dialectTorchScript¢+
-$com.github.apple.coremltools.version9.0²¼ Îž
+2026-08-28¢3
+#com.github.apple.coremltools.sourcetorch==2.9.1¢:
++com.github.apple.coremltools.source_dialectTorchScript²¼ Îž
 mainÄž
 #
 window
 
 
 ú
-CoreML7’ž
-CoreML7…žlogitŒ
+CoreML6’ž
+CoreML6…žlogitŒ
 const 
 tcn_0_net_0_bias
 
@@ -1226,25 +1226,25 @@ $com.github.apple.coremltools.version9.0²¼ Îž
 
 "
 transpose_0§
-conv
-groups
-
-x_3_groups_0 
-	dilations
-
-x_3_dilations_0
-pad_type
-
-x_3_pad_type_0
-pad
-
-	x_3_pad_0
+conv
 strides
 
 x_3_strides_0
 bias
 
-tcn_0_net_0_bias 
+tcn_0_net_0_bias
+pad_type
+
+x_3_pad_type_0
+pad
+
+	x_3_pad_0
+groups
+
+x_3_groups_0 
+	dilations
+
+x_3_dilations_0 
 weight
 
 tcn_0_net_0_weight
@@ -1306,16 +1306,16 @@ $com.github.apple.coremltools.version9.0²¼ Îž
 	
 
  ¿
-slice_by_index
-begin
-
-input_3_begin_0"
+slice_by_index"
 end_mask
 
 input_3_end_mask_0
 end
 
-input_3_end_0
+input_3_end_0
+begin
+
+input_3_begin_0
 x
 
 x_3$
@@ -1329,23 +1329,23 @@ $com.github.apple.coremltools.version9.0²¼ Îž
 "	
 input_3ˆ
 
-batch_norm'
-variance
-
-tcn_0_net_2_running_var
-gamma
-
-tcn_0_net_2_weight
-beta
-
-tcn_0_net_2_bias$
-mean
-
-tcn_0_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_0_net_2_bias
+gamma
+
+tcn_0_net_2_weight$
+mean
+
+tcn_0_net_2_running_mean'
+variance
+
+tcn_0_net_2_running_var
 x
 	
 input_3$
@@ -1439,25 +1439,25 @@ batch_norm'
 
 
 §
-conv
-groups
-
-x_5_groups_0 
-	dilations
-
-x_5_dilations_0
-pad_type
-
-x_5_pad_type_0
-pad
-
-	x_5_pad_0
+conv
 strides
 
 x_5_strides_0
 bias
 
-tcn_0_net_5_bias 
+tcn_0_net_5_bias
+pad_type
+
+x_5_pad_type_0
+pad
+
+	x_5_pad_0
+groups
+
+x_5_groups_0 
+	dilations
+
+x_5_dilations_0 
 weight
 
 tcn_0_net_5_weight
@@ -1519,16 +1519,16 @@ batch_norm'
 	
 
  Ä
-slice_by_index
-begin
-
-input_11_begin_0#
+slice_by_index#
 end_mask
 
 input_11_end_mask_0
 end
 
-input_11_end_0
+input_11_end_0
+begin
+
+input_11_begin_0
 x
 
 x_5%
@@ -1543,23 +1543,23 @@ batch_norm'
 
 input_11‹
 
-batch_norm'
-variance
-
-tcn_0_net_7_running_var
-gamma
-
-tcn_0_net_7_weight
-beta
-
-tcn_0_net_7_bias$
-mean
-
-tcn_0_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_0_net_7_bias
+gamma
+
+tcn_0_net_7_weight$
+mean
+
+tcn_0_net_7_running_mean'
+variance
+
+tcn_0_net_7_running_var
 x
 
 
@@ -1656,25 +1656,25 @@ batch_norm'
 
 
 Å
-conv
-groups
-
-var_74_groups_0#
-	dilations
-
-var_74_dilations_0!
-pad_type
-
-var_74_pad_type_0
-pad
-
-var_74_pad_0
+conv
 strides
 
 var_74_strides_0!
 bias
 
-tcn_0_downsample_bias%
+tcn_0_downsample_bias!
+pad_type
+
+var_74_pad_type_0
+pad
+
+var_74_pad_0
+groups
+
+var_74_groups_0#
+	dilations
+
+var_74_dilations_0%
 weight
 
 tcn_0_downsample_weight
@@ -1792,25 +1792,25 @@ batch_norm'
 
 
 ¨
-conv
-groups
-
-x_7_groups_0 
-	dilations
-
-x_7_dilations_0
-pad_type
-
-x_7_pad_type_0
-pad
-
-	x_7_pad_0
+conv
 strides
 
 x_7_strides_0
 bias
 
-tcn_1_net_0_bias 
+tcn_1_net_0_bias
+pad_type
+
+x_7_pad_type_0
+pad
+
+	x_7_pad_0
+groups
+
+x_7_groups_0 
+	dilations
+
+x_7_dilations_0 
 weight
 
 tcn_1_net_0_weight
@@ -1873,16 +1873,16 @@ batch_norm'
 	
 
  Ä
-slice_by_index
-begin
-
-input_21_begin_0#
+slice_by_index#
 end_mask
 
 input_21_end_mask_0
 end
 
-input_21_end_0
+input_21_end_0
+begin
+
+input_21_begin_0
 x
 
 x_7%
@@ -1897,23 +1897,23 @@ batch_norm'
 
 input_21‹
 
-batch_norm'
-variance
-
-tcn_1_net_2_running_var
-gamma
-
-tcn_1_net_2_weight
-beta
-
-tcn_1_net_2_bias$
-mean
-
-tcn_1_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_1_net_2_bias
+gamma
+
+tcn_1_net_2_weight$
+mean
+
+tcn_1_net_2_running_mean'
+variance
+
+tcn_1_net_2_running_var
 x
 
 
@@ -2011,25 +2011,25 @@ batch_norm'
 
 
 ¨
-conv
-groups
-
-x_9_groups_0 
-	dilations
-
-x_9_dilations_0
-pad_type
-
-x_9_pad_type_0
-pad
-
-	x_9_pad_0
+conv
 strides
 
 x_9_strides_0
 bias
 
-tcn_1_net_5_bias 
+tcn_1_net_5_bias
+pad_type
+
+x_9_pad_type_0
+pad
+
+	x_9_pad_0
+groups
+
+x_9_groups_0 
+	dilations
+
+x_9_dilations_0 
 weight
 
 tcn_1_net_5_weight
@@ -2092,16 +2092,16 @@ batch_norm'
 	
 
  Ä
-slice_by_index
-begin
-
-input_29_begin_0#
+slice_by_index#
 end_mask
 
 input_29_end_mask_0
 end
 
-input_29_end_0
+input_29_end_0
+begin
+
+input_29_begin_0
 x
 
 x_9%
@@ -2116,23 +2116,23 @@ batch_norm'
 
 input_29‹
 
-batch_norm'
-variance
-
-tcn_1_net_7_running_var
-gamma
-
-tcn_1_net_7_weight
-beta
-
-tcn_1_net_7_bias$
-mean
-
-tcn_1_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_1_net_7_bias
+gamma
+
+tcn_1_net_7_weight$
+mean
+
+tcn_1_net_7_running_mean'
+variance
+
+tcn_1_net_7_running_var
 x
 
 
@@ -2266,26 +2266,26 @@ x_11_pad_0*
 
 
 ¯
-conv
-groups
-
-x_11_groups_0!
-	dilations
+conv
+strides
+
+x_11_strides_0
+bias
 
-x_11_dilations_0
+tcn_2_net_0_bias
 pad_type
 
 x_11_pad_type_0
 pad
 
 
-x_11_pad_0
-strides
-
-x_11_strides_0
-bias
+x_11_pad_0
+groups
+
+x_11_groups_0!
+	dilations
 
-tcn_2_net_0_bias 
+x_11_dilations_0 
 weight
 
 tcn_2_net_0_weight
@@ -2349,16 +2349,16 @@ x_11_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_39_begin_0#
+slice_by_index#
 end_mask
 
 input_39_end_mask_0
 end
 
-input_39_end_0
+input_39_end_0
+begin
+
+input_39_begin_0
 x
 
 x_11%
@@ -2373,23 +2373,23 @@ x_11_pad_0
 
 input_39‹
 
-batch_norm'
-variance
-
-tcn_2_net_2_running_var
-gamma
-
-tcn_2_net_2_weight
-beta
-
-tcn_2_net_2_bias$
-mean
-
-tcn_2_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_2_net_2_bias
+gamma
+
+tcn_2_net_2_weight$
+mean
+
+tcn_2_net_2_running_mean'
+variance
+
+tcn_2_net_2_running_var
 x
 
 
@@ -2489,26 +2489,26 @@ x_13_pad_0*
 
 
 ¯
-conv
-groups
-
-x_13_groups_0!
-	dilations
+conv
+strides
+
+x_13_strides_0
+bias
 
-x_13_dilations_0
+tcn_2_net_5_bias
 pad_type
 
 x_13_pad_type_0
 pad
 
 
-x_13_pad_0
-strides
-
-x_13_strides_0
-bias
+x_13_pad_0
+groups
+
+x_13_groups_0!
+	dilations
 
-tcn_2_net_5_bias 
+x_13_dilations_0 
 weight
 
 tcn_2_net_5_weight
@@ -2572,16 +2572,16 @@ x_13_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_47_begin_0#
+slice_by_index#
 end_mask
 
 input_47_end_mask_0
 end
 
-input_47_end_0
+input_47_end_0
+begin
+
+input_47_begin_0
 x
 
 x_13%
@@ -2596,23 +2596,23 @@ x_13_pad_0
 
 input_47‹
 
-batch_norm'
-variance
-
-tcn_2_net_7_running_var
-gamma
-
-tcn_2_net_7_weight
-beta
-
-tcn_2_net_7_bias$
-mean
-
-tcn_2_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_2_net_7_bias
+gamma
+
+tcn_2_net_7_weight$
+mean
+
+tcn_2_net_7_running_mean'
+variance
+
+tcn_2_net_7_running_var
 x
 
 
@@ -2746,26 +2746,26 @@ x_15_pad_0*
 
 
 ¯
-conv
-groups
-
-x_15_groups_0!
-	dilations
+conv
+strides
+
+x_15_strides_0
+bias
 
-x_15_dilations_0
+tcn_3_net_0_bias
 pad_type
 
 x_15_pad_type_0
 pad
 
 
-x_15_pad_0
-strides
-
-x_15_strides_0
-bias
+x_15_pad_0
+groups
+
+x_15_groups_0!
+	dilations
 
-tcn_3_net_0_bias 
+x_15_dilations_0 
 weight
 
 tcn_3_net_0_weight
@@ -2829,16 +2829,16 @@ x_15_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_57_begin_0#
+slice_by_index#
 end_mask
 
 input_57_end_mask_0
 end
 
-input_57_end_0
+input_57_end_0
+begin
+
+input_57_begin_0
 x
 
 x_15%
@@ -2853,23 +2853,23 @@ x_15_pad_0
 
 input_57‹
 
-batch_norm'
-variance
-
-tcn_3_net_2_running_var
-gamma
-
-tcn_3_net_2_weight
-beta
-
-tcn_3_net_2_bias$
-mean
-
-tcn_3_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_3_net_2_bias
+gamma
+
+tcn_3_net_2_weight$
+mean
+
+tcn_3_net_2_running_mean'
+variance
+
+tcn_3_net_2_running_var
 x
 
 
@@ -2969,26 +2969,26 @@ x_17_pad_0*
 
 
 ¯
-conv
-groups
-
-x_17_groups_0!
-	dilations
+conv
+strides
+
+x_17_strides_0
+bias
 
-x_17_dilations_0
+tcn_3_net_5_bias
 pad_type
 
 x_17_pad_type_0
 pad
 
 
-x_17_pad_0
-strides
-
-x_17_strides_0
-bias
+x_17_pad_0
+groups
+
+x_17_groups_0!
+	dilations
 
-tcn_3_net_5_bias 
+x_17_dilations_0 
 weight
 
 tcn_3_net_5_weight
@@ -3052,16 +3052,16 @@ x_17_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_65_begin_0#
+slice_by_index#
 end_mask
 
 input_65_end_mask_0
 end
 
-input_65_end_0
+input_65_end_0
+begin
+
+input_65_begin_0
 x
 
 x_17%
@@ -3076,23 +3076,23 @@ x_17_pad_0
 
 input_65‹
 
-batch_norm'
-variance
-
-tcn_3_net_7_running_var
-gamma
-
-tcn_3_net_7_weight
-beta
-
-tcn_3_net_7_bias$
-mean
-
-tcn_3_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_3_net_7_bias
+gamma
+
+tcn_3_net_7_weight$
+mean
+
+tcn_3_net_7_running_mean'
+variance
+
+tcn_3_net_7_running_var
 x
 
 
@@ -3226,26 +3226,26 @@ x_19_pad_0*
 
 
 ¯
-conv
-groups
-
-x_19_groups_0!
-	dilations
+conv
+strides
+
+x_19_strides_0
+bias
 
-x_19_dilations_0
+tcn_4_net_0_bias
 pad_type
 
 x_19_pad_type_0
 pad
 
 
-x_19_pad_0
-strides
-
-x_19_strides_0
-bias
+x_19_pad_0
+groups
+
+x_19_groups_0!
+	dilations
 
-tcn_4_net_0_bias 
+x_19_dilations_0 
 weight
 
 tcn_4_net_0_weight
@@ -3309,16 +3309,16 @@ x_19_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_75_begin_0#
+slice_by_index#
 end_mask
 
 input_75_end_mask_0
 end
 
-input_75_end_0
+input_75_end_0
+begin
+
+input_75_begin_0
 x
 
 x_19%
@@ -3333,23 +3333,23 @@ x_19_pad_0
 
 input_75‹
 
-batch_norm'
-variance
-
-tcn_4_net_2_running_var
-gamma
-
-tcn_4_net_2_weight
-beta
-
-tcn_4_net_2_bias$
-mean
-
-tcn_4_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_4_net_2_bias
+gamma
+
+tcn_4_net_2_weight$
+mean
+
+tcn_4_net_2_running_mean'
+variance
+
+tcn_4_net_2_running_var
 x
 
 
@@ -3449,26 +3449,26 @@ x_21_pad_0*
 
 
 ¯
-conv
-groups
-
-x_21_groups_0!
-	dilations
+conv
+strides
+
+x_21_strides_0
+bias
 
-x_21_dilations_0
+tcn_4_net_5_bias
 pad_type
 
 x_21_pad_type_0
 pad
 
 
-x_21_pad_0
-strides
-
-x_21_strides_0
-bias
+x_21_pad_0
+groups
+
+x_21_groups_0!
+	dilations
 
-tcn_4_net_5_bias 
+x_21_dilations_0 
 weight
 
 tcn_4_net_5_weight
@@ -3532,16 +3532,16 @@ x_21_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_83_begin_0#
+slice_by_index#
 end_mask
 
 input_83_end_mask_0
 end
 
-input_83_end_0
+input_83_end_0
+begin
+
+input_83_begin_0
 x
 
 x_21%
@@ -3556,23 +3556,23 @@ x_21_pad_0
 
 input_83‹
 
-batch_norm'
-variance
-
-tcn_4_net_7_running_var
-gamma
-
-tcn_4_net_7_weight
-beta
-
-tcn_4_net_7_bias$
-mean
-
-tcn_4_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_4_net_7_bias
+gamma
+
+tcn_4_net_7_weight$
+mean
+
+tcn_4_net_7_running_mean'
+variance
+
+tcn_4_net_7_running_var
 x
 
 
@@ -3706,26 +3706,26 @@ x_23_pad_0*
 
 
 ¯
-conv
-groups
-
-x_23_groups_0!
-	dilations
+conv
+strides
+
+x_23_strides_0
+bias
 
-x_23_dilations_0
+tcn_5_net_0_bias
 pad_type
 
 x_23_pad_type_0
 pad
 
 
-x_23_pad_0
-strides
-
-x_23_strides_0
-bias
+x_23_pad_0
+groups
+
+x_23_groups_0!
+	dilations
 
-tcn_5_net_0_bias 
+x_23_dilations_0 
 weight
 
 tcn_5_net_0_weight
@@ -3789,16 +3789,16 @@ x_23_pad_0
 	
 
  Å
-slice_by_index
-begin
-
-input_93_begin_0#
+slice_by_index#
 end_mask
 
 input_93_end_mask_0
 end
 
-input_93_end_0
+input_93_end_0
+begin
+
+input_93_begin_0
 x
 
 x_23%
@@ -3813,23 +3813,23 @@ x_23_pad_0
 
 input_93‹
 
-batch_norm'
-variance
-
-tcn_5_net_2_running_var
-gamma
-
-tcn_5_net_2_weight
-beta
-
-tcn_5_net_2_bias$
-mean
-
-tcn_5_net_2_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_5_net_2_bias
+gamma
+
+tcn_5_net_2_weight$
+mean
+
+tcn_5_net_2_running_mean'
+variance
+
+tcn_5_net_2_running_var
 x
 
 
@@ -3929,26 +3929,26 @@ x_groups_0*
 
 
 š
-conv
+conv
+strides
+
+x_strides_0
+bias
+
+tcn_5_net_5_bias
+pad_type
+
+x_pad_type_0
+pad
+	
+x_pad_0
 groups
 
 
 x_groups_0
 	dilations
 
-x_dilations_0
-pad_type
-
-x_pad_type_0
-pad
-	
-x_pad_0
-strides
-
-x_strides_0
-bias
-
-tcn_5_net_5_bias 
+x_dilations_0 
 weight
 
 tcn_5_net_5_weight
@@ -4011,16 +4011,16 @@ x_groups_0
 	
 
  Ç
-slice_by_index
-begin
-
-input_101_begin_0$
+slice_by_index$
 end_mask
 
 input_101_end_mask_0
 end
 
-input_101_end_0
+input_101_end_0
+begin
+
+input_101_begin_0
 
 x
 
@@ -4035,23 +4035,23 @@ x_groups_0
 "
 	input_101Ž
 
-batch_norm'
-variance
-
-tcn_5_net_7_running_var
-gamma
-
-tcn_5_net_7_weight
-beta
-
-tcn_5_net_7_bias$
-mean
-
-tcn_5_net_7_running_mean
+batch_norm
 epsilon
 
 
-var_19
+var_19
+beta
+
+tcn_5_net_7_bias
+gamma
+
+tcn_5_net_7_weight$
+mean
+
+tcn_5_net_7_running_mean'
+variance
+
+tcn_5_net_7_running_var
 x
 
 	input_101&
@@ -4134,13 +4134,13 @@ batch_norm'
 
 
 ¿
-reduce_mean 
-axes
-
-reduce_mean_0_axes_0*
+reduce_mean*
 	keep_dims
 
-reduce_mean_0_keep_dims_0
+reduce_mean_0_keep_dims_0 
+axes
+
+reduce_mean_0_axes_0
 x
 
 	input_109)
@@ -4177,16 +4177,16 @@ batch_norm'
 
  ±
 concat
+axis
+
+concat_0_axis_0
 values
 
 reduce_mean_0'
 
 interleave
 
-concat_0_interleave_0
-axis
-
-concat_0_axis_0$
+concat_0_interleave_0$
 concat_0
 
 

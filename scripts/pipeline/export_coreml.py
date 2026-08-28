@@ -48,10 +48,15 @@ OUT_NAMES = {"active": "ScrybeActive", "passive": "ScrybePassive"}
 
 # Step 1: `.venv-coreml/bin/python -c "import coremltools as ct; print([t for t
 # in dir(ct.target) if not t.startswith('_')])"` -> iOS13..iOS18, iOS26 sind
-# verfuegbar. iOS17 ist das niedrigste Ziel, das die Spec-Vorgabe (mindestens
-# iOS 17 / watchOS 10) erfuellt -> maximale Geraete-Kompatibilitaet bei
-# erfuellter Mindestanforderung.
-DEPLOYMENT_TARGET = ct.target.iOS17
+# verfuegbar. Ziel ist iOS16, nicht iOS17: die WatchStreamer-App setzt
+# IPHONEOS_DEPLOYMENT_TARGET nicht selbst und erbt den Projekt-Default 16.0
+# (project.pbxproj, nicht editierbar) -> ein hoeheres Modell-Ziel wuerde
+# MLModel(contentsOf:) auf einem echten iOS-16-Geraet werfen lassen, obwohl
+# die App formal iOS 16 traegt. Watch-Seite (WATCHOS_DEPLOYMENT_TARGET 10.6,
+# die zu iOS 17 passende Generation) bekommt trotzdem denselben Wert, damit
+# es nur eine Zahl zum Nachdenken gibt statt zwei. ML-Program-Format braucht
+# nur iOS 15 -> iOS16 ist innerhalb des unterstuetzten Bereichs.
+DEPLOYMENT_TARGET = ct.target.iOS16
 
 INPUT_NAME = "window"
 OUTPUT_NAME = "logit"
