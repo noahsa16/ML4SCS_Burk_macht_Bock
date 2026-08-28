@@ -28,6 +28,16 @@ DATA_PROC = ROOT / "data" / "processed"
 
 N_PER_GROUP = 8
 
+# Why: the fixture used to store the channel-set *name* only, never the
+# per-column identity -- a window assembler that emits e.g. [ay, ax, az, ...]
+# or forgets to add gravity on the passive path would pass P1/P2/P3
+# unchanged (final-review finding I4). channel_names closes that gap.
+CHANNEL_NAMES: dict[str, list[str]] = {
+    "imu": ["ax", "ay", "az", "rx", "ry", "rz"],
+    "raw_accel": ["x", "y", "z"],
+    "user_accel": ["ax", "ay", "az"],
+}
+
 
 def _sha256(path: Path) -> str:
     """SHA-256 einer Datei oder eines Verzeichnisses (rekursiv, pfadsortiert)."""
@@ -109,6 +119,7 @@ def build(kind: str, sessions: list[str], suffix: str) -> dict:
         "seq_len": DEPLOY_SEQ_LEN,
         "n_channels": int(meta["n_channels"]),
         "channels": meta["channels"],
+        "channel_names": CHANNEL_NAMES[meta["channels"]],
         "fs_hz": int(meta["fs_hz"]),
         "dtype": "float32",
         "layout": "row-major (seq_len, n_channels)",

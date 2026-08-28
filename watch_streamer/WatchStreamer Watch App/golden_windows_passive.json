@@ -6,6 +6,11 @@
  "seq_len": 250,
  "n_channels": 3,
  "channels": "raw_accel",
+ "channel_names": [
+  "x",
+  "y",
+  "z"
+ ],
  "fs_hz": 50,
  "dtype": "float32",
  "layout": "row-major (seq_len, n_channels)",

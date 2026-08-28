@@ -6,6 +6,14 @@
  "seq_len": 250,
  "n_channels": 6,
  "channels": "imu",
+ "channel_names": [
+  "ax",
+  "ay",
+  "az",
+  "rx",
+  "ry",
+  "rz"
+ ],
  "fs_hz": 50,
  "dtype": "float32",
  "layout": "row-major (seq_len, n_channels)",

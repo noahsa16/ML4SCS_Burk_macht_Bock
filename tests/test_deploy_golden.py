@@ -22,6 +22,7 @@ def test_fixture_shape_and_balance(kind, n_channels):
     fx = load_fixture(kind)
     assert fx["seq_len"] == DEPLOY_SEQ_LEN
     assert fx["n_channels"] == n_channels
+    assert len(fx["channel_names"]) == n_channels
     assert len(fx["windows"]) >= 24
     labels = {w["label"] for w in fx["windows"]}
     assert labels == {0, 1}, "Fixture muss beide Klassen enthalten"
@@ -38,6 +39,7 @@ def test_fixture_shape_and_balance(kind, n_channels):
 def test_pytorch_reproduces_stored_logits(kind):
     """P1a: der Checkpoint reproduziert die gespeicherten Logits."""
     fx = load_fixture(kind)
+    assert fx["windows"]
     model, _ = load_deploy_model(CHECKPOINTS[kind])
     for w in fx["windows"]:
         arr = decode_window(w["data_b64"], fx["seq_len"], fx["n_channels"])
@@ -60,6 +62,7 @@ def test_coreml_matches_pytorch(kind):
     ct = pytest.importorskip("coremltools",
                              reason="nur im .venv-coreml installiert")
     fx = load_fixture(kind)
+    assert fx["windows"]
     mlmodel = ct.models.MLModel(
         str(COREML_DIR / f"{COREML_NAMES[kind]}.mlpackage"),
         compute_units=ct.ComputeUnit.CPU_ONLY,
