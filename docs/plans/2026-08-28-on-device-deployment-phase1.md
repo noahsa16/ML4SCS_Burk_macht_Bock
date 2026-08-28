@@ -1015,8 +1015,31 @@ def _session_windows(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Gibt (X, y, t_center_ms) zurueck — die Signatur von build_raw_windows."""
     merged = pd.read_csv(DATA_PROC / f"{session}_merged{suffix}.csv")
+    _assert_50hz(merged, session, suffix)
     return build_raw_windows(merged, seq_len=DEPLOY_SEQ_LEN, stride=25,
                              channels=channels)
+
+
+def _assert_50hz(merged: pd.DataFrame, session: str, suffix: str) -> None:
+    """Bricht ab, wenn die Quelle nicht ~50 Hz hat.
+
+    Why: es gibt drei merged-Varianten je Session — die native ``_merged.csv``
+    (bei Modern-Sessions 100 Hz), die 50-Hz-View ``_merged_legacy.csv`` und die
+    50-Hz-mit-Gravity-View ``_merged_raw50.csv``. Beide Deployment-Modelle sind
+    auf 50 Hz trainiert; eine 100-Hz-Quelle ergaebe 2,5-s- statt 5-s-Fenster,
+    und zwar lautlos. Derselbe Fehlermodus hat im S093-Vorfall jedes Feature
+    einer Session verzogen, ohne dass eine Metrik es angezeigt haette.
+    """
+    ts = merged["ts"].dropna().to_numpy(dtype=float)
+    if len(ts) < 2 or ts[-1] <= ts[0]:
+        raise SystemExit(f"{session}{suffix}: keine brauchbare ts-Achse")
+    fs = (len(ts) - 1) * 1000.0 / (ts[-1] - ts[0])
+    if not 45.0 <= fs <= 55.0:
+        raise SystemExit(
+            f"{session}_merged{suffix}.csv hat {fs:.1f} Hz, erwartet ~50 Hz. "
+            f"Fuer das aktive Modell '_legacy' verwenden, fuer das passive "
+            f"'_raw50' — die native merged-CSV ist bei Modern-Sessions 100 Hz."
+        )
 
 
 def build(kind: str, sessions: list[str], suffix: str) -> dict:
@@ -1088,14 +1111,27 @@ if __name__ == "__main__":
 
 Zuerst prüfen, welche Sessions lokal vorliegen, dann drei bis vier pro Modell wählen:
 
+**Beide Modelle brauchen 50-Hz-Quellen.** Es existieren drei merged-Varianten je
+Session, und nur zwei davon taugen hier:
+
+| Datei | Rate | Kanäle | wofür |
+|---|---:|---|---|
+| `{sid}_merged.csv` | nativ (Modern-Sessions: **100 Hz**) | 6 bzw. 9 | **nicht** verwenden, ausser die Session ist nativ 50 Hz |
+| `{sid}_merged_legacy.csv` | 50 Hz | 6, ohne Gravity | **aktives** Modell |
+| `{sid}_merged_raw50.csv` | 50 Hz | 6 + Gravity | **passives** Modell (`raw_accel` addiert sie auf) |
+
+Diese Zuordnung ist dieselbe, die `_pool_plan` in `src/training/deep/train_loso.py`
+beim Training anwendet. Der `_assert_50hz`-Guard oben bricht ab, falls doch eine
+100-Hz-Quelle durchrutscht.
+
 ```bash
-ls data/processed/*_merged.csv | head
-ls data/processed/*_merged_raw50.csv | head
-python scripts/pipeline/make_golden_windows.py --kind active  --sessions S038 S039 S050
-python scripts/pipeline/make_golden_windows.py --kind passive --sessions S038 S050 --merged-suffix _raw50
+ls data/processed/*_merged_legacy.csv | head -3
+ls data/processed/*_merged_raw50.csv  | head -3
+python scripts/pipeline/make_golden_windows.py --kind active  --sessions S038 S039 S050 --merged-suffix _legacy
+python scripts/pipeline/make_golden_windows.py --kind passive --sessions S038 S039 S050 --merged-suffix _raw50
 ```
 
-Heisst die Roh-Accel-Variante anders als `_raw50`, den tatsächlichen Suffix aus dem `ls`-Ergebnis verwenden. Schlägt der Generator mit „nur N Fenster gefunden" fehl, weitere Sessions ergänzen.
+Schlägt der Generator mit „nur N Fenster gefunden" fehl, weitere Sessions aus den `ls`-Listen ergänzen.
 
 - [ ] **Step 6: Run tests to verify they pass**
 
@@ -1348,12 +1384,12 @@ enum ScrybeModelError: Error {
     case missingOutput(String)
 }
 
-/// Duenner Core-ML-Wrapper: ein Fenster rein, ein Logit raus.
+/// Dünner Core-ML-Wrapper: ein Fenster rein, ein Logit raus.
 ///
 /// Die Compute-Konfiguration ist bewusst auf `.cpuOnly` festgenagelt
 /// (Spec §7.3): FP32, deterministisch, kein stiller Fallback bei nicht
-/// unterstuetzten Operationen. Bei 9k bzw. 19k Parametern ist der Preis
-/// dafuer gegenueber der Sensorik vernachlaessigbar.
+/// unterstützten Operationen. Bei 9k bzw. 19k Parametern ist der Preis
+/// dafür gegenüber der Sensorik vernachlässigbar.
 final class ScrybeModel {
     static let inputName = "window"
     static let outputName = "logit"
@@ -1575,7 +1611,7 @@ enum WatchScrybeModelError: Error {
 
 /// Core-ML-Wrapper der Watch. Bewusst identisch aufgebaut zu ScrybeModel im
 /// iPhone-Target; getrennte Datei, weil die Ordnersynchronisation des
-/// Xcode-Projekts Target-Zugehoerigkeit ueber die Lage bestimmt.
+/// Xcode-Projekts Target-Zugehörigkeit über die Lage bestimmt.
 final class WatchScrybeModel {
     let seqLen: Int
     let channels: Int
