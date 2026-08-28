@@ -23,7 +23,7 @@
 - **Xcode-Target-Zugehörigkeit ergibt sich aus dem Ordner** (`PBXFileSystemSynchronizedRootGroup`): `WatchStreamer/` → iPhone, `WatchStreamer Watch App/` → Watch, `ScrybeTests/` → Test-Bundle des iPhone-Targets. **Keine pbxproj-Bearbeitung.**
 - **Swift-Tests** nutzen Swift Testing (`import Testing`, `@Suite`, `@Test`, `#expect`), nicht XCTest — siehe `ScrybeTests/DataFlowEvaluatorTests.swift`.
 - **Die Studien-Pipeline bleibt unberührt:** kein Eingriff in `server.py`, `src/server/`, `pen_logger.py`, Study Mode.
-- **Ein Commit pro Task**, Conventional Commits (`feat`, `fix`, `test`, `docs`, `chore`).
+- **Ein Commit pro Task**, Conventional Commits (`feat`, `fix`, `test`, `docs`, `chore`). **Subject maximal 50 Zeichen**, Imperativ, ohne Punkt — die vorgegebenen Nachrichten halten das ein und werden wortgleich übernommen.
 - **`models/*` ist gitignored.** Checkpoints und Zwischenartefakte werden nicht committet; die in die Xcode-Ordner kopierten `.mlpackage` und die Fixtures unter `tests/fixtures/` schon.
 
 ---
@@ -468,7 +468,7 @@ Expected: `** BUILD SUCCEEDED **`. Passt der Simulator-Name nicht, mit `xcrun si
 git add "watch_streamer/WatchStreamer Watch App/SensorProbe.swift" \
         "watch_streamer/WatchStreamer Watch App/MotionManager.swift" \
         "watch_streamer/WatchStreamer Watch App/Info.plist"
-git commit -m "feat(spike): collect CMSensorRecorder stats via watch command"
+git commit -m "feat(spike): collect sensor stats on the watch"
 ```
 
 ---
@@ -594,7 +594,7 @@ Expected: `** TEST SUCCEEDED **`, alle bisherigen Tests plus die neun aus Task 1
 ```bash
 git add watch_streamer/WatchStreamer/ServerCommandListener.swift \
         watch_streamer/WatchStreamer/Admin/AdminPanelView.swift
-git commit -m "feat(spike): trigger and display sensor probe from admin panel"
+git commit -m "feat(spike): run sensor probe from admin panel"
 ```
 
 ---
@@ -619,7 +619,7 @@ Werte in `reports/sensor_probe.md` notieren: Rate, Coverage, Anteil langer Inter
 
 ```bash
 git add reports/sensor_probe.md
-git commit -m "docs(spike): record CMSensorRecorder feasibility measurements"
+git commit -m "docs(spike): record sensor probe measurements"
 ```
 
 **Entscheidung:** Bestehen beide Läufe → Teilprojekt 3 ist baubar. Fällt einer durch, wird das Ergebnis in der Spec §6 festgehalten und die aktive Schreibphase (Teilprojekt 2) zum Hauptprodukt.
@@ -665,7 +665,7 @@ printf '\n# Isoliertes venv fuer die Core-ML-Konvertierung (siehe requirements-c
 
 ```bash
 git add requirements-coreml.txt .gitignore
-git commit -m "chore(deploy): pin isolated coremltools environment"
+git commit -m "chore(deploy): pin coremltools environment"
 ```
 
 ---
@@ -1057,7 +1057,7 @@ Expected: alle PASS, Gesamtsuite grün.
 ```bash
 git add src/deploy/golden.py scripts/pipeline/make_golden_windows.py \
         tests/test_deploy_golden.py tests/fixtures/golden_windows_*.json
-git commit -m "feat(deploy): generate golden window fixtures for parity checks"
+git commit -m "feat(deploy): generate golden window fixtures"
 ```
 
 ---
@@ -1258,7 +1258,7 @@ Expected: die P1-Tests PASS im venv; in der Projektumgebung werden sie überspru
 
 ```bash
 git add scripts/pipeline/export_coreml.py tests/test_deploy_golden.py
-git commit -m "feat(deploy): export Core ML models and verify PyTorch parity"
+git commit -m "feat(deploy): export Core ML models"
 ```
 
 ---
@@ -1377,7 +1377,7 @@ git add "watch_streamer/WatchStreamer/Scrybe/Logic/ScrybeModel.swift" \
         "watch_streamer/WatchStreamer Watch App/ScrybePassive.mlpackage" \
         "watch_streamer/WatchStreamer Watch App/golden_windows_passive.json" \
         "watch_streamer/ScrybeTests/golden_windows_active.json"
-git commit -m "feat(deploy): bundle Core ML models and add ScrybeModel wrapper"
+git commit -m "feat(deploy): bundle Core ML models in the app"
 ```
 
 ---
@@ -1489,7 +1489,7 @@ Expected: `** TEST SUCCEEDED **`.
 
 ```bash
 git add watch_streamer/ScrybeTests/ScrybeModelParityTests.swift
-git commit -m "test(deploy): verify active model parity on iPhone (P2)"
+git commit -m "test(deploy): verify model parity on iPhone"
 ```
 
 ---
@@ -1689,7 +1689,7 @@ git add "watch_streamer/WatchStreamer Watch App/WatchScrybeModel.swift" \
         watch_streamer/WatchStreamer/ServerCommandListener.swift \
         watch_streamer/WatchStreamer/Admin/AdminPanelView.swift \
         reports/sensor_probe.md
-git commit -m "test(deploy): verify passive model parity on Apple Watch (P3)"
+git commit -m "test(deploy): verify model parity on the watch"
 ```
 
 ---
