@@ -1,0 +1,38 @@
+# Additional deps for running tests/test_deploy_golden.py::test_coreml_matches_pytorch
+# inside .venv-coreml — layer on top of requirements-coreml.txt:
+#   .venv-coreml/bin/pip install -r requirements-coreml.txt -r requirements-coreml-test.txt
+#
+# Frozen pip freeze delta, not just "pytest pandas": tests/conftest.py has a
+# session-scoped autouse fixture that imports the full FastAPI server stack
+# (src.server.routes -> ... -> src.server.training) regardless of which test
+# file pytest targets, so collecting ANY test here needs joblib, scikit-learn,
+# fastapi, pydantic, psutil, uvicorn, websockets in addition to pytest itself.
+# Installing this file does not change numpy/torch/coremltools, already
+# pinned by requirements-coreml.txt and satisfied by these packages'
+# constraints.
+Pygments==2.21.0
+annotated-doc==0.0.5
+annotated-types==0.8.0
+anyio==4.14.2
+click==8.5.0
+fastapi==0.141.1
+h11==0.16.0
+idna==3.19
+iniconfig==2.3.0
+joblib==1.5.3
+narwhals==2.25.0
+pandas==3.0.5
+pluggy==1.6.0
+psutil==7.2.2
+pydantic==2.13.4
+pydantic_core==2.46.4
+pytest==9.1.1
+python-dateutil==2.9.0.post0
+scikit-learn==1.9.0
+scipy==1.18.1
+six==1.17.0
+starlette==1.6.0
+threadpoolctl==3.6.0
+typing-inspection==0.4.4
+uvicorn==0.52.4
+websockets==17.1
