@@ -1184,11 +1184,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import sys
 from pathlib import Path
 
 import coremltools as ct
 import numpy as np
 import torch
+
+ROOT = Path(__file__).resolve().parents[2]
+# Why: als Skript gestartet ist sys.path[0] das Skript-Verzeichnis, nicht das
+# Repo-Root — ohne diese Zeile scheitert der src-Import. Gleiche Konvention wie
+# in den uebrigen scripts/pipeline/*.py.
+sys.path.insert(0, str(ROOT))
 
 from src.deploy.checkpoint import CHECKPOINTS, DEPLOY_SEQ_LEN, load_deploy_model
 
@@ -1209,7 +1216,6 @@ def _sha256(path: Path) -> str:
         h.update(path.read_bytes())
     return h.hexdigest()
 
-ROOT = Path(__file__).resolve().parents[2]
 OUT_DIR = ROOT / "models" / "coreml"
 OUT_NAMES = {"active": "ScrybeActive", "passive": "ScrybePassive"}
 
