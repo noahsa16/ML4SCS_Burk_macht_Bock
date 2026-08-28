@@ -321,6 +321,7 @@ class ServerCommandListener: NSObject, ObservableObject {
 
     @Published var sensorProbeVerdict: SensorProbeVerdict?
     @Published var sensorProbeRaw: String?
+    @Published var parityResult: String?
 
     func startSensorProbe(durationSeconds: Double) {
         forwardToWatch(["command": "sensor_probe_start",
@@ -333,6 +334,21 @@ class ServerCommandListener: NSObject, ObservableObject {
         forwardToWatch(["command": "sensor_probe_report"]) { [weak self] reply in
             self?.sensorProbeRaw = String(describing: reply)
             self?.sensorProbeVerdict = Self.verdict(from: reply)
+        }
+    }
+
+    /// P3 — stösst die Golden-Vektor-Paritätsprüfung des Passiv-Modells auf
+    /// der Watch an (WatchParityCheck.run()) und übersetzt die Antwort in
+    /// einen lesbaren Status für das Admin-Panel.
+    func runWatchParityCheck() {
+        forwardToWatch(["command": "parity_check"]) { [weak self] reply in
+            let total = (reply["total"] as? Int) ?? 0
+            let passed = (reply["passed"] as? Int) ?? 0
+            let maxDiff = (reply["maxAbsDiff"] as? Double) ?? .nan
+            let mismatch = (reply["classMismatches"] as? Int) ?? -1
+            self?.parityResult = String(
+                format: "%d/%d bestanden, max |Δ| = %.2e, Klassenwechsel: %d",
+                passed, total, maxDiff, mismatch)
         }
     }
 

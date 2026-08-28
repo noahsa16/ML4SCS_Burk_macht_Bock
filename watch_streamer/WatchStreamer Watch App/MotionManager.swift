@@ -894,6 +894,11 @@ extension MotionManager: WCSessionDelegate {
             reply["command"] = command
             reply["command_id"] = commandId ?? ""
             return reply
+        case "parity_check":
+            var reply = WatchParityCheck.run()
+            reply["command"] = command
+            reply["command_id"] = commandId ?? ""
+            return reply
         case "clear_spill":
             // Destruktiv: Spill verwerfen. clearSpill() weigert sich, wenn
             // gerade aufgenommen wird — schützt Live-Puffer gegen einen evtl.
