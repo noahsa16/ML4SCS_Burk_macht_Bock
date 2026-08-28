@@ -953,6 +953,23 @@ extension MotionManager: WCSessionDelegate {
     func session(_ session: WCSession,
                  didReceiveMessage message: [String: Any],
                  replyHandler: @escaping ([String: Any]) -> Void) {
+        // Why: sensor_probe_report iterates up to 12h @ 50Hz of
+        // CMSensorRecorder data (~2.16M records) and parity_check runs Core ML
+        // inference; both would block the main thread long enough for the
+        // iPhone's sendMessage to time out, at which point replyHandler is
+        // never invoked (see ServerCommandListener.transferUserInfoToWatch).
+        // Both commands are read-only diagnostics that never touch
+        // MotionManager's recording state, so routing exactly these two off
+        // main is safe. start/stop/drain_spill/clear_spill stay on main —
+        // they are latency-sensitive and mutate recording state.
+        let command = message["command"] as? String
+        if command == "sensor_probe_report" || command == "parity_check" {
+            DispatchQueue.global(qos: .utility).async {
+                let reply = self.handleCommand(message)
+                replyHandler(reply)
+            }
+            return
+        }
         DispatchQueue.main.async {
             let reply = self.handleCommand(message)
             replyHandler(reply)
