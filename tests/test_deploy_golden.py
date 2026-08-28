@@ -44,3 +44,30 @@ def test_pytorch_reproduces_stored_logits(kind):
         with torch.no_grad():
             got = float(model(torch.from_numpy(arr).unsqueeze(0))[0])
         assert abs(got - w["logit"]) <= 1e-4, f"{w['id']}: {got} vs {w['logit']}"
+
+
+COREML_DIR = FIXTURES["active"].parents[2] / "models" / "coreml"
+COREML_NAMES = {"active": "ScrybeActive", "passive": "ScrybePassive"}
+
+
+@pytest.mark.skipif(
+    not all((COREML_DIR / f"{n}.mlpackage").exists() for n in COREML_NAMES.values()),
+    reason="mlpackage noch nicht exportiert",
+)
+@pytest.mark.parametrize("kind", ["active", "passive"])
+def test_coreml_matches_pytorch(kind):
+    """P1: das konvertierte Modell stimmt mit PyTorch ueberein."""
+    ct = pytest.importorskip("coremltools",
+                             reason="nur im .venv-coreml installiert")
+    fx = load_fixture(kind)
+    mlmodel = ct.models.MLModel(
+        str(COREML_DIR / f"{COREML_NAMES[kind]}.mlpackage"),
+        compute_units=ct.ComputeUnit.CPU_ONLY,
+    )
+    for w in fx["windows"]:
+        arr = decode_window(w["data_b64"], fx["seq_len"], fx["n_channels"])
+        out = mlmodel.predict({"window": arr[None, ...].astype(np.float32)})
+        got = float(np.ravel(out["logit"])[0])
+        assert abs(got - w["logit"]) <= 1e-4, f"{w['id']}: {got} vs {w['logit']}"
+        # Bei Schwelle 0.5 muss auch die Klassifikation identisch sein.
+        assert (got >= 0) == (w["logit"] >= 0), f"{w['id']}: Klassenwechsel"
