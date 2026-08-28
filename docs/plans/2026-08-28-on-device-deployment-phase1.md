@@ -477,7 +477,8 @@ git commit -m "feat(spike): collect sensor stats on the watch"
 
 **Files:**
 - Modify: `watch_streamer/WatchStreamer/ServerCommandListener.swift`
-- Modify: `watch_streamer/WatchStreamer/Admin/AdminPanelView.swift`
+- Create: `watch_streamer/WatchStreamer/Admin/Sections/SensorProbeCard.swift`
+- Modify: `watch_streamer/WatchStreamer/Admin/AdminPanelView.swift` (eine Zeile: Karte registrieren)
 
 **Interfaces:**
 - Consumes: `SensorProbeStats` / `SensorProbeVerdict` / `SensorProbeEvaluator.evaluate` aus Task 1; die Watch-Antwortfelder aus Task 2
@@ -546,41 +547,89 @@ Neben `drainWatchSpill()` / `clearWatchSpill()` einfügen:
     }
 ```
 
-- [ ] **Step 3: Admin-Abschnitt ergänzen**
+- [ ] **Step 3: Admin-Karte anlegen**
 
-In `AdminPanelView.swift` einen neuen Abschnitt einfügen, im Stil der vorhandenen Repair-Sektion:
+Der Admin-Bereich ist **keine** `Form` mit `Section`s, sondern eine `VStack` aus Karten; jede Karte ist eine eigene Datei unter `watch_streamer/WatchStreamer/Admin/Sections/`. Der Zugriff auf den Listener läuft über das Singleton `ServerCommandListener.shared`, beobachtet per `@ObservedObject` (so machen es `ConnectionsCard`, `SessionCard`, `RecordingHealthCard`). **Lies `Admin/Sections/RepairCard.swift` als Stilvorlage, bevor du schreibst** — Button-Aufbau, `theme`-Zugriff und `scrybeSurface`-Modifier werden von dort übernommen.
 
 ```swift
-            Section("On-Device-Diagnose") {
-                Button("Sensor-Probe starten (1 h)") {
-                    listener.startSensorProbe(durationSeconds: 3600)
+// watch_streamer/WatchStreamer/Admin/Sections/SensorProbeCard.swift
+import SwiftUI
+
+struct SensorProbeCard: View {
+    @Environment(\.scrybe) private var theme
+    @ObservedObject private var server = ServerCommandListener.shared
+
+    var body: some View {
+        AdminCard(title: "Sensor-Probe") {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(spacing: 12) {
+                    probeButton("1 h", seconds: 3600)
+                    probeButton("12 h", seconds: 43_200)
                 }
-                Button("Sensor-Probe starten (12 h)") {
-                    listener.startSensorProbe(durationSeconds: 43_200)
+                actionButton("Auswerten", systemImage: "chart.bar.doc.horizontal") {
+                    server.fetchSensorProbeReport()
                 }
-                Button("Probe auswerten") {
-                    listener.fetchSensorProbeReport()
+                if let verdict = server.sensorProbeVerdict {
+                    result(verdict)
                 }
-                if let v = listener.sensorProbeVerdict {
-                    LabeledContent("Ergebnis", value: v.passed ? "bestanden" : "durchgefallen")
-                    LabeledContent("Rate", value: String(format: "%.2f Hz", v.effectiveRateHz))
-                    LabeledContent("Coverage", value: String(format: "%.1f %%", v.coverage * 100))
-                    LabeledContent("lange Intervalle",
-                                   value: String(format: "%.2f %%", v.longIntervalShare * 100))
-                    if !v.failures.isEmpty {
-                        LabeledContent("Fehlschlaege",
-                                       value: v.failures.map(\.rawValue).joined(separator: ", "))
-                    }
-                }
-                if let raw = listener.sensorProbeRaw {
-                    Text(raw).font(.caption2).textSelection(.enabled)
+                if let raw = server.sensorProbeRaw {
+                    Text(raw)
+                        .font(.caption2)
+                        .foregroundStyle(theme.ink.opacity(0.5))
+                        .textSelection(.enabled)
                 }
             }
+        }
+    }
+
+    private func probeButton(_ title: String, seconds: Double) -> some View {
+        actionButton(title, systemImage: "record.circle") {
+            server.startSensorProbe(durationSeconds: seconds)
+        }
+    }
+
+    private func actionButton(_ title: String, systemImage: String,
+                              action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 10)
+                .foregroundStyle(theme.accent)
+                .scrybeSurface(cornerRadius: 12, tint: theme.accent.opacity(0.10), interactive: true)
+        }
+    }
+
+    private func result(_ v: SensorProbeVerdict) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(v.passed ? "bestanden" : "durchgefallen")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(v.passed ? theme.accent : theme.danger)
+            Text(String(format: "Rate %.2f Hz · Coverage %.1f %% · lange Intervalle %.2f %%",
+                        v.effectiveRateHz, v.coverage * 100, v.longIntervalShare * 100))
+                .font(.caption)
+                .foregroundStyle(theme.ink.opacity(0.7))
+            if !v.failures.isEmpty {
+                Text("Fehlschläge: " + v.failures.map(\.rawValue).joined(separator: ", "))
+                    .font(.caption)
+                    .foregroundStyle(theme.danger)
+            }
+        }
+    }
+}
 ```
 
-Der Name der Listener-Instanz in dieser View ist zu übernehmen, wie er dort bereits verwendet wird (nicht zwingend `listener`).
+Weicht ein `theme`-Feld oder ein Modifier von dieser Vorlage ab, gilt das, was die Nachbarkarten tatsächlich verwenden — nicht dieser Entwurf.
 
-- [ ] **Step 4: Build und Tests verifizieren**
+- [ ] **Step 4: Karte registrieren**
+
+In `AdminPanelView.swift` genau eine Zeile in die `VStack` einfügen, direkt nach `RepairCard()`:
+
+```swift
+                    SensorProbeCard()
+```
+
+- [ ] **Step 5: Build und Tests verifizieren**
 
 Run:
 ```bash
@@ -589,10 +638,11 @@ cd watch_streamer && xcodebuild test -project WatchStreamer.xcodeproj -scheme Wa
 ```
 Expected: `** TEST SUCCEEDED **`, alle bisherigen Tests plus die neun aus Task 1.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add watch_streamer/WatchStreamer/ServerCommandListener.swift \
+        watch_streamer/WatchStreamer/Admin/Sections/SensorProbeCard.swift \
         watch_streamer/WatchStreamer/Admin/AdminPanelView.swift
 git commit -m "feat(spike): run sensor probe from admin panel"
 ```
