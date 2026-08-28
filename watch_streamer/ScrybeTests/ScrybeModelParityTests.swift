@@ -22,7 +22,7 @@ struct ScrybeModelParityTests {
 
     private func fixture() throws -> GoldenFixture {
         let url = try #require(Bundle(for: BundleMarker.self)
-            .url(forResource: "golden_windows_active", withExtension: "json"))
+            .url(forResource: "golden_windows_empty_DEMO", withExtension: "json"))
         return try JSONDecoder().decode(GoldenFixture.self,
                                         from: Data(contentsOf: url))
     }
@@ -30,6 +30,7 @@ struct ScrybeModelParityTests {
     @Test("aktives Modell reproduziert alle Golden-Logits innerhalb 1e-4")
     func activeModelMatchesPyTorch() throws {
         let fx = try fixture()
+        try #require(!fx.windows.isEmpty)
         let model = try ScrybeModel(resourceName: "ScrybeActive",
                                     channels: fx.n_channels,
                                     seqLen: fx.seq_len)
@@ -44,6 +45,7 @@ struct ScrybeModelParityTests {
     @Test("Klassifikation bei Schwelle 0,5 ist identisch")
     func classificationMatches() throws {
         let fx = try fixture()
+        try #require(!fx.windows.isEmpty)
         let model = try ScrybeModel(resourceName: "ScrybeActive",
                                     channels: fx.n_channels,
                                     seqLen: fx.seq_len)
