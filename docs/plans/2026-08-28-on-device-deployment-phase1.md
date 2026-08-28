@@ -1686,6 +1686,11 @@ enum WatchParityCheck {
             }
             let fx = try JSONDecoder().decode(WatchGoldenFixture.self,
                                               from: Data(contentsOf: url))
+            // Why: eine leere Fixture wuerde als "0/0 bestanden" durchgehen —
+            // ein Gate, das nicht schliessen kann, ist schlechter als keines.
+            guard !fx.windows.isEmpty else {
+                return ["ok": false, "error": "fixture is empty"]
+            }
             let model = try WatchScrybeModel(resourceName: "ScrybePassive",
                                              channels: fx.n_channels,
                                              seqLen: fx.seq_len)
