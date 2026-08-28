@@ -14,6 +14,7 @@ struct AdminPanelView: View {
                     ConnectionsCard()
                     SessionCard()
                     RepairCard()
+                    SensorProbeCard()
                     LogCard()
                     SettingsCard()
                 }

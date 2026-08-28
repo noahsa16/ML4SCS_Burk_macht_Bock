@@ -319,6 +319,44 @@ class ServerCommandListener: NSObject, ObservableObject {
         forwardToWatch(["command": "clear_spill", "server_ip": serverIP])
     }
 
+    @Published var sensorProbeVerdict: SensorProbeVerdict?
+    @Published var sensorProbeRaw: String?
+
+    func startSensorProbe(durationSeconds: Double) {
+        forwardToWatch(["command": "sensor_probe_start",
+                        "duration_seconds": durationSeconds]) { [weak self] reply in
+            self?.sensorProbeRaw = String(describing: reply)
+        }
+    }
+
+    func fetchSensorProbeReport() {
+        forwardToWatch(["command": "sensor_probe_report"]) { [weak self] reply in
+            self?.sensorProbeRaw = String(describing: reply)
+            self?.sensorProbeVerdict = Self.verdict(from: reply)
+        }
+    }
+
+    /// Uebersetzt die Watch-Antwort in SensorProbeStats und bewertet sie.
+    /// Why: WCSession erlaubt keine Int-Schluessel, das Histogramm kommt als
+    /// [String: Int] und wird hier zurueckgemappt.
+    static func verdict(from reply: [String: Any]) -> SensorProbeVerdict? {
+        guard let count = reply["sampleCount"] as? Int else { return nil }
+        let rawBuckets = (reply["intervalBucketsMs"] as? [String: Int]) ?? [:]
+        var buckets: [Int: Int] = [:]
+        for (k, v) in rawBuckets { if let key = Int(k) { buckets[key] = v } }
+        let stats = SensorProbeStats(
+            sampleCount: count,
+            firstTimestamp: (reply["firstTimestamp"] as? Double) ?? 0,
+            lastTimestamp: (reply["lastTimestamp"] as? Double) ?? 0,
+            requestedSeconds: (reply["requestedSeconds"] as? Double) ?? 0,
+            intervalBucketsMs: buckets,
+            maxGapSeconds: (reply["maxGapSeconds"] as? Double) ?? 0,
+            nonMonotonicCount: (reply["nonMonotonicCount"] as? Int) ?? 0,
+            fetchReturnedNil: (reply["fetchReturnedNil"] as? Bool) ?? false
+        )
+        return SensorProbeEvaluator.evaluate(stats)
+    }
+
     private func updatePublishedWatchStatus(from message: [String: Any], pollAgeMs: Int?) {
         DispatchQueue.main.async {
             self.watchPolling = (pollAgeMs ?? 0) < Self.pollFreshMs
@@ -370,7 +408,8 @@ class ServerCommandListener: NSObject, ObservableObject {
         ])
     }
 
-    func forwardToWatch(_ payload: [String: Any]) {
+    func forwardToWatch(_ payload: [String: Any],
+                        onReply: (([String: Any]) -> Void)? = nil) {
         let command = payload["command"] as? String ?? "unknown"
         let sessionId = payload["session_id"] as? String
         let commandId = payload["command_id"] as? String
@@ -406,6 +445,7 @@ class ServerCommandListener: NSObject, ObservableObject {
                     "reply": reply
                 ])
                 self?.sendPhoneStatus()
+                onReply?(reply)
             }
         }, errorHandler: { [weak self] error in
             DispatchQueue.main.async {
