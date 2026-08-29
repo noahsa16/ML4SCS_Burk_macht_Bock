@@ -56,74 +56,23 @@ WatchConnectivity, HealthKit (`HKWorkoutSession`), Swift Testing.
 
 ---
 
-### Task 1: Core-ML-Lader nach `Shared/` verschieben
+### Task 1: ENTFÄLLT — der Lader existiert bereits
 
-`WatchScrybeModel` liegt heute nur im Watch-Target, ist aber nicht
-watch-spezifisch: er lädt ein beliebiges manifest-beschriebenes Modell. Das
-iPhone braucht ihn für `ScrybeActive`.
+Dieser Task ging davon aus, das iPhone habe keinen Core-ML-Lader und der
+Watch-Lader müsse nach `Shared/` wandern. Falsch: das iPhone-Target enthält
+bereits `WatchStreamer/Scrybe/Logic/ScrybeModel.swift`, manifest-getrieben, auf
+`.cpuOnly` festgenagelt, und **bereits paritätsgeprüft** durch
+`ScrybeTests/ScrybeModelParityTests.swift` gegen `ScrybeActive` mit 6 Kanälen.
 
-**Files:**
-- Create: `watch_streamer/Shared/ScrybeModel.swift` (Inhalt aus der bisherigen Datei)
-- Delete: `watch_streamer/WatchStreamer Watch App/WatchScrybeModel.swift`
-- Modify: `watch_streamer/WatchStreamer Watch App/PassiveTracker.swift`,
-  `watch_streamer/WatchStreamer Watch App/MotionManager.swift`,
-  `watch_streamer/ScrybeTests/ScrybeModelParityTests.swift`
+Ein Umzug hätte eine Doppel-Deklaration erzeugt. Die Nummerierung bleibt, damit
+Querverweise gültig bleiben.
 
-**Interfaces:**
-- Produces: `final class ScrybeModel { init(resourceName: String, channels: Int, seqLen: Int) throws; func logit(window: [Float]) throws -> Float; let manifest: PassiveModelManifest }`
-- `extension ScrybeModel: PassiveClassifier {}` ersetzt die bisherige Extension auf `WatchScrybeModel`.
+**Was stattdessen zu tun ist:** Task 6 ergänzt `extension ScrybeModel:
+PassiveClassifier {}` auf iPhone-Seite — die Methode `logit(window:) throws ->
+Float` erfüllt das Protokoll bereits, es fehlt nur die Konformität.
 
-- [ ] **Step 1: Die vorhandene Paritätsprüfung als Netz laufen lassen**
-
-Run: `xcodebuild test -project watch_streamer/WatchStreamer.xcodeproj -scheme WatchStreamer -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:ScrybeTests/ScrybeModelParityTests`
-Expected: PASS. Diese Prüfung ist das Sicherheitsnetz für den ganzen Task —
-sie vergleicht Core-ML-Logits gegen PyTorch-Referenzwerte und schlägt an, wenn
-der Modellpfad beim Verschieben bricht.
-
-- [ ] **Step 2: Datei verschieben und Typ umbenennen**
-
-```bash
-git mv "watch_streamer/WatchStreamer Watch App/WatchScrybeModel.swift" \
-       watch_streamer/Shared/ScrybeModel.swift
-```
-
-Dann in `Shared/ScrybeModel.swift` jedes `WatchScrybeModel` durch `ScrybeModel`
-ersetzen. Die Klasse bleibt `final class`, alle Member unverändert.
-
-Wichtig: der Datei-System-synchronisierte Xcode-Ordner nimmt `Shared/` in beide
-Targets auf — es ist keine `project.pbxproj`-Änderung nötig.
-
-- [ ] **Step 3: Aufrufstellen nachziehen**
-
-```bash
-cd watch_streamer
-grep -rl "WatchScrybeModel" --include='*.swift' . \
-  | xargs sed -i '' 's/WatchScrybeModel/ScrybeModel/g'
-grep -rn "WatchScrybeModel" --include='*.swift' .   # muss leer sein
-```
-
-- [ ] **Step 4: Beide Targets bauen**
-
-Run: `xcodebuild build -project watch_streamer/WatchStreamer.xcodeproj -scheme WatchStreamer -destination 'generic/platform=iOS' -configuration Debug CODE_SIGNING_ALLOWED=NO`
-Expected: `** BUILD SUCCEEDED **`. Der Watch-Target wird mitgebaut; ein Fehler
-dort bedeutet, dass eine Aufrufstelle übersehen wurde.
-
-- [ ] **Step 5: Volle Suite**
-
-Run: `xcodebuild test -project watch_streamer/WatchStreamer.xcodeproj -scheme WatchStreamer -destination 'platform=iOS Simulator,name=iPhone 17 Pro' -only-testing:ScrybeTests`
-Expected: PASS, 214 Tests, davon `ScrybeModelParityTests` grün.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add -A watch_streamer/Shared/ScrybeModel.swift \
-  "watch_streamer/WatchStreamer Watch App" watch_streamer/ScrybeTests
-git diff --cached --name-only
-git commit -m "refactor(scrybe): move the Core ML loader into Shared
-
-The loader is manifest-driven and not watch-specific; the phone needs it
-to run ScrybeActive. The golden-vector parity test covers the move."
-```
+`WatchStreamer Watch App/WatchScrybeModel.swift` bleibt unverändert beim
+Watch-Target.
 
 ---
 
@@ -566,7 +515,11 @@ git commit -m "feat(scrybe): let the window builder emit six-channel windows"
 - Test: `watch_streamer/ScrybeTests/FocusSessionStoreTests.swift`
 
 **Interfaces:**
-- Consumes: `ScrybeModel` (Task 1), `FocusStrokes` (Task 2), `Bestiary` (Task 3),
+- Consumes: `ScrybeModel` (existiert bereits im iPhone-Target unter
+  `WatchStreamer/Scrybe/Logic/ScrybeModel.swift`; dieser Task ergänzt dort
+  `extension ScrybeModel: PassiveClassifier {}` — `logit(window:) throws ->
+  Float` erfüllt das Protokoll schon, es fehlt nur die Konformität),
+  `FocusStrokes` (Task 2), `Bestiary` (Task 3),
   `PassiveWindowBuilder(seqLen:strideSamples:nominalHz:channels:)` (Task 5).
 - Produces:
   `@MainActor final class FocusSessionStore: ObservableObject`
