@@ -5,10 +5,10 @@ struct HistoryView: View {
     @AppStorage(ScrybeSettings.goalKey) private var goalSeconds: Double = ScrybeSettings.defaultGoalSeconds
     @Environment(\.scrybe) private var theme
 
-    // Days with activity, newest first — one section per day.
-    private var activeDays: [FocusDayDTO] {
-        Array((focus.history?.days ?? []).filter { $0.writingSeconds > 0 }.reversed())
-    }
+    // Days with activity, newest first — derived once in the store when the
+    // network state changes rather than filtered and reversed on every body
+    // pass (see FocusStore.activeDays).
+    private var activeDays: [FocusDayDTO] { focus.activeDays }
 
     private func stretches(for date: String) -> [FocusStretchDTO]? {
         if date == focus.today?.date { return focus.today?.stretches }
@@ -60,6 +60,18 @@ struct HistoryView: View {
                         .listRowBackground(theme.paperTop)
                 }
             }
+        } else if case .failed = focus.dayState[day.date] {
+            // Why a retry and not just a message: the load is the only path to
+            // this day's detail, and it previously failed silently forever.
+            Button { Task { await focus.loadDay(day.date, force: true) } } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Nicht geladen — erneut versuchen")
+                }
+                .font(.caption)
+                .foregroundStyle(theme.danger)
+            }
+            .listRowBackground(theme.paperTop)
         } else {
             Text("Laden …")
                 .font(.caption).foregroundStyle(theme.secondaryInk)

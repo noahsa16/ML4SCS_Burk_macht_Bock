@@ -29,6 +29,24 @@ struct IntensityCurve: View {
         .frame(height: height)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Schreibintensität über die Session")
+        // Why: the curve encodes peak, average and how much of the session sat
+        // above the writing threshold. A title alone conveys none of that.
+        .accessibilityValue(summary)
+    }
+
+    private var summary: String {
+        guard !samples.isEmpty else { return "Keine Daten" }
+        let clamped = samples.map { min(1, max(0, $0)) }
+        let mean = clamped.reduce(0, +) / Double(clamped.count)
+        let peak = clamped.max() ?? 0
+        let aboveThreshold = Double(clamped.filter { $0 >= 0.5 }.count)
+            / Double(clamped.count)
+        return "Durchschnitt \(percent(mean)), Spitze \(percent(peak)), "
+            + "\(percent(aboveThreshold)) der Session über der Schreibschwelle"
+    }
+
+    private func percent(_ value: Double) -> String {
+        "\(Int((value * 100).rounded())) Prozent"
     }
 
     private func points(in size: CGSize) -> [CGPoint] {

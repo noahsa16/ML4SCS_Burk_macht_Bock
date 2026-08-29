@@ -11,6 +11,7 @@ struct TodayView: View {
     @State private var celebrated = false
     @State private var celebrating = false
     @State private var shineOn = false
+    @State private var celebrationTask: Task<Void, Never>?
 
     private var liveSeconds: Double {
         max(focus.todayWritingSecondsPolled, server.liveInference?.todayWritingSeconds ?? 0)
@@ -30,75 +31,89 @@ struct TodayView: View {
     private var longestToday: Double { focus.today?.stretches.map(\.durationS).max() ?? 0 }
 
     var body: some View {
-        Group {
-            if isEmpty { emptyState } else { content }
+        // Why one scroll container for both states: connection and live
+        // detection state used to exist only in the populated branch, so a new
+        // user — or a product-video run — could not tell whether detection was
+        // live, disconnected or stale at exactly the moment setup feedback
+        // matters most. The empty state is also refreshable now.
+        ScrollView {
+            VStack(spacing: 24) {
+                if focus.isOffline {
+                    OfflineBanner(lastUpdated: focus.lastUpdated)
+                }
+                if isEmpty { emptyState } else { populated }
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
         }
+        .refreshable { await focus.refresh() }
         .background { theme.paper.ignoresSafeArea() }
         .onChange(of: isWriting) { _ in updatePulse() }
         .onChange(of: goalMet) { met in handleGoal(met) }
         .onAppear { updatePulse(); celebrated = goalMet }
+        .onDisappear { celebrationTask?.cancel() }
         .goalReachedFeedback(trigger: celebrated)
     }
 
     // Empty: the bare ring carries the screen — no card, no illustration block.
     private var emptyState: some View {
         VStack(spacing: 20) {
-            Spacer()
-            InkRing(fraction: 0)
-                .frame(width: 240, height: 240)
+            ring
+            LiveChip(isWriting: isWriting)
             Text("Trag die Watch und fang an zu schreiben")
                 .font(.system(.title3, design: .serif))
                 .foregroundStyle(theme.ink)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
-            Spacer()
-            Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .combine)
+        .frame(maxWidth: .infinity)
     }
 
-    private var content: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                if focus.isOffline {
-                    OfflineBanner(lastUpdated: focus.lastUpdated)
-                }
-                ring
-                LiveChip(isWriting: isWriting)
-                StatTriple(sessions: sessionsToday,
-                           longestSeconds: longestToday,
-                           streak: focus.streak)
-                if let week = focus.week {
-                    WeekStrip(days: week.days, maxSeconds: week.maxSeconds)
-                        .padding(.horizontal)
-                }
+    private var populated: some View {
+        VStack(spacing: 24) {
+            ring
+            LiveChip(isWriting: isWriting)
+            StatTriple(sessions: sessionsToday,
+                       longestSeconds: longestToday,
+                       streak: focus.streak)
+            if let week = focus.week {
+                WeekStrip(days: week.days, maxSeconds: week.maxSeconds)
+                    .padding(.horizontal)
             }
-            .padding()
-            .frame(maxWidth: .infinity)
         }
-        .refreshable { await focus.refresh() }
     }
 
     private var ring: some View {
-        InkRing(
-            fraction: progress.fraction,
-            centerText: TimeFormatting.clock(seconds: liveSeconds),
-            subtitle: ringSubtitle,
-            tint: goalMet ? theme.goalReached : nil
-        )
-        .frame(width: 240, height: 240)
-        .scaleEffect(pulse ? 1.03 : 1.0)
-        .overlay {
-            if celebrating {
-                Circle()
-                    .stroke(theme.goalReached, lineWidth: 8)
-                    .scaleEffect(shineOn ? 1.18 : 0.96)
-                    .opacity(shineOn ? 0 : 0.6)
+        // Why measured rather than a fixed 240: at accessibility text sizes,
+        // in split view, in landscape or on a small phone, a fixed square
+        // clipped or squeezed the content around it.
+        GeometryReader { geo in
+            let side = min(240, max(140, geo.size.width - 80))
+            InkRing(
+                fraction: isEmpty ? 0 : progress.fraction,
+                centerText: isEmpty ? nil : TimeFormatting.clock(seconds: liveSeconds),
+                subtitle: isEmpty ? nil : ringSubtitle,
+                tint: goalMet ? theme.goalReached : nil
+            )
+            .frame(width: side, height: side)
+            .scaleEffect(pulse ? 1.03 : 1.0)
+            .overlay {
+                if celebrating {
+                    Circle()
+                        .stroke(theme.goalReached, lineWidth: 8)
+                        .scaleEffect(shineOn ? 1.18 : 0.96)
+                        .opacity(shineOn ? 0 : 0.6)
+                }
             }
+            .frame(width: geo.size.width, height: side)
         }
+        .frame(height: ringSide)
         .padding(.top, 8)
     }
+
+    /// Mirrors the GeometryReader's clamp so the container reserves the right
+    /// height; `ViewThatFits` cannot express a square capped by its own width.
+    @ScaledMetric(relativeTo: .largeTitle) private var ringSide: CGFloat = 240
 
     private func updatePulse() {
         if isWriting && !reduceMotion {
@@ -120,7 +135,14 @@ struct TodayView: View {
         celebrating = true
         shineOn = false
         withAnimation(.easeOut(duration: 0.7)) { shineOn = true }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.75) { celebrating = false }
+        // Why a cancellable task: an asyncAfter closure survives the view and
+        // could clear `celebrating` for a later appearance that is mid-shine.
+        celebrationTask?.cancel()
+        celebrationTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 750_000_000)
+            guard !Task.isCancelled else { return }
+            celebrating = false
+        }
     }
 }
 

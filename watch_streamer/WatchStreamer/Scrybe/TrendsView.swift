@@ -11,22 +11,15 @@ struct TrendsView: View {
         var id: String { rawValue }
     }
 
-    private var allDays: [FocusDayDTO] { focus.history?.days ?? [] }
-    private var hasAnyData: Bool { allDays.contains { $0.writingSeconds > 0 } }
-
-    private var monthDays: [FocusDayDTO] { Array(allDays.suffix(30)) }
-    private var monthMax: Double { monthDays.map(\.writingSeconds).max() ?? 0 }
-
-    private var thisWeek: Double { (focus.week?.days ?? []).reduce(0) { $0 + $1.writingSeconds } }
-    private var lastWeek: Double? {
-        guard allDays.count >= 14 else { return nil }
-        return allDays.suffix(14).prefix(7).reduce(0) { $0 + $1.writingSeconds }
-    }
-    private var thisMonth: Double { monthDays.reduce(0) { $0 + $1.writingSeconds } }
-    private var lastMonth: Double? {
-        guard allDays.count >= 60 else { return nil }
-        return allDays.suffix(60).prefix(30).reduce(0) { $0 + $1.writingSeconds }
-    }
+    // All derived once in FocusStore when the history changes, rather than
+    // recomputed on every body pass of a view that observes a 5-second poll.
+    private var hasAnyData: Bool { focus.hasAnyHistory }
+    private var monthDays: [FocusDayDTO] { focus.monthDays }
+    private var monthMax: Double { focus.monthMax }
+    private var thisWeek: Double { focus.thisWeekSum }
+    private var lastWeek: Double? { focus.previousWeekSum }
+    private var thisMonth: Double { focus.monthSum }
+    private var lastMonth: Double? { focus.previousMonthSum }
 
     private var summarySum: Double { range == .week ? thisWeek : thisMonth }
     private var summaryPrev: Double? { range == .week ? lastWeek : lastMonth }
@@ -101,7 +94,7 @@ struct TrendsView: View {
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("Streak \(focus.streak) Tage, längste \(focus.longestStreak)")
-            StreakCalendar(days: Array(allDays.suffix(7)), goalSeconds: goalSeconds)
+            StreakCalendar(days: focus.lastSevenDays, goalSeconds: goalSeconds)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)

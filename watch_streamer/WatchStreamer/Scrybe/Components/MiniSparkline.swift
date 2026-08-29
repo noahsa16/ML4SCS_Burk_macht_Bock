@@ -9,27 +9,13 @@ struct MiniSparkline: View {
     @Environment(\.scrybe) private var theme
 
     var body: some View {
-        Path { path in
-            let pts = points(in: CGSize(width: width, height: height))
-            guard let first = pts.first else { return }
-            path.move(to: first)
-            for p in pts.dropFirst() { path.addLine(to: p) }
-        }
-        .stroke(theme.accent,
-                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-        .frame(width: width, height: height)
-        .accessibilityHidden(true)
-    }
-
-    private func points(in size: CGSize) -> [CGPoint] {
-        guard !samples.isEmpty else { return [] }
-        let vals = samples.count == 1 ? [samples[0], samples[0]] : samples
-        let denom = CGFloat(vals.count - 1)
-        return vals.enumerated().map { i, v in
-            let x = size.width * CGFloat(i) / denom
-            let y = size.height * (1 - CGFloat(min(1, max(0, v))))
-            return CGPoint(x: x, y: y)
-        }
+        SparklineShape(normalised: samples)
+            .stroke(theme.accent,
+                    style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+            .frame(width: width, height: height)
+            // The enclosing row's label already carries start time and
+            // duration; a second announcement of the same stretch adds noise.
+            .accessibilityHidden(true)
     }
 }
 

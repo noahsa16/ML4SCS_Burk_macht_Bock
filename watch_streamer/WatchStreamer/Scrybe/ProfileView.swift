@@ -47,8 +47,16 @@ struct ProfileView: View {
             .padding(.top, 8)
             .contentShape(Rectangle())
             .onTapGesture { registerSecretTap() }
-        // Why: intentionally not a button and unhinted — VoiceOver announces only
-        // the version, keeping the operator backdoor hidden from a proband.
+            // Why: the visible element still reads as a plain version string,
+            // so a proband learns nothing. But a five-tap gesture on unlabelled
+            // text is unreachable with VoiceOver, Switch Control, Voice Control
+            // or a keyboard, which locked operators who use them out of the
+            // panel entirely. A custom action is offered only to assistive
+            // technology, where it is a rotor entry rather than visible UI.
+            .accessibilityLabel("Scrybe \(appVersion)")
+            .accessibilityAction(named: Text("Betriebsmodus öffnen")) {
+                adminPresented = true
+            }
     }
 
     private func registerSecretTap() {
