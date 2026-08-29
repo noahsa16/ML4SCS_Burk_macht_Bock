@@ -1039,7 +1039,21 @@ extension MotionManager: WCSessionDelegate {
         // start/stop/drain_spill/clear_spill stay on main: they are
         // latency-sensitive and mutate recording state.
         if let raw = message[WatchPayloadKey.command] as? String,
-           let command = WatchCommandName(rawValue: raw), command.isDiagnostic {
+           let command = WatchCommandName(rawValue: raw),
+           command.bypassesRecordingDispatcher {
+            if command == .syncDecisions {
+                // Owned by the passive tracker, which is main-actor isolated.
+                Task { @MainActor in
+                    let handed = PassiveTracker.shared.syncNow()
+                    replyHandler([
+                        WatchPayloadKey.ok: true,
+                        WatchPayloadKey.pendingCount: handed,
+                        WatchPayloadKey.command: raw,
+                        WatchPayloadKey.commandID: message[WatchPayloadKey.commandID] as? String ?? ""
+                    ])
+                }
+                return
+            }
             DispatchQueue.global(qos: .utility).async {
                 replyHandler(self.handleDiagnosticCommand(message))
             }

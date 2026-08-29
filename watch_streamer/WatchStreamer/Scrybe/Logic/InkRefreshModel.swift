@@ -1,10 +1,10 @@
 import CoreGraphics
 import Foundation
 
-/// What a single pull produced. Distinct from `FocusStore.isOffline`, which is
-/// the standing connection state: a pull has to report *its own* result, so a
-/// refresh that failed while cached data is still on screen reads as a failed
-/// sync rather than as an empty screen.
+/// What a single pull produced. Distinct from `FocusStore.watchUnreachable`,
+/// which is the standing state: a pull has to report *its own* result, so a
+/// sync that never reached the watch reads as a failed sync rather than as an
+/// empty screen.
 enum InkRefreshOutcome: Equatable {
     case updated(at: Date)
     case offline

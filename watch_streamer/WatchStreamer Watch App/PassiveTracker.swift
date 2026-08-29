@@ -99,15 +99,32 @@ final class PassiveTracker: ObservableObject {
     /// idempotent — every decision carries its own `startMs`, so a re-delivery
     /// is recognised rather than double-counted, and the high-water mark only
     /// advances once the transfer is handed over.
-    func syncPendingDecisions() {
+    @discardableResult
+    func syncPendingDecisions() -> Int {
         let pending = engine.pendingDecisions(since: syncedThroughMs)
-        guard !pending.isEmpty else { return }
-        guard let payload = try? JSONEncoder().encode(pending) else { return }
+        guard !pending.isEmpty else { return 0 }
+        guard let payload = try? JSONEncoder().encode(pending) else { return 0 }
         WCSession.default.transferUserInfo([
             WatchPayloadKey.type: WatchPayloadKey.passiveDecisionsType,
             WatchPayloadKey.decisions: payload
         ])
         syncedThroughMs = pending[pending.count - 1].startMs
+        return pending.count
+    }
+
+    /// Answers a phone pull: hands over everything already computed, then
+    /// starts a retrieval cycle for whatever the recorder has since gathered.
+    ///
+    /// Why the cycle is not awaited: it reads up to twelve hours of recorder
+    /// history and runs Core ML over every window, which would outlast the
+    /// phone's `sendMessage` timeout and leave the pull with no reply at all.
+    /// The pull therefore promises what the watch *has*, and the fresh windows
+    /// arrive on their own — `transferUserInfo` is durable.
+    @discardableResult
+    func syncNow() -> Int {
+        let handed = syncPendingDecisions()
+        Task { await runCycle() }
+        return handed
     }
 
     private static let syncedThroughKey = "passiveTracker.syncedThroughMs"

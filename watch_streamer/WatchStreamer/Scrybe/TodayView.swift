@@ -2,7 +2,6 @@ import SwiftUI
 
 struct TodayView: View {
     @ObservedObject private var focus = FocusStore.shared
-    @ObservedObject private var server = ServerCommandListener.shared
     @AppStorage(ScrybeSettings.goalKey) private var goalSeconds: Double = ScrybeSettings.defaultGoalSeconds
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -13,13 +12,16 @@ struct TodayView: View {
     @State private var shineOn = false
     @State private var celebrationTask: Task<Void, Never>?
 
-    private var liveSeconds: Double {
-        max(focus.todayWritingSecondsPolled, server.liveInference?.todayWritingSeconds ?? 0)
-    }
+    private var liveSeconds: Double { focus.todayWritingSeconds }
     private var progress: DailyGoalProgress {
         DailyGoalProgress(writingSeconds: liveSeconds, goalSeconds: goalSeconds)
     }
-    private var isWriting: Bool { server.liveInference?.writing ?? false }
+    /// Writing detected recently enough that the ring should still breathe.
+    /// The passive path cannot say "now", so this is the honest stand-in.
+    private var isWriting: Bool {
+        guard let at = focus.lastWritingAt else { return false }
+        return Date().timeIntervalSince(at) < 15 * 60
+    }
     private var goalMet: Bool { progress.isMet }
     private var isEmpty: Bool {
         liveSeconds == 0 && focus.streak == 0 && (focus.week?.maxSeconds ?? 0) == 0
@@ -38,7 +40,7 @@ struct TodayView: View {
         // matters most. The empty state pulls to refresh too.
         InkRefreshScroll(action: { await focus.refreshForPull() }) {
             VStack(spacing: 24) {
-                if focus.isOffline {
+                if focus.watchUnreachable {
                     OfflineBanner(lastUpdated: focus.lastUpdated)
                 }
                 if isEmpty { emptyState } else { populated }
@@ -58,7 +60,9 @@ struct TodayView: View {
     private var emptyState: some View {
         VStack(spacing: 20) {
             ring
-            LiveChip(isWriting: isWriting)
+            SyncChip(lastWritingAt: focus.lastWritingAt,
+                     lastSyncedAt: focus.lastUpdated,
+                     unreachable: focus.watchUnreachable)
             Text("Trag die Watch und fang an zu schreiben")
                 .font(.system(.title3, design: .serif))
                 .foregroundStyle(theme.ink)
@@ -71,7 +75,9 @@ struct TodayView: View {
     private var populated: some View {
         VStack(spacing: 24) {
             ring
-            LiveChip(isWriting: isWriting)
+            SyncChip(lastWritingAt: focus.lastWritingAt,
+                     lastSyncedAt: focus.lastUpdated,
+                     unreachable: focus.watchUnreachable)
             StatTriple(sessions: sessionsToday,
                        longestSeconds: longestToday,
                        streak: focus.streak)

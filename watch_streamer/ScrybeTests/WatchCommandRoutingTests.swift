@@ -52,6 +52,28 @@ struct WatchCommandRoutingTests {
         #expect(!WatchCommandName.stop.isDiagnostic)
         #expect(!WatchCommandName.drainSpill.isDiagnostic)
         #expect(!WatchCommandName.clearSpill.isDiagnostic)
+        #expect(!WatchCommandName.syncDecisions.isDiagnostic)
+    }
+
+    // Why its own property: the passive sync must leave the recording
+    // dispatcher alone like a diagnostic does — it can trigger a Core ML
+    // retrieval cycle — but it is a product path, so calling it diagnostic
+    // would put it in the Admin panel's category.
+    @Test("the passive sync bypasses the recording dispatcher without being a diagnostic")
+    func passiveSyncRouting() {
+        #expect(WatchCommandName.syncDecisions.bypassesRecordingDispatcher)
+        #expect(!WatchCommandName.syncDecisions.isDiagnostic)
+        #expect(WatchCommandName.syncDecisions.transport == .idempotentOperation)
+        // It must never overwrite start/stop recovery state.
+        #expect(!WatchCommandName.syncDecisions.mayReplaceDurableState)
+        #expect(!WatchCommandName.syncDecisions.mayFallBackToUserInfo)
+    }
+
+    @Test("every diagnostic also bypasses the recording dispatcher")
+    func diagnosticsBypass() {
+        for name in WatchCommandName.allCases where name.isDiagnostic {
+            #expect(name.bypassesRecordingDispatcher)
+        }
     }
 
     @Test("raw values match the wire protocol")

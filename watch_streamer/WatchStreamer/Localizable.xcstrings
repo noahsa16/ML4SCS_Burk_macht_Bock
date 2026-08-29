@@ -140,6 +140,16 @@
         }
       }
     },
+    "Abgleich": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync"
+          }
+        }
+      }
+    },
     "Admin": {
       "localizations": {
         "en": {
@@ -156,6 +166,56 @@
           "stringUnit": {
             "state": "translated",
             "value": "active"
+          }
+        }
+      }
+    },
+    "Aktualisieren": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        }
+      }
+    },
+    "Alle lokalen Daten löschen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete all local data"
+          }
+        }
+      }
+    },
+    "Alle lokalen Daten löschen?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete all local data?"
+          }
+        }
+      }
+    },
+    "Alles aktuell · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to date · %@"
+          }
+        }
+      }
+    },
+    "Als JSON-Datei: Schreibzeit pro Tag, heutige Schreibphasen und deine Einstellungen. Keine Rohbewegungsdaten.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "As a JSON file: writing time per day, today's writing stretches and your settings. No raw motion data."
           }
         }
       }
@@ -177,6 +237,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Batch %lld"
+          }
+        }
+      }
+    },
+    "Bedienzugang, kein Sicherheitsmerkmal.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An operator shortcut, not a security feature."
+          }
+        }
+      }
+    },
+    "bestanden": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "passed"
+          }
+        }
+      }
+    },
+    "Betriebsmodus öffnen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open operator mode"
           }
         }
       }
@@ -223,11 +313,22 @@
       }
     },
     "Deine Bewegungsdaten werden nur zur Schreiberkennung verarbeitet und nicht an Dritte weitergegeben.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "Your motion data is used only to detect writing and is never shared with third parties."
+          }
+        }
+      }
+    },
+    "Deine Bewegungsdaten werden nur zur Schreiberkennung verarbeitet und nicht an Dritte weitergegeben. Noch nicht hochgeladene Rohdaten liegen geschützt auf diesem Gerät und werden nicht in Backups aufgenommen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Your motion data is processed only for writing detection and is not shared with third parties. Raw data not yet uploaded stays protected on this device and is excluded from backups."
           }
         }
       }
@@ -262,6 +363,16 @@
         }
       }
     },
+    "Die Standard-PIN darf nicht bestehen bleiben.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The default PIN must not be kept."
+          }
+        }
+      }
+    },
     "Diese Woche": {
       "extractionState": "stale",
       "localizations": {
@@ -269,6 +380,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "This week"
+          }
+        }
+      }
+    },
+    "durchgefallen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "failed"
           }
         }
       }
@@ -294,6 +415,26 @@
         }
       }
     },
+    "Einstellungen zurücksetzen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset settings"
+          }
+        }
+      }
+    },
+    "Einstellungen zurücksetzen?": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Reset settings?"
+          }
+        }
+      }
+    },
     "English": {
       "localizations": {
         "en": {
@@ -314,7 +455,28 @@
         }
       }
     },
+    "Export nicht möglich": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Export unavailable"
+          }
+        }
+      }
+    },
+    "Gepufferte, noch nicht gesendete Watch-Daten werden endgültig gelöscht und lassen sich nicht wiederherstellen. Während einer laufenden Aufnahme lehnt die Watch den Befehl ab.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buffered watch data that has not been sent yet is deleted permanently and cannot be recovered. During an active recording the watch refuses the command."
+          }
+        }
+      }
+    },
     "Gepufferte, noch nicht gesendete Watch-Daten werden gelöscht.": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -380,6 +542,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "No writing sessions."
+          }
+        }
+      }
+    },
+    "Keine Verbindung · Daten bleiben erhalten": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No connection · your data is kept"
           }
         }
       }
@@ -453,6 +625,7 @@
       }
     },
     "Lokale Einstellungen zurücksetzen": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -463,6 +636,7 @@
       }
     },
     "Lokale Einstellungen zurücksetzen?": {
+      "extractionState": "stale",
       "localizations": {
         "en": {
           "stringUnit": {
@@ -478,6 +652,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "Get started"
+          }
+        }
+      }
+    },
+    "Löschen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Delete"
+          }
+        }
+      }
+    },
+    "Löscht noch nicht hochgeladene Rohdaten und alle Einstellungen auf diesem iPhone. Bereits auf den Server übertragene Aufnahmen sind davon nicht betroffen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deletes raw data not yet uploaded and all settings on this iPhone. Recordings already sent to the server are not affected."
+          }
+        }
+      }
+    },
+    "Loslassen zum Abgleichen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release to sync"
           }
         }
       }
@@ -546,12 +750,32 @@
         }
       }
     },
+    "Nicht geladen — erneut versuchen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Not loaded — try again"
+          }
+        }
+      }
+    },
     "Noch keine Ereignisse.": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
             "value": "No events yet."
+          }
+        }
+      }
+    },
+    "P3": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "P3"
           }
         }
       }
@@ -679,6 +903,16 @@
         }
       }
     },
+    "Schreibzeit wird abgeglichen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncing writing time …"
+          }
+        }
+      }
+    },
     "Schreibzeit, automatisch erkannt — allein über die Watch.": {
       "localizations": {
         "en": {
@@ -726,6 +960,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Sessions"
+          }
+        }
+      }
+    },
+    "Setzt Tagesziel, Erinnerung, Sprache und Wochenstart zurück. Aufgezeichnete Daten bleiben erhalten.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resets daily goal, reminder, language and week start. Recorded data is kept."
           }
         }
       }
@@ -1025,16 +1269,6 @@
         }
       }
     },
-    "Zurücksetzen": {
-      "localizations": {
-        "en": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Reset"
-          }
-        }
-      }
-    },
     "Zum Aktualisieren ziehen": {
       "localizations": {
         "en": {
@@ -1045,62 +1279,82 @@
         }
       }
     },
-    "Loslassen zum Abgleichen": {
+    "Zurücksetzen": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Release to sync"
+            "value": "Reset"
           }
         }
       }
     },
-    "Schreibzeit wird abgeglichen …": {
+    "Noch keine Schreibzeit": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Syncing writing time …"
+            "value": "No writing time yet"
           }
         }
       }
     },
-    "Alles aktuell · %@": {
+    "Zuletzt geschrieben %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Up to date · %@"
+            "value": "Last wrote at %@"
           }
         }
       }
     },
-    "Keine Verbindung · Daten bleiben erhalten": {
+    "abgeglichen %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No connection · your data is kept"
+            "value": "synced %@"
           }
         }
       }
     },
-    "Aktualisieren": {
+    "Uhr nicht erreichbar": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Refresh"
+            "value": "Watch unreachable"
           }
         }
       }
     },
-    "Abgleich": {
+    "Uhr nicht erreichbar · Stand %@": {
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sync"
+            "value": "Watch unreachable · as of %@"
+          }
+        }
+      }
+    },
+    "Ungültiges Datum": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Invalid date"
+          }
+        }
+      }
+    },
+    "Löscht deine gesamte Schreibzeit-Historie, noch nicht hochgeladene Rohdaten und alle Einstellungen auf diesem iPhone. Bereits auf den Server übertragene Aufnahmen sind davon nicht betroffen.": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Deletes your entire writing-time history, any raw data not yet uploaded, and all settings on this iPhone. Recordings already sent to the server are not affected."
           }
         }
       }

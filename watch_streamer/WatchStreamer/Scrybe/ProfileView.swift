@@ -252,7 +252,7 @@ private struct PrivacyCard: View {
             Button("Löschen", role: .destructive, action: deleteLocalData)
             Button("Abbrechen", role: .cancel) {}
         } message: {
-            Text("Löscht noch nicht hochgeladene Rohdaten und alle Einstellungen auf diesem iPhone. Bereits auf den Server übertragene Aufnahmen sind davon nicht betroffen.")
+            Text("Löscht deine gesamte Schreibzeit-Historie, noch nicht hochgeladene Rohdaten und alle Einstellungen auf diesem iPhone. Bereits auf den Server übertragene Aufnahmen sind davon nicht betroffen.")
         }
     }
 
@@ -271,6 +271,7 @@ private struct PrivacyCard: View {
     private func deleteLocalData() {
         resetSettings()
         PhoneBridge.shared.deleteAllLocalData()
+        focus.deleteAllLocalData()
     }
 }
 

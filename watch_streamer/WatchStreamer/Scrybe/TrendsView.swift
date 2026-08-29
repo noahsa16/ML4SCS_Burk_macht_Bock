@@ -29,7 +29,7 @@ struct TrendsView: View {
         InkRefreshScroll(action: { await focus.refreshForPull() }) {
             ScrybeGlassGroup(spacing: 24) {
                 VStack(alignment: .leading, spacing: 24) {
-                    if focus.isOffline {
+                    if focus.watchUnreachable {
                         OfflineBanner(lastUpdated: focus.lastUpdated)
                     }
                     Picker("Zeitraum", selection: $range) {

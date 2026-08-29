@@ -25,6 +25,8 @@ public enum WatchCommandName: String, CaseIterable, Sendable {
     case sensorProbeStart = "sensor_probe_start"
     case sensorProbeReport = "sensor_probe_report"
     case parityCheck = "parity_check"
+    /// Run a retrieval cycle now and hand over pending decisions.
+    case syncDecisions = "sync_decisions"
 }
 
 /// How a command may be delivered.
@@ -46,7 +48,7 @@ extension WatchCommandName {
         switch self {
         case .start, .stop:
             return .durableState
-        case .drainSpill, .clearSpill, .sensorProbeStart:
+        case .drainSpill, .clearSpill, .sensorProbeStart, .syncDecisions:
             return .idempotentOperation
         case .sensorProbeReport, .parityCheck:
             return .directQuery
@@ -73,9 +75,19 @@ extension WatchCommandName {
         switch self {
         case .sensorProbeStart, .sensorProbeReport, .parityCheck:
             return true
-        case .start, .stop, .drainSpill, .clearSpill:
+        case .start, .stop, .drainSpill, .clearSpill, .syncDecisions:
             return false
         }
+    }
+
+    /// Commands answered off the recording dispatcher: they run on a background
+    /// queue and must not touch capture configuration or recording state.
+    ///
+    /// Broader than `isDiagnostic` since the passive sync joins them — it may
+    /// run a Core ML retrieval cycle, which would blow the phone's sendMessage
+    /// timeout on the main thread, but it is a product path, not a diagnostic.
+    public var bypassesRecordingDispatcher: Bool {
+        isDiagnostic || self == .syncDecisions
     }
 }
 
@@ -105,6 +117,8 @@ public enum WatchPayloadKey {
     /// idempotent because each decision is keyed by its own start time.
     public static let passiveDecisionsType = "passive_decisions"
     public static let decisions = "decisions"
+    /// Count of decisions the Watch handed over for a sync request.
+    public static let pendingCount = "pending_count"
 
     /// Snake-case status fields, used in the Watch → iPhone poll payload.
     public enum Status {

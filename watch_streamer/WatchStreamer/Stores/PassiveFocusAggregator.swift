@@ -153,6 +153,34 @@ enum PassiveFocusAggregator {
                                  maxSeconds: buckets.map(\.seconds).max() ?? 0)
     }
 
+    /// Writing seconds per hour of one local day. This is what the archive
+    /// keeps once the day's raw windows are pruned, so the time-of-day chart
+    /// survives without them.
+    static func hourlySeconds(from decisions: [PassiveDecision], on day: Date,
+                              calendar: Calendar = .current) -> [Double] {
+        let start = calendar.startOfDay(for: day)
+        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+        let startMs = Int64(start.timeIntervalSince1970 * 1000)
+        let endMs = Int64(end.timeIntervalSince1970 * 1000)
+
+        var seconds = [Double](repeating: 0, count: 24)
+        for d in decisions where d.writing && d.startMs >= startMs && d.startMs < endMs {
+            let at = Date(timeIntervalSince1970: Double(d.startMs) / 1000)
+            seconds[calendar.component(.hour, from: at)] += d.creditSeconds
+        }
+        return seconds.map { ($0 * 10).rounded() / 10 }
+    }
+
+    /// Wraps already-summed hourly seconds in the shape the chart consumes.
+    static func timeOfDay(seconds: [Double], days: Int) -> FocusTimeOfDayDTO {
+        let padded = seconds.count == 24 ? seconds : [Double](repeating: 0, count: 24)
+        let buckets = (0..<24).map {
+            FocusHourBucketDTO(hour: $0, seconds: (padded[$0] * 10).rounded() / 10)
+        }
+        return FocusTimeOfDayDTO(buckets: buckets, days: days,
+                                 maxSeconds: buckets.map(\.seconds).max() ?? 0)
+    }
+
     // MARK: - Formatting
 
     static func isoDate(_ date: Date, calendar: Calendar = .current) -> String {

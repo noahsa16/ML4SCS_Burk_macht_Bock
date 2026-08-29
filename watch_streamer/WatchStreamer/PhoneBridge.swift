@@ -299,7 +299,8 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         receivePayload(userInfo, source: "background")
     }
 
-    /// Forwards a batch of passive writing decisions to the server.
+    /// Stores a batch of passive writing decisions, and mirrors it to the
+    /// server when the study path is configured.
     ///
     /// Idempotent by construction: each decision carries its own `startMs`, so
     /// a re-delivered batch is recognised server-side rather than counted
@@ -313,6 +314,12 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             DispatchQueue.main.async { self.lastError = "Invalid passive decisions payload" }
             return
         }
+        // The phone is the record now: Scrybe reads its own store, not the
+        // server. Storing first means a pull works with no server configured.
+        Task { @MainActor in await FocusStore.shared.ingest(decisions) }
+
+        // The study path stays server-based, so mirror the batch when an
+        // address is set. Unconfigured is the normal case, not an error.
         guard let url = ServerConfig.endpoint?.httpBase
             .appendingPathComponent("passive/decisions") else { return }
 

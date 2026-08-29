@@ -32,7 +32,7 @@ struct HistoryView: View {
     // `pinnedViews` keeps the sticky day headers the List gave us for free.
     private var days: some View {
         LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
-            if focus.isOffline {
+            if focus.watchUnreachable {
                 OfflineBanner(lastUpdated: focus.lastUpdated)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 10)
