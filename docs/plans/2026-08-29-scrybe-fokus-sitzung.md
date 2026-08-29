@@ -482,175 +482,7 @@ git commit -m "feat(scrybe): add focus_start and focus_stop to the command vocab
 
 ---
 
-### Task 5: `FocusSessionStore` — Zustand und Klassifikation
-
-**Files:**
-- Create: `watch_streamer/WatchStreamer/Stores/FocusSessionStore.swift`
-- Test: `watch_streamer/ScrybeTests/FocusSessionStoreTests.swift`
-
-**Interfaces:**
-- Consumes: `ScrybeModel` (Task 1), `FocusStrokes` (Task 2), `Bestiary` (Task 3),
-  `PassiveWindowBuilder.append(_:) -> [PassiveWindow]`.
-- Produces:
-  `@MainActor final class FocusSessionStore: ObservableObject`
-  mit `enum Phase: Equatable { case idle, starting, running(startedAt: Date, targetSeconds: Double), finished(BestiaryEntry) }`,
-  `@Published private(set) var phase: Phase`,
-  `@Published private(set) var decisions: [PassiveDecision]`,
-  `var writingSeconds: Double`, `var segments: [FocusSegment]`,
-  `func consume(_ samples: [PassiveSample])`,
-  `init(classifier: PassiveClassifier? = nil)`.
-
-- [ ] **Step 1: Fehlschlagenden Test schreiben**
-
-```swift
-import Testing
-import Foundation
-@testable import WatchStreamer
-
-@Suite("Focus session store")
-@MainActor
-struct FocusSessionStoreTests {
-
-    private struct FixedClassifier: PassiveClassifier {
-        let value: Float
-        func logit(window: [Float]) throws -> Float { value }
-    }
-
-    /// `count` samples at 50 Hz, six channels, starting at t = 0.
-    private func samples(_ count: Int) -> [PassiveSample] {
-        (0..<count).map { i in
-            PassiveSample(timestamp: Double(i) / 50.0, x: 0.1, y: 0.2, z: 0.98)
-        }
-    }
-
-    @Test("one decision per stride once the first window is full")
-    func decisionsFollowStride() {
-        let store = FocusSessionStore(classifier: FixedClassifier(value: 1))
-        store.beginForTesting(targetSeconds: 1_500)
-        store.consume(samples(250))
-        #expect(store.decisions.count == 1)
-        store.consume(samples(125))
-        #expect(store.decisions.count == 2)
-    }
-
-    // The viewfinder principle: the daily accounting must never see these.
-    @Test("a session writes nothing to the passive decision store")
-    func nothingIsPersisted() throws {
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("focus-\(UUID().uuidString).jsonl")
-        defer { try? FileManager.default.removeItem(at: url) }
-        let raw = PassiveDecisionStore(fileURL: url)
-
-        let store = FocusSessionStore(classifier: FixedClassifier(value: 1))
-        store.beginForTesting(targetSeconds: 1_500)
-        store.consume(samples(500))
-
-        #expect(!store.decisions.isEmpty)
-        #expect(raw.allDecisions().isEmpty)
-    }
-}
-```
-
-- [ ] **Step 2: Test laufen lassen, Fehlschlag bestätigen**
-
-Run: `... -only-testing:ScrybeTests/FocusSessionStoreTests`
-Expected: FAIL, „cannot find 'FocusSessionStore' in scope".
-
-- [ ] **Step 3: Minimale Implementierung**
-
-```swift
-import Combine
-import Foundation
-import SwiftUI
-
-/// A deliberately started writing session.
-///
-/// Holds everything in memory on purpose. Live and recorder windows never share
-/// a `startMs`, so persisting both would double-count the day and idempotency
-/// could not catch it. The passive path stays the single source of truth for
-/// writing time; the only thing a session leaves behind is one `BestiaryEntry`.
-@MainActor
-final class FocusSessionStore: ObservableObject {
-    static let shared = FocusSessionStore()
-
-    enum Phase: Equatable {
-        case idle
-        case starting
-        case running(startedAt: Date, targetSeconds: Double)
-        case finished(BestiaryEntry)
-    }
-
-    @Published private(set) var phase: Phase = .idle
-    @Published private(set) var decisions: [PassiveDecision] = []
-
-    private var builder = PassiveWindowBuilder(seqLen: 250, strideSamples: 125,
-                                               nominalHz: 50)
-    private let injected: PassiveClassifier?
-    private var classifier: PassiveClassifier?
-
-    init(classifier: PassiveClassifier? = nil) {
-        self.injected = classifier
-    }
-
-    var writingSeconds: Double {
-        decisions.filter(\.writing).reduce(0) { $0 + $1.creditSeconds }
-    }
-
-    var segments: [FocusSegment] { FocusStrokes.segments(from: decisions) }
-
-    /// Test seam: enter `running` without the Watch round-trip.
-    func beginForTesting(targetSeconds: Double, at date: Date = Date()) {
-        reset()
-        classifier = injected
-        phase = .running(startedAt: date, targetSeconds: targetSeconds)
-    }
-
-    /// Feeds samples handed over by `PhoneBridge` while a session runs.
-    func consume(_ samples: [PassiveSample]) {
-        guard case .running = phase else { return }
-        if classifier == nil {
-            classifier = injected ?? (try? ScrybeModel(resourceName: "ScrybeActive",
-                                                       channels: 6, seqLen: 250))
-        }
-        guard let classifier else { return }
-        for window in builder.append(samples) {
-            guard let logit = try? classifier.logit(window: window.values) else { continue }
-            decisions.append(PassiveDecision(
-                startMs: Int64(window.startTimestamp * 1000),
-                endMs: Int64(window.endTimestamp * 1000),
-                logit: logit,
-                writing: logit >= 0,
-                creditSeconds: builder.secondsPerWindow))
-        }
-    }
-
-    private func reset() {
-        decisions.removeAll()
-        builder.reset()
-    }
-}
-```
-
-Hinweis: `PassiveSample` trägt drei Achsen. Für die sechs Kanäle wird der
-Sample-Typ in Task 6 erweitert; bis dahin liefert der Test drei Achsen und der
-Builder verarbeitet sie unverändert.
-
-- [ ] **Step 4: Test laufen lassen, grün bestätigen**
-
-Run: wie Step 2. Expected: PASS, 2 Tests.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add watch_streamer/WatchStreamer/Stores/FocusSessionStore.swift \
-        watch_streamer/ScrybeTests/FocusSessionStoreTests.swift
-git diff --cached --name-only
-git commit -m "feat(scrybe): add the in-memory focus session store"
-```
-
----
-
-### Task 6: Sechs Kanäle im Fensterbau
+### Task 5: Sechs Kanäle im Fensterbau
 
 `PassiveWindowBuilder` baut heute 3-Kanal-Fenster. `ScrybeActive` braucht 6 in
 der Reihenfolge `ax, ay, az, rx, ry, rz`.
@@ -712,23 +544,183 @@ Run: die volle Suite, weil der Passiv-Pfad denselben Builder nutzt:
 Expected: PASS. Insbesondere `PassiveTrackerEngineTests` muss unverändert grün
 sein — der Default `channels: 3` hält den Passiv-Pfad bit-identisch.
 
-- [ ] **Step 5: `FocusSessionStore` auf sechs Kanäle stellen**
+Dieser Task steht bewusst VOR dem Session-Store: sonst baute der Store
+3-Kanal-Fenster und reichte sie an ein 6-Kanal-Modell weiter — in den Tests
+grün (Fake-Klassifikator), auf dem Gerät kaputt.
 
-In `FocusSessionStore` den Builder ersetzen durch:
-
-```swift
-    private var builder = PassiveWindowBuilder(seqLen: 250, strideSamples: 125,
-                                               nominalHz: 50, channels: 6)
-```
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add watch_streamer/Shared/PassiveWindowBuilder.swift \
-        watch_streamer/ScrybeTests/PassiveWindowBuilderTests.swift \
-        watch_streamer/WatchStreamer/Stores/FocusSessionStore.swift
+        watch_streamer/ScrybeTests/PassiveWindowBuilderTests.swift
 git diff --cached --name-only
 git commit -m "feat(scrybe): let the window builder emit six-channel windows"
+```
+
+---
+
+### Task 6: `FocusSessionStore` — Zustand und Klassifikation
+
+**Files:**
+- Create: `watch_streamer/WatchStreamer/Stores/FocusSessionStore.swift`
+- Test: `watch_streamer/ScrybeTests/FocusSessionStoreTests.swift`
+
+**Interfaces:**
+- Consumes: `ScrybeModel` (Task 1), `FocusStrokes` (Task 2), `Bestiary` (Task 3),
+  `PassiveWindowBuilder(seqLen:strideSamples:nominalHz:channels:)` (Task 5).
+- Produces:
+  `@MainActor final class FocusSessionStore: ObservableObject`
+  mit `enum Phase: Equatable { case idle, starting, running(startedAt: Date, targetSeconds: Double), finished(BestiaryEntry) }`,
+  `@Published private(set) var phase: Phase`,
+  `@Published private(set) var decisions: [PassiveDecision]`,
+  `var writingSeconds: Double`, `var segments: [FocusSegment]`,
+  `func consume(_ samples: [PassiveSample])`,
+  `init(classifier: PassiveClassifier? = nil)`.
+
+- [ ] **Step 1: Fehlschlagenden Test schreiben**
+
+```swift
+import Testing
+import Foundation
+@testable import WatchStreamer
+
+@Suite("Focus session store")
+@MainActor
+struct FocusSessionStoreTests {
+
+    private struct FixedClassifier: PassiveClassifier {
+        let value: Float
+        func logit(window: [Float]) throws -> Float { value }
+    }
+
+    /// `count` samples at 50 Hz, six channels, starting at t = 0.
+    private func samples(_ count: Int) -> [PassiveSample] {
+        (0..<count).map { i in
+            PassiveSample(timestamp: Double(i) / 50.0, x: 0.1, y: 0.2, z: 0.98)
+        }
+    }
+
+    @Test("one decision per stride once the first window is full")
+    func decisionsFollowStride() {
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1))
+        store.beginForTesting(targetSeconds: 1_500)
+        store.consume(samples(250))
+        #expect(store.decisions.count == 1)
+        store.consume(samples(125))
+        #expect(store.decisions.count == 2)
+    }
+
+    // The viewfinder principle (Spec §2): live windows must never reach the
+    // daily accounting. Asserted against the REAL default store file — an
+    // assertion on some unrelated temp store would hold even if the session
+    // wrote to the actual one, which is the failure worth catching.
+    @Test("a session leaves the passive decision store untouched")
+    func nothingIsPersisted() throws {
+        let url = PassiveDecisionStore.defaultFileURL()
+        let before = (try? Data(contentsOf: url))?.count ?? -1
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1))
+        store.beginForTesting(targetSeconds: 1_500)
+        store.consume(samples(500))
+
+        #expect(!store.decisions.isEmpty)
+        let after = (try? Data(contentsOf: url))?.count ?? -1
+        #expect(after == before)
+    }
+}
+```
+
+- [ ] **Step 2: Test laufen lassen, Fehlschlag bestätigen**
+
+Run: `... -only-testing:ScrybeTests/FocusSessionStoreTests`
+Expected: FAIL, „cannot find 'FocusSessionStore' in scope".
+
+- [ ] **Step 3: Minimale Implementierung**
+
+```swift
+import Combine
+import Foundation
+import SwiftUI
+
+/// A deliberately started writing session.
+///
+/// Holds everything in memory on purpose. Live and recorder windows never share
+/// a `startMs`, so persisting both would double-count the day and idempotency
+/// could not catch it. The passive path stays the single source of truth for
+/// writing time; the only thing a session leaves behind is one `BestiaryEntry`.
+@MainActor
+final class FocusSessionStore: ObservableObject {
+    static let shared = FocusSessionStore()
+
+    enum Phase: Equatable {
+        case idle
+        case starting
+        case running(startedAt: Date, targetSeconds: Double)
+        case finished(BestiaryEntry)
+    }
+
+    @Published private(set) var phase: Phase = .idle
+    @Published private(set) var decisions: [PassiveDecision] = []
+
+    private var builder = PassiveWindowBuilder(seqLen: 250, strideSamples: 125,
+                                               nominalHz: 50, channels: 6)
+    private let injected: PassiveClassifier?
+    private var classifier: PassiveClassifier?
+
+    init(classifier: PassiveClassifier? = nil) {
+        self.injected = classifier
+    }
+
+    var writingSeconds: Double {
+        decisions.filter(\.writing).reduce(0) { $0 + $1.creditSeconds }
+    }
+
+    var segments: [FocusSegment] { FocusStrokes.segments(from: decisions) }
+
+    /// Test seam: enter `running` without the Watch round-trip.
+    func beginForTesting(targetSeconds: Double, at date: Date = Date()) {
+        reset()
+        classifier = injected
+        phase = .running(startedAt: date, targetSeconds: targetSeconds)
+    }
+
+    /// Feeds samples handed over by `PhoneBridge` while a session runs.
+    func consume(_ samples: [PassiveSample]) {
+        guard case .running = phase else { return }
+        if classifier == nil {
+            classifier = injected ?? (try? ScrybeModel(resourceName: "ScrybeActive",
+                                                       channels: 6, seqLen: 250))
+        }
+        guard let classifier else { return }
+        for window in builder.append(samples) {
+            guard let logit = try? classifier.logit(window: window.values) else { continue }
+            decisions.append(PassiveDecision(
+                startMs: Int64(window.startTimestamp * 1000),
+                endMs: Int64(window.endTimestamp * 1000),
+                logit: logit,
+                writing: logit >= 0,
+                creditSeconds: builder.secondsPerWindow))
+        }
+    }
+
+    private func reset() {
+        decisions.removeAll()
+        builder.reset()
+    }
+}
+```
+
+- [ ] **Step 4: Test laufen lassen, grün bestätigen**
+
+Run: wie Step 2. Expected: PASS, 2 Tests.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add watch_streamer/WatchStreamer/Stores/FocusSessionStore.swift \
+        watch_streamer/ScrybeTests/FocusSessionStoreTests.swift
+git diff --cached --name-only
+git commit -m "feat(scrybe): add the in-memory focus session store"
 ```
 
 ---
@@ -862,7 +854,7 @@ git commit -m "feat(scrybe): drive focus sessions at 50 Hz, exclusive with recor
   `IMUDataStore.shared.pushBatch`)
 
 **Interfaces:**
-- Consumes: `FocusSessionStore.shared.consume(_:)` (Task 5).
+- Consumes: `FocusSessionStore.shared.consume(_:)` (Task 6).
 
 - [ ] **Step 1: Fan-out ergänzen**
 
@@ -1274,7 +1266,7 @@ git commit -m "feat(scrybe): collect finished and unfinished creatures"
 - Modify: `watch_streamer/WatchStreamer/ServerCommandListener.swift` (Start/Stopp senden)
 
 **Interfaces:**
-- Consumes: `FocusSessionStore` (Task 5), `WritingPageView` (Task 10),
+- Consumes: `FocusSessionStore` (Task 6), `WritingPageView` (Task 10),
   `BestiaryStore` (Task 11), `WatchCommandName.focusStart/.focusStop` (Task 4).
 
 - [ ] **Step 1: Start und Stopp mit Zeitgrenze**
