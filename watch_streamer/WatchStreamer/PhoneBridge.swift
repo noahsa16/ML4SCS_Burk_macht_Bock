@@ -10,7 +10,30 @@ import UIKit
 /// is set. Was duplicated as a bare "192.168.178.147" literal across PhoneBridge
 /// and ServerCommandListener.
 enum ServerConfig {
+    /// Why: a release build must not silently target the development LAN. Debug
+    /// keeps the convenience default; release starts unconfigured so the UI can
+    /// say "no server configured" instead of probing a developer machine.
+    #if DEBUG
     static let defaultIP = "192.168.178.147"
+    #else
+    static let defaultIP = ""
+    #endif
+
+    /// The address as configured, or the build's default when unset.
+    static var configuredIP: String {
+        UserDefaults.standard.string(forKey: CaptureSettings.serverIPKey) ?? defaultIP
+    }
+
+    /// Every endpoint derived from one parse. Nil when no usable address is set.
+    static var endpoint: ServerEndpoint.Resolved? {
+        ServerEndpoint.resolve(configuredIP)
+    }
+
+    /// Shared secret attached to server requests when the operator has set one.
+    static var token: String? {
+        let t = UserDefaults.standard.string(forKey: CaptureSettings.serverTokenKey) ?? ""
+        return t.isEmpty ? nil : t
+    }
 }
 
 class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
@@ -39,18 +62,11 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     // MARK: – Server URL helpers
 
     static var serverBaseURL: String {
-        let raw = UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP
-        let trimmed = raw
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
-            return trimmed
-        }
-        return trimmed.contains(":") ? "http://\(trimmed)" : "http://\(trimmed):8000"
+        ServerConfig.endpoint?.httpBase.absoluteString ?? ""
     }
 
     static var serverAddress: String {
-        "\(serverBaseURL)/watch"
+        ServerConfig.endpoint?.watchUpload.absoluteString ?? ""
     }
 
     // MARK: – Published state
@@ -174,7 +190,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             if let error {
                 self.lastError = error.localizedDescription
             }
-            self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP)
+            self.syncServerIP(ServerConfig.configuredIP)
             ServerCommandListener.shared.sendPhoneStatus()
         }
     }
@@ -214,7 +230,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     func sessionReachabilityDidChange(_ session: WCSession) {
         DispatchQueue.main.async {
             self.applyReachability(session)
-            self.syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP)
+            self.syncServerIP(ServerConfig.configuredIP)
             ServerCommandListener.shared.sendPhoneStatus()
         }
     }
@@ -222,7 +238,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     func syncServerIP(_ ip: String) {
         let trimmed = ip.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        UserDefaults.standard.set(trimmed, forKey: "serverIP")
+        UserDefaults.standard.set(trimmed, forKey: CaptureSettings.serverIPKey)
         guard WCSession.default.activationState == .activated else { return }
         do {
             var context = ServerCommandListener.shared.currentWatchCommandPayload()
@@ -237,12 +253,12 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         WCSession.default.delegate = self
         WCSession.default.activate()
         applyReachability(WCSession.default)
-        syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP)
+        syncServerIP(ServerConfig.configuredIP)
         ServerCommandListener.shared.sendPhoneStatus()
     }
 
     func resyncWatchContext() {
-        syncServerIP(UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP)
+        syncServerIP(ServerConfig.configuredIP)
         ServerCommandListener.shared.refreshWatchContext()
     }
 
@@ -343,9 +359,9 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
         let identity: String
         if let samples = normalized["samples"] as? [[String: Any]],
-           let firstTs = Self.asInt64(samples.first?["ts"]) {
+           let firstTs = WatchPayloadValue.int64(samples.first?["ts"]) {
             identity = "ts\(firstTs)"
-        } else if let seq = Self.asInt64(normalized["sequence"]) {
+        } else if let seq = WatchPayloadValue.int64(normalized["sequence"]) {
             // Fallback auf die Sequenznummer, falls ein Batch keine Capture-Zeit
             // trägt. Ohne beides ist kein Dedup möglich → durchlassen (lieber
             // über- als unter-zählen).
@@ -365,16 +381,6 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             seenBatchKeys.remove(drop)
         }
         return false
-    }
-
-    /// Defensive numeric coercion: a WatchConnectivity / JSON round-trip can
-    /// surface a number as Int, Int64, Double, or String depending on transport.
-    private static func asInt64(_ value: Any?) -> Int64? {
-        if let i = value as? Int64 { return i }
-        if let i = value as? Int { return Int64(i) }
-        if let d = value as? Double { return Int64(d) }
-        if let s = value as? String { return Int64(s) }
-        return nil
     }
 
     private func normalizePayload(_ payload: [String: Any], source: String) -> [String: Any]? {
@@ -401,8 +407,10 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
     private func uploadNextIfNeeded() {
         guard !isUploading, let payload = uploadQueue.first else { return }
-        guard let url = URL(string: Self.serverAddress) else {
-            lastError = "Invalid server URL"
+        guard let url = ServerConfig.endpoint?.watchUpload else {
+            lastError = ServerConfig.configuredIP.isEmpty
+                ? "No server configured"
+                : "Invalid server address"
             return
         }
 
@@ -444,6 +452,12 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Why: the research server does not yet require the token, so an absent
+        // one must not block a recording. It is attached whenever configured so
+        // the server can start enforcing it without a client change.
+        if let token = ServerConfig.token {
+            req.setValue(token, forHTTPHeaderField: "X-Scrybe-Token")
+        }
         req.httpBody = body
         // Why: cap the per-request wait so a hung POST on flaky WLAN can't pin
         // isUploading (and stall the whole queue) for the 60 s URLSession default.

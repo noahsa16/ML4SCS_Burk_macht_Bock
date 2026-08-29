@@ -27,12 +27,12 @@ class MotionManager: NSObject, ObservableObject {
     // überschreibbar, in UserDefaults persistiert. Wirkt ab dem nächsten
     // start() — die Rate mitten in einer Aufnahme zu ändern wäre unsauber.
     private lazy var effectiveHz: Double = {
-        let stored = UserDefaults.standard.double(forKey: "effectiveHz")
-        return (10...200).contains(stored) ? stored : Config.requestedHz
+        let stored = UserDefaults.standard.double(forKey: CaptureSettings.effectiveHzKey)
+        return CaptureSettings.isValidHz(stored) ? stored : Config.requestedHz
     }()
     private lazy var effectiveBatchSize: Int = {
-        let stored = UserDefaults.standard.integer(forKey: "effectiveBatchSize")
-        return (1...200).contains(stored) ? stored : Config.batchSize
+        let stored = UserDefaults.standard.integer(forKey: CaptureSettings.effectiveBatchSizeKey)
+        return CaptureSettings.isValidBatchSize(stored) ? stored : Config.batchSize
     }()
 
     private var buffer: [[String: Any]] = []
@@ -745,28 +745,16 @@ class MotionManager: NSObject, ObservableObject {
     /// (Command / Context / Poll-Reply — alle laufen durch handleCommand).
     /// Schreibt nur bei Aenderung. Wirkt ab dem naechsten start().
     private func applyMotionConfig(from message: [String: Any]) {
-        if let hz = Self.doubleValue(message["requested_hz"]),
-           (10.0...200.0).contains(hz), hz != effectiveHz {
+        if let hz = WatchPayloadValue.double(message[WatchPayloadKey.requestedHz]),
+           CaptureSettings.isValidHz(hz), hz != effectiveHz {
             effectiveHz = hz
-            UserDefaults.standard.set(hz, forKey: "effectiveHz")
+            UserDefaults.standard.set(hz, forKey: CaptureSettings.effectiveHzKey)
         }
-        if let batch = Self.intValue(message["batch_size"]),
-           (1...200).contains(batch), batch != effectiveBatchSize {
+        if let batch = WatchPayloadValue.int(message[WatchPayloadKey.batchSize]),
+           CaptureSettings.isValidBatchSize(batch), batch != effectiveBatchSize {
             effectiveBatchSize = batch
-            UserDefaults.standard.set(batch, forKey: "effectiveBatchSize")
+            UserDefaults.standard.set(batch, forKey: CaptureSettings.effectiveBatchSizeKey)
         }
-    }
-
-    private static func doubleValue(_ any: Any?) -> Double? {
-        if let d = any as? Double { return d }
-        if let i = any as? Int { return Double(i) }
-        return nil
-    }
-
-    private static func intValue(_ any: Any?) -> Int? {
-        if let i = any as? Int { return i }
-        if let d = any as? Double { return Int(d) }
-        return nil
     }
 }
 
@@ -790,7 +778,8 @@ extension MotionManager: WCSessionDelegate {
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
         DispatchQueue.main.async {
-            if applicationContext["command"] != nil {
+            if applicationContext["command"] != nil,
+               !Self.requiresDirectReply(applicationContext) {
                 _ = self.handleCommand(applicationContext)
             }
         }
@@ -798,10 +787,20 @@ extension MotionManager: WCSessionDelegate {
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         DispatchQueue.main.async {
-            if userInfo["command"] != nil {
+            if userInfo["command"] != nil,
+               !Self.requiresDirectReply(userInfo) {
                 _ = self.handleCommand(userInfo)
             }
         }
+    }
+
+    /// Long-running diagnostics are request/response operations, not durable
+    /// state changes. The iPhone also mirrors every command through application
+    /// context and user-info delivery; accepting those copies would run the
+    /// same CMSensorRecorder/Core ML read concurrently with `sendMessage`.
+    private static func requiresDirectReply(_ message: [String: Any]) -> Bool {
+        guard let command = message["command"] as? String else { return false }
+        return command == "sensor_probe_report" || command == "parity_check"
     }
 
     @discardableResult

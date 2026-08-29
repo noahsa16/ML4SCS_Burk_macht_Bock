@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsCard: View {
-    @AppStorage("serverIP") private var serverIP = ServerConfig.defaultIP
+    @AppStorage(CaptureSettings.serverIPKey) private var serverIP = ServerConfig.defaultIP
     @AppStorage("requestedHz") private var requestedHz = 50.0
     @AppStorage("batchSize") private var batchSize = 10
     @AppStorage(ScrybeSettings.pinKey) private var adminPIN = ScrybeSettings.defaultPIN

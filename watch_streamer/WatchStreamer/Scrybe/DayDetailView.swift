@@ -117,10 +117,26 @@ private struct StretchRow: View {
 
 /// Wall-clock HH:mm for an inference-log millisecond timestamp.
 enum StretchClock {
-    static func hhmm(_ ms: Int) -> String {
+    // Why: called once per session row per body pass; a fresh DateFormatter
+    // each time is the most expensive part of rendering the History list.
+    private static let lock = NSLock()
+    private static var cached: (identifier: String, formatter: DateFormatter)?
+
+    private static func formatter() -> DateFormatter {
+        let locale = ScrybeSettings.localeOverride ?? .current
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached, cached.identifier == locale.identifier { return cached.formatter }
         let f = DateFormatter()
+        f.locale = locale
+        f.timeZone = .current
         f.dateFormat = "HH:mm"
-        return f.string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
+        cached = (locale.identifier, f)
+        return f
+    }
+
+    static func hhmm(_ ms: Int) -> String {
+        formatter().string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
     }
 }
 

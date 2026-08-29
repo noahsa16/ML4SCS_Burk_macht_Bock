@@ -12,9 +12,17 @@ struct FTLogEntry: Identifiable {
     let tagColor: Color
     let message:  String
 
-    var timeString: String {
-        let f = DateFormatter(); f.dateFormat = "HH:mm:ss"; return f.string(from: date)
-    }
+    // Why: the Admin log list reads this property for every visible row on
+    // every body pass; building a DateFormatter per access is pure waste.
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = .current
+        f.dateFormat = "HH:mm:ss"
+        return f
+    }()
+
+    var timeString: String { Self.timeFormatter.string(from: date) }
 }
 
 @MainActor

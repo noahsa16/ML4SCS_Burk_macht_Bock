@@ -28,13 +28,26 @@ enum DateFormatting {
         return f
     }()
 
+    // Why: a DateFormatter is expensive to build, and these run inside SwiftUI
+    // body recomputation — History renders one per row per pass. Cache by
+    // pattern *and* locale so the in-app DE/EN override still switches
+    // languages instead of serving a stale formatter.
+    private static let cacheLock = NSLock()
+    private static var cache: [String: DateFormatter] = [:]
+
     private static func formatter(_ pattern: String) -> DateFormatter {
+        let locale = ScrybeSettings.localeOverride ?? .current
+        let key = "\(pattern)|\(locale.identifier)"
+        cacheLock.lock()
+        defer { cacheLock.unlock() }
+        if let cached = cache[key] { return cached }
         let f = DateFormatter()
         // Follow the in-app DE/EN override so weekday/month names match the
         // chosen language (not just the device locale).
-        f.locale = ScrybeSettings.localeOverride ?? .current
+        f.locale = locale
         f.timeZone = .current
         f.setLocalizedDateFormatFromTemplate(pattern)
+        cache[key] = f
         return f
     }
 

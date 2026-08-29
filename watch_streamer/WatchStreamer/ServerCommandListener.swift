@@ -70,20 +70,8 @@ class ServerCommandListener: NSObject, ObservableObject {
         sessionStateLock.withLock { _sessionSnapshot }
     }
 
-    private var serverIP: String { UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP }
-    private var serverWebSocketURL: URL? {
-        let trimmed = serverIP
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if trimmed.hasPrefix("http://") {
-            return URL(string: "ws://" + String(trimmed.dropFirst("http://".count)) + "/ws")
-        }
-        if trimmed.hasPrefix("https://") {
-            return URL(string: "wss://" + String(trimmed.dropFirst("https://".count)) + "/ws")
-        }
-        let host = trimmed.contains(":") ? trimmed : "\(trimmed):8000"
-        return URL(string: "ws://\(host)/ws")
-    }
+    private var serverIP: String { ServerConfig.configuredIP }
+    private var serverWebSocketURL: URL? { ServerConfig.endpoint?.webSocket }
 
     private override init() {
         super.init()
@@ -243,10 +231,10 @@ class ServerCommandListener: NSObject, ObservableObject {
         // H3: Motion-Config aus den Phone-App-Settings mitgeben. Die Watch
         // liest sie in handleCommand() — auch via 1-s-Poll-Reply, also ohne
         // dass ein expliziter Push nötig wäre.
-        let hz = UserDefaults.standard.double(forKey: "requestedHz")
-        if hz >= 10 { payload["requested_hz"] = hz }
-        let batch = UserDefaults.standard.integer(forKey: "batchSize")
-        if batch >= 1 { payload["batch_size"] = batch }
+        let hz = UserDefaults.standard.double(forKey: CaptureSettings.requestedHzKey)
+        if CaptureSettings.isValidHz(hz) { payload[WatchPayloadKey.requestedHz] = hz }
+        let batch = UserDefaults.standard.integer(forKey: CaptureSettings.batchSizeKey)
+        if CaptureSettings.isValidBatchSize(batch) { payload[WatchPayloadKey.batchSize] = batch }
         return payload
     }
 
