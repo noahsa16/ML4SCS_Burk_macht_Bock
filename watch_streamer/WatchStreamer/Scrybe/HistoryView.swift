@@ -17,35 +17,39 @@ struct HistoryView: View {
 
     var body: some View {
         NavigationStack {
-            Group {
-                if activeDays.isEmpty {
-                    emptyState
-                } else {
-                    list
-                }
+            // One container for both states, so an empty Verlauf can be pulled
+            // to refresh — it is exactly the screen a new user waits on.
+            InkRefreshScroll(action: { await focus.refreshForPull() }) {
+                if activeDays.isEmpty { emptyState } else { days }
             }
             .background { theme.paper.ignoresSafeArea() }
             .navigationDestination(for: String.self) { DayDetailView(date: $0) }
         }
     }
 
-    private var list: some View {
-        List {
+    // Why a LazyVStack and not a List: the ink pull-to-refresh has to measure
+    // the scroll offset of its own container, which a List does not expose.
+    // `pinnedViews` keeps the sticky day headers the List gave us for free.
+    private var days: some View {
+        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
             if focus.isOffline {
                 OfflineBanner(lastUpdated: focus.lastUpdated)
-                    .listRowBackground(Color.clear)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
             }
             ForEach(activeDays) { day in
                 Section {
                     sessionRows(for: day)
                 } header: {
                     HistoryDayHeader(day: day, goalSeconds: goalSeconds)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(theme.paperTop)
                 }
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
-        .refreshable { await focus.refresh() }
+        .padding(.bottom, 24)
     }
 
     @ViewBuilder private func sessionRows(for day: FocusDayDTO) -> some View {
@@ -53,11 +57,12 @@ struct HistoryView: View {
             if sts.isEmpty {
                 Text("Keine Schreibphasen.")
                     .font(.caption).foregroundStyle(theme.secondaryInk)
-                    .listRowBackground(theme.paperTop)
+                    .historyRow()
             } else {
                 ForEach(sts) { s in
                     NavigationLink(value: day.date) { SessionRow(stretch: s) }
-                        .listRowBackground(theme.paperTop)
+                        .buttonStyle(.plain)
+                        .historyRow()
                 }
             }
         } else if case .failed = focus.dayState[day.date] {
@@ -71,11 +76,11 @@ struct HistoryView: View {
                 .font(.caption)
                 .foregroundStyle(theme.danger)
             }
-            .listRowBackground(theme.paperTop)
+            .historyRow()
         } else {
             Text("Laden …")
                 .font(.caption).foregroundStyle(theme.secondaryInk)
-                .listRowBackground(theme.paperTop)
+                .historyRow()
                 .task { await focus.loadDay(day.date) }
         }
     }
@@ -91,9 +96,32 @@ struct HistoryView: View {
             Spacer()
             Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 440)
         .accessibilityElement(children: .combine)
     }
+}
+
+/// The row chrome `List` supplied before the ink pull-to-refresh required a
+/// plain scroll container: surface, insets and a leading-inset separator.
+private struct HistoryRowStyle: ViewModifier {
+    @Environment(\.scrybe) private var theme
+
+    func body(content: Content) -> some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 11)
+            .background(theme.paperTop)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(theme.hairline)
+                    .frame(height: 1)
+                    .padding(.leading, 16)
+            }
+    }
+}
+
+private extension View {
+    func historyRow() -> some View { modifier(HistoryRowStyle()) }
 }
 
 private struct HistoryDayHeader: View {

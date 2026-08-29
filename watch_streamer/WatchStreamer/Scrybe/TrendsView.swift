@@ -26,7 +26,7 @@ struct TrendsView: View {
     private var summaryTitle: String { range == .week ? "Diese Woche" : "Letzte 30 Tage" }
 
     var body: some View {
-        ScrollView {
+        InkRefreshScroll(action: { await focus.refreshForPull() }) {
             ScrybeGlassGroup(spacing: 24) {
                 VStack(alignment: .leading, spacing: 24) {
                     if focus.isOffline {
@@ -50,7 +50,6 @@ struct TrendsView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .refreshable { await focus.refresh() }
         .background { theme.paper.ignoresSafeArea() }
     }
 

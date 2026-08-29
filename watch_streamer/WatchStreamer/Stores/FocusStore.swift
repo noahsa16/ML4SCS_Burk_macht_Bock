@@ -47,7 +47,11 @@ final class FocusStore: ObservableObject {
     /// time-of-day endpoint could make Heute, Trends and Verlauf all read as
     /// stale at once. `isOffline` now means *nothing* came back, which is what
     /// the offline banner claims.
-    func refresh() async {
+    /// - Returns: whether this refresh reached the server at all. The pull-to-
+    ///   refresh control needs the result of *its own* pull; `isOffline` is the
+    ///   standing state and stays false while cached data is still on screen.
+    @discardableResult
+    func refresh() async -> Bool {
         async let t = api.today()
         async let w = api.week()
         async let h = api.history(days: historyDays)
@@ -65,13 +69,20 @@ final class FocusStore: ObservableObject {
         do { timeOfDay = try await tod; succeeded += 1 }
         catch is CancellationError { cancelled = true } catch {}
 
-        guard !cancelled else { return }   // poll cancelled — keep state
+        guard !cancelled else { return !isOffline }   // poll cancelled — keep state
         if succeeded > 0 {
             isOffline = false
             lastUpdated = Date()
         } else {
             isOffline = true   // keep last good values
         }
+        return succeeded > 0
+    }
+
+    /// Refresh phrased as a pull outcome, so every screen's ink control shares
+    /// one mapping from "did it reach the server" to what the ring reports.
+    func refreshForPull() async -> InkRefreshOutcome {
+        await refresh() ? .updated(at: lastUpdated ?? Date()) : .offline
     }
 
     /// Load state for a single past day, so the UI can show a failure and a

@@ -35,8 +35,8 @@ struct TodayView: View {
         // detection state used to exist only in the populated branch, so a new
         // user — or a product-video run — could not tell whether detection was
         // live, disconnected or stale at exactly the moment setup feedback
-        // matters most. The empty state is also refreshable now.
-        ScrollView {
+        // matters most. The empty state pulls to refresh too.
+        InkRefreshScroll(action: { await focus.refreshForPull() }) {
             VStack(spacing: 24) {
                 if focus.isOffline {
                     OfflineBanner(lastUpdated: focus.lastUpdated)
@@ -46,7 +46,6 @@ struct TodayView: View {
             .padding()
             .frame(maxWidth: .infinity)
         }
-        .refreshable { await focus.refresh() }
         .background { theme.paper.ignoresSafeArea() }
         .onChange(of: isWriting) { _ in updatePulse() }
         .onChange(of: goalMet) { met in handleGoal(met) }

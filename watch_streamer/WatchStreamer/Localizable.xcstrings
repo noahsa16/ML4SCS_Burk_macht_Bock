@@ -1034,6 +1034,76 @@
           }
         }
       }
+    },
+    "Zum Aktualisieren ziehen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pull to refresh"
+          }
+        }
+      }
+    },
+    "Loslassen zum Abgleichen": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Release to sync"
+          }
+        }
+      }
+    },
+    "Schreibzeit wird abgeglichen …": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Syncing writing time …"
+          }
+        }
+      }
+    },
+    "Alles aktuell · %@": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Up to date · %@"
+          }
+        }
+      }
+    },
+    "Keine Verbindung · Daten bleiben erhalten": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No connection · your data is kept"
+          }
+        }
+      }
+    },
+    "Aktualisieren": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Refresh"
+          }
+        }
+      }
+    },
+    "Abgleich": {
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sync"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
