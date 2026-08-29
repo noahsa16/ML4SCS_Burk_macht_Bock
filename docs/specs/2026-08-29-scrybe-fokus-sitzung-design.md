@@ -195,11 +195,21 @@ gezeigt, nicht versteckt:
 - Der zuletzt gefüllte Abschnitt ist 10 % dunkler und 110 % breit und
   „trocknet" über 4–6 s auf Normalzustand.
 
-### Lücken
+### Lücken — drei Zustände, nicht zwei
 
-Bis 15 s linear, darüber logarithmisch gestaucht — sonst frisst eine Pause die
-Seite. Ab 60 s Zeilenumbruch mit Einzug: eine lange Pause wird ein neuer Absatz.
-Unter Lücken über 60 s eine Serifenziffer (`1:24`) in 10 pt bei 40 % Deckkraft.
+Schreiben besteht aus Schreiben *und* Nachdenken. Wer kurz etwas nachliest und
+weiterschreibt, hat die Sitzung nicht unterbrochen, und die Seite darf das nicht
+behaupten. Eine Zwei-Zustands-Linie (Tinte oder Riss) zerreißt bei jeder
+Lesepause.
+
+| Lücke | Darstellung | Bedeutung |
+|---|---|---|
+| ≤ 15 s | **Haarlinie** (0,6 pt, 35 % Deckkraft), Strich läuft durch | Die Feder ruht auf dem Papier |
+| 15–60 s | echter Riss, Verjüngung nach §„Der Strich"; Breite logarithmisch gestaucht | Die Feder wurde abgesetzt |
+| > 60 s | Zeilenumbruch mit Einzug, Serifenziffer (`1:24`) in 10 pt bei 40 % | Ein neuer Absatz |
+
+Die 15 s sind derselbe Schwellwert, der die Breitenstauchung steuert — eine
+Grenze, zwei Wirkungen, statt zweier Zahlen, die auseinanderlaufen können.
 
 ### Signatur
 
@@ -235,17 +245,25 @@ Formvokabular auf den Bildschirm kommt.
 
 ### Wie es entsteht
 
-Jedes Wesen ist ein **hand-gesetzter Pfad, zerlegt in geordnete Striche**. Ein
-Strich des Wesens wird gezeichnet, wenn eine **zusammenhängende Schreibphase**
-endet — nicht nach Zeit. Das Wesen ist damit ein Abbild der Sitzung: eine
-ungebrochene halbe Stunde zeichnet anders als eine zerhackte.
+Jedes Wesen ist ein **hand-gesetzter Pfad, zerlegt in geordnete Striche**. Es
+wächst mit **gutgeschriebener Schreibzeit**: bei einem Ziel von `T` Sekunden und
+`n` Strichen kommt alle `T/n` Sekunden Schreibzeit ein Strich hinzu.
+
+Pausen halten das Wachstum **an**, sie machen nichts rückgängig. Eine Lesepause
+kostet nichts außer der Zeit, die sie dauert.
+
+Ein früherer Entwurf ließ das Wesen pro *beendeter Schreibphase* wachsen. Das
+war falsch herum: es hätte Zerhacken belohnt — viermal kurz schreiben hätte vier
+Striche gebracht, einmal durchschreiben einen. Rhythmus und Menge gehören
+getrennt: **die Linie zeigt den Rhythmus, das Wesen die Menge.**
 
 - **Art** ist deterministisch aus `startMs` des Sitzungsbeginns gesät. Kein
   Neuwürfeln durch Abbrechen und Neustarten.
-- **Vollständigkeit** hängt am Ziel: wer die Sitzung vorzeitig beendet, behält
-  ein **halb gezeichnetes** Wesen. Es wird nicht verworfen und stirbt nicht — es
-  bleibt unfertig, so wie eine echte Randnotiz aussieht, wenn der Schreiber
-  unterbrochen wurde. Das ist Forests Verlustangst ohne Forests Grausamkeit.
+- **Es gibt kein Scheitern.** Das Wesen wird so weit gezeichnet, wie die
+  Schreibzeit reichte. Wer bei 60 % aufhört, hat ein zu 60 % gezeichnetes Wesen —
+  ein gesammeltes Ding, kein verlorenes. Nichts stirbt, nichts wird verworfen,
+  und keine Pause bedroht etwas. Die Motivation kommt daraus, das Tier fertig
+  sehen zu wollen, nicht aus der Angst, es zu verlieren.
 
 ### Sammlung
 
@@ -352,9 +370,12 @@ Der Akku ist der Risikoposten: Deckel und garantiertes Aufräumen sind Pflicht.
   `ax, ay, az, rx, ry, rz`.
 - Eine Sitzung lehnt den Start ab, solange die Uhr nicht auf 50 Hz steht — der
   Ratenfehler darf nicht still passieren.
-- Bestiarium: ein Strich je beendeter Schreibphase; die Art ist über denselben
-  `startMs` reproduzierbar; ein vorzeitiges Ende hinterlässt ein unfertiges
-  Wesen statt gar keines.
+- Bestiarium: die Strichzahl folgt der gutgeschriebenen Schreibzeit und ist
+  gegen Zerhacken invariant — dieselbe Schreibzeit in einem Stück und in vier
+  Stücken ergibt dieselbe Zahl; Pausen verringern sie nie; die Art ist über
+  denselben `startMs` reproduzierbar.
+- Die Linie unterscheidet drei Lückenklassen an den Grenzen 15 s und 60 s;
+  eine 10-s-Pause erzeugt keinen Riss.
 - Gegenseitiger Ausschluss Aufnahme ↔ Fokus, in beide Richtungen.
 - `FocusSessionStore` schreibt nichts in `PassiveDecisionStore` — der Test, der
   §2 festnagelt.
