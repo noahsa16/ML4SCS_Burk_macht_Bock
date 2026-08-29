@@ -1,30 +1,35 @@
 import SwiftUI
 
 struct RootPagerView: View {
-    @State private var selection = 0
+    private enum Tab: String {
+        case today = "Heute"
+        case trends = "Trends"
+        case history = "Verlauf"
+        case profile = "Profil"
+    }
+
+    @State private var selection: Tab = .today
     @State private var showSplash = true
     @AppStorage(ScrybeSettings.onboardingDoneKey) private var onboardingDone = false
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let labels = ["Heute", "Trends", "Verlauf", "Profil"]
-
     var body: some View {
         VStack(spacing: 12) {
-            ScrybeHeader(label: labels[selection])
+            ScrybeHeader(label: selection.rawValue)
             TabView(selection: $selection) {
                 TodayView()
                     .tabItem { Label("Heute", systemImage: "circle.dashed") }
-                    .tag(0)
+                    .tag(Tab.today)
                 TrendsView()
                     .tabItem { Label("Trends", systemImage: "chart.bar.fill") }
-                    .tag(1)
+                    .tag(Tab.trends)
                 HistoryView()
                     .tabItem { Label("Verlauf", systemImage: "list.bullet") }
-                    .tag(2)
+                    .tag(Tab.history)
                 ProfileView()
                     .tabItem { Label("Profil", systemImage: "person.fill") }
-                    .tag(3)
+                    .tag(Tab.profile)
             }
         }
         .background(theme.paper.ignoresSafeArea())

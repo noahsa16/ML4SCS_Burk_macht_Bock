@@ -36,7 +36,7 @@ struct InkRing: View {
                 if let subtitle {
                     Text(subtitle)
                         .font(.subheadline)
-                        .foregroundStyle(theme.sepia)
+                        .foregroundStyle(theme.secondaryInk)
                         .multilineTextAlignment(.center)
                 }
             }

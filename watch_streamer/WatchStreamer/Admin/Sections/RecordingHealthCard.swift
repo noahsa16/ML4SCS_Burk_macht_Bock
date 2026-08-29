@@ -55,7 +55,7 @@ struct RecordingHealthCard: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(Capsule().fill((on ? theme.success : theme.ink).opacity(0.12)))
-            .foregroundStyle(on ? theme.success : theme.sepia)
+            .foregroundStyle(on ? theme.successInk : theme.secondaryInk)
             .accessibilityLabel(a11yName)
             .accessibilityValue(on ? "aktiv" : "inaktiv")
     }

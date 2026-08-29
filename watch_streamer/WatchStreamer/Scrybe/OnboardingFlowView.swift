@@ -7,6 +7,7 @@ struct OnboardingFlowView: View {
     var onFinish: () -> Void
 
     @Environment(\.scrybe) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(ScrybeSettings.goalKey) private var goalSeconds: Double = ScrybeSettings.defaultGoalSeconds
     @State private var page = 0
     @State private var wantsReminder = false
@@ -31,14 +32,18 @@ struct OnboardingFlowView: View {
 
     private var primaryButton: some View {
         Button {
-            if page < lastPage { withAnimation { page += 1 } } else { finish() }
+            if page < lastPage {
+                withAnimation(reduceMotion ? nil : .easeInOut) { page += 1 }
+            } else {
+                finish()
+            }
         } label: {
             Text(page < lastPage ? "Weiter" : "Los geht's")
                 .font(.headline)
                 .foregroundStyle(theme.paperTop)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 14)
-                .background(theme.accent, in: RoundedRectangle(cornerRadius: 14))
+                .padding(.vertical, 16)
+                .background(theme.accent, in: RoundedRectangle(cornerRadius: 16))
         }
     }
 
@@ -60,7 +65,7 @@ struct OnboardingFlowView: View {
                 .foregroundStyle(theme.ink)
             Text("Schreibzeit, automatisch erkannt — allein über die Watch.")
                 .font(.title3)
-                .foregroundStyle(theme.sepia)
+                .foregroundStyle(theme.secondaryInk)
                 .multilineTextAlignment(.center)
         })
     }
@@ -98,7 +103,7 @@ struct OnboardingFlowView: View {
             Text("Erinnerung")
                 .font(.system(.title2, design: .serif)).foregroundStyle(theme.ink)
             Text("Ein täglicher Anstoß, falls dein Ziel noch offen ist.")
-                .font(.subheadline).foregroundStyle(theme.sepia)
+                .font(.subheadline).foregroundStyle(theme.secondaryInk)
                 .multilineTextAlignment(.center)
             Toggle("Tägliche Erinnerung", isOn: $wantsReminder)
                 .tint(theme.accent)
@@ -113,7 +118,7 @@ struct OnboardingFlowView: View {
             Text(title)
                 .font(.system(.title2, design: .serif)).foregroundStyle(theme.ink)
             Text(body)
-                .font(.subheadline).foregroundStyle(theme.sepia)
+                .font(.subheadline).foregroundStyle(theme.secondaryInk)
                 .multilineTextAlignment(.center)
         }
     }

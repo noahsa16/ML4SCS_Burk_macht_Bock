@@ -20,7 +20,7 @@ struct ScrybeHeader: View {
                 .textCase(.uppercase)
                 .font(.caption.weight(.medium))
                 .tracking(1.5)
-                .foregroundStyle(theme.sepia)
+                .foregroundStyle(theme.secondaryInk)
         }
         .padding(.top, 8)
         .padding(.horizontal, 16)

@@ -39,7 +39,7 @@ struct DataflowCard: View {
                 .font(.title3.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(color)
-            Text(title).font(.caption2).foregroundStyle(theme.sepia)
+            Text(title).font(.caption2).foregroundStyle(theme.secondaryInk)
         }
         .accessibilityElement(children: .combine)
     }

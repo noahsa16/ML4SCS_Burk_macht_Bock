@@ -49,9 +49,13 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     /// Limit verteuert nur diesen (Hintergrund-)Write, kein Live-Pfad-Kosten.
     private static let maxQueueSize = 5000
 
-    /// Disk-Persistierung — überlebt App-Crash / Force-Quit. Datei landet in
-    /// Documents/, weil das in iCloud-Backups inkludiert ist UND nach App-
-    /// Updates erhalten bleibt (im Gegensatz zu Caches/).
+    /// Disk-Persistierung — überlebt App-Crash / Force-Quit.
+    ///
+    /// Why Application Support and not Documents: the queue holds raw wrist
+    /// motion for an identified person. In Documents it was backup-eligible,
+    /// so a phone backup carried the proband's motion data off the device.
+    /// Application Support survives app updates the same way, is excluded from
+    /// backup here, and is file-protected until first unlock.
     private static let queueFileName = "upload_queue.json"
 
     /// Coalesce-Delay für Disk-Writes. 500 ms Debounce → wir schreiben nicht
@@ -126,10 +130,62 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     private var pendingDurabilityAcks: [(Bool) -> Void] = []
 
     private lazy var queueFileURL: URL = {
-        let docs = FileManager.default.urls(for: .documentDirectory,
-                                            in:  .userDomainMask)[0]
-        return docs.appendingPathComponent(Self.queueFileName)
+        let fm = FileManager.default
+        let support = (try? fm.url(for: .applicationSupportDirectory,
+                                   in: .userDomainMask,
+                                   appropriateFor: nil, create: true))
+            ?? fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        try? fm.createDirectory(at: support, withIntermediateDirectories: true)
+        let url = support.appendingPathComponent(Self.queueFileName)
+        Self.migrateLegacyQueue(to: url)
+        Self.protect(url)
+        return url
     }()
+
+    /// Moves a queue left in Documents by an older build, then removes the
+    /// original — otherwise the backup-eligible copy would linger untouched.
+    private static func migrateLegacyQueue(to destination: URL) {
+        let fm = FileManager.default
+        let legacy = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(queueFileName)
+        guard fm.fileExists(atPath: legacy.path) else { return }
+        if !fm.fileExists(atPath: destination.path) {
+            try? fm.moveItem(at: legacy, to: destination)
+        } else {
+            try? fm.removeItem(at: legacy)
+        }
+    }
+
+    /// Excludes the queue from backups and requires a first unlock to read it.
+    private static func protect(_ url: URL) {
+        var target = url
+        var values = URLResourceValues()
+        values.isExcludedFromBackup = true
+        try? target.setResourceValues(values)
+        try? FileManager.default.setAttributes(
+            [.protectionKey: FileProtectionType.completeUntilFirstUserAuthentication],
+            ofItemAtPath: url.path)
+    }
+
+    /// Removes every piece of locally held recording data.
+    ///
+    /// Distinct from resetting preferences: this is what "delete my data"
+    /// has to mean if the Profile screen offers it. Server-side data is
+    /// untouched and the UI says so.
+    func deleteAllLocalData() {
+        persistTask?.cancel()
+        uploadQueue.removeAll()
+        queuedBatchCount = 0
+        receivedSampleCount = 0
+        uploadedSampleCount = 0
+        failedUploadCount = 0
+        droppedBatchCount = 0
+        seenBatchKeys.removeAll()
+        seenBatchOrder.removeAll()
+        lastError = ""
+        let url = queueFileURL
+        persistQueue.async { try? FileManager.default.removeItem(at: url) }
+    }
 
     // MARK: – Lifecycle
 
@@ -639,6 +695,9 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             let data = try JSONSerialization.data(withJSONObject: snapshot,
                                                   options: [.fragmentsAllowed])
             try data.write(to: url, options: [.atomic])
+            // Why: an atomic write replaces the file, so the backup-exclusion
+            // and protection attributes have to be re-applied to the new inode.
+            Self.protect(url)
             return true
         } catch {
             // Persistenz-Fehler sollen den Datenfluss nicht stören. Wir loggen

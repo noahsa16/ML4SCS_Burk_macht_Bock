@@ -47,7 +47,7 @@ struct TrendsView: View {
                     if !hasAnyData {
                         Text("Deine Trends füllen sich mit den ersten Tagen.")
                             .font(.subheadline)
-                            .foregroundStyle(theme.sepia)
+                            .foregroundStyle(theme.secondaryInk)
                     }
                     summaryCard
                     streakCard
@@ -57,6 +57,7 @@ struct TrendsView: View {
             .padding()
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .refreshable { await focus.refresh() }
         .background { theme.paper.ignoresSafeArea() }
     }
 
@@ -91,11 +92,11 @@ struct TrendsView: View {
                     .font(.system(.largeTitle, design: .serif).weight(.semibold))
                     .foregroundStyle(theme.ink)
                     .contentTransition(.numericText())
-                Text("Tage").font(.subheadline).foregroundStyle(theme.sepia)
+                Text("Tage").font(.subheadline).foregroundStyle(theme.secondaryInk)
                 Spacer()
                 if focus.longestStreak > 0 {
                     Text("Längste: \(focus.longestStreak)")
-                        .font(.caption).foregroundStyle(theme.sepia)
+                        .font(.caption).foregroundStyle(theme.secondaryInk)
                 }
             }
             .accessibilityElement(children: .combine)
@@ -126,7 +127,7 @@ struct TrendsView: View {
             Label(magnitude,
                   systemImage: up ? "arrowtriangle.up.fill" : "arrowtriangle.down.fill")
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(up ? theme.success : theme.danger)
+                .foregroundStyle(up ? theme.successInk : theme.danger)
                 .accessibilityLabel("\(magnitude) \(direction) als zuvor")
         }
     }

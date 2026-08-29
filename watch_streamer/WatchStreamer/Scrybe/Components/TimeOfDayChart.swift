@@ -32,7 +32,7 @@ struct TimeOfDayChart: View {
                     Capsule()
                         .fill(secs > 0 ? theme.accent : theme.mutedInk)
                         .frame(width: 16, height: max(4, CGFloat(secs / maxSeconds) * 70))
-                    Text(LocalizedStringKey(part.label)).font(.caption2).foregroundStyle(theme.sepia)
+                    Text(LocalizedStringKey(part.label)).font(.caption2).foregroundStyle(theme.secondaryInk)
                 }
                 .frame(maxWidth: .infinity)
                 .accessibilityElement(children: .ignore)

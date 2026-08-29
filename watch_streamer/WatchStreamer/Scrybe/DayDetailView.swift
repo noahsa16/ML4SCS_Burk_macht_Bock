@@ -37,7 +37,7 @@ struct DayDetailView: View {
                     sessionsCard
                 } else {
                     Text("Keine Schreibphasen an diesem Tag.")
-                        .font(.footnote).foregroundStyle(theme.sepia)
+                        .font(.footnote).foregroundStyle(theme.secondaryInk)
                 }
             }
             .padding()
@@ -57,7 +57,7 @@ struct DayDetailView: View {
                 .contentTransition(.numericText())
             if isMet {
                 Label("Tagesziel erreicht", systemImage: "checkmark.seal")
-                    .font(.subheadline).foregroundStyle(theme.success)
+                    .font(.subheadline).foregroundStyle(theme.successInk)
             }
         }
     }
@@ -67,7 +67,7 @@ struct DayDetailView: View {
             Text("Schreibintensität").font(.headline).foregroundStyle(theme.ink)
             IntensityCurve(samples: daySamples)
             Text("\(stretches.count) Schreibphasen")
-                .font(.caption).foregroundStyle(theme.sepia)
+                .font(.caption).foregroundStyle(theme.secondaryInk)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -106,7 +106,7 @@ private struct StretchRow: View {
             Text(end).monospacedDigit()
             Spacer()
             MiniSparkline(samples: stretch.intensitySamples)
-            Text(duration).foregroundStyle(theme.sepia)
+            Text(duration).foregroundStyle(theme.secondaryInk)
         }
         .font(.callout)
         .foregroundStyle(theme.ink)

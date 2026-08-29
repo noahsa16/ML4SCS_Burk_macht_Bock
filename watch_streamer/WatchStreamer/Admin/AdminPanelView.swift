@@ -51,7 +51,7 @@ struct AdminCard<Content: View>: View {
             Text(title.uppercased())
                 .font(.caption.weight(.semibold))
                 .tracking(1.5)
-                .foregroundStyle(theme.sepia)
+                .foregroundStyle(theme.secondaryInk)
                 .accessibilityAddTraits(.isHeader)
             content
         }

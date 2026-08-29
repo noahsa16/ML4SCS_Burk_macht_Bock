@@ -196,44 +196,73 @@ private struct PreferencesCard: View {
 }
 
 private struct PrivacyCard: View {
+    @ObservedObject private var focus = FocusStore.shared
     @Environment(\.scrybe) private var theme
     @State private var confirmReset = false
+    @State private var confirmDelete = false
 
     var body: some View {
         ProfileCard(title: "Datenschutz") {
-            Text("Deine Bewegungsdaten werden nur zur Schreiberkennung verarbeitet und nicht an Dritte weitergegeben.")
-                .font(.footnote).foregroundStyle(theme.sepia)
-            ShareLink(item: exportJSON()) {
-                Label("Daten exportieren", systemImage: "square.and.arrow.up")
+            // Why this wording: the previous paragraph said only that data is
+            // not shared, while raw motion sat backup-eligible in Documents
+            // and the reset button removed five preference keys. Storage,
+            // backup and scope are now stated as they actually are.
+            Text("Deine Bewegungsdaten werden nur zur Schreiberkennung verarbeitet und nicht an Dritte weitergegeben. Noch nicht hochgeladene Rohdaten liegen geschützt auf diesem Gerät und werden nicht in Backups aufgenommen.")
+                .font(.footnote).foregroundStyle(theme.secondaryInk)
+
+            if let file = exportFile {
+                ShareLink(item: file) {
+                    Label("Daten exportieren", systemImage: "square.and.arrow.up")
+                        .font(.subheadline)
+                }
+            } else {
+                Label("Export nicht möglich", systemImage: "exclamationmark.triangle")
                     .font(.subheadline)
+                    .foregroundStyle(theme.danger)
             }
+            Text("Als JSON-Datei: Schreibzeit pro Tag, heutige Schreibphasen und deine Einstellungen. Keine Rohbewegungsdaten.")
+                .font(.caption2).foregroundStyle(theme.secondaryInk)
+
             Button(role: .destructive) { confirmReset = true } label: {
-                Label("Lokale Einstellungen zurücksetzen", systemImage: "trash")
+                Label("Einstellungen zurücksetzen", systemImage: "arrow.counterclockwise")
+                    .font(.subheadline)
+            }
+            Button(role: .destructive) { confirmDelete = true } label: {
+                Label("Alle lokalen Daten löschen", systemImage: "trash")
                     .font(.subheadline)
             }
         }
-        .confirmationDialog("Lokale Einstellungen zurücksetzen?",
+        .confirmationDialog("Einstellungen zurücksetzen?",
                             isPresented: $confirmReset, titleVisibility: .visible) {
-            Button("Zurücksetzen", role: .destructive, action: resetLocal)
+            Button("Zurücksetzen", role: .destructive, action: resetSettings)
             Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("Setzt Tagesziel, Erinnerung, Sprache und Wochenstart zurück. Aufgezeichnete Daten bleiben erhalten.")
+        }
+        .confirmationDialog("Alle lokalen Daten löschen?",
+                            isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Löschen", role: .destructive, action: deleteLocalData)
+            Button("Abbrechen", role: .cancel) {}
+        } message: {
+            Text("Löscht noch nicht hochgeladene Rohdaten und alle Einstellungen auf diesem iPhone. Bereits auf den Server übertragene Aufnahmen sind davon nicht betroffen.")
         }
     }
 
-    private func exportJSON() -> String {
-        var obj: [String: Any] = [:]
-        if let days = FocusStore.shared.history?.days {
-            obj["days"] = days.map { ["date": $0.date, "writing_seconds": $0.writingSeconds] }
-        }
-        let data = (try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted])) ?? Data()
-        return String(data: data, encoding: .utf8) ?? "{}"
+    private var exportFile: URL? {
+        ScrybeExport.writeTemporaryFile(history: focus.history, today: focus.today)
     }
 
-    private func resetLocal() {
+    private func resetSettings() {
         let d = UserDefaults.standard
         [ScrybeSettings.goalKey, ScrybeSettings.reminderEnabledKey,
          ScrybeSettings.reminderMinutesKey, ScrybeSettings.languageKey,
          ScrybeSettings.weekStartKey].forEach { d.removeObject(forKey: $0) }
         NotificationScheduler.cancel()
+    }
+
+    private func deleteLocalData() {
+        resetSettings()
+        PhoneBridge.shared.deleteAllLocalData()
     }
 }
 

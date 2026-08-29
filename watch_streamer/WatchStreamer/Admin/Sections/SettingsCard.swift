@@ -28,7 +28,7 @@ struct SettingsCard: View {
 
     @ViewBuilder private func field(_ label: String, text: Binding<String>, onCommit: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.caption).foregroundStyle(theme.sepia)
+            Text(label).font(.caption).foregroundStyle(theme.secondaryInk)
             TextField(label, text: text, onCommit: onCommit)
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled()

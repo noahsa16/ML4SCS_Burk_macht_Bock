@@ -5,9 +5,24 @@ enum ScrybeSettings {
     static let goalKey = "scrybe.dailyGoalSeconds"
     static let defaultGoalSeconds: Double = 2 * 3600
 
-    // Local admin PIN — a lock against accidental opens, not a security feature.
+    // Local admin PIN — a lock against accidental opens, not a security
+    // feature. The gate is a hidden gesture plus this code; anyone who
+    // discovers the gesture and the code reaches the repair controls, so it
+    // gates operator tooling in a prototype, never sensitive access.
     static let pinKey = "scrybe.adminPIN"
+    /// Only in effect until the operator sets their own. `hasCustomPIN` is
+    /// false while it stands, and the gate forces a change on first entry —
+    /// a shipped default must not remain the live credential.
     static let defaultPIN = "0000"
+
+    static var hasCustomPIN: Bool {
+        let stored = UserDefaults.standard.string(forKey: pinKey) ?? ""
+        return !stored.isEmpty && stored != defaultPIN
+    }
+
+    static func setAdminPIN(_ pin: String) {
+        UserDefaults.standard.set(pin, forKey: pinKey)
+    }
 
     // First-run onboarding completion flag.
     static let onboardingDoneKey = "scrybe.onboardingDone"

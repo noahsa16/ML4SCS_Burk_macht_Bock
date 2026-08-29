@@ -9,7 +9,7 @@ struct LiveChip: View {
 
     private var animatePulse: Bool { isWriting && !reduceMotion }
     private var dotColor: Color { isWriting ? theme.success : theme.ink.opacity(0.25) }
-    private var textColor: Color { isWriting ? theme.ink : theme.sepia }
+    private var textColor: Color { isWriting ? theme.ink : theme.secondaryInk }
     private var statusText: String { isWriting ? "schreibt gerade" : "Pause" }
     private var a11yLabel: String { isWriting ? "schreibt gerade" : "keine Schreibaktivität" }
 

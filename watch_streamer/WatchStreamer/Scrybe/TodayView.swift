@@ -77,6 +77,7 @@ struct TodayView: View {
             .padding()
             .frame(maxWidth: .infinity)
         }
+        .refreshable { await focus.refresh() }
     }
 
     private var ring: some View {

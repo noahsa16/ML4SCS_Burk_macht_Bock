@@ -45,13 +45,14 @@ struct HistoryView: View {
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        .refreshable { await focus.refresh() }
     }
 
     @ViewBuilder private func sessionRows(for day: FocusDayDTO) -> some View {
         if let sts = stretches(for: day.date) {
             if sts.isEmpty {
                 Text("Keine Schreibphasen.")
-                    .font(.caption).foregroundStyle(theme.sepia)
+                    .font(.caption).foregroundStyle(theme.secondaryInk)
                     .listRowBackground(theme.paperTop)
             } else {
                 ForEach(sts) { s in
@@ -61,7 +62,7 @@ struct HistoryView: View {
             }
         } else {
             Text("Laden …")
-                .font(.caption).foregroundStyle(theme.sepia)
+                .font(.caption).foregroundStyle(theme.secondaryInk)
                 .listRowBackground(theme.paperTop)
                 .task { await focus.loadDay(day.date) }
         }
@@ -73,7 +74,7 @@ struct HistoryView: View {
             Image(systemName: "list.bullet.rectangle")
                 .font(.largeTitle).foregroundStyle(theme.mutedInk)
             Text("Deine Sessions erscheinen hier, sobald die erste Aufnahme läuft.")
-                .font(.subheadline).foregroundStyle(theme.sepia)
+                .font(.subheadline).foregroundStyle(theme.secondaryInk)
                 .multilineTextAlignment(.center).padding(.horizontal, 40)
             Spacer()
             Spacer()
@@ -98,12 +99,12 @@ private struct HistoryDayHeader: View {
                 .font(.subheadline.weight(.semibold)).foregroundStyle(theme.ink)
             if day.isToday {
                 Text("HEUTE").font(.caption2.weight(.medium)).tracking(1)
-                    .foregroundStyle(theme.sepia)
+                    .foregroundStyle(theme.secondaryInk)
             }
             Spacer()
             Text(TimeFormatting.human(seconds: day.writingSeconds))
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(isMet ? theme.success : theme.sepia)
+                .foregroundStyle(isMet ? theme.successInk : theme.secondaryInk)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
@@ -122,7 +123,7 @@ private struct SessionRow: View {
             Text(start).monospacedDigit().font(.callout).foregroundStyle(theme.ink)
             Spacer()
             MiniSparkline(samples: stretch.intensitySamples)
-            Text(duration).font(.callout).foregroundStyle(theme.sepia)
+            Text(duration).font(.callout).foregroundStyle(theme.secondaryInk)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .ignore)

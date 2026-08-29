@@ -35,7 +35,7 @@ struct StatTriple: View {
                 .textCase(.uppercase)
                 .font(.caption2.weight(.medium))
                 .tracking(1)
-                .foregroundStyle(theme.sepia)
+                .foregroundStyle(theme.secondaryInk)
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)

@@ -28,7 +28,7 @@ private struct DayBar: View {
     }
 
     private var barFill: Color { day.isToday ? theme.accent : theme.mutedInk }
-    private var labelColor: Color { day.isToday ? theme.ink : theme.sepia.opacity(0.7) }
+    private var labelColor: Color { day.isToday ? theme.ink : theme.secondaryInk.opacity(0.7) }
     private var weekday: String { DateFormatting.weekday(iso: day.date) }
     private var shortWeekday: String { DateFormatting.shortWeekday(iso: day.date) }
     private var voiceLabel: String { day.isToday ? "\(weekday), heute" : weekday }
