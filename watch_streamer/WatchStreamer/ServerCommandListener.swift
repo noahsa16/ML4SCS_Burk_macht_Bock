@@ -12,7 +12,15 @@ class ServerCommandListener: NSObject, ObservableObject {
     @Published var currentSessionId: String?
     @Published var currentPersonId: String?
     @Published var currentCommandId: String?
-    @Published var lastWatchCommandStatus = "No command sent"
+    // Why: read by makePhoneStatus, which also runs on the WCSession background
+    // thread via the poll path. Mirror every write under the poll lock so that
+    // read gets a consistent value instead of racing the main-thread setter.
+    @Published var lastWatchCommandStatus = "No command sent" {
+        didSet {
+            let value = lastWatchCommandStatus
+            pollStateLock.withLock { _lastCommandStatusMirror = value }
+        }
+    }
     @Published var lastWatchPollStatus = "No Watch poll yet"
     @Published var watchPolling = false
     @Published var watchPollAgeMs: Int?
@@ -27,20 +35,79 @@ class ServerCommandListener: NSObject, ObservableObject {
     @Published var watchActualHz: Double = 0
     @Published var liveInference: LiveInferencePayload?
 
-    private var task: URLSessionWebSocketTask?
     private var reconnectWorkItem: DispatchWorkItem?
     private var pollAgeTimer: Timer?
-    private var sentHello = false
+
+    // MARK: – WebSocket generation state
+    //
+    // Why locked: `connect()` runs on main while receive/send callbacks run on
+    // URLSession's delegate queue. The epoch exists to reject stale callbacks,
+    // but reading `connectionEpoch` and `task` as separate unsynchronized
+    // fields meant a callback could observe a torn pair — a new epoch with the
+    // old task, or the reverse — so the guard could not do the job it was
+    // written for. Every access now goes through one lock, and the epoch check
+    // and task read happen in the same critical section.
+    private let socketStateLock = NSLock()
+    private var _task: URLSessionWebSocketTask?
     /// Identifies the current WebSocket "generation". Each connect() bumps this.
     /// Stale receive/send callbacks check their captured epoch and bail out if
     /// the current epoch has moved on — so a cancelled task's failure handler
     /// can never schedule a reconnect against the live connection.
-    private var connectionEpoch: Int = 0
-    private var lastPollAckKey: String?
+    private var _connectionEpoch: Int = 0
+    private var _sentHello = false
+
+    /// Installs a new generation. Returns the epoch the caller must carry.
+    private func beginConnection(_ newTask: URLSessionWebSocketTask?) -> Int {
+        socketStateLock.withLock {
+            _connectionEpoch &+= 1
+            _task = newTask
+            _sentHello = false
+            return _connectionEpoch
+        }
+    }
+
+    /// The live task, but only while `epoch` is still current.
+    private func liveTask(forEpoch epoch: Int) -> URLSessionWebSocketTask? {
+        socketStateLock.withLock { epoch == _connectionEpoch ? _task : nil }
+    }
+
+    private func socketSnapshot() -> (task: URLSessionWebSocketTask?, epoch: Int) {
+        socketStateLock.withLock { (_task, _connectionEpoch) }
+    }
+
+    /// Compare-and-set: exactly one caller per generation may send the hello
+    /// frame, even when two messages arrive back to back.
+    private func claimHello(epoch: Int) -> Bool {
+        socketStateLock.withLock {
+            guard epoch == _connectionEpoch, !_sentHello else { return false }
+            _sentHello = true
+            return true
+        }
+    }
+
+    /// Guarded by `pollStateLock` — `confirmCommandFromWatchPoll` runs on the
+    /// WCSession background thread, so an unsynchronized check-then-set let two
+    /// overlapping polls both emit the same `watch_ack`.
+    private var _lastPollAckKey: String?
+
+    /// Atomically claims an acknowledgement key. Returns true for the first
+    /// caller only, so the duplicate-suppression is a real compare-and-set.
+    private func claimPollAck(_ key: String) -> Bool {
+        pollStateLock.withLock {
+            guard _lastPollAckKey != key else { return false }
+            _lastPollAckKey = key
+            return true
+        }
+    }
     // Protected by pollStateLock — written from WCSession bg thread, read from main-thread timer.
     private let pollStateLock = NSLock()
     private var _lastWatchPollAt: Date?
     private var _lastWatchSnapshot: [String: Any] = [:]
+    private var _lastCommandStatusMirror = "No command sent"
+    /// Background-safe snapshot of `lastWatchCommandStatus`.
+    private var lastCommandStatusSnapshot: String {
+        pollStateLock.withLock { _lastCommandStatusMirror }
+    }
     private var lastWatchPollAt: Date? {
         get { pollStateLock.withLock { _lastWatchPollAt } }
         set { pollStateLock.withLock { _lastWatchPollAt = newValue } }
@@ -92,29 +159,33 @@ class ServerCommandListener: NSObject, ObservableObject {
     func connect() {
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
-        connectionEpoch &+= 1
-        task?.cancel(with: .goingAway, reason: nil)
+        socketSnapshot().task?.cancel(with: .goingAway, reason: nil)
 
-        guard let url = serverWebSocketURL else { return }
-        let epoch = connectionEpoch
-        task = URLSession.shared.webSocketTask(with: url)
-        task?.resume()
+        guard let url = serverWebSocketURL else {
+            // Why: still bump the generation so callbacks from the cancelled
+            // task cannot mistake themselves for current.
+            _ = beginConnection(nil)
+            isConnected = false
+            return
+        }
+        let newTask = URLSession.shared.webSocketTask(with: url)
+        let epoch = beginConnection(newTask)
+        newTask.resume()
         isConnected = false
-        sentHello = false
         listenLoop(epoch: epoch)
     }
 
     private func listenLoop(epoch: Int) {
-        task?.receive { [weak self] result in
-            guard let self, epoch == self.connectionEpoch else { return }
+        guard let task = liveTask(forEpoch: epoch) else { return }
+        task.receive { [weak self] result in
+            guard let self, self.liveTask(forEpoch: epoch) != nil else { return }
             switch result {
             case .failure:
                 DispatchQueue.main.async { self.isConnected = false }
                 self.scheduleReconnect()
             case .success(let msg):
                 DispatchQueue.main.async { self.isConnected = true }
-                if !self.sentHello {
-                    self.sentHello = true
+                if self.claimHello(epoch: epoch) {
                     self.sendServerEvent(["type": "hello", "client": "iphone"])
                     self.sendPhoneStatus()
                 }
@@ -224,7 +295,8 @@ class ServerCommandListener: NSObject, ObservableObject {
                               sessionId: String?,
                               personId: String?,
                               commandId: String?) -> [String: Any] {
-        var payload: [String: Any] = ["command": command, "server_ip": serverIP]
+        var payload: [String: Any] = [WatchPayloadKey.command: command,
+                                      WatchPayloadKey.serverIP: serverIP]
         if let sessionId, !sessionId.isEmpty { payload["session_id"] = sessionId }
         if let personId, !personId.isEmpty { payload["person_id"] = personId }
         if let commandId, !commandId.isEmpty { payload["command_id"] = commandId }
@@ -298,13 +370,15 @@ class ServerCommandListener: NSObject, ObservableObject {
     /// „Spill jetzt senden": die Watch drained ihren persistenten Buffer im
     /// Burst statt 1 Zeile/3 s. Nicht-destruktiv.
     func drainWatchSpill() {
-        forwardToWatch(["command": "drain_spill", "server_ip": serverIP])
+        forwardToWatch([WatchPayloadKey.command: WatchCommandName.drainSpill.rawValue,
+                        WatchPayloadKey.serverIP: serverIP])
     }
 
     /// „Spill verwerfen": die Watch löscht ihren persistenten Buffer. Die Watch
     /// verweigert das während einer laufenden Aufnahme (Schutz des Live-Staus).
     func clearWatchSpill() {
-        forwardToWatch(["command": "clear_spill", "server_ip": serverIP])
+        forwardToWatch([WatchPayloadKey.command: WatchCommandName.clearSpill.rawValue,
+                        WatchPayloadKey.serverIP: serverIP])
     }
 
     @Published var sensorProbeVerdict: SensorProbeVerdict?
@@ -317,6 +391,9 @@ class ServerCommandListener: NSObject, ObservableObject {
     @Published var parityResult: String?
     @Published var parityRaw: String?
 
+    /// Status of the most recent probe-start attempt, in the operator's words.
+    @Published var sensorProbeStartStatus: String?
+
     func startSensorProbe(durationSeconds: Double) {
         // Why: a stale verdict/raw from a previous probe left standing while
         // this one runs is the worst outcome for a step the operator can
@@ -324,17 +401,42 @@ class ServerCommandListener: NSObject, ObservableObject {
         sensorProbeVerdict = nil
         sensorProbeRaw = nil
         sensorProbeReadDuration = nil
-        forwardToWatch(["command": "sensor_probe_start",
-                        "duration_seconds": durationSeconds]) { [weak self] reply in
+        sensorProbeStartStatus = nil
+        // Why: a stable per-attempt identity makes the start idempotent on the
+        // Watch. Without it a duplicate delivery restarted the recorder and
+        // discarded a run already in progress — for the 12-hour probe that is
+        // half a day of hardware time.
+        let operationID = UUID().uuidString
+        forwardToWatch([WatchPayloadKey.command: WatchCommandName.sensorProbeStart.rawValue,
+                        WatchPayloadKey.durationSeconds: durationSeconds,
+                        WatchPayloadKey.operationID: operationID]) { [weak self] reply in
             self?.sensorProbeRaw = String(describing: reply)
+            self?.sensorProbeStartStatus = Self.probeStartStatus(from: reply)
         }
+    }
+
+    /// Translates a probe-start reply into a line the operator can act on.
+    static func probeStartStatus(from reply: [String: Any]) -> String {
+        let ok = WatchPayloadValue.bool(reply[WatchPayloadKey.ok]) ?? false
+        guard ok else {
+            let error = reply[WatchPayloadKey.error] as? String ?? "unknown error"
+            if let remaining = WatchPayloadValue.double(reply["remainingSeconds"]) {
+                return "\(error) — noch \(Int(remaining.rounded())) s"
+            }
+            return error
+        }
+        if WatchPayloadValue.bool(reply["alreadyStarted"]) == true {
+            return "Läuft bereits (dieselbe Anforderung, nicht neu gestartet)"
+        }
+        let requested = WatchPayloadValue.double(reply["requestedSeconds"]) ?? 0
+        return "Gestartet für \(Int(requested.rounded())) s"
     }
 
     func fetchSensorProbeReport() {
         sensorProbeVerdict = nil
         sensorProbeRaw = nil
         sensorProbeReadDuration = nil
-        forwardToWatch(["command": "sensor_probe_report"]) { [weak self] reply in
+        forwardToWatch([WatchPayloadKey.command: WatchCommandName.sensorProbeReport.rawValue]) { [weak self] reply in
             self?.sensorProbeRaw = String(describing: reply)
             self?.sensorProbeReadDuration = reply["readDurationSeconds"] as? Double
             self?.sensorProbeVerdict = Self.verdict(from: reply)
@@ -347,7 +449,7 @@ class ServerCommandListener: NSObject, ObservableObject {
     func runWatchParityCheck() {
         parityResult = nil
         parityRaw = nil
-        forwardToWatch(["command": "parity_check"]) { [weak self] reply in
+        forwardToWatch([WatchPayloadKey.command: WatchCommandName.parityCheck.rawValue]) { [weak self] reply in
             self?.parityRaw = String(describing: reply)
             let ok = (reply["ok"] as? Bool) ?? true
             guard ok else {
@@ -424,8 +526,7 @@ class ServerCommandListener: NSObject, ObservableObject {
         guard commandApplied else { return }
 
         let ackKey = "\(command)|\(expectedSessionId)|\(watchRunning)|\(expectedCommandId)"
-        guard ackKey != lastPollAckKey else { return }
-        lastPollAckKey = ackKey
+        guard claimPollAck(ackKey) else { return }
         let status = "\(command): confirmed by Watch poll"
         DispatchQueue.main.async {
             self.lastWatchCommandStatus = status
@@ -447,25 +548,39 @@ class ServerCommandListener: NSObject, ObservableObject {
 
     func forwardToWatch(_ payload: [String: Any],
                         onReply: (([String: Any]) -> Void)? = nil) {
-        let command = payload["command"] as? String ?? "unknown"
-        let sessionId = payload["session_id"] as? String
-        let commandId = payload["command_id"] as? String
+        let command = payload[WatchPayloadKey.command] as? String ?? "unknown"
+        let sessionId = payload[WatchPayloadKey.sessionID] as? String
+        let commandId = payload[WatchPayloadKey.commandID] as? String
 
-        // Why: ein neuer Befehl macht alle gequeueten älteren obsolet. Ohne
-        // Cancel stellt die transferUserInfo-FIFO Minuten-alte stop/start-
-        // Paare mitten in eine laufende Session zu (S044, 2026-06-12).
-        // Spiegelbild von cancelStaleUserInfoTransfers() auf der Watch-Seite;
-        // phone-seitig laufen über transferUserInfo ausschließlich Commands.
-        for transfer in WCSession.default.outstandingUserInfoTransfers {
-            transfer.cancel()
-        }
+        // Why: the transport class decides which delivery paths may be used.
+        // An unrecognised command is treated as non-durable — the destructive
+        // steps below must be opt-in, never a default for something we cannot
+        // classify.
+        let route = WatchCommandName(rawValue: command)
+        let mayReplaceDurableState = route?.mayReplaceDurableState ?? false
+        let mayFallBackToUserInfo = route?.mayFallBackToUserInfo ?? false
 
-        // Push when possible, but the MVP does not depend on this path:
-        // the Watch also pulls the latest command via command_poll.
-        do {
-            try WCSession.default.updateApplicationContext(payload)
-        } catch {
-            lastWatchCommandStatus = "\(command): context failed"
+        if mayReplaceDurableState {
+            // Why: ein neuer Befehl macht alle gequeueten älteren obsolet. Ohne
+            // Cancel stellt die transferUserInfo-FIFO Minuten-alte stop/start-
+            // Paare mitten in eine laufende Session zu (S044, 2026-06-12).
+            // Spiegelbild von cancelStaleUserInfoTransfers() auf der Watch-Seite;
+            // phone-seitig laufen über transferUserInfo ausschließlich Commands.
+            //
+            // Gated on the transport class since 2026-08-29: this ran for every
+            // command, so a read-only probe report or parity check erased
+            // pending start/stop recovery state on its way out.
+            for transfer in WCSession.default.outstandingUserInfoTransfers {
+                transfer.cancel()
+            }
+
+            // Push when possible, but the MVP does not depend on this path:
+            // the Watch also pulls the latest command via command_poll.
+            do {
+                try WCSession.default.updateApplicationContext(payload)
+            } catch {
+                lastWatchCommandStatus = "\(command): context failed"
+            }
         }
 
         WCSession.default.sendMessage(payload, replyHandler: { [weak self] reply in
@@ -486,19 +601,35 @@ class ServerCommandListener: NSObject, ObservableObject {
             }
         }, errorHandler: { [weak self] error in
             DispatchQueue.main.async {
-                self?.transferUserInfoToWatch(payload,
-                                              command: command)
+                // Why: only durable state may be re-sent through the queue. The
+                // Watch discards context and user-info copies of a diagnostic,
+                // so queueing one produced a delivery guaranteed to be ignored
+                // while telling the caller it was on its way.
+                if mayFallBackToUserInfo {
+                    self?.transferUserInfoToWatch(payload, command: command)
+                    onReply?([
+                        WatchPayloadKey.ok: false,
+                        WatchPayloadKey.command: command,
+                        WatchPayloadKey.error:
+                            "sendMessage failed (\(error.localizedDescription)); "
+                            + "queued via transferUserInfo, no reply will follow"
+                    ])
+                    return
+                }
                 // Why: transferUserInfo has no reply channel back to the
                 // iPhone, so a diagnostic caller (sensor probe / parity
                 // check) would otherwise wait forever with no feedback at
                 // all — exactly the "Watch unreachable" state the spike
-                // protocol's app-kill step produces. Surface the transport
-                // failure so the card can say so instead of staying blank.
+                // protocol's app-kill step produces. Report the transport
+                // failure as the terminal result it is.
+                self?.lastWatchCommandStatus = "\(command): Watch unreachable"
+                self?.sendPhoneStatus()
                 onReply?([
-                    "ok": false,
-                    "command": command,
-                    "error": "sendMessage failed (\(error.localizedDescription)); "
-                        + "queued via transferUserInfo, no reply will follow"
+                    WatchPayloadKey.ok: false,
+                    WatchPayloadKey.command: command,
+                    WatchPayloadKey.error:
+                        "Watch unreachable (\(error.localizedDescription)); "
+                        + "the query did not run"
                 ])
             }
         })
@@ -516,9 +647,11 @@ class ServerCommandListener: NSObject, ObservableObject {
               let text = String(data: data, encoding: .utf8)
         else { return }
 
-        let epoch = connectionEpoch
-        task?.send(.string(text)) { [weak self] error in
-            guard let self, error != nil, epoch == self.connectionEpoch else { return }
+        let (task, epoch) = socketSnapshot()
+        guard let task else { return }
+        task.send(.string(text)) { [weak self] error in
+            guard let self, error != nil,
+                  self.liveTask(forEpoch: epoch) != nil else { return }
             DispatchQueue.main.async { self.isConnected = false }
             self.scheduleReconnect()
         }
@@ -547,7 +680,7 @@ class ServerCommandListener: NSObject, ObservableObject {
             "current_session_id": snap.sessionId ?? "",
             "current_command_id": snap.commandId ?? "",
             "watch_last_command_id": watchInfo["last_command_id"] as? String ?? "",
-            "last_watch_command_status": lastWatchCommandStatus,
+            "last_watch_command_status": lastCommandStatusSnapshot,
             "last_watch_poll_status": pollStatus,
         ]
     }

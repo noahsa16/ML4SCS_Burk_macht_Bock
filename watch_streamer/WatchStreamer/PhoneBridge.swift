@@ -121,6 +121,10 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     /// gecancelt → coalescing.
     private var persistTask: DispatchWorkItem?
 
+    /// Watch acknowledgements waiting for the write that makes their batch
+    /// durable. Main-thread only.
+    private var pendingDurabilityAcks: [(Bool) -> Void] = []
+
     private lazy var queueFileURL: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory,
                                             in:  .userDomainMask)[0]
@@ -215,8 +219,16 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             replyHandler(reply)
             return
         }
-        let accepted = receivePayload(message, source: "message")
-        replyHandler(["ok": accepted])
+        // Why: the reply is the Watch's permission to release its copy of this
+        // batch, so it must not be sent until the batch is durable here. A
+        // malformed payload still answers immediately with ok=false via the
+        // same callback.
+        var replied = false
+        receivePayload(message, source: "message") { durable in
+            guard !replied else { return }
+            replied = true
+            replyHandler([WatchPayloadKey.ok: durable])
+        }
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
@@ -282,8 +294,17 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
     // MARK: – Receive (off-main heavy work)
 
+    /// Ingests one batch. `onDurable`, when given, fires exactly once with
+    /// whether the batch is safely owned by the persisted upload queue.
+    ///
+    /// Why the callback: the Watch treats a successful reply as permission to
+    /// release its own copy of the batch. Replying at validation time — before
+    /// the batch reached the queue, let alone disk — meant a suspension or
+    /// crash in that window lost data the Watch had already let go.
     @discardableResult
-    private func receivePayload(_ payload: [String: Any], source: String) -> Bool {
+    private func receivePayload(_ payload: [String: Any],
+                                source: String,
+                                onDurable: ((Bool) -> Void)? = nil) -> Bool {
         // Why: validate synchronously so the WatchConnectivity replyHandler can
         // honestly report whether the batch was accepted — a malformed payload
         // must not be acked as ok=true. normalizePayload is pure (no shared
@@ -292,11 +313,12 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         guard let normalized = normalizePayload(payload, source: source),
               let samples = normalized["samples"] as? [[String: Any]] else {
             DispatchQueue.main.async { self.lastError = "Invalid watch payload" }
+            onDurable?(false)
             return false
         }
 
         workQueue.async { [weak self] in
-            guard let self else { return }
+            guard let self else { onDurable?(false); return }
 
             // Magnituden für Live-Chart vorberechnen — vermeidet O(N) Arbeit
             // auf dem Main-Thread bei jedem Batch.
@@ -318,6 +340,10 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
                 // doppelt liefern. Wir gaten alles (receivedSampleCount, Queue,
                 // Chart) hinter dem (sessionId, Capture-ts)-Check.
                 if self.isDuplicateBatch(normalized) {
+                    // Why: a duplicate is already durable from the delivery
+                    // that won, so acking true is truthful and lets the Watch
+                    // release its copy rather than retrying forever.
+                    onDurable?(true)
                     return
                 }
 
@@ -335,7 +361,11 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
                 IMUDataStore.shared.pushBatch(accValues: accValues, gyroValues: gyroValues)
 
-                self.schedulePersist()
+                // Why: the ack rides on the next successful snapshot write, so
+                // it reports durability rather than intent. Batches arriving
+                // inside one debounce window share that write, so the disk cost
+                // is unchanged from before.
+                self.schedulePersist(ack: onDurable)
                 self.uploadNextIfNeeded()
             }
         }
@@ -513,11 +543,16 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     /// Auf main thread aufrufen — pausiert vorhandenen pending write und
     /// schedult einen neuen mit `persistDebounce` Verzögerung. Mehrere Aufrufe
     /// in kurzer Folge → nur ein Write am Ende.
-    private func schedulePersist() {
+    private func schedulePersist(ack: ((Bool) -> Void)? = nil) {
+        // Why: an ack waits for the write that includes its batch. Cancelling
+        // the previous work item never strands one — the queue only grows, so
+        // the next write covers every batch the cancelled one would have.
+        if let ack { pendingDurabilityAcks.append(ack) }
         persistTask?.cancel()
         let snapshot = uploadQueue
         let work = DispatchWorkItem { [weak self] in
-            self?.writeQueueToDisk(snapshot)
+            let ok = self?.writeQueueToDisk(snapshot) ?? false
+            DispatchQueue.main.async { self?.flushDurabilityAcks(ok) }
         }
         persistTask = work
         persistQueue.asyncAfter(deadline: .now() + Self.persistDebounce, execute: work)
@@ -528,30 +563,43 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         persistTask?.cancel()
         let snapshot = uploadQueue
         persistQueue.async { [weak self] in
-            self?.writeQueueToDisk(snapshot)
+            let ok = self?.writeQueueToDisk(snapshot) ?? false
+            DispatchQueue.main.async { self?.flushDurabilityAcks(ok) }
         }
     }
 
+    /// Main-thread only. Fires and clears every ack waiting on a write.
+    private func flushDurabilityAcks(_ ok: Bool) {
+        guard !pendingDurabilityAcks.isEmpty else { return }
+        let acks = pendingDurabilityAcks
+        pendingDurabilityAcks.removeAll(keepingCapacity: true)
+        for ack in acks { ack(ok) }
+    }
+
     /// Schreibt die Queue als JSON-Array. Atomic write → entweder vollständig
-    /// alt oder vollständig neu, nie korrupt.
-    private func writeQueueToDisk(_ snapshot: [[String: Any]]) {
+    /// alt oder vollständig neu, nie korrupt. Returns whether the snapshot is
+    /// now durable, which is what the Watch's acknowledgement rides on.
+    @discardableResult
+    private func writeQueueToDisk(_ snapshot: [[String: Any]]) -> Bool {
         let url = queueFileURL
         do {
             if snapshot.isEmpty {
                 // Datei löschen statt leeres Array schreiben — spart Cycles
                 // beim nächsten Launch (kein Decode).
                 try? FileManager.default.removeItem(at: url)
-                return
+                return true
             }
             let data = try JSONSerialization.data(withJSONObject: snapshot,
                                                   options: [.fragmentsAllowed])
             try data.write(to: url, options: [.atomic])
+            return true
         } catch {
             // Persistenz-Fehler sollen den Datenfluss nicht stören. Wir loggen
             // sie nur, blockieren aber nicht den Upload.
             DispatchQueue.main.async {
                 self.lastError = "Persist failed: \(error.localizedDescription)"
             }
+            return false
         }
     }
 

@@ -22,24 +22,69 @@ enum SensorProbe {
         return "unknown"
     }
 
-    static func start(durationSeconds: Double) -> [String: Any] {
-        let clamped = min(durationSeconds, 43_200)   // 12 h Maximum
+    private static let startedAtKey = "sensorProbe.startedAt"
+    private static let requestedSecondsKey = "sensorProbe.requestedSeconds"
+    private static let operationIDKey = "sensorProbe.operationId"
+
+    /// Starts a recorder run, at most once per `operationID`.
+    ///
+    /// Why idempotent: a probe run is a scarce measurement — the 12-hour one
+    /// can only be repeated a few times a day. `sensor_probe_start` used to
+    /// carry no request identity, so a duplicate WatchConnectivity delivery
+    /// silently reset `startedAt` and invalidated a run already in progress.
+    /// The caller now supplies a stable ID; a repeat of the same ID reports the
+    /// original start instead of issuing a second `recordAccelerometer`, and a
+    /// *different* ID is refused while a run is still inside its window so
+    /// restarting is always a deliberate operator act.
+    static func start(durationSeconds: Double, operationID: String) -> [String: Any] {
+        let defaults = UserDefaults.standard
+        let clamped = min(durationSeconds, maxFetchSpanSeconds)
+        let storedID = defaults.string(forKey: operationIDKey)
+        let storedStart = defaults.double(forKey: startedAtKey)
+        let storedRequested = defaults.double(forKey: requestedSecondsKey)
+
+        if !operationID.isEmpty, storedID == operationID, storedStart > 0 {
+            return [
+                "ok": true,
+                "startedAt": storedStart,
+                "requestedSeconds": storedRequested,
+                "operationId": operationID,
+                "alreadyStarted": true,
+                "authorization": authorizationDescription()
+            ]
+        }
+
+        let now = Date().timeIntervalSinceReferenceDate
+        let stillRunning = storedStart > 0 && (now - storedStart) < storedRequested
+        if stillRunning {
+            return [
+                "ok": false,
+                "error": "probe already running",
+                "startedAt": storedStart,
+                "requestedSeconds": storedRequested,
+                "operationId": storedID ?? "",
+                "remainingSeconds": storedRequested - (now - storedStart)
+            ]
+        }
+
         recorder.recordAccelerometer(forDuration: clamped)
-        UserDefaults.standard.set(Date().timeIntervalSinceReferenceDate,
-                                  forKey: "sensorProbe.startedAt")
-        UserDefaults.standard.set(clamped, forKey: "sensorProbe.requestedSeconds")
+        defaults.set(now, forKey: startedAtKey)
+        defaults.set(clamped, forKey: requestedSecondsKey)
+        defaults.set(operationID, forKey: operationIDKey)
         return [
             "ok": true,
-            "startedAt": Date().timeIntervalSinceReferenceDate,
+            "startedAt": now,
             "requestedSeconds": clamped,
+            "operationId": operationID,
+            "alreadyStarted": false,
             "authorization": authorizationDescription()
         ]
     }
 
     static func report() -> [String: Any] {
         let defaults = UserDefaults.standard
-        let startedAt = defaults.double(forKey: "sensorProbe.startedAt")
-        let requested = defaults.double(forKey: "sensorProbe.requestedSeconds")
+        let startedAt = defaults.double(forKey: startedAtKey)
+        let requested = defaults.double(forKey: requestedSecondsKey)
         guard startedAt > 0 else {
             return ["ok": false, "error": "no probe started"]
         }

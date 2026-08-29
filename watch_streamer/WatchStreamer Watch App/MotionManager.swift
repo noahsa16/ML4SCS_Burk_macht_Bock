@@ -113,6 +113,11 @@ class MotionManager: NSObject, ObservableObject {
     @Published private(set) var failedBatchCount = 0
     @Published private(set) var spilledSampleCount = 0
     @Published private(set) var spillDroppedSampleCount = 0
+    /// False once any spill write failed. The spill file is the last guarantee
+    /// against data loss, so a silent write failure must be visible rather than
+    /// leaving the counter claiming samples are safe on disk.
+    @Published private(set) var spillHealthy = true
+    @Published private(set) var spillHealthDetail = ""
     // Recent |acc| magnitudes (batch rate, capped) for the on-watch sparkline.
     @Published private(set) var accMagHistory: [Double] = []
     @Published private(set) var queuedSampleCount = 0
@@ -352,15 +357,19 @@ class MotionManager: NSObject, ObservableObject {
         WCSession.default.sendMessage(message, replyHandler: { [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
-                // Why: wenn errorHandler bereits gefeuert hat (Reply-Timeout-Race),
-                // ist seq weg und der Fallback wurde schon angestoßen. Dann nur
-                // den UI-Counter aktualisieren, nicht doppelt zählen.
-                let stillInFlight = self.inFlightSequences.remove(seq) != nil
+                // Why: live reply and background completion are mutually
+                // exclusive terminal outcomes for one batch. If errorHandler
+                // already fired (reply-timeout race), seq is gone and the
+                // fallback owns this batch — its completion will count the
+                // delivery. Counting here too reported the same samples twice.
+                guard self.inFlightSequences.remove(seq) != nil else {
+                    self.uploadMode = "Bridge"
+                    return
+                }
                 self.deliveredSampleCount += samples.count
                 self.backgroundQueuedSampleCount = max(0, self.backgroundQueuedSampleCount - samples.count)
                 self.status = self.isRunning ? "Recording" : "Stopped"
                 self.uploadMode = "Bridge"
-                _ = stillInFlight
             }
         }, errorHandler: { [weak self] error in
             DispatchQueue.main.async {
@@ -495,8 +504,13 @@ class MotionManager: NSObject, ObservableObject {
     /// Hängt ein Envelope als JSON-Zeile an die Spill-Datei. Aufruf, wenn der
     /// Live-/Queue-Pfad gesättigt ist — verworfen wird dadurch nichts mehr.
     private func spillEnvelope(_ envelope: [String: Any]) {
-        guard let line = try? JSONSerialization.data(withJSONObject: envelope) else { return }
         let n = (envelope["samples"] as? [[String: Any]])?.count ?? 0
+        guard let line = try? JSONSerialization.data(withJSONObject: envelope) else {
+            // Why: the counter must never claim samples are safely on disk when
+            // serialization failed before a single byte was written.
+            noteSpillFailure(samples: n, reason: "serialization failed")
+            return
+        }
         spilledSampleCount += n
         let url = spillFileURL
         spillQueue.async { [weak self] in
@@ -516,12 +530,48 @@ class MotionManager: NSObject, ObservableObject {
             if !FileManager.default.fileExists(atPath: url.path) {
                 FileManager.default.createFile(atPath: url.path, contents: nil)
             }
-            guard let handle = try? FileHandle(forWritingTo: url) else { return }
+            guard let handle = try? FileHandle(forWritingTo: url) else {
+                self?.noteSpillFailureOffMain(samples: n, reason: "cannot open spill file")
+                return
+            }
             defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            var blob = line
-            blob.append(0x0A)
-            try? handle.write(contentsOf: blob)
+            // Why: every persistence result is handled. These were `try?` with
+            // the counter already incremented, so the UI could report samples
+            // as safely spilled when nothing reached disk — the one claim the
+            // spill mechanism exists to make.
+            do {
+                _ = try handle.seekToEnd()
+                var blob = line
+                blob.append(0x0A)
+                try handle.write(contentsOf: blob)
+                self?.noteSpillSuccessOffMain()
+            } catch {
+                self?.noteSpillFailureOffMain(samples: n,
+                                              reason: error.localizedDescription)
+            }
+        }
+    }
+
+    /// Rolls back the optimistic spill counter and records why. Main-thread call.
+    private func noteSpillFailure(samples: Int, reason: String) {
+        spillDroppedSampleCount += samples
+        spillHealthy = false
+        spillHealthDetail = reason
+    }
+
+    private func noteSpillFailureOffMain(samples: Int, reason: String) {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.spilledSampleCount = max(0, self.spilledSampleCount - samples)
+            self.noteSpillFailure(samples: samples, reason: reason)
+        }
+    }
+
+    private func noteSpillSuccessOffMain() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.spillHealthy else { return }
+            self.spillHealthy = true
+            self.spillHealthDetail = ""
         }
     }
 
@@ -778,29 +828,62 @@ extension MotionManager: WCSessionDelegate {
 
     func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
         DispatchQueue.main.async {
-            if applicationContext["command"] != nil,
-               !Self.requiresDirectReply(applicationContext) {
-                _ = self.handleCommand(applicationContext)
-            }
+            guard Self.isDurableStateDelivery(applicationContext) else { return }
+            _ = self.handleCommand(applicationContext)
         }
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         DispatchQueue.main.async {
-            if userInfo["command"] != nil,
-               !Self.requiresDirectReply(userInfo) {
-                _ = self.handleCommand(userInfo)
-            }
+            guard Self.isDurableStateDelivery(userInfo) else { return }
+            _ = self.handleCommand(userInfo)
         }
     }
 
-    /// Long-running diagnostics are request/response operations, not durable
-    /// state changes. The iPhone also mirrors every command through application
-    /// context and user-info delivery; accepting those copies would run the
-    /// same CMSensorRecorder/Core ML read concurrently with `sendMessage`.
-    private static func requiresDirectReply(_ message: [String: Any]) -> Bool {
-        guard let command = message["command"] as? String else { return false }
-        return command == "sensor_probe_report" || command == "parity_check"
+    /// Only durable recording state may be applied from a context or user-info
+    /// copy. Everything else is either a request/response query whose whole
+    /// value is the live reply, or a one-shot operation that a late duplicate
+    /// must not re-trigger — running a queued copy of `sensor_probe_start`
+    /// would restart a measurement already in progress.
+    private static func isDurableStateDelivery(_ message: [String: Any]) -> Bool {
+        guard let raw = message[WatchPayloadKey.command] as? String,
+              let command = WatchCommandName(rawValue: raw) else { return false }
+        return command.transport == .durableState
+    }
+
+    /// Answers a diagnostic without entering the recording command dispatcher.
+    ///
+    /// Why separate: these run on a background queue (a 12-hour recorder read
+    /// or a Core ML pass would block main past the iPhone's sendMessage
+    /// timeout), but `handleCommand` starts by applying capture configuration
+    /// and then reads recording state — so routing them through it raced
+    /// start/stop/poll work on main. The cases themselves never touched
+    /// recording state; the dispatcher around them did.
+    fileprivate func handleDiagnosticCommand(_ message: [String: Any]) -> [String: Any] {
+        guard let raw = message[WatchPayloadKey.command] as? String,
+              let command = WatchCommandName(rawValue: raw), command.isDiagnostic else {
+            return [WatchPayloadKey.ok: false,
+                    WatchPayloadKey.error: "not a diagnostic command"]
+        }
+        let commandId = message[WatchPayloadKey.commandID] as? String ?? ""
+
+        var reply: [String: Any]
+        switch command {
+        case .sensorProbeStart:
+            let duration = WatchPayloadValue.double(message[WatchPayloadKey.durationSeconds]) ?? 3600
+            let operationID = message[WatchPayloadKey.operationID] as? String ?? ""
+            reply = SensorProbe.start(durationSeconds: duration, operationID: operationID)
+        case .sensorProbeReport:
+            reply = SensorProbe.report()
+        case .parityCheck:
+            reply = WatchParityCheck.run()
+        default:
+            return [WatchPayloadKey.ok: false,
+                    WatchPayloadKey.error: "not a diagnostic command"]
+        }
+        reply[WatchPayloadKey.command] = raw
+        reply[WatchPayloadKey.commandID] = commandId
+        return reply
     }
 
     @discardableResult
@@ -882,22 +965,15 @@ extension MotionManager: WCSessionDelegate {
                 "isRunning": isRunning,
                 "spilled_samples": spilledSampleCount,
             ]
-        case "sensor_probe_start":
-            let duration = (message["duration_seconds"] as? Double) ?? 3600
-            var reply = SensorProbe.start(durationSeconds: duration)
-            reply["command"] = command
-            reply["command_id"] = commandId ?? ""
-            return reply
-        case "sensor_probe_report":
-            var reply = SensorProbe.report()
-            reply["command"] = command
-            reply["command_id"] = commandId ?? ""
-            return reply
-        case "parity_check":
-            var reply = WatchParityCheck.run()
-            reply["command"] = command
-            reply["command_id"] = commandId ?? ""
-            return reply
+        case "sensor_probe_start", "sensor_probe_report", "parity_check":
+            // Why: diagnostics are answered by handleDiagnosticCommand, which
+            // runs off main and never applies capture configuration. Reaching
+            // them here means a delivery path that should not carry them.
+            return [
+                WatchPayloadKey.ok: false,
+                WatchPayloadKey.command: command,
+                WatchPayloadKey.error: "diagnostic command requires a direct reply",
+            ]
         case "clear_spill":
             // Destruktiv: Spill verwerfen. clearSpill() weigert sich, wenn
             // gerade aufgenommen wird — schützt Live-Puffer gegen einen evtl.
@@ -956,16 +1032,16 @@ extension MotionManager: WCSessionDelegate {
         // CMSensorRecorder data (~2.16M records) and parity_check runs Core ML
         // inference; both would block the main thread long enough for the
         // iPhone's sendMessage to time out, at which point replyHandler is
-        // never invoked (see ServerCommandListener.transferUserInfoToWatch).
-        // Both commands are read-only diagnostics that never touch
-        // MotionManager's recording state, so routing exactly these two off
-        // main is safe. start/stop/drain_spill/clear_spill stay on main —
-        // they are latency-sensitive and mutate recording state.
-        let command = message["command"] as? String
-        if command == "sensor_probe_report" || command == "parity_check" {
+        // never invoked. They go to handleDiagnosticCommand, which does not
+        // enter the recording dispatcher at all — previously they ran off main
+        // but still passed through handleCommand, which applies capture
+        // configuration and reads recording state, so they raced start/stop.
+        // start/stop/drain_spill/clear_spill stay on main: they are
+        // latency-sensitive and mutate recording state.
+        if let raw = message[WatchPayloadKey.command] as? String,
+           let command = WatchCommandName(rawValue: raw), command.isDiagnostic {
             DispatchQueue.global(qos: .utility).async {
-                let reply = self.handleCommand(message)
-                replyHandler(reply)
+                replyHandler(self.handleDiagnosticCommand(message))
             }
             return
         }
