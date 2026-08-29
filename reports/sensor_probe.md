@@ -16,8 +16,10 @@ Review-Befund I1, `.superpowers/sdd/2026-08-28-on-device-deployment-phase1/progr
 
 ## Ablauf
 
-1. `SensorProbeCard` im iPhone-Admin-Panel (erreichbar per Dreifach-Tap auf
-   das Logo) → "1 h" bzw. "12 h" startet `sensor_probe_start`.
+1. `SensorProbeCard` im iPhone-Admin-Panel (Profil → fuenf Taps auf die
+   Versionszeile "Scrybe x.y" → PIN, Default `0000`; der Dreifach-Tap auf das
+   Logo oeffnet das Admin-Panel des Web-Dashboards, nicht dieses hier)
+   → "1 h" bzw. "12 h" startet `sensor_probe_start`.
    NSMotionUsageDescription + `CMSensorRecorder.authorizationStatus()` vorher
    pruefen.
 2. Nach Ablauf der Dauer (plus 5 min Headroom, Spec §1.1) → "Auswerten"
