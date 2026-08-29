@@ -99,6 +99,13 @@ public enum WatchPayloadKey {
     public static let batchSize = "batch_size"
     public static let durationSeconds = "duration_seconds"
 
+    /// Envelope type for a batch of passive writing decisions travelling from
+    /// the Watch to the phone. Sent over `transferUserInfo` because it is
+    /// durable state that must survive the phone being out of range, and
+    /// idempotent because each decision is keyed by its own start time.
+    public static let passiveDecisionsType = "passive_decisions"
+    public static let decisions = "decisions"
+
     /// Snake-case status fields, used in the Watch → iPhone poll payload.
     public enum Status {
         public static let isRunning = "is_running"

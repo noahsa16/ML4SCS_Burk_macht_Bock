@@ -14,21 +14,35 @@ enum ScrybeModelError: Error {
 /// unterstützten Operationen. Bei 9k bzw. 19k Parametern ist der Preis
 /// dafür gegenüber der Sensorik vernachlässigbar.
 final class ScrybeModel {
-    static let inputName = "window"
-    static let outputName = "logit"
-
     let seqLen: Int
     let channels: Int
+    /// The artifact's own provenance record, verified against the requested
+    /// shape at initialization.
+    let manifest: PassiveModelManifest
     private let model: MLModel
 
-    init(resourceName: String, channels: Int, seqLen: Int = 250) throws {
-        guard let url = Bundle.main.url(forResource: resourceName,
-                                        withExtension: "mlmodelc") else {
+    var inputName: String { manifest.inputName }
+    var outputName: String { manifest.outputName }
+
+    /// Why the manifest is loaded here: the caller used to supply `channels`
+    /// and `seqLen`, and nothing checked them against the artifact actually
+    /// bundled. A stale model paired with a stale fixture stayed internally
+    /// consistent while being the wrong deployment artifact. The sidecar is
+    /// now the authority, and a disagreement throws instead of producing
+    /// confident nonsense.
+    init(resourceName: String, channels: Int, seqLen: Int = 250,
+         bundle: Bundle = .main) throws {
+        guard let url = bundle.url(forResource: resourceName,
+                                   withExtension: "mlmodelc") else {
             throw ScrybeModelError.missingResource(resourceName)
         }
+        let manifest = try PassiveModelManifest.load(resourceName: resourceName,
+                                                     in: bundle)
+        try manifest.verify(channels: channels, seqLen: seqLen)
         let config = MLModelConfiguration()
         config.computeUnits = .cpuOnly
         self.model = try MLModel(contentsOf: url, configuration: config)
+        self.manifest = manifest
         self.seqLen = seqLen
         self.channels = channels
     }
@@ -49,16 +63,18 @@ final class ScrybeModel {
                                                        count: expected) }
 
         let input = try MLDictionaryFeatureProvider(
-            dictionary: [Self.inputName: MLFeatureValue(multiArray: array)])
+            dictionary: [inputName: MLFeatureValue(multiArray: array)])
         let out = try model.prediction(from: input)
-        guard let value = out.featureValue(for: Self.outputName)?.multiArrayValue else {
-            throw ScrybeModelError.missingOutput(Self.outputName)
+        guard let value = out.featureValue(for: outputName)?.multiArrayValue else {
+            throw ScrybeModelError.missingOutput(outputName)
         }
         return value[0].floatValue
     }
 
+    /// The manifest's threshold is expressed as a probability; on the logit
+    /// the model emits, proba >= 0.5 is logit >= 0.
     func isWriting(window: [Float]) throws -> Bool {
-        try logit(window: window) >= 0   // Logit >= 0 entspricht Proba >= 0.5
+        try logit(window: window) >= 0
     }
 
     /// Dekodiert das base64-float32-Format der Golden-Vektoren.

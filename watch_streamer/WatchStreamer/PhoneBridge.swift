@@ -232,11 +232,58 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
-        if userInfo["type"] as? String == "command_poll" {
+        if userInfo[WatchPayloadKey.type] as? String == "command_poll" {
             _ = ServerCommandListener.shared.handleWatchCommandPoll(userInfo)
             return
         }
+        if userInfo[WatchPayloadKey.type] as? String == WatchPayloadKey.passiveDecisionsType {
+            receivePassiveDecisions(userInfo)
+            return
+        }
         receivePayload(userInfo, source: "background")
+    }
+
+    /// Forwards a batch of passive writing decisions to the server.
+    ///
+    /// Idempotent by construction: each decision carries its own `startMs`, so
+    /// a re-delivered batch is recognised server-side rather than counted
+    /// twice. Kept off the raw-IMU upload queue — these are small, derived and
+    /// independently retryable, and mixing them into the sample backlog would
+    /// let an IMU stall block them.
+    private func receivePassiveDecisions(_ userInfo: [String: Any]) {
+        guard let data = userInfo[WatchPayloadKey.decisions] as? Data,
+              let decisions = try? JSONDecoder().decode([PassiveDecision].self, from: data),
+              !decisions.isEmpty else {
+            DispatchQueue.main.async { self.lastError = "Invalid passive decisions payload" }
+            return
+        }
+        guard let url = ServerConfig.endpoint?.httpBase
+            .appendingPathComponent("passive/decisions") else { return }
+
+        var body: [String: Any] = ["decisions": decisions.map {
+            ["start_ms": $0.startMs, "end_ms": $0.endMs,
+             "logit": $0.logit, "writing": $0.writing,
+             "credit_seconds": $0.creditSeconds]
+        }]
+        body["source"] = "watch_passive"
+        guard let payload = try? JSONSerialization.data(withJSONObject: body) else { return }
+
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token = ServerConfig.token {
+            req.setValue(token, forHTTPHeaderField: "X-Scrybe-Token")
+        }
+        req.httpBody = payload
+        req.timeoutInterval = 12
+        URLSession.shared.dataTask(with: req) { [weak self] _, response, error in
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            guard error != nil || !(200..<300).contains(code) else { return }
+            DispatchQueue.main.async {
+                self?.lastError = "Passive sync failed: "
+                    + (error?.localizedDescription ?? "HTTP \(code)")
+            }
+        }.resume()
     }
 
     func sessionReachabilityDidChange(_ session: WCSession) {

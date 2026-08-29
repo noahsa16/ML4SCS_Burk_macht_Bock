@@ -87,6 +87,7 @@ data/sessions.csv
 # Focus-Tracker live-inference log — append-only at 1 Hz while server runs,
 # grows ~3 MB/day. Local artefact, not part of the repo.
 data/inference_log.csv
+data/passive_decisions.csv
 
 # Local pipeline overview — personal cheat sheet, not part of repo docs.
 ML_PIPELINE_OVERVIEW.md
@@ -110,6 +111,10 @@ Screenshot*.png
 # Probandendaten-Bundle (Drive-Download, Quelle fuer die Datenpublikation).
 # Niemals committen - origin ist PUBLIC.
 alldata/
+
+# Arbeitsnotizen zum Data-in-Brief-Manuskript (Stichpunkte, Zahlen, offene
+# Fragen). Working docs, kein Repo-Inhalt — das Manuskript lebt in Overleaf.
+paper_notes/
 
 # Isoliertes venv fuer die Core-ML-Konvertierung (siehe requirements-coreml.txt)
 .venv-coreml/

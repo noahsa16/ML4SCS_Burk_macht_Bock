@@ -4,7 +4,9 @@ import CoreMotion
 /// Diagnose-Werkzeug fuer den CMSensorRecorder-Spike. Erhebt Rohkennzahlen
 /// und faellt bewusst kein Urteil — das tut SensorProbeEvaluator auf dem
 /// iPhone, wo es ohne Hardware testbar ist.
-enum SensorProbe {
+/// `nonisolated`: the passive tracker reads the recorder from a background
+/// context, and a 12-hour fetch must never run on the main actor.
+nonisolated enum SensorProbe {
     private static let recorder = CMSensorRecorder()
     /// Bucket-Untergrenzen in Millisekunden.
     private static let buckets = [0, 20, 40, 100, 1000]
@@ -79,6 +81,30 @@ enum SensorProbe {
             "alreadyStarted": false,
             "authorization": authorizationDescription()
         ]
+    }
+
+    /// Reads recorded raw accelerometer samples for a span, in capture order.
+    ///
+    /// Shared with the passive tracker so production retrieval and the
+    /// diagnostic report read the recorder through one code path — a probe
+    /// that measured a different fetch than the tracker performs would be
+    /// worth little.
+    static func fetch(from: Date, to: Date) -> [PassiveSample] {
+        guard to > from, let list = recorder.accelerometerData(from: from, to: to) else {
+            return []
+        }
+        var out: [PassiveSample] = []
+        // Why: CMSensorDataList only conforms to NSFastEnumeration, not Swift's
+        // Sequence — bridge it explicitly to use a for-in loop.
+        for case let s as CMRecordedAccelerometerData in
+            IteratorSequence(NSFastEnumerationIterator(list)) {
+            out.append(PassiveSample(
+                timestamp: s.startDate.timeIntervalSinceReferenceDate,
+                x: Float(s.acceleration.x),
+                y: Float(s.acceleration.y),
+                z: Float(s.acceleration.z)))
+        }
+        return out
     }
 
     static func report() -> [String: Any] {

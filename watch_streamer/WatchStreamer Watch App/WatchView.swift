@@ -1,8 +1,8 @@
-// WatchView_v2.swift
+// WatchView.swift
 // FocusTrack — Apple Watch UI
 // Streaming via iPhone bridge (WatchConnectivity) only.
 //
-// Requirements: watchOS 9+, Swift 5.9+
+// Requirements: watchOS 10+, Swift 5.9+
 
 import SwiftUI
 import WatchKit
@@ -45,7 +45,7 @@ struct WTPulseDot: View {
             .scaleEffect(animating ? 1.3 : 1.0)
             .opacity(animating ? 0.6 : 1.0)
             .onAppear { updatePulse() }
-            .onChange(of: pulse) { _ in updatePulse() }
+            .onChange(of: pulse) { updatePulse() }
     }
 
     private func updatePulse() {
@@ -55,24 +55,6 @@ struct WTPulseDot: View {
             }
         } else {
             withAnimation(.default) { animating = false }
-        }
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MARK: – Connection pill
-// ─────────────────────────────────────────────────────────────────────────────
-
-struct WTConnPill: View {
-    let label: String
-    let ok: Bool
-
-    var body: some View {
-        HStack(spacing: 4) {
-            WTPulseDot(color: ok ? WT.green : WT.orange, pulse: ok)
-            Text(label)
-                .font(WT.sans(10, weight: .medium))
-                .foregroundColor(.secondary)
         }
     }
 }
@@ -245,7 +227,7 @@ struct WTRecordPage: View {
                     .foregroundColor(stateColor)
             }
             .frame(height: 54)
-            .onChange(of: motion.isRunning) { running in
+            .onChange(of: motion.isRunning) { _, running in
                 if !running { elapsed = 0 }
             }
 
@@ -414,6 +396,7 @@ struct WTStatsPage: View {
 
 struct WTSettingsPage: View {
     @ObservedObject var motion: MotionManager
+    @ObservedObject private var passive = PassiveTracker.shared
 
     var body: some View {
         ScrollView {
@@ -428,9 +411,47 @@ struct WTSettingsPage: View {
                         color: motion.workoutStatus.contains("active") ? WT.green : .secondary)
                 infoRow("Phone",       motion.isReachable ? "Reachable" : "Offline",
                         color: motion.isReachable ? WT.green : WT.orange)
+                infoRow("Spill",       motion.spillHealthy ? "Healthy" : motion.spillHealthDetail,
+                        color: motion.spillHealthy ? WT.green : WT.orange)
+                passiveSection
             }
             .padding(.horizontal, 12)
             .padding(.top, 2)
+        }
+    }
+
+    /// The passive tracker's own status, including the fact that it has never
+    /// been validated against real recorder data on a worn watch. Stating that
+    /// where the operator reads status is the point — a screen that showed only
+    /// a writing total would imply a measurement nobody has made.
+    @ViewBuilder
+    private var passiveSection: some View {
+        Divider().padding(.vertical, 4)
+        infoRow("Passive", passive.isEnabled ? passiveStateText : "Off",
+                color: passive.isEnabled ? WT.blue : .secondary)
+        if passive.isEnabled {
+            infoRow("Passive time",
+                    "\(Int(passive.writingSecondsToday / 60)) min today",
+                    color: .primary)
+        }
+        Text("Unvalidated on hardware")
+            .font(WT.sans(9))
+            .foregroundColor(WT.orange)
+        Button(passive.isEnabled ? "Disable passive" : "Enable passive") {
+            passive.isEnabled ? passive.disable() : passive.enable()
+        }
+        .font(WT.sans(11, weight: .medium))
+        .padding(.top, 2)
+    }
+
+    private var passiveStateText: String {
+        switch passive.state {
+        case .disabled:              return "Off"
+        case .running:               return "Reading…"
+        case .failed(let reason):    return reason
+        case .idle(let last, let n):
+            guard last != nil else { return "Waiting for first read" }
+            return "\(n) window\(n == 1 ? "" : "s") last read"
         }
     }
 

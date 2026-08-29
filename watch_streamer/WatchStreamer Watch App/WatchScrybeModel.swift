@@ -13,16 +13,27 @@ enum WatchScrybeModelError: Error {
 final class WatchScrybeModel {
     let seqLen: Int
     let channels: Int
+    /// The artifact's own provenance record, verified against the requested
+    /// shape at initialization — see ScrybeModel for the reasoning.
+    let manifest: PassiveModelManifest
     private let model: MLModel
 
-    init(resourceName: String, channels: Int, seqLen: Int = 250) throws {
-        guard let url = Bundle.main.url(forResource: resourceName,
-                                        withExtension: "mlmodelc") else {
+    var inputName: String { manifest.inputName }
+    var outputName: String { manifest.outputName }
+
+    init(resourceName: String, channels: Int, seqLen: Int = 250,
+         bundle: Bundle = .main) throws {
+        guard let url = bundle.url(forResource: resourceName,
+                                   withExtension: "mlmodelc") else {
             throw WatchScrybeModelError.missingResource(resourceName)
         }
+        let manifest = try PassiveModelManifest.load(resourceName: resourceName,
+                                                     in: bundle)
+        try manifest.verify(channels: channels, seqLen: seqLen)
         let config = MLModelConfiguration()
         config.computeUnits = .cpuOnly
         self.model = try MLModel(contentsOf: url, configuration: config)
+        self.manifest = manifest
         self.seqLen = seqLen
         self.channels = channels
     }
@@ -40,9 +51,9 @@ final class WatchScrybeModel {
         window.withUnsafeBufferPointer { buffer.update(from: $0.baseAddress!,
                                                        count: expected) }
         let input = try MLDictionaryFeatureProvider(
-            dictionary: ["window": MLFeatureValue(multiArray: array)])
+            dictionary: [inputName: MLFeatureValue(multiArray: array)])
         let out = try model.prediction(from: input)
-        guard let v = out.featureValue(for: "logit")?.multiArrayValue else {
+        guard let v = out.featureValue(for: outputName)?.multiArrayValue else {
             throw WatchScrybeModelError.missingOutput
         }
         return v[0].floatValue
@@ -64,6 +75,10 @@ private struct WatchGoldenWindow: Decodable {
 private struct WatchGoldenFixture: Decodable {
     let seq_len: Int
     let n_channels: Int
+    /// Which training checkpoint produced these vectors. Compared against the
+    /// artifact's sidecar so a fixture and a model from different exports
+    /// cannot pass parity together.
+    let checkpoint_sha256: String?
     let windows: [WatchGoldenWindow]
 }
 
@@ -86,6 +101,11 @@ enum WatchParityCheck {
             let model = try WatchScrybeModel(resourceName: "ScrybePassive",
                                              channels: fx.n_channels,
                                              seqLen: fx.seq_len)
+            // Why: shape agreement alone cannot tell a stale pair apart from a
+            // fresh one. Only a shared checkpoint hash can.
+            if let fixtureCheckpoint = fx.checkpoint_sha256 {
+                try model.manifest.verifyFixtureCheckpoint(fixtureCheckpoint)
+            }
             var maxDiff = 0.0
             var passed = 0
             var classMismatches = 0
@@ -108,7 +128,11 @@ enum WatchParityCheck {
                 "passed": passed,
                 "maxAbsDiff": maxDiff,
                 "classMismatches": classMismatches,
-                "failedIds": Array(failedIds.prefix(5))
+                "failedIds": Array(failedIds.prefix(5)),
+                "checkpoint": model.manifest.sourceCheckpointSHA256,
+                "artifactSha256": model.manifest.sha256,
+                "channels": model.manifest.channels,
+                "fsHz": model.manifest.fsHz
             ]
         } catch {
             return ["ok": false, "error": String(describing: error)]
