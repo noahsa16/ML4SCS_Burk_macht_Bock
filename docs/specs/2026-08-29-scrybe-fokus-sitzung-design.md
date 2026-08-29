@@ -4,7 +4,8 @@
 **Status:** Entwurf zur Review
 **Vorarbeit:** `docs/specs/2026-08-28-on-device-deployment-design.md`,
 `WatchStreamer Watch App/PassiveTracker.swift`, `Shared/PassiveTrackerEngine.swift`,
-`models/runs/pod_raw50/` (deployter Checkpoint), Paritätsprüfung 24/24 auf Gerät
+`models/runs/pod_raw50/` (ScrybePassive), `models/runs/pod_20260825/` (ScrybeActive),
+Paritätsprüfung ScrybePassive 24/24 auf Gerät
 
 ## 1. Ziel
 
@@ -12,9 +13,9 @@ Für ein **zweiminütiges Produktvideo** bekommt Scrybe zwei neue Oberflächen. 
 sind keine Video-Requisiten, sondern echte Funktionen; das Video ist nur der
 Anlass, sie in Filmqualität zu bauen.
 
-1. **Fokus-Sitzung** — eine bewusst gestartete Schreib-Sitzung. Die Uhr
-   klassifiziert live, auf dem iPhone wächst eine Tintenlinie mit. Setzt der
-   Stift ab, reißt die Linie.
+1. **Fokus-Sitzung** — eine bewusst gestartete Schreib-Sitzung. Die Uhr streamt
+   live, auf dem iPhone wächst eine Tintenlinie mit. Setzt der Stift ab, reißt
+   die Linie. Im Seitenrand entsteht dabei ein kleines Tintenwesen (§8).
 2. **Ernte-Geste** — beim Ziehen auf „Heute" fließen die seit dem letzten
    Abgleich neu erkannten Minuten sichtbar in den Tages-Ring.
 
@@ -38,7 +39,8 @@ nicht.
 Während einer Fokus-Sitzung rechnet die Uhr live und schickt Entscheidungen ans
 Telefon, damit die Linie wächst. Diese Entscheidungen werden **nirgends
 gespeichert**. Der Passiv-Pfad bleibt alleinige Quelle für Ring, Tag, Historie
-und Archiv.
+und Archiv. Die einzige Ausnahme ist das Bestiarium (§8), das pro Sitzung *einen*
+Datensatz ablegt — kein Fenster, keine Sekunde Schreibzeit.
 
 Grund: `PassiveDecision` ist über `startMs` idempotent, aber Live- und
 Recorder-Fenster liegen nie auf denselben Grenzen. Zwei Produzenten für denselben
@@ -56,41 +58,54 @@ Zwei Folgen:
   fehlt ein Stück Linie; der Datensatz ist unberührt. Durabilität, Wiederholung
   und Quittierung entfallen ersatzlos.
 
-## 3. Uhr — `FocusSession`
+## 3. Modellwahl und Datenweg
 
-Neuer Typ im Watch-Target (`WatchStreamer Watch App/FocusSession.swift`),
-`@MainActor`, ohne Persistenz.
+Die Fokus-Sitzung nutzt **nicht** das Passiv-Modell. Beide liegen bereits im
+Bundle und sind gemessen:
 
-**Quelle.** `CMMotionManager.startDeviceMotionUpdates` mit
-`deviceMotionUpdateInterval = 1/50` auf einer Background-`OperationQueue`, am
-Leben gehalten von einer `HKWorkoutSession` nach dem Muster von
-`MotionManager.beginWorkoutSession()`.
+| | `ScrybePassive` (Uhr) | `ScrybeActive` (iPhone) |
+|---|---|---|
+| Architektur | `tcn6` | `tcn_bigru` |
+| Kanäle | 3 (`raw_accel`) | 6 (`imu`: Accel + Gyro) |
+| Rate / Fenster | 50 Hz / 250 Samples | 50 Hz / 250 Samples |
+| Accuracy (3 Seeds) | 0.884 | **0.921** |
+| ROC-AUC | 0.947 | **0.975** |
 
-**Kanal-Rekonstruktion.** Pro Sample:
+**+3,7 pp**, deutlich über dem Seed-Rauschband von ±1,7 pp. Der Passiv-Pfad
+verzichtet auf das Gyroskop nicht aus Sparsamkeit, sondern weil
+`CMSensorRecorder` ausschließlich das Accelerometer aufzeichnet. Eine
+Fokus-Sitzung hat diese Einschränkung nicht.
+
+**Keine 9 Kanäle.** Gravity wurde auf genau dieser Architektur gemessen:
+`tcn_bigru` 6ch 0.889 → 9ch 0.862. Die Schwerkraft **kostet 2,7 pp** — sie ist
+Personalisierungs-, kein Generalisierungs-Signal. Der 6-Kanal-Export ist die
+richtige Wahl, nicht eine unfertige.
+
+**Keine 100 Hz.** Der Checkpoint stammt aus dem Legacy-Pool und hat nie
+100-Hz-Daten gesehen. Die Uhr streamt derzeit 100 Hz; eine Fokus-Sitzung setzt
+`requestedHz` deshalb **explizit auf 50**, statt nachträglich zu resamplen.
+Nachträgliches Resampling ist die Fehlerklasse, die am 2026-08-29 einen halben
+Tag Diagnose gekostet hat.
+
+### Rollenverteilung
+
+Damit kehrt sich die Rechenlast gegenüber dem Passiv-Pfad um:
 
 ```
-PassiveSample(x: userAcceleration.x + gravity.x,
-              y: userAcceleration.y + gravity.y,
-              z: userAcceleration.z + gravity.z)
+Watch  CMDeviceMotion @ 50 Hz, 6 Kanäle
+       → PhoneBridge (bestehender Aufnahmeweg)
+iPhone → PassiveWindowBuilder(seqLen: 250, strideSamples: 125)
+       → ScrybeActive → PassiveDecision alle 2,5 s
+       → FocusSessionStore (nur RAM)
 ```
 
-Das ist `imu[:, :3] + imu[:, 3:]` aus `src/training/deep/data.py:110`, also exakt
-der Kanalsatz `raw_accel`, auf dem das deployte Modell trainiert wurde. Deshalb
-braucht es **kein neues Modell, keinen neuen Export und keine zweite
-Paritätsprüfung**.
-
-**Fenster und Klassifikation.** Derselbe
-`PassiveWindowBuilder(seqLen: 250, strideSamples: 125, nominalHz: 50)` und
-dasselbe `WatchScrybeModel` wie im Passiv-Pfad. Ergebnis: alle 2,5 s eine
-`PassiveDecision`.
-
-**Zeitachse.** Die monotone Sensoruhr wird beim ersten Sample einmal an die
-Wanduhr geankert (Muster `anchorUptime` / `anchorWallMs` in `MotionManager`),
-damit ein NTP-Sprung die Fenstergrenzen nicht verschiebt.
+Die Uhr rechnet nicht, sie misst. Das kostet Funk (250 Samples/s statt 0,4
+Entscheidungen/s) und ist deshalb ausdrücklich **auf kurze Sitzungen begrenzt**;
+der Ganztag bleibt beim lokal rechnenden Passiv-Modell.
 
 **Ausschluss.** Fokus-Sitzung und Studien-Aufnahme schließen sich gegenseitig
-aus, in beide Richtungen. Sonst gäbe es zwei Eigentümer einer Workout-Session —
-`MotionManager` beendet seine bewusst nie.
+aus, in beide Richtungen — beide beanspruchen denselben Sensorstrom und dieselbe
+`HKWorkoutSession`, und `MotionManager` beendet seine bewusst nie.
 
 ## 4. Transport
 
@@ -106,10 +121,11 @@ erzwungen:
 Kein `transferUserInfo`-Rückfall: ein Sitzungsstart, der Minuten später
 eintrifft, ist falsch, nicht spät.
 
-**Rückkanal.** Jede fertige Entscheidung geht sofort per `sendMessage` mit neuem
-Umschlag `focus_decision` (neuer `WatchPayloadKey`). Kein Reply, keine
-Wiederholung. Ist das Telefon nicht erreichbar, wird verworfen — zulässig wegen
-§2.
+**Rückkanal.** Keiner. Die Uhr liefert Samples über den bestehenden
+Aufnahmeweg (`MotionManager` → `PhoneBridge`); `focus_start` schaltet ihn auf
+50 Hz und auf lokalen Verbrauch statt Server-Upload. Ein eigener
+Entscheidungs-Umschlag entfällt, weil die Entscheidungen auf dem Telefon
+entstehen.
 
 ## 5. Telefon — `FocusSessionStore`
 
@@ -118,9 +134,16 @@ Wiederholung. Ist das Telefon nicht erreichbar, wird verworfen — zulässig weg
 
 ```
 phase:      idle | starting | running(startedAt, target) | finished(summary)
-decisions:  [PassiveDecision]     // nur RAM
-writtenSeconds / strokes          // abgeleitet
+builder:    PassiveWindowBuilder    // verbraucht den Sample-Strom
+classifier: ScrybeActive            // lazy geladen beim Start
+decisions:  [PassiveDecision]       // nur RAM
+writtenSeconds / strokes / creature // abgeleitet
 ```
+
+Der Store konsumiert den Sample-Strom, den `PhoneBridge` während einer Sitzung
+lokal weiterreicht statt hochzuladen, füttert damit denselben
+`PassiveWindowBuilder` wie die Uhr im Passiv-Pfad und klassifiziert mit
+`ScrybeActive`.
 
 Berührt weder `PassiveDecisionStore` noch `FocusStore` noch `FocusArchive`.
 
@@ -202,7 +225,52 @@ Zwei Kanten: ein zweiter Pull direkt danach zeigt **kein** Delta, und der
 allererste Start beansprucht nicht die bisherige Historie als Ernte (Initialisierung
 auf den aktuellen Stand).
 
-## 8. Visuelle Gestaltung
+## 8. Das Bestiarium
+
+Eine Linie allein trägt die Sitzung nicht. Im **Seitenrand** entsteht während des
+Schreibens ein kleines Tintenwesen — eine *Drolerie*, wie mittelalterliche
+Schreiber sie an den Rand ihrer Manuskripte kritzelten. Dieselbe Tinte, dieselbe
+Feder, dieselbe Seite: der Sammelanreiz kommt hinzu, ohne dass ein zweites
+Formvokabular auf den Bildschirm kommt.
+
+### Wie es entsteht
+
+Jedes Wesen ist ein **hand-gesetzter Pfad, zerlegt in geordnete Striche**. Ein
+Strich des Wesens wird gezeichnet, wenn eine **zusammenhängende Schreibphase**
+endet — nicht nach Zeit. Das Wesen ist damit ein Abbild der Sitzung: eine
+ungebrochene halbe Stunde zeichnet anders als eine zerhackte.
+
+- **Art** ist deterministisch aus `startMs` des Sitzungsbeginns gesät. Kein
+  Neuwürfeln durch Abbrechen und Neustarten.
+- **Vollständigkeit** hängt am Ziel: wer die Sitzung vorzeitig beendet, behält
+  ein **halb gezeichnetes** Wesen. Es wird nicht verworfen und stirbt nicht — es
+  bleibt unfertig, so wie eine echte Randnotiz aussieht, wenn der Schreiber
+  unterbrochen wurde. Das ist Forests Verlustangst ohne Forests Grausamkeit.
+
+### Sammlung
+
+Die Wesen sammeln sich im **Verlauf** zu einem Bestiarium: ein Raster aus
+Rändern, jedes mit Wesen und Datum, unfertige als solche erkennbar. Die
+Bestände sind aus den vorhandenen Tages-Rollups nicht ableitbar und brauchen
+deshalb einen eigenen, kleinen persistenten Speicher (`BestiaryStore`, JSON:
+Art-Id, Datum, gezeichnete Strichzahl, Sitzungsdauer).
+
+Das Bestiarium ist damit die **einzige** Ausnahme von §2: nicht die
+Live-Entscheidungen werden persistiert, sondern ihr Ergebnis als ein Datensatz
+pro Sitzung. Die Schreibzeit-Buchhaltung bleibt unberührt beim Passiv-Pfad.
+
+### Umfang und Herkunft der Zeichnungen
+
+Acht Arten zum Start, je 6–12 Striche. Das ist **Zeichenarbeit, nicht
+Programmierarbeit** und der eigentliche Aufwandsposten dieses Abschnitts. Sie
+entstehen als `Path`-Code, werden offscreen gerendert und am Bild überprüft,
+statt blind geschrieben zu werden. Ein prozeduraler Generator ist ausdrücklich
+abgelehnt: er erzeugt Varianten derselben Form, und genau diese Gleichförmigkeit
+ist das Kennzeichen, das vermieden werden soll.
+
+Fürs Video reichen zwei bis drei; die übrigen sind Produktumfang.
+
+## 9. Visuelle Gestaltung
 
 Diese Regeln gelten für beide neuen Oberflächen und wurden 2026-08-29 bereits auf
 den Bestand angewandt; diese Änderungen sind noch nicht committet.
@@ -265,7 +333,7 @@ Handschrift-Font) und Tinten-Simulation (Kleckse, Spritzer, Aquarell-Bleeding).
 Beides ertränkt auf 6,1 Zoll die Lücken, die die eigentliche Information der
 Seite sind. Die Metapher lebt in Ton, Strich und Typografie, nicht in Requisiten.
 
-## 9. Fehler und Sicherheiten
+## 10. Fehler und Sicherheiten
 
 | Fall | Verhalten |
 |---|---|
@@ -277,11 +345,16 @@ Seite sind. Die Metapher lebt in Ton, Strich und Typografie, nicht in Requisiten
 
 Der Akku ist der Risikoposten: Deckel und garantiertes Aufräumen sind Pflicht.
 
-## 10. Tests
+## 11. Tests
 
-- `FocusSession` erzeugt aus einer Fake-Motion-Quelle genau eine Entscheidung je
-  125 Samples, und die Kanäle sind nachweislich `userAcceleration + gravity`
-  (Prüfung gegen einen bekannten Vektor).
+- `FocusSessionStore` erzeugt aus einem Fake-Sample-Strom genau eine
+  Entscheidung je 125 Samples, mit 6 Kanälen in der Reihenfolge
+  `ax, ay, az, rx, ry, rz`.
+- Eine Sitzung lehnt den Start ab, solange die Uhr nicht auf 50 Hz steht — der
+  Ratenfehler darf nicht still passieren.
+- Bestiarium: ein Strich je beendeter Schreibphase; die Art ist über denselben
+  `startMs` reproduzierbar; ein vorzeitiges Ende hinterlässt ein unfertiges
+  Wesen statt gar keines.
 - Gegenseitiger Ausschluss Aufnahme ↔ Fokus, in beide Richtungen.
 - `FocusSessionStore` schreibt nichts in `PassiveDecisionStore` — der Test, der
   §2 festnagelt.
@@ -291,20 +364,23 @@ Der Akku ist der Risikoposten: Deckel und garantiertes Aufräumen sind Pflicht.
 - Geometrie der Seite: Zeilenumbruch bei 60-s-Lücke, logarithmische Stauchung
   über 15 s — als reine Funktion getestet, ohne UI-Host.
 
-## 11. Dateien
+## 12. Dateien
 
-**Neu:** `WatchStreamer Watch App/FocusSession.swift` ·
-`WatchStreamer/Stores/FocusSessionStore.swift` ·
+**Neu:** `WatchStreamer/Stores/FocusSessionStore.swift` ·
+`WatchStreamer/Stores/BestiaryStore.swift` ·
 `WatchStreamer/Scrybe/FocusSessionView.swift` ·
-`WatchStreamer/Scrybe/Components/WritingPageView.swift`
+`WatchStreamer/Scrybe/Components/WritingPageView.swift` ·
+`WatchStreamer/Scrybe/Components/Marginalia.swift` (Arten als Pfade) ·
+`WatchStreamer/Scrybe/BestiaryView.swift`
 
-**Geändert:** `Shared/WatchCommand.swift` (zwei Enum-Fälle, ein Payload-Key) ·
-`WatchStreamer Watch App/MotionManager.swift` (Ausschluss) ·
+**Geändert:** `Shared/WatchCommand.swift` (zwei Enum-Fälle) ·
+`WatchStreamer Watch App/MotionManager.swift` (Ausschluss, 50-Hz-Modus) ·
+`WatchStreamer/PhoneBridge.swift` (Samples lokal verbrauchen statt hochladen) ·
 `WatchStreamer/Stores/FocusStore.swift` (Ernte-Zähler) ·
 `WatchStreamer/Scrybe/Components/InkRefreshControl.swift` (Kapseltext) ·
 `WatchStreamer/Scrybe/Components/InkRing.swift` (Ringzahl-Gewicht)
 
-## 12. Offene Punkte
+## 13. Offene Punkte
 
 Die Zahlenwerte in §6 (Strichbreite, Rauschperioden, Zeilenhöhe, Zeitskala) sind
 belastbare Startwerte, keine Messergebnisse. Sie werden am Gerät nachgezogen; die
