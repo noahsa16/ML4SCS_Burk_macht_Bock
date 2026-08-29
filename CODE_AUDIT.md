@@ -6,6 +6,98 @@ Findings cite exact source locations so each item can become an independent fix 
 
 ---
 
+## 0. Resolution status (2026-08-29)
+
+Every finding below has been addressed across six commits on
+`feature/on-device-deployment`. Measured at the end of the work:
+
+- `xcodebuild` on both schemes: `** BUILD SUCCEEDED **`, no source warnings
+  (the baseline had the two `onChange` warnings from §4.1).
+- `ScrybeTests`: 150 passing, up from 30 — the new cases cover the transport
+  route matrix, delivery ordering, durable acknowledgement, the passive
+  pipeline, model provenance, theme contrast, the export and catalog
+  completeness.
+- `pytest tests/`: 789 passed, 2 skipped (7 of those are new, for the passive
+  decisions endpoint).
+
+| § | Finding | Status | Commit |
+|---|---|---|---|
+| 3.1 | Observable connectivity owners have no enforced actor boundary | Partly — targeted race fixes, structural migration deferred | `9f4f9cb` |
+| 3.2 | WebSocket generation state accessed across unsynchronized queues | Fixed | `9f4f9cb` |
+| 3.3 | Poll/ack state only partially locked | Fixed | `9f4f9cb` |
+| 3.4 | Background diagnostics pass through main-owned command state | Fixed | `9f4f9cb` |
+| 3.5 | Untyped dictionaries cross concurrency domains | Partly — keys and coercion centralized, payloads still `[String: Any]` | `9753561` |
+| 3.6 | Callback networking obscures cancellation | Deferred | — |
+| 4.1 | Deprecated watchOS `onChange` overloads | Fixed | `71c9847` |
+| 4.2 | Targets remain in Swift 5 language mode | Deferred by decision | — |
+| 4.3 | Test target minimum does not match the app's iOS 16 | Fixed | `71c9847` |
+| 4.4 | Repeated `DateFormatter` allocation | Fixed | `9753561` |
+| 5.1 | **The autonomous passive tracker has no production pipeline** | Implemented, **not hardware-validated** | `53fe789` |
+| 5.2 | Diagnostics corrupt the durable command-transport contract | Fixed | `9f4f9cb` |
+| 5.3 | `sensor_probe_start` duplicate/replay-prone | Fixed | `9f4f9cb` |
+| 5.4 | Batches acknowledged before durable acceptance | Fixed | `9f4f9cb` |
+| 5.5 | Delivery counters double-count a timeout race | Fixed | `9f4f9cb` |
+| 5.6 | Spill persistence hides disk failures | Fixed | `9f4f9cb` |
+| 5.7 | Focus refresh all-or-nothing | Fixed | `9c75051` |
+| 5.8 | Day-detail failures silently swallowed | Fixed | `9c75051` |
+| 5.9 | Empty Today hides live/offline status | Fixed | `9c75051` |
+| 5.10 | Parity does not validate provenance or channel identity | Fixed | `53fe789` |
+| 5.11 | Reliability state machines lack transport-order tests | Fixed | `9c75051` |
+| 6.1 | Unauthenticated plaintext transport | Partly — ATS narrowed, token added, release default removed; HTTPS needs a server certificate | `bd68cc8` |
+| 6.2 | Retention and reset copy do not match stored data | Fixed | `bd68cc8` |
+| 6.3 | Admin PIN is an obscurity gate | Fixed within its stated scope | `bd68cc8` |
+| 7.1 | Date formatting allocates in view paths | Fixed | `9753561` |
+| 7.2 | Repeated transforms during view evaluation | Fixed | `9c75051` |
+| 7.3 | Broad singletons invalidate more UI than necessary | Partly — derivations hoisted, stores not split | `9c75051` |
+| 8.1 | Light-mode secondary text fails WCAG contrast | Fixed | `bd68cc8` |
+| 8.2 | Fixed 240-point Today ring not adaptive | Fixed | `9c75051` |
+| 8.3 | Onboarding uses an immutable synthetic binding | Fixed | `9c75051` |
+| 8.4 | "Daten exportieren" is not a named data export | Fixed | `bd68cc8` |
+| 8.5 | Hidden admin gesture inaccessible | Fixed | `9c75051` |
+| 8.6 | English localization incomplete | Fixed | `9c75051` |
+| 8.7 | Charts expose summaries but insufficient values | Fixed | `9c75051` |
+| 8.8 | Reduced-motion handling incomplete in delayed animations | Fixed | `9c75051` |
+| 9.1 | `MotionManager` is a six-responsibility monolith | Deferred by decision | — |
+| 9.2 | iPhone transport singletons oversized | Deferred by decision | — |
+| 9.3 | Dictionary protocol and numeric coercion duplicated | Fixed | `9753561` |
+| 9.4 | `WatchView_v2.swift` misleadingly versioned | Fixed | `71c9847` |
+| 9.5 | `WTConnPill` is dead code | Fixed | `71c9847` |
+| 9.6 | Server-address normalization duplicated | Fixed | `9753561` |
+| 9.7 | Sparkline implementations drifted | Fixed | `9c75051` |
+| 9.8 | Settings keys and capture constants lack one source | Fixed | `9753561` |
+
+### What is deliberately not done
+
+**§5.1 is implemented but unvalidated.** The retrieval, windowing, inference,
+persistence and sync path exists and every branch is covered by unit tests
+against injected fakes. It has never run against a real `CMSensorRecorder` on a
+worn Apple Watch, and the 12-hour retrieval probe has not been performed. Until
+that measurement exists, the connected pipeline remains the only
+evidence-backed path and a demo must be described as a connected prototype.
+`PassiveTrackerEngine`'s doc comment and the Watch settings screen both say so.
+
+**§3.1, §3.6, §4.2, §9.1, §9.2 — the structural refactor was declined.** Fixing
+them means splitting `MotionManager` (1 120 lines), `ServerCommandListener`
+(609) and `PhoneBridge` (565) into actors and raising `SWIFT_VERSION` to 6.
+That is a multi-day rewrite of the code carrying live delivery, verifiable here
+only by the compiler. The demonstrable races (§3.2, §3.3, §3.4) were fixed by
+serialization instead. §10.1 of this report remains the right target and is
+still open.
+
+**§6.1 cannot be fully closed client-side.** HTTPS and WSS need a certificate on
+the FastAPI research server. What was in reach is done: `NSAllowsArbitraryLoads`
+replaced with `NSAllowsLocalNetworking`, an `X-Scrybe-Token` header on every
+request so the server can begin enforcing authentication without a client
+change, and an empty release default so a shipped build cannot silently target
+the development LAN.
+
+**Manual verification still outstanding.** §11's list is unchanged: no device
+run, no Instruments or Thread Sanitizer pass, no Accessibility Inspector
+session. The contrast fix is computed from the WCAG formula in
+`ThemeContrastTests`, not measured on a screen.
+
+---
+
 ## 1. Executive summary
 
 Top items to address, in priority order:
