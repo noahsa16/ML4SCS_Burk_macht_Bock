@@ -144,6 +144,31 @@ struct FocusStoreLocalTests {
         #expect(abs(last.timeIntervalSince1970 - expected) < 0.001)
     }
 
+    // The daily ring and the header Watch glyph both ask this one question.
+    // They used to answer it from different sources — the ring from stored
+    // decisions, the glyph from the server's live broadcast — so a phone with
+    // no server showed a breathing ring beside a glyph claiming nothing.
+    @Test("recent-writing is one answer for the ring and the header glyph")
+    func recentWritingIsShared() async {
+        let (store, _, _) = tempStore()
+        let now = Date()
+        let endMs = Int64(now.timeIntervalSince1970 * 1000) - 60_000
+        await store.ingest([PassiveDecision(startMs: endMs - 5_000, endMs: endMs,
+                                            logit: 2, writing: true,
+                                            creditSeconds: 2.5)])
+        await store.refresh()
+        #expect(store.isRecentlyWriting(now: now))
+
+        let stale = now.addingTimeInterval(FocusStore.recentWritingWindow + 60)
+        #expect(!store.isRecentlyWriting(now: stale))
+    }
+
+    @Test("an empty store never claims recent writing")
+    func recentWritingNeedsData() {
+        let (store, _, _) = tempStore()
+        #expect(!store.isRecentlyWriting())
+    }
+
     @Test("deleting local data clears both stores and every screen")
     func deleteClearsEverything() async {
         let (store, raw, archive) = tempStore()
@@ -155,5 +180,40 @@ struct FocusStoreLocalTests {
         #expect(store.today == nil)
         #expect(store.history == nil)
         #expect(store.lastWritingAt == nil)
+    }
+
+    @Test("product demo grows the UI without touching real decisions")
+    func demoIsEphemeral() async {
+        let (store, raw, _) = tempStore()
+        let start = Date()
+        store.startDemo(startingSeconds: 1_800, secondsPerTick: 10)
+
+        #expect(store.demoModeEnabled)
+        #expect(abs(store.todayWritingSeconds - 1_800) < 0.01)
+        #expect(raw.allDecisions().isEmpty)
+
+        store.advanceDemo(at: start.addingTimeInterval(1))
+        #expect(abs(store.todayWritingSeconds - 1_810) < 0.01)
+        #expect(store.demoIsWriting)
+        #expect(raw.allDecisions().isEmpty)
+
+        await store.stopDemo()
+        #expect(store.demoModeEnabled == false)
+        #expect(store.todayWritingSeconds == 0)
+        #expect(raw.allDecisions().isEmpty)
+    }
+
+    @Test("product demo visibly alternates writing and pauses")
+    func demoAlternatesState() async {
+        let (store, _, _) = tempStore()
+        let start = Date()
+        store.startDemo(startingSeconds: 0, secondsPerTick: 1)
+        for tick in 1...8 {
+            store.advanceDemo(at: start.addingTimeInterval(Double(tick)))
+        }
+        #expect(store.demoIsWriting)
+        store.advanceDemo(at: start.addingTimeInterval(9))
+        #expect(store.demoIsWriting == false)
+        await store.stopDemo()
     }
 }

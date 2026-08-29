@@ -16,12 +16,9 @@ struct TodayView: View {
     private var progress: DailyGoalProgress {
         DailyGoalProgress(writingSeconds: liveSeconds, goalSeconds: goalSeconds)
     }
-    /// Writing detected recently enough that the ring should still breathe.
-    /// The passive path cannot say "now", so this is the honest stand-in.
-    private var isWriting: Bool {
-        guard let at = focus.lastWritingAt else { return false }
-        return Date().timeIntervalSince(at) < 15 * 60
-    }
+    /// Whether the ring should still breathe. Shares `FocusStore`'s definition
+    /// with the header glyph so the two cannot contradict each other.
+    private var isWriting: Bool { focus.isRecentlyWriting() }
     private var goalMet: Bool { progress.isMet }
     private var isEmpty: Bool {
         liveSeconds == 0 && focus.streak == 0 && (focus.week?.maxSeconds ?? 0) == 0
@@ -38,11 +35,9 @@ struct TodayView: View {
         // user — or a product-video run — could not tell whether detection was
         // live, disconnected or stale at exactly the moment setup feedback
         // matters most. The empty state pulls to refresh too.
-        InkRefreshScroll(action: { await focus.refreshForPull() }) {
+        InkRefreshScroll(action: { await focus.refreshForPull() },
+                         lastWritingAt: focus.lastWritingAt) {
             VStack(spacing: 24) {
-                if focus.watchUnreachable {
-                    OfflineBanner(lastUpdated: focus.lastUpdated)
-                }
                 if isEmpty { emptyState } else { populated }
             }
             .padding()
@@ -60,9 +55,6 @@ struct TodayView: View {
     private var emptyState: some View {
         VStack(spacing: 20) {
             ring
-            SyncChip(lastWritingAt: focus.lastWritingAt,
-                     lastSyncedAt: focus.lastUpdated,
-                     unreachable: focus.watchUnreachable)
             Text("Trag die Watch und fang an zu schreiben")
                 .font(.system(.title3, design: .serif))
                 .foregroundStyle(theme.ink)
@@ -75,9 +67,6 @@ struct TodayView: View {
     private var populated: some View {
         VStack(spacing: 24) {
             ring
-            SyncChip(lastWritingAt: focus.lastWritingAt,
-                     lastSyncedAt: focus.lastUpdated,
-                     unreachable: focus.watchUnreachable)
             StatTriple(sessions: sessionsToday,
                        longestSeconds: longestToday,
                        streak: focus.streak)

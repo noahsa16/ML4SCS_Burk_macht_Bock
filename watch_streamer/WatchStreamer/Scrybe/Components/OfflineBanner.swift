@@ -20,8 +20,8 @@ struct OfflineBanner: View {
         .font(.caption)
         .foregroundStyle(theme.warning)
         .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .scrybeCapsuleSurface(tint: theme.warning.opacity(0.12))
+        .padding(.vertical, 8)
+        .scrybeCapsuleSurface(tint: theme.wash(theme.warning))
         .accessibilityElement(children: .combine)
     }
 }

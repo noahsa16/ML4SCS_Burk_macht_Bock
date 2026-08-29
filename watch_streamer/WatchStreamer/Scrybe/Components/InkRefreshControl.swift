@@ -1,117 +1,60 @@
 import SwiftUI
 import UIKit
 
-/// Pull-to-refresh drawn as ink: the pull grows a stroke, the threshold closes
-/// it into a ring, the sync sends a blot around it, and the result stays
-/// readable for a moment instead of vanishing with the spinner.
+/// A reliable system pull-to-refresh with a branded ink result.
 ///
-/// Replaces `.refreshable` on Heute, Trends and Verlauf so all three share one
-/// animation, one haptic and one wording for "synced" and "no connection".
+/// iOS owns the drag gesture and its scroll arbitration. Once the system
+/// spinner retracts, the ink result briefly confirms whether the Watch was
+/// reached. The previous custom drag recognizer competed with `ScrollView` and
+/// could fail to release on device even though its state machine tested green.
 struct InkRefreshScroll<Content: View>: View {
     /// Runs the refresh and reports what this pull achieved.
     let action: () async -> InkRefreshOutcome
+    /// Shown only in the transient completion capsule. This keeps the useful
+    /// timestamp without permanently duplicating the Watch status below the
+    /// daily ring.
+    var lastWritingAt: Date? = nil
     @ViewBuilder var content: Content
 
     @State private var model = InkRefreshModel()
-    @State private var pull: CGFloat = 0
-    @State private var gestureIsLive = false
-    @State private var work: Task<Void, Never>?
+    @State private var dismissWork: Task<Void, Never>?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private static var space: String { "inkRefresh" }
-
-    private var revealed: CGFloat {
-        model.isActive
-            ? InkRefreshModel.activeHeight
-            : min(max(pull, 0), InkRefreshModel.activeHeight)
-    }
-
     var body: some View {
         ScrollView {
-            VStack(spacing: 0) {
-                // Why height 0 and outside the padding: the probe has to report
-                // the true top of the content, and the padding below moves the
-                // content down during a sync without moving the measurement.
-                GeometryReader { geo in
-                    Color.clear.preference(
-                        key: InkPullKey.self,
-                        value: geo.frame(in: .named(Self.space)).minY)
-                }
-                .frame(height: 0)
-
-                content
-                    .padding(.top, model.isActive ? InkRefreshModel.activeHeight : 0)
+            content
+        }
+        .refreshable { await refresh() }
+        .overlay(alignment: .top) {
+            if model.isActive {
+                InkRefreshIndicator(model: model, lastWritingAt: lastWritingAt)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule(style: .continuous))
+                    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+                    .padding(.top, 8)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .allowsHitTesting(false)
             }
         }
-        .coordinateSpace(name: Self.space)
-        .overlay(alignment: .top) { indicator }
-        .onPreferenceChange(InkPullKey.self) { handlePull($0) }
-        .simultaneousGesture(
-            DragGesture(minimumDistance: 10)
-                .onChanged { _ in gestureIsLive = true }
-                .onEnded { _ in release() }
-        )
-        .animation(reduceMotion ? nil : .spring(response: 0.34, dampingFraction: 0.86),
-                   value: model.isActive)
-        // Why an explicit action: a pull gesture is unreachable with VoiceOver,
-        // Switch Control and Voice Control, and the native `.refreshable` this
-        // replaces exposed one. Without it the screens become unrefreshable for
-        // exactly the people who cannot pull.
-        .accessibilityAction(named: Text("Aktualisieren")) { triggerFromAssistiveTechnology() }
-        .onDisappear { work?.cancel() }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: model.phase)
+        .onDisappear { dismissWork?.cancel() }
     }
 
-    /// Drawn into the strip the pull opens, clipped to it.
-    ///
-    /// Why the explicit clip: an overlay is not bounded by the scroll view, so
-    /// an unclipped indicator paints over the header during a partial pull.
-    private var indicator: some View {
-        ZStack(alignment: .top) {
-            Color.clear
-            InkRefreshIndicator(model: model)
-                .padding(.top, 12)
-        }
-        .frame(height: max(revealed, 0), alignment: .top)
-        .clipped()
-        .opacity(model.isActive ? 1 : Double(min(1, revealed / 28)))
-        .allowsHitTesting(false)
-    }
-
-    private func handlePull(_ offset: CGFloat) {
-        // Safety net for an OS that never delivers the simultaneous drag: an
-        // armed pull that has sprung all the way back means the finger is gone,
-        // and committing here beats leaving a control that never fires. The
-        // latch keeps this dormant as soon as the gesture has proven itself.
-        if !gestureIsLive, model.isArmed, offset <= 2 {
-            release()
+    private func refresh() async {
+        dismissWork?.cancel()
+        guard model.beginSystemRefresh() else { return }
+        let outcome = await action()
+        guard !Task.isCancelled else {
+            // Why not a bare return: that would strand the model in
+            // `.refreshing`, which no later pull can leave.
+            model.abandon()
             return
         }
-        pull = offset
-        if model.pull(offset) { InkHaptics.armed() }
-    }
-
-    private func release() {
-        guard model.release() else { return }
-        run()
-    }
-
-    private func triggerFromAssistiveTechnology() {
-        guard !model.isActive else { return }
-        model.pull(InkRefreshModel.threshold)
-        guard model.release() else { return }
-        run()
-    }
-
-    private func run() {
-        work?.cancel()
-        work = Task { @MainActor in
-            let outcome = await action()
-            guard !Task.isCancelled else { return }
-            withAnimation(reduceMotion ? nil : .easeOut(duration: 0.25)) {
-                model.finish(outcome)
-            }
-            InkHaptics.settled(outcome)
+        model.finish(outcome)
+        InkHaptics.settled(outcome)
+        dismissWork = Task { @MainActor in
             try? await Task.sleep(
                 nanoseconds: UInt64(InkRefreshModel.settleSeconds * 1_000_000_000))
             guard !Task.isCancelled else { return }
@@ -122,29 +65,25 @@ struct InkRefreshScroll<Content: View>: View {
     }
 }
 
-private struct InkPullKey: PreferenceKey {
-    static var defaultValue: CGFloat { 0 }
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) { value = nextValue() }
-}
-
 // MARK: - Indicator
 
 struct InkRefreshIndicator: View {
     let model: InkRefreshModel
+    var lastWritingAt: Date? = nil
 
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var spin: Double = 0
 
-    private static let diameter: CGFloat = 26
+    private static let diameter: CGFloat = 20
     private static let line: CGFloat = 2.2
 
     var body: some View {
-        VStack(spacing: 7) {
+        HStack(spacing: 8) {
             glyph.frame(width: Self.diameter, height: Self.diameter)
             caption
         }
-        .frame(maxWidth: .infinity)
+        .fixedSize(horizontal: true, vertical: false)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Abgleich"))
         .accessibilityValue(captionText)
@@ -156,7 +95,7 @@ struct InkRefreshIndicator: View {
             ZStack {
                 ring(theme.success, progress: 1)
                 Image(systemName: "checkmark")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 9, weight: .bold))
                     .foregroundStyle(theme.success)
             }
             .transition(.scale(scale: 0.7).combined(with: .opacity))
@@ -173,7 +112,7 @@ struct InkRefreshIndicator: View {
 
         case .refreshing:
             ZStack {
-                ring(theme.accent.opacity(0.22), progress: 1)
+                ring(theme.track, progress: 1)
                 Circle()
                     .fill(theme.accent)
                     .frame(width: 7, height: 7)
@@ -202,8 +141,6 @@ struct InkRefreshIndicator: View {
             .font(.caption2)
             .foregroundStyle(captionColor)
             .lineLimit(1)
-            .minimumScaleFactor(0.8)
-            .padding(.horizontal, 12)
     }
 
     private var captionColor: Color {
@@ -220,10 +157,14 @@ struct InkRefreshIndicator: View {
         case .release: return String(localized: "Loslassen zum Abgleichen")
         case .syncing: return String(localized: "Schreibzeit wird abgeglichen …")
         case .updated(let at):
+            if let lastWritingAt {
+                let time = lastWritingAt.formatted(date: .omitted, time: .shortened)
+                return String(localized: "Zuletzt geschrieben \(time)")
+            }
             let time = at.formatted(date: .omitted, time: .shortened)
             return String(localized: "Alles aktuell · \(time)")
         case .offline:
-            return String(localized: "Keine Verbindung · Daten bleiben erhalten")
+            return String(localized: "Keine Verbindung zur Uhr")
         }
     }
 

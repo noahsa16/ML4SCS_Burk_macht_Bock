@@ -14,6 +14,7 @@ struct HistoryView: View {
         if date == focus.today?.date { return focus.today?.stretches }
         return focus.dayCache[date]?.stretches
     }
+    
 
     var body: some View {
         NavigationStack {
@@ -35,7 +36,7 @@ struct HistoryView: View {
             if focus.watchUnreachable {
                 OfflineBanner(lastUpdated: focus.lastUpdated)
                     .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 12)
             }
             ForEach(activeDays) { day in
                 Section {
@@ -69,7 +70,7 @@ struct HistoryView: View {
             // Why a retry and not just a message: the load is the only path to
             // this day's detail, and it previously failed silently forever.
             Button { Task { await focus.loadDay(day.date, force: true) } } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Image(systemName: "arrow.clockwise")
                     Text("Nicht geladen — erneut versuchen")
                 }
@@ -110,7 +111,7 @@ private struct HistoryRowStyle: ViewModifier {
         content
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 16)
-            .padding(.vertical, 11)
+            .padding(.vertical, 12)
             .background(theme.paperTop)
             .overlay(alignment: .bottom) {
                 Rectangle().fill(theme.hairline)
@@ -165,7 +166,7 @@ private struct SessionRow: View {
             MiniSparkline(samples: stretch.intensitySamples)
             Text(duration).font(.callout).foregroundStyle(theme.secondaryInk)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(start), \(duration)")
     }

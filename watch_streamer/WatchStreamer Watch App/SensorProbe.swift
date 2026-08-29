@@ -17,6 +17,28 @@ nonisolated enum SensorProbe {
     /// Ein einzelner Abruf darf hoechstens 12 h umspannen (Apple-Doku).
     static let maxFetchSpanSeconds: TimeInterval = 12 * 3600
 
+    /// Starts or extends the passive recorder to the longest interval Apple
+    /// supports. Recording continues while the app is suspended or terminated;
+    /// subsequent retrieval cycles renew the horizon when the process is alive.
+    @discardableResult
+    static func armPassiveRecording(for duration: TimeInterval) -> Bool {
+        guard CMSensorRecorder.isAccelerometerRecordingAvailable() else { return false }
+        if #available(watchOS 9.0, *) {
+            switch CMSensorRecorder.authorizationStatus() {
+            case .denied, .restricted:
+                return false
+            case .authorized, .notDetermined:
+                break
+            @unknown default:
+                return false
+            }
+        }
+        recorder.recordAccelerometer(
+            forDuration: min(max(1, duration), maxFetchSpanSeconds)
+        )
+        return true
+    }
+
     static func authorizationDescription() -> String {
         if #available(watchOS 9.0, *) {
             return String(describing: CMSensorRecorder.authorizationStatus())
@@ -157,11 +179,33 @@ nonisolated enum SensorProbe {
         var maxGap = 0.0
         var nonMonotonic = 0
 
+        // Why amplitude at all: the probe measured timing only, so a recorder
+        // stream that arrived at a perfect 50 Hz but in the wrong units, or
+        // without gravity, looked flawless here while the classifier saw a
+        // distribution it was never trained on. The training set's raw accel
+        // sits at |a| = 0.990 g (sd 0.064) with a mean sample-to-sample step
+        // of 0.031 g while writing and 0.024 g idle; these two numbers make
+        // the on-device stream directly comparable to that.
+        var magSum = 0.0
+        var magSqSum = 0.0
+        var stepSum = 0.0
+        var stepCount = 0
+        var previousAxes: (Double, Double, Double)?
+
         // Why: CMSensorDataList only conforms to NSFastEnumeration, not Swift's
         // Sequence — bridge it explicitly to use a for-in loop.
         for case let sample as CMRecordedAccelerometerData in IteratorSequence(NSFastEnumerationIterator(list)) {
             let t = sample.startDate.timeIntervalSinceReferenceDate
             if n == 0 { first = t }
+            let a = sample.acceleration
+            let mag = (a.x * a.x + a.y * a.y + a.z * a.z).squareRoot()
+            magSum += mag
+            magSqSum += mag * mag
+            if let p = previousAxes {
+                stepSum += (abs(a.x - p.0) + abs(a.y - p.1) + abs(a.z - p.2)) / 3
+                stepCount += 1
+            }
+            previousAxes = (a.x, a.y, a.z)
             if let prev = previous {
                 let delta = t - prev
                 if delta < 0 { nonMonotonic += 1 }
@@ -175,6 +219,9 @@ nonisolated enum SensorProbe {
             n += 1
         }
 
+        let magMean = n > 0 ? magSum / Double(n) : 0
+        let magVar = n > 0 ? max(0, magSqSum / Double(n) - magMean * magMean) : 0
+
         return [
             "ok": true,
             "sampleCount": n,
@@ -186,6 +233,13 @@ nonisolated enum SensorProbe {
             "maxGapSeconds": maxGap,
             "nonMonotonicCount": nonMonotonic,
             "fetchReturnedNil": false,
+            // Training reference: 0.990 g mean, 0.064 sd. A mean near 9.8
+            // means m/s2, near 0 means gravity was removed upstream.
+            "magnitudeMeanG": magMean,
+            "magnitudeSdG": magVar.squareRoot(),
+            // Training reference: 0.031 g writing, 0.024 g idle. Much lower
+            // means the stream is smoother than what the model was trained on.
+            "meanAbsStepG": stepCount > 0 ? stepSum / Double(stepCount) : 0,
             // Why: diagnostic gold for a spike that can only be run a few
             // times — lets the operator tell a slow-but-working read apart
             // from one that hit the sendMessage timeout on the iPhone side.

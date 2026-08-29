@@ -103,6 +103,16 @@ struct InkRefreshModel: Equatable {
         return true
     }
 
+    /// Starts a refresh driven by the system pull gesture. Keeping this in the
+    /// same state machine lets the branded completion state remain testable,
+    /// while iOS owns gesture recognition and scroll coordination.
+    @discardableResult
+    mutating func beginSystemRefresh() -> Bool {
+        guard !isActive else { return false }
+        phase = .refreshing
+        return true
+    }
+
     mutating func finish(_ outcome: InkRefreshOutcome) {
         guard phase == .refreshing else { return }
         phase = .settled(outcome)
@@ -110,5 +120,17 @@ struct InkRefreshModel: Equatable {
 
     mutating func dismiss() {
         if case .settled = phase { phase = .idle }
+    }
+
+    /// Leaves any phase for `.idle`.
+    ///
+    /// `.refreshing` is not terminal and nothing else escapes it: `finish` only
+    /// applies a result, `dismiss` only retracts a settled one, and
+    /// `beginSystemRefresh` refuses to start while the model sits in it. A
+    /// refresh that ends without a result — a cancelled task, a transport that
+    /// never answered — therefore used to disable pull-to-refresh for the rest
+    /// of the app's life. The caller says so explicitly instead.
+    mutating func abandon() {
+        phase = .idle
     }
 }

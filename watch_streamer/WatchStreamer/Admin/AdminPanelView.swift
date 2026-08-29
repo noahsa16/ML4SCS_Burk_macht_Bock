@@ -9,6 +9,7 @@ struct AdminPanelView: View {
             ScrybeGlassGroup(spacing: 16) {
                 VStack(spacing: 16) {
                     header
+                    DemoPlaybackCard()
                     RecordingHealthCard()
                     DataflowCard()
                     ConnectionsCard()

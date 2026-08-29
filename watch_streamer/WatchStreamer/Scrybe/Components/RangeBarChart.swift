@@ -9,7 +9,7 @@ struct RangeBarChart: View {
     @Environment(\.scrybe) private var theme
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: 3) {
+        HStack(alignment: .bottom, spacing: 4) {
             ForEach(days) { day in
                 Capsule()
                     .fill(day.isToday ? theme.accent : theme.mutedInk)

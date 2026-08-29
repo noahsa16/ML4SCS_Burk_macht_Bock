@@ -22,7 +22,7 @@ struct InkRing: View {
                 .stroke(tint ?? theme.accent,
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .animation(reduceMotion ? nil : .easeInOut(duration: 0.6), value: fraction)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.6), value: fraction)
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: tint)
             VStack(spacing: 4) {
                 if let centerText {
@@ -31,7 +31,7 @@ struct InkRing: View {
                         .foregroundStyle(theme.ink)
                         .monospacedDigit()
                         .contentTransition(.numericText())
-                        .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: centerText)
+                        .animation(reduceMotion ? nil : .easeOut(duration: 0.4), value: centerText)
                 }
                 if let subtitle {
                     Text(subtitle)

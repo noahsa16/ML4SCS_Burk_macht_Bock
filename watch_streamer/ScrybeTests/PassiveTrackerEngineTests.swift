@@ -24,6 +24,16 @@ private struct ThrowingClassifier: PassiveClassifier {
     func logit(window: [Float]) throws -> Float { throw Boom() }
 }
 
+private final class FakeRecordingController: PassiveRecordingController {
+    var succeeds = true
+    private(set) var requestedDurations: [TimeInterval] = []
+
+    func armRecording(for duration: TimeInterval) -> Bool {
+        requestedDurations.append(duration)
+        return succeeds
+    }
+}
+
 @Suite("PassiveTrackerEngine")
 struct PassiveTrackerEngineTests {
 
@@ -47,6 +57,32 @@ struct PassiveTrackerEngineTests {
             PassiveSample(timestamp: base + Double(i) / 50.0,
                           x: 0.1, y: 0.2, z: 0.98)
         }
+    }
+
+    // The watch and the phone must describe the same day identically, so this
+    // pins the 2.5 s rule the phone's PassiveFocusAggregator also applies.
+    @Test("writing phases merge across short gaps and split across long ones")
+    func writingPhasesGrouping() throws {
+        let (store, url) = makeStore()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let engine = PassiveTrackerEngine(source: FakeSource(), store: store,
+                                          makeClassifier: { FixedClassifier(value: 1) },
+                                          defaults: makeDefaults())
+        let t0 = Int64(Date().timeIntervalSince1970 * 1000)
+        func d(_ offset: Int64, writing: Bool = true) -> PassiveDecision {
+            PassiveDecision(startMs: t0 + offset, endMs: t0 + offset + 5_000,
+                            logit: writing ? 2 : -2, writing: writing,
+                            creditSeconds: 2.5)
+        }
+        // Two overlapping windows, then a 10 s silence, then one more.
+        // The idle window must not join a phase.
+        _ = store.record([d(0), d(2_500), d(0, writing: false), d(20_000)])
+
+        let phases = engine.writingPhases()
+        #expect(phases.count == 2)
+        #expect(phases[0].seconds == 5.0)
+        #expect(phases[1].seconds == 2.5)
+        #expect(phases[0].endMs == t0 + 7_500)
     }
 
     @Test("a disabled engine does nothing")
@@ -76,6 +112,50 @@ struct PassiveTrackerEngineTests {
                                           makeClassifier: { FixedClassifier(value: 1) },
                                           defaults: defaults)
         #expect(second.isEnabled)
+    }
+
+    @Test("enabling and retrieval arm the recorder for the full fetch horizon")
+    func enablingArmsRecorder() throws {
+        let (store, url) = makeStore()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let recorder = FakeRecordingController()
+        let engine = PassiveTrackerEngine(
+            source: FakeSource(), store: store,
+            makeClassifier: { FixedClassifier(value: 1) },
+            recordingController: recorder,
+            defaults: makeDefaults())
+
+        #expect(recorder.requestedDurations.isEmpty)
+        engine.enable()
+        #expect(recorder.requestedDurations == [PassiveTrackerEngine.defaultMaxFetchSpanSeconds])
+
+        _ = engine.runRetrievalCycle()
+        #expect(recorder.requestedDurations == [
+            PassiveTrackerEngine.defaultMaxFetchSpanSeconds,
+            PassiveTrackerEngine.defaultMaxFetchSpanSeconds
+        ])
+    }
+
+    @Test("an unavailable recorder reports failure without fetching")
+    func unavailableRecorderFailsClearly() throws {
+        let (store, url) = makeStore()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let source = FakeSource()
+        let recorder = FakeRecordingController()
+        recorder.succeeds = false
+        let engine = PassiveTrackerEngine(
+            source: source, store: store,
+            makeClassifier: { FixedClassifier(value: 1) },
+            recordingController: recorder,
+            defaults: makeDefaults())
+
+        engine.enable()
+
+        #expect(engine.isEnabled)
+        #expect(source.requestedSpans.isEmpty)
+        if case .failed("sensor recording unavailable") = engine.state {} else {
+            Issue.record("expected unavailable-recorder failure, got \(engine.state)")
+        }
     }
 
     @Test("known samples produce the expected decision count")

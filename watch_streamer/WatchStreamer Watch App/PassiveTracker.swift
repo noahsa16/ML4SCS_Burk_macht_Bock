@@ -4,9 +4,13 @@ import WatchConnectivity
 
 /// Reads the real `CMSensorRecorder` through the same code path the diagnostic
 /// probe uses, so a probe measures what the tracker actually performs.
-nonisolated struct RecorderSampleSource: PassiveSampleSource {
+nonisolated struct RecorderSampleSource: PassiveSampleSource, PassiveRecordingController {
     func fetch(from: Date, to: Date) -> [PassiveSample] {
         SensorProbe.fetch(from: from, to: to)
+    }
+
+    func armRecording(for duration: TimeInterval) -> Bool {
+        SensorProbe.armPassiveRecording(for: duration)
     }
 }
 
@@ -24,6 +28,9 @@ final class PassiveTracker: ObservableObject {
 
     @Published private(set) var state: PassiveTrackerEngine.State = .disabled
     @Published private(set) var writingSecondsToday: Double = 0
+    /// The day's detected writing runs, oldest first. Published so a cycle can
+    /// show what it found, not just a total that may be hours old.
+    @Published private(set) var todayPhases: [WritingPhase] = []
     @Published private(set) var lastCycleAt: Date?
     @Published private(set) var isCycling = false
 
@@ -39,17 +46,20 @@ final class PassiveTracker: ObservableObject {
         // Why built here rather than as a default argument: a default argument
         // is evaluated in a nonisolated context, and SensorProbe's constants
         // are main-actor isolated under this target's default isolation.
+        let recorder = RecorderSampleSource()
         self.engine = engine ?? PassiveTrackerEngine(
-            source: RecorderSampleSource(),
+            source: recorder,
             store: PassiveDecisionStore(fileURL: PassiveDecisionStore.defaultFileURL()),
             makeClassifier: {
                 try WatchScrybeModel(resourceName: "ScrybePassive",
                                      channels: 3, seqLen: 250)
             },
+            recordingController: recorder,
             headroomSeconds: SensorProbe.headroomSeconds,
             maxFetchSpanSeconds: SensorProbe.maxFetchSpanSeconds)
         state = self.engine.state
         writingSecondsToday = self.engine.writingSecondsToday()
+        todayPhases = self.engine.writingPhases()
         if self.engine.isEnabled { startCycleTimer() }
     }
 
@@ -83,6 +93,7 @@ final class PassiveTracker: ObservableObject {
 
         state = outcome.0.state
         writingSecondsToday = outcome.1
+        todayPhases = engine.writingPhases()
         lastCycleAt = Date()
         syncPendingDecisions()
     }

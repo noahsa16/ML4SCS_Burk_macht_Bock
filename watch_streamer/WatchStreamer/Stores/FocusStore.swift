@@ -24,6 +24,25 @@ final class FocusStore: ObservableObject {
     /// line. Passive decisions lag the recorder by minutes, so this is the
     /// honest replacement for a live "writing now" claim.
     @Published private(set) var lastWritingAt: Date?
+    /// Explicitly labelled, in-memory product demo. It never mutates the real
+    /// decision or archive stores.
+    @Published private(set) var demoModeEnabled = false
+    @Published private(set) var demoIsWriting = false
+
+    /// Writing recent enough that the app may still present it as in progress.
+    static let recentWritingWindow: TimeInterval = 15 * 60
+
+    /// The single definition of "counts as writing right now".
+    ///
+    /// The passive path cannot say "now" — `CMSensorRecorder` is readable only
+    /// minutes after the fact — so recency is the honest stand-in. It lives
+    /// here because the daily ring and the header glyph must never disagree
+    /// about it on the same screen.
+    func isRecentlyWriting(now: Date = Date()) -> Bool {
+        if demoModeEnabled { return demoIsWriting }
+        guard let lastWritingAt else { return false }
+        return now.timeIntervalSince(lastWritingAt) < Self.recentWritingWindow
+    }
 
     /// Per-day payloads for the Verlauf detail.
     @Published private(set) var dayCache: [String: FocusTodayDTO] = [:]
@@ -32,12 +51,21 @@ final class FocusStore: ObservableObject {
     private let archive: FocusArchive
     private let historyDays = 90
     private let calendar = Calendar.current
+    /// Advances after a durable Watch batch lands. Pull-to-refresh waits for
+    /// this rather than treating the Watch command acknowledgement as if the
+    /// asynchronously transferred decisions were already on disk.
+    private var ingestRevision = 0
+    private var demoPlayback: FocusDemoPlayback?
+    private var demoTask: Task<Void, Never>?
 
     init(decisions: PassiveDecisionStore = PassiveDecisionStore(
             fileURL: PassiveDecisionStore.defaultFileURL()),
-         archive: FocusArchive = FocusArchive()) {
+         archive: FocusArchive? = nil) {
         self.decisions = decisions
-        self.archive = archive
+        // Default-argument expressions are evaluated outside the actor even
+        // though this initializer is MainActor-isolated. Construct the archive
+        // in the body so Xcode 26.6 does not flag a false cross-actor call.
+        self.archive = archive ?? FocusArchive()
     }
 
     /// Loads what is already on disk. There is nothing to poll — data arrives
@@ -56,6 +84,10 @@ final class FocusStore: ObservableObject {
     @discardableResult
     func refresh() async -> Bool {
         let now = Date()
+        if demoModeEnabled {
+            applyDemo(now: now)
+            return true
+        }
         var raw = decisions.allDecisions()
 
         // Seal days that can no longer receive late deliveries, then drop the
@@ -74,7 +106,15 @@ final class FocusStore: ObservableObject {
 
     /// Asks the watch to hand over what it has, then re-derives.
     func refreshForPull() async -> InkRefreshOutcome {
+        if demoModeEnabled {
+            applyDemo(now: Date())
+            return .updated(at: lastUpdated ?? Date())
+        }
+        let revisionBeforePull = ingestRevision
         let reached = await WatchDecisionSync.shared.requestSync()
+        if reached {
+            await waitForWatchDelivery(after: revisionBeforePull)
+        }
         await refresh()
         watchUnreachable = !reached
         return reached ? .updated(at: lastUpdated ?? Date()) : .offline
@@ -86,10 +126,85 @@ final class FocusStore: ObservableObject {
     /// between writing windows already ends a stretch — and keeping them costs
     /// roughly twenty times the storage.
     func ingest(_ batch: [PassiveDecision]) async {
+        // Any decision delivery proves that WatchConnectivity is working
+        // again. Do this before filtering idle windows so a healthy all-idle
+        // batch also clears a stale failed-pull warning.
+        watchUnreachable = false
         let writing = batch.filter(\.writing)
         guard !writing.isEmpty else { return }
-        decisions.record(writing)
+        guard decisions.record(writing) else { return }
+        ingestRevision &+= 1
+        guard !demoModeEnabled else { return }
         await refresh()
+    }
+
+    /// `transferUserInfo` is a second, durable transport and arrives shortly
+    /// after the command reply. A bounded wait makes a pull visibly update the
+    /// ring when a batch is already in flight without ever hanging the UI when
+    /// the Watch simply has no new writing windows.
+    private func waitForWatchDelivery(after revision: Int) async {
+        let attempts = 25
+        for _ in 0..<attempts where ingestRevision == revision {
+            guard !Task.isCancelled else { return }
+            try? await Task.sleep(nanoseconds: 100_000_000)
+        }
+    }
+
+    // MARK: - Product demo
+
+    func startDemo(startingSeconds: Double, secondsPerTick: Double) {
+        demoTask?.cancel()
+        demoPlayback = FocusDemoPlayback(startingSeconds: startingSeconds,
+                                         secondsPerTick: secondsPerTick)
+        demoModeEnabled = true
+        demoIsWriting = true
+        watchUnreachable = false
+        applyDemo(now: Date())
+
+        demoTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                self.advanceDemo()
+            }
+        }
+    }
+
+    func stopDemo() async {
+        demoTask?.cancel()
+        demoTask = nil
+        demoPlayback = nil
+        demoModeEnabled = false
+        demoIsWriting = false
+        await refresh()
+    }
+
+    /// Internal so the deterministic step can be covered without sleeping.
+    func advanceDemo(at now: Date = Date()) {
+        guard var playback = demoPlayback else { return }
+        playback.advance(at: now)
+        demoPlayback = playback
+        demoIsWriting = playback.isWriting
+        applyDemo(now: now)
+    }
+
+    private func applyDemo(now: Date) {
+        guard let playback = demoPlayback else { return }
+        let raw = playback.decisions
+        today = PassiveFocusAggregator.day(now, from: raw, calendar: calendar, now: now)
+        week = PassiveFocusAggregator.range(days: 7, from: raw,
+                                             calendar: calendar, now: now)
+        history = PassiveFocusAggregator.range(days: historyDays, from: raw,
+                                                calendar: calendar, now: now)
+        timeOfDay = PassiveFocusAggregator.timeOfDay(days: 7, from: raw,
+                                                     calendar: calendar, now: now)
+        lastWritingAt = raw.last.map {
+            Date(timeIntervalSince1970: Double($0.endMs) / 1_000)
+        }
+        if let today {
+            dayCache = [today.date: today]
+        }
+        lastUpdated = now
     }
 
     private func apply(raw: [PassiveDecision], now: Date) {
@@ -220,6 +335,11 @@ final class FocusStore: ObservableObject {
 
     /// Erases every writing record on this phone.
     func deleteAllLocalData() {
+        demoTask?.cancel()
+        demoTask = nil
+        demoPlayback = nil
+        demoModeEnabled = false
+        demoIsWriting = false
         decisions.removeAll()
         archive.removeAll()
         today = nil; week = nil; history = nil; timeOfDay = nil

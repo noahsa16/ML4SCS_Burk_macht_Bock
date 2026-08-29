@@ -70,6 +70,13 @@ struct ScrybeTheme {
     var hairline: Color { ink.opacity(0.06) }   // card strokes, dividers
     var cardFill: Color { paperTop }            // card surface
     var mutedInk: Color { ink.opacity(0.15) }   // inactive dots/bars
+
+    /// Diluted ink for a tinted surface — chips, banners, filled chart areas.
+    ///
+    /// Exists so call sites stop inventing their own strength. Four of them had
+    /// drifted to 0.12/0.14/0.15/0.22: differences no eye resolves, while the
+    /// inconsistency itself is what reads as unconsidered.
+    func wash(_ color: Color) -> Color { color.opacity(0.12) }
 }
 
 extension Color {

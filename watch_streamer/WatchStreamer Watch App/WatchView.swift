@@ -81,39 +81,42 @@ struct WatchView: View {
 
     private var goalMet: Bool { progress >= 1 }
 
+    /// Height the bottom status row occupies: its 44 pt tap target plus the
+    /// breathing room the ring must keep clear of it.
+    private static let statusRowHeight: CGFloat = 56
+
     var body: some View {
         NavigationStack {
-            ViewThatFits(in: .vertical) {
-                mainContent
-                ScrollView { mainContent }
+            GeometryReader { proxy in
+                // Why the status row is subtracted: it is pinned to the bottom,
+                // so centring the ring in the *full* height pushed it down into
+                // the row on shorter watches. The ring owns the centre of the
+                // space that is actually free.
+                let free = max(0, proxy.size.height - Self.statusRowHeight)
+                let side = max(88, min(104, proxy.size.width - 40, free - 16))
+
+                ZStack {
+                    WatchInkRing(
+                        fraction: progress,
+                        writingSeconds: passive.writingSecondsToday,
+                        goalSeconds: goalSeconds,
+                        tint: goalMet
+                            ? WatchScrybeStyle.goalReached
+                            : WatchScrybeStyle.accent
+                    )
+                    .frame(width: side, height: side)
+                    .position(x: proxy.size.width / 2, y: free / 2)
+
+                    VStack {
+                        Spacer()
+                        statusControl
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 12)
+                }
             }
             .tint(WatchScrybeStyle.accent)
         }
-    }
-
-    private var mainContent: some View {
-        VStack(spacing: 8) {
-            ring
-            statusControl
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 12)
-        .padding(.bottom, 4)
-    }
-
-    private var ring: some View {
-        GeometryReader { proxy in
-            let side = min(112, max(96, proxy.size.width - 40))
-            WatchInkRing(
-                fraction: progress,
-                writingSeconds: passive.writingSecondsToday,
-                goalSeconds: goalSeconds,
-                tint: goalMet ? WatchScrybeStyle.goalReached : WatchScrybeStyle.accent
-            )
-            .frame(width: side, height: side)
-            .frame(maxWidth: .infinity)
-        }
-        .frame(height: 112)
     }
 
     @ViewBuilder
@@ -153,6 +156,8 @@ struct WatchView: View {
             Text(statusText)
                 .font(.caption.weight(.medium))
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
 
             if !motion.isRunning && !passive.isCycling {
                 Image(systemName: passive.isEnabled ? "chevron.right" : "plus")
@@ -200,6 +205,8 @@ private struct WatchTrackingOptionsView: View {
                     }
                 }
 
+                phaseList
+
                 Button("Tracking deaktivieren", role: .destructive) {
                     WKInterfaceDevice.current().play(.stop)
                     passive.disable()
@@ -214,6 +221,45 @@ private struct WatchTrackingOptionsView: View {
             .padding(.horizontal, 8)
         }
         .navigationTitle("Tracking")
+    }
+
+    /// What the last cycle actually found.
+    ///
+    /// Why on the watch and not only on the phone: a cycle that reports a bare
+    /// daily total cannot distinguish "found nothing just now" from "found
+    /// something two hours ago", which is exactly what one needs to know while
+    /// testing detection on the wrist.
+    @ViewBuilder
+    private var phaseList: some View {
+        let recent = passive.todayPhases.suffix(5).reversed()
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Erkannt heute")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            if recent.isEmpty {
+                Text("Noch keine Schreibphase")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                ForEach(Array(recent), id: \.startMs) { phase in
+                    HStack {
+                        Text(Self.clock(phase.startMs))
+                            .font(.caption2.monospacedDigit())
+                        Spacer(minLength: 8)
+                        Text("\(Int(phase.seconds.rounded())) s")
+                            .font(.caption2.monospacedDigit())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private static func clock(_ ms: Int64) -> String {
+        Date(timeIntervalSince1970: Double(ms) / 1000)
+            .formatted(date: .omitted, time: .shortened)
     }
 }
 

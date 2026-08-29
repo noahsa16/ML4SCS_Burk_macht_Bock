@@ -60,6 +60,15 @@ struct InkRefreshModelTests {
         #expect(m.phase == .refreshing)
     }
 
+    @Test("the native pull gesture enters the same refresh state")
+    func systemRefreshStartsRefresh() {
+        var m = InkRefreshModel()
+        let didBegin = m.beginSystemRefresh()
+        #expect(didBegin)
+        #expect(m.phase == .refreshing)
+        #expect(m.beginSystemRefresh() == false)
+    }
+
     // Why: the content is padded down while syncing, so the offset probe keeps
     // reporting a standing pull. Acting on it would restart the sync forever.
     @Test("pulling during a refresh is ignored")
@@ -118,6 +127,32 @@ struct InkRefreshModelTests {
         _ = m.release()
         m.dismiss()
         #expect(m.phase == .refreshing)
+    }
+
+    // The bug this guards: a refresh whose action never returned a result left
+    // the model in `.refreshing`, and `beginSystemRefresh` refuses to start
+    // from there — so the control spun forever and every later pull was
+    // silently swallowed until the app restarted.
+    @Test("an abandoned refresh releases the control for the next pull")
+    func abandonEscapesRefreshing() {
+        var m = InkRefreshModel()
+        _ = m.beginSystemRefresh()
+        #expect(m.beginSystemRefresh() == false)
+
+        m.abandon()
+        #expect(m.phase == .idle)
+        #expect(m.isActive == false)
+        #expect(m.status == .hint)
+        #expect(m.beginSystemRefresh() == true)
+    }
+
+    @Test("abandoning also clears a settled result")
+    func abandonClearsSettled() {
+        var m = InkRefreshModel()
+        _ = m.beginSystemRefresh()
+        m.finish(.offline)
+        m.abandon()
+        #expect(m.phase == .idle)
     }
 
     @Test("status follows the phase")

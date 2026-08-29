@@ -13,7 +13,7 @@ struct IntensityCurve: View {
             let pts = points(in: size)
             ZStack {
                 if pts.count > 1 {
-                    area(pts, in: size).fill(theme.accent.opacity(0.15))
+                    area(pts, in: size).fill(theme.wash(theme.accent))
                     line(pts).stroke(theme.accent,
                                      style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                 }
