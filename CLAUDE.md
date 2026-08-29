@@ -152,7 +152,7 @@ Without args, `src.merge` / `src.features` operate on the most recent session.
 
 **Run smoke tests:**
 ```bash
-pytest tests/         # 749 tests
+pytest tests/         # 791 tests (789 pass, 2 skip)
 ```
 
 **Study Mode (counterbalanced data collection):**
@@ -367,7 +367,9 @@ session start/stop start/stop it automatically.
   inference buffer for a clean restart. 404 on unknown id.
 - `GET /focus/today` — today's writing stretches (consecutive
   `writing=1` ticks, gaps ≤ 2.5 s forgiven) + total seconds + tick
-  count, scoped to local-time day bounds.
+  count, scoped to local-time day bounds. **Consumed by the web
+  dashboard only** — the Scrybe iPhone app aggregates its own data since
+  2026-08-29 (see *Scrybe runs without a server* below).
 - `GET /focus/week` — last 7 days as `{date, weekday, writing_seconds,
   is_today}` buckets, oldest first, plus week-max for bar scaling.
 - `WebSocket /ws` — dashboard status (1 s tick) + iPhone bridge
@@ -520,11 +522,75 @@ Two Xcode targets:
 - **WatchStreamer (iPhone)** (`PhoneBridge.swift`): receives
   WatchConnectivity messages, normalises payload, queues HTTP POSTs
   to `http://{serverIP}:8000/watch`. Server IP in `UserDefaults`
-  (`"serverIP"`).
+  (`"serverIP"`). This is the **study path** and still needs a server;
+  the Scrybe consumer surface does not (next section).
 
 Watch ↔ iPhone start/stop commands flow over WatchConnectivity. The
 server broadcasts `{type: "start"/"stop", session_id: …}` over the WS;
 the iPhone bridge forwards to the watch.
+
+#### Scrybe runs without a server (seit 2026-08-29)
+
+Scrybe — die Nutzer-Oberfläche der iPhone-App (Heute / Trends / Verlauf) —
+liest **nicht mehr `/focus/*`**, sondern die Entscheidungen, die die Uhr
+selbst rechnet. **Der Studien-/Aufnahmepfad bleibt unverändert
+serverbasiert** (Rohdaten-Upload, Session-Steuerung, WebSocket) und wird
+aktiv, sobald eine Server-IP gesetzt ist.
+
+```
+PassiveTracker (Watch) → PassiveDecision je 5-s-Fenster, Stride 2,5 s
+  → transferUserInfo (durabel, idempotent über startMs)
+  → PhoneBridge.receivePassiveDecisions
+      ├→ FocusStore.ingest   (immer; verwirft idle-Fenster)
+      └→ POST /passive/decisions  (nur wenn Server konfiguriert)
+  → PassiveDecisionStore (JSONL, rohe Fenster, 3 Tage)
+  → FocusArchive (Tages-Zusammenfassung, danach Rohfenster gelöscht)
+  → PassiveFocusAggregator → FocusTodayDTO / FocusRangeDTO / …
+```
+
+**Speichergrenzen — der eigentliche Grund für diese Architektur.** Der
+Tracker persistiert *jedes* Fenster, auch idle: bei 2,5 s Stride
+**34.560/Tag**, bei ~100 B JSON ≈ 3,5 MB/Tag, über `retentionDays = 90`
+rund **310 MB**. Der Server hat das verdeckt, weil ihm die Historie
+gehörte. Zwei Grenzen bändigen es:
+1. **Idle-Fenster werden beim Empfang verworfen** (`FocusStore.ingest`).
+   Verlustfrei: keine Anzeige liest sie, und die Lücke zwischen zwei
+   Schreib-Fenstern beendet eine Phase ohnehin.
+2. **Tages-Rollups** (`FocusArchive`): Summe + Schreibphasen + 24
+   Stundenwerte, wenige KB; danach werden die Rohfenster gelöscht.
+   **Rohfenster bleiben 3 Tage** (`rawRetentionDays`), nicht bis
+   Mitternacht — die Uhr holt bis zu 12 h Recorder-Historie pro Zyklus,
+   ein Mitternachts-Rollup würde regelmäßig Nachlieferungen wegwerfen.
+
+**Auf der Uhr ist dasselbe Volumenproblem offen** — bewusst nicht
+angefasst, damit die ausstehenden Hardware-Messungen gegen den
+aufgespielten Code laufen.
+
+**Aggregations-Abweichung vom Server.** `focus.py` rechnet auf
+nicht-überlappenden 1-Hz-Ticks, wo eine Phase `Ende − Start` lang ist.
+Passiv-Fenster **überlappen** (5 s Daten alle 2,5 s), also verdoppelt
+Wanduhr-Extent die Schreibzeit. `PassiveFocusAggregator` summiert deshalb
+`creditSeconds` (den Stride); Start/Ende dienen nur dem Zeitstrahl.
+
+**Pull-to-Refresh fragt die Uhr**, nicht das Netz: `WatchDecisionSync`
+schickt das Kommando `sync_decisions`, die Uhr antwortet **sofort** mit
+dem, was sie schon gerechnet hat, und startet den nächsten Zyklus, ohne
+ihn abzuwarten (ein Zyklus kann Core ML über 12 h Historie laufen lassen
+und würde das `sendMessage`-Timeout reißen — dann käme gar keine Antwort).
+Das Kommando umgeht den Recording-Dispatcher wie eine Diagnose, daher die
+eigene Eigenschaft `bypassesRecordingDispatcher` statt `isDiagnostic` zu
+verwässern. UI: `InkRefreshScroll` (Tinten-Pull, ersetzt `.refreshable`
+auf allen drei Screens).
+
+**Keine Live-Pille mehr.** `CMSensorRecorder` ist erst Minuten im
+Nachhinein lesbar, „schreibt gerade" wäre also eine Behauptung, die die
+Daten nicht tragen. `SyncChip` zeigt stattdessen „Zuletzt geschrieben
+14:20 · abgeglichen 14:31"; `FocusStore.isOffline` heißt jetzt
+`watchUnreachable`.
+
+**Debug-Falle:** `ServerConfig.defaultIP` ist in DEBUG weiterhin die
+Entwickler-LAN-Adresse. Für einen ehrlichen Ohne-Server-Test braucht es
+einen Release-Build oder ein leeres IP-Feld im Admin-Panel.
 
 **WS connection epoch (`ServerCommandListener.swift`):** each
 `connect()` bumps `connectionEpoch`. Receive/send callbacks capture
@@ -1619,7 +1685,7 @@ Audit, Label-Kinematik) sind bei den jeweiligen Skripten oben +
 
 ## Testing
 
-`tests/` holds Tier-1 smoke tests (749 cases) — anything that
+`tests/` holds Tier-1 smoke tests (791 cases) — anything that
 could silently poison the training data or the proband-facing flow:
 
 **Daten-/Pipeline-Integrität:** `test_quality.py` (Issue-Codes + stale-CSV-Window-
