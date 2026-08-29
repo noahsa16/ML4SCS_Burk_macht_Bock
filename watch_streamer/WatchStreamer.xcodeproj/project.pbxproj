@@ -200,8 +200,8 @@
 			dependencies = (
 			);
 			fileSystemSynchronizedGroups = (
-				CC000001CC000001CC000001 /* WatchStreamer Watch App */,
 				AA5HARED0001AA5HARED0001 /* Shared */,
+				CC000001CC000001CC000001 /* WatchStreamer Watch App */,
 			);
 			name = "WatchStreamer Watch App";
 			packageProductDependencies = (
