@@ -34,13 +34,14 @@ struct FocusSessionStoreTests {
         try? await Task.sleep(nanoseconds: 150_000_000)
     }
 
-    /// `count` samples at 50 Hz beginning at `start`. The offset matters: two
+    /// `count` samples at `hz` beginning at `start`. The offset matters: two
     /// batches must form one monotonic stream, or the builder correctly reads
     /// the second as a gap and resets — which is the behaviour under test
     /// elsewhere, not something to work around here.
-    private func samples(_ count: Int, from start: TimeInterval = 0) -> [PassiveSample] {
+    private func samples(_ count: Int, from start: TimeInterval = 0,
+                         hz: Double = 50) -> [PassiveSample] {
         (0..<count).map { i in
-            PassiveSample(timestamp: start + Double(i) / 50.0,
+            PassiveSample(timestamp: start + Double(i) / hz,
                           x: 0.1, y: 0.2, z: 0.98,
                           rx: 0.01, ry: 0.02, rz: 0.03)
         }
@@ -147,7 +148,6 @@ struct FocusSessionStoreTests {
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1), bestiary: bestiary)
         store.begin(targetSeconds: 900)
 
-        #expect(store.carriedSeconds == 600)
         #expect(store.currentSpecies == creature.speciesId)
         #expect(store.strokesTotal == creature.strokesTotal)
         #expect(creature.strokesDrawn > 0)
@@ -180,8 +180,9 @@ struct FocusSessionStoreTests {
     // MARK: - Crediting
 
     // 500 samples at stride 125 are exactly three windows, each worth the
-    // stride: 7.5 s. Only those seconds may be credited — `carriedSeconds`
-    // came out of the creature, and adding it back would count it twice.
+    // stride: 7.5 s. Exactly that may reach the creature — the 600 s it
+    // already carries came out of it, and crediting the session twice (once
+    // per window, once again at `end()`) would read as 615.
     @Test("ending credits this session's writing time, not the carried seconds")
     func endCreditsOnlyItsOwnWriting() throws {
         let (bestiary, url) = tempBestiary()
@@ -215,6 +216,132 @@ struct FocusSessionStoreTests {
         #expect(store.writingSeconds == 0)
         #expect(bestiary.current == nil)
         #expect(bestiary.completed.isEmpty)
+    }
+
+    // The screen is built to be closed while the session runs, so a long one
+    // spends most of its life backgrounded and a share of those are killed by
+    // iOS. Crediting only at `end()` meant such a sitting left the creature
+    // nothing at all — and never sent a `focus_stop` either.
+    @Test("writing time reaches the creature without the session ending")
+    func creditLandsBeforeTheSessionEnds() throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { .stopped })
+        store.begin(targetSeconds: 900)
+        store.consume(samples(500))
+
+        #expect(store.isActive)
+        #expect(try #require(bestiary.current).writingSeconds == 7.5)
+    }
+
+    // Spec §8: "Ist es fertig, wird es abgelegt und das nächste beginnt —
+    // überschüssige Schreibzeit derselben Sitzung zählt bereits für dieses."
+    // A creature snapshotted at `begin()` clamped at its last stroke instead
+    // and held there for the rest of the sitting.
+    @Test("a session crossing a creature boundary draws the next creature")
+    func creatureBoundaryMidSessionAdvances() throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        // Five seconds short of a finished creature, so the session's 7.5 s
+        // both completes it and carries 2.5 s into the next.
+        bestiary.addWritingSeconds(Bestiary.secondsPerCreature - 5,
+                                   now: Date(timeIntervalSince1970: 1_788_000_000))
+        let before = try #require(bestiary.current)
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { .stopped })
+        store.begin(targetSeconds: 900)
+        store.consume(samples(500))
+
+        let finished = try #require(bestiary.completed.first)
+        let next = try #require(bestiary.current)
+        #expect(finished.ordinal == before.ordinal)
+        #expect(next.ordinal == before.ordinal + 1)
+        #expect(next.writingSeconds == 2.5)
+
+        // The margin followed the collection: it draws the new creature, and
+        // a frozen one would still be showing the finished animal's full
+        // stroke count.
+        #expect(store.currentSpecies == next.speciesId)
+        #expect(store.strokesTotal == next.strokesTotal)
+        #expect(store.strokesDrawn == next.strokesDrawn)
+        #expect(store.strokesDrawn < finished.strokesTotal)
+
+        // And the finished page names the creature the session completed.
+        store.end()
+        #expect(store.phase == .finished(finished))
+    }
+
+    // The window ledger's job: credit is written as windows arrive, so a
+    // batch delivered twice must not pay twice.
+    @Test("a re-delivered batch is credited once")
+    func redeliveredBatchIsCreditedOnce() throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { .stopped })
+        store.begin(targetSeconds: 900)
+        store.consume(samples(500))
+        store.consume(samples(500))
+
+        #expect(store.decisions.count == 3)
+        #expect(try #require(bestiary.current).writingSeconds == 7.5)
+    }
+
+    // MARK: - The stream's real rate
+
+    // `secondsPerWindow` is derived from the builder's nominal 50 Hz, not
+    // measured. A study recording's 100 Hz reaching a running session would
+    // be paid 2.5 s for 1.25 s of writing and hand the model half a window.
+    @Test("a stream at the wrong rate credits nothing")
+    func wrongRateCreditsNothing() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { .stopped })
+        store.begin(targetSeconds: 900)
+        store.consume(samples(500, hz: 100))
+
+        #expect(store.decisions.isEmpty)
+        #expect(store.writingSeconds == 0)
+        #expect(bestiary.current == nil)
+    }
+
+    // MARK: - Preemption by a study recording
+
+    // The Watch ends a focus session on its own when a study recording
+    // starts, and says nothing. Left running, the session would go on
+    // classifying a stream it no longer owns — and would later send
+    // `focus_stop` into the proband recording.
+    @Test("a study recording ends the session without stopping the Watch")
+    func preemptionEndsTheSessionAndSendsNoStop() async throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stops = StopRecorder()
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
+        store.begin(targetSeconds: 900)
+        store.consume(samples(500))
+        store.watchPreemptedByRecording()
+        await settle()
+
+        guard case .finished = store.phase else {
+            Issue.record("expected .finished phase, got \(store.phase)")
+            return
+        }
+        #expect(stops.calls == 0)
+        // The writing time the session did earn stays earned.
+        #expect(try #require(bestiary.current).writingSeconds == 7.5)
     }
 
     // MARK: - The sixty-minute cap
@@ -288,35 +415,6 @@ struct FocusSessionStoreTests {
             Issue.record("expected .failed phase, got \(store.phase)")
             return
         }
-    }
-
-    // MARK: - Preemption by a study recording
-
-    // The Watch ends a focus session on its own when a study recording
-    // starts, and says nothing. Left running, the session would go on
-    // classifying a stream it no longer owns — and would later send
-    // `focus_stop` into the proband recording.
-    @Test("a study recording ends the session without stopping the Watch")
-    func preemptionEndsTheSessionAndSendsNoStop() async throws {
-        let (bestiary, url) = tempBestiary()
-        defer { try? FileManager.default.removeItem(at: url) }
-        let stops = StopRecorder()
-
-        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
-                                      stopOnWatch: { stops.calls += 1; return .stopped })
-        store.begin(targetSeconds: 900)
-        store.consume(samples(500))
-        store.watchPreemptedByRecording()
-        await settle()
-
-        guard case .finished = store.phase else {
-            Issue.record("expected .finished phase, got \(store.phase)")
-            return
-        }
-        #expect(stops.calls == 0)
-        // The writing time the session did earn stays earned.
-        #expect(try #require(bestiary.current).writingSeconds == 7.5)
     }
 
     // The model can only fail once the session is already running, so the

@@ -59,6 +59,17 @@ final class FocusSessionStore: ObservableObject {
     // and every later `consume` (this session's or a later one) needs the
     // same reason to hand the phase without paying for a doomed retry.
     private var loadFailureMessage: String?
+    /// Window start times already paid into the collection this session.
+    ///
+    /// Credit is written as windows arrive, so the ledger against re-delivery
+    /// has to sit with the credit. `PassiveWindowBuilder` drops non-monotonic
+    /// samples and so would not re-emit a window today; that is its
+    /// invariant, not this one's.
+    private var creditedWindowStarts: Set<Int64> = []
+    /// The lowest `ordinal` a creature completed by this session can carry.
+    /// Read at `begin()` so the finished page can tell a creature this
+    /// session finished from one that was already in the collection.
+    private var firstOrdinalThisSession: Int64 = 0
 
     init(classifier: PassiveClassifier? = nil,
          makeClassifier: @escaping () throws -> PassiveClassifier = {
@@ -102,16 +113,21 @@ final class FocusSessionStore: ObservableObject {
 
     // MARK: - The creature in the margin
 
-    /// The creature this session draws, read from `BestiaryStore` when the
-    /// session begins. A half-drawn animal continues rather than restarting,
-    /// and starting again cannot reroll for a different one.
-    private(set) var currentSpecies: Int = 0
-    private(set) var strokesTotal: Int = 0
+    /// The creature the margin draws: whichever one `BestiaryStore` has in
+    /// progress right now, read on every access rather than snapshotted when
+    /// the session began.
+    ///
+    /// A half-drawn animal continues rather than restarting, and starting
+    /// again cannot reroll for a different one — but the creature can also
+    /// *finish* mid-sitting, and then the next one has to start growing.
+    /// A snapshot clamped at its last stroke instead and held there: a
+    /// 45-minute session from an empty collection spent its final 15 minutes
+    /// with a motionless margin, and with the carry-over the design assumes,
+    /// 20 minutes carried plus a 25-minute target froze after ten.
+    private var displayedCreature: BestiaryEntry { bestiary.creatureInProgress() }
 
-    /// Writing time the creature already carries from earlier sittings. Only
-    /// drawn against, never credited again — it came out of the creature in
-    /// the first place.
-    private(set) var carriedSeconds: Double = 0
+    var currentSpecies: Int { displayedCreature.speciesId }
+    var strokesTotal: Int { displayedCreature.strokesTotal }
 
     /// Grows with credited writing time, never with the number of bursts —
     /// see `Bestiary.strokesDrawn`. Pauses hold it still and never reduce it,
@@ -120,12 +136,7 @@ final class FocusSessionStore: ObservableObject {
     /// Measured against `Bestiary.secondsPerCreature`, not against the
     /// session's own target: the target sets how long this sitting runs, never
     /// what the animal costs.
-    var strokesDrawn: Int {
-        guard case .running = phase else { return 0 }
-        return Bestiary.strokesDrawn(writingSeconds: carriedSeconds + writingSeconds,
-                                     targetSeconds: Bestiary.secondsPerCreature,
-                                     strokesTotal: strokesTotal)
-    }
+    var strokesDrawn: Int { displayedCreature.strokesDrawn }
 
     // MARK: - Phases
 
@@ -154,10 +165,7 @@ final class FocusSessionStore: ObservableObject {
     func begin(targetSeconds: Double, at date: Date = Date()) {
         reset()
         stopUnconfirmed = false
-        let creature = bestiary.creatureInProgress(now: date)
-        currentSpecies = creature.speciesId
-        strokesTotal = creature.strokesTotal
-        carriedSeconds = creature.writingSeconds
+        firstOrdinalThisSession = bestiary.creatureInProgress(now: date).ordinal
         watchIsStreaming = true
         phase = .running(startedAt: date, targetSeconds: targetSeconds)
         scheduleHardStop(from: date)
@@ -170,8 +178,10 @@ final class FocusSessionStore: ObservableObject {
         begin(targetSeconds: targetSeconds, at: date)
     }
 
-    /// Ends the session: credits its writing time, freezes the page, and asks
-    /// the Watch to stop.
+    /// Ends the session: freezes the page and asks the Watch to stop.
+    ///
+    /// Credits nothing — every window paid into the collection as it arrived
+    /// (see `consume`), so a lump sum here would count the session twice.
     ///
     /// The phase moves immediately and does not wait for the Watch. A stop the
     /// Watch never confirms is reported through `stopUnconfirmed` rather than
@@ -180,10 +190,9 @@ final class FocusSessionStore: ObservableObject {
         guard case .running(let startedAt, _) = phase else { return }
         hardStopTask?.cancel()
         hardStopTask = nil
-        let entry = creditWritingTime(at: date)
         lastSessionStart = startedAt
         lastSessionEnd = date
-        phase = .finished(entry)
+        phase = .finished(creatureToShow())
         stopWatchIfStreaming()
     }
 
@@ -193,7 +202,7 @@ final class FocusSessionStore: ObservableObject {
     /// asking, so the session closes here rather than running on against a
     /// stream that is no longer its own. No `focus_stop` goes out: the Watch
     /// is at this moment being told to record, and stopping it is exactly
-    /// what must not happen.
+    /// what must not happen. The writing time is already in the collection.
     func watchPreemptedByRecording() {
         guard case .running = phase else { return }
         watchIsStreaming = false
@@ -247,30 +256,36 @@ final class FocusSessionStore: ObservableObject {
         }
         guard let classifier else { return }
         for window in builder.append(samples) {
+            let startMs = Int64(window.startTimestamp * 1000)
+            guard creditedWindowStarts.insert(startMs).inserted else { continue }
             guard let logit = try? classifier.logit(window: window.values) else { continue }
-            decisions.append(PassiveDecision(
-                startMs: Int64(window.startTimestamp * 1000),
+            let decision = PassiveDecision(
+                startMs: startMs,
                 endMs: Int64(window.endTimestamp * 1000),
                 logit: logit,
                 writing: logit >= 0,
-                creditSeconds: builder.secondsPerWindow))
+                creditSeconds: builder.secondsPerWindow)
+            decisions.append(decision)
+            // Why credited here rather than in one sum at `end()`: the
+            // creature has to keep growing past a completion boundary instead
+            // of clamping at the last stroke, and this screen is meant to be
+            // closed while the session runs — so a session iOS terminates,
+            // which never reaches `end()`, still leaves its writing behind.
+            guard decision.writing else { continue }
+            bestiary.addWritingSeconds(decision.creditSeconds)
         }
     }
 
     // MARK: - Ending
 
-    /// Credits only this session's own seconds. `carriedSeconds` came out of
-    /// the creature, so crediting it again would count it twice.
-    ///
-    /// - Returns: the creature to show for the session just ended — the one it
-    ///   finished if it finished one, otherwise the one it left partly drawn.
-    private func creditWritingTime(at date: Date) -> BestiaryEntry {
-        let completedBefore = bestiary.completed.count
-        bestiary.addWritingSeconds(writingSeconds, now: date)
-        if bestiary.completed.count > completedBefore, let finished = bestiary.completed.first {
+    /// The creature the finished page shows: the one this session completed
+    /// if it completed any, otherwise the one it left partly drawn.
+    private func creatureToShow() -> BestiaryEntry {
+        if let finished = bestiary.completed.first,
+           finished.ordinal >= firstOrdinalThisSession {
             return finished
         }
-        return bestiary.creatureInProgress(now: date)
+        return bestiary.creatureInProgress()
     }
 
     private func failWhileRunning(_ message: String) {
@@ -304,6 +319,7 @@ final class FocusSessionStore: ObservableObject {
 
     private func reset() {
         decisions.removeAll()
+        creditedWindowStarts.removeAll()
         builder.reset()
         hardStopTask?.cancel()
         hardStopTask = nil
