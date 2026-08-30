@@ -255,6 +255,42 @@ final class FocusSessionStore: ObservableObject {
         }
     }
 
+    /// The Watch ended the session because its workout session could not run.
+    ///
+    /// The ending is right — without the workout the stream dies the moment
+    /// the wrist lowers — but the Watch performs it alone, and until this
+    /// arrived the phone kept a session it believed live: the page stopped
+    /// growing with nothing said, and the `focus_stop` that followed was
+    /// answered `no focus session`, which reads as a clean stop.
+    ///
+    /// No `focus_stop` goes out. The Watch has already stopped, and the
+    /// notice is what says so; asking it again would only cost a round trip
+    /// to be told the same thing.
+    ///
+    /// `starting` counts as well as `running`: the workout prompt is answered
+    /// on the Watch, so a denial commonly lands inside the eight seconds a
+    /// `focus_start` may take. The reply that follows finds `.failed` and is
+    /// refused by `begin()` — except after a `returnToIdle` inside that same
+    /// window, which is the late-reply gap already documented there.
+    func watchWorkoutFailed() {
+        switch phase {
+        case .running:
+            watchIsStreaming = false
+            failWhileRunning(Self.workoutFailureMessage)
+        case .starting:
+            failToStart(Self.workoutFailureMessage)
+        case .idle, .failed, .finished:
+            break
+        }
+    }
+
+    /// Names both causes `workout_failed` covers — permission denied, and
+    /// HealthKit unavailable — and says the measuring stopped, which is the
+    /// half the user watched happen without being told.
+    private static var workoutFailureMessage: String {
+        String(localized: "Die Uhr hat die Messung beendet, weil die Workout-Sitzung nicht läuft. Prüfe die Workout-Freigabe in den Health-Einstellungen.")
+    }
+
     /// Leaves `failed` or `finished` for the picker again. A live session is
     /// never discarded this way — it has to be ended.
     func returnToIdle() {

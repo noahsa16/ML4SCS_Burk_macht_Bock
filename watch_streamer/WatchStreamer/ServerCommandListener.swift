@@ -348,6 +348,18 @@ class ServerCommandListener: NSObject, ObservableObject {
             self.lastWatchPollStatus = pollStatus
         }
         updatePublishedWatchStatus(from: message, pollAgeMs: 0)
+        // Why here: this is the only place the phone hears from the Watch on
+        // its own initiative, and a workout failure ends a focus session on
+        // the Watch alone. Announcing it is the mirror of the preemption
+        // notice forwardToWatch sends in the other direction.
+        if FocusCommandPolicy.workoutFailureEndedFocusSession(
+            workoutFailed: message[WatchPayloadKey.Status.workoutFailed] as? Bool ?? false,
+            watchIsRunning: watchRunning,
+            deliveredAsFallback: WatchCommandSource.isFallbackDelivery(message)) {
+            DispatchQueue.main.async {
+                FocusSessionStore.shared.watchWorkoutFailed()
+            }
+        }
         confirmCommandFromWatchPoll(command: command,
                                     watchRunning: watchRunning,
                                     watchSessionId: watchSessionId,
@@ -572,7 +584,7 @@ class ServerCommandListener: NSObject, ObservableObject {
             self.watchFailedBatches = message["failed_batches"] as? Int ?? 0
             self.watchLastCommandId = message["last_command_id"] as? String ?? ""
             self.watchUploadMode = message["upload_mode"] as? String ?? "Offline"
-            self.watchWorkoutFailed = message["workout_failed"] as? Bool ?? false
+            self.watchWorkoutFailed = message[WatchPayloadKey.Status.workoutFailed] as? Bool ?? false
         }
     }
 

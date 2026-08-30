@@ -61,6 +61,16 @@
         }
       }
     },
+    "Die Uhr hat die Messung beendet, weil die Workout-Sitzung nicht läuft. Prüfe die Workout-Freigabe in den Health-Einstellungen." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The watch stopped measuring because the workout session is not running. Check the workout permission in the Health settings."
+          }
+        }
+      }
+    },
     "Die Uhr hat nicht geantwortet. Prüfe, ob sie in Reichweite ist." : {
       "localizations" : {
         "en" : {

@@ -630,4 +630,86 @@ struct FocusSessionStoreTests {
         await settle()
         #expect(stops.calls == 1)
     }
+
+    // The Watch ends capture on its own when the workout session cannot run.
+    // Until it said so, the page simply stopped growing and the `focus_stop`
+    // that followed came back `no focus session` — which reads as a clean
+    // stop. The session must land on the failure screen instead, and the
+    // writing it did earn stays earned.
+    @Test("a workout failure on the Watch fails the running session")
+    func workoutFailureFailsTheRunningSession() async throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stops = StopRecorder()
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
+        store.begin(targetSeconds: 900)
+        store.consume(samples(500))
+        store.watchWorkoutFailed()
+
+        guard case .failed(let message) = store.phase else {
+            Issue.record("expected .failed phase, got \(store.phase)")
+            return
+        }
+        #expect(!message.isEmpty)
+        #expect(!store.isActive)
+        #expect(try #require(bestiary.current).writingSeconds == 7.5)
+
+        // No focus_stop: the Watch has already stopped, and the notice is what
+        // said so.
+        await settle()
+        #expect(stops.calls == 0)
+    }
+
+    // The workout prompt is answered on the Watch, so a denial commonly lands
+    // inside the eight seconds a focus_start may take. The reply that follows
+    // must not open a session on a stream that already died.
+    @Test("a workout failure during a start in flight refuses the late reply")
+    func workoutFailureDuringStartingRefusesTheLateReply() async {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stops = StopRecorder()
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
+        store.markStarting()
+        store.watchWorkoutFailed()
+
+        guard case .failed(let message) = store.phase else {
+            Issue.record("expected .failed phase, got \(store.phase)")
+            return
+        }
+
+        store.begin(targetSeconds: 900)
+        #expect(store.phase == .failed(message))
+        #expect(!store.isActive)
+        await settle()
+        #expect(stops.calls == 0)
+    }
+
+    // The notice repeats on every poll for as long as the Watch's flag stands.
+    // A session the user has already left behind must not be dragged back to
+    // the failure screen by it.
+    @Test("a repeated notice leaves an idle picker alone")
+    func workoutFailureLeavesIdleAlone() async {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stops = StopRecorder()
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
+        store.markStarting()
+        store.watchWorkoutFailed()
+        store.returnToIdle()
+        #expect(store.phase == .idle)
+
+        store.watchWorkoutFailed()
+        #expect(store.phase == .idle)
+        await settle()
+        #expect(stops.calls == 0)
+    }
 }

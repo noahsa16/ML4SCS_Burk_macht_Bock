@@ -469,7 +469,7 @@ class MotionManager: NSObject, ObservableObject {
             "failed_batches": failedBatchCount,
             "last_command_id": lastCommandId ?? "",
             "upload_mode": uploadMode,
-            "workout_failed": workoutAuthorizationFailed
+            WatchPayloadKey.Status.workoutFailed: workoutAuthorizationFailed
         ]
 
         WCSession.default.sendMessage(message, replyHandler: { [weak self] reply in
@@ -493,7 +493,7 @@ class MotionManager: NSObject, ObservableObject {
                 // Throttled by queue size to prevent buildup if iPhone is unreachable for a while.
                 if WCSession.default.outstandingUserInfoTransfers.count < 4 {
                     var pollUserInfo = message
-                    pollUserInfo["fallback"] = true
+                    pollUserInfo[WatchPayloadKey.Status.fallback] = true
                     WCSession.default.transferUserInfo(pollUserInfo)
                 }
                 if !self.isRunning {

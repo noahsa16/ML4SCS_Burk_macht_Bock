@@ -407,3 +407,71 @@ struct FocusRateConfigTests {
                                                hasFocusSession: false) == nil)
     }
 }
+
+// The Watch stops capturing when the workout session its stream depends on
+// cannot run, and it does that alone: the phone kept a session it believed
+// live, the page stopped growing with nothing said, and the `focus_stop` that
+// followed was answered `no focus session` — which `FocusStopOutcome` reads as
+// a *confirmed* stop. The flag was already on the wire; it had no reader.
+@Suite("A workout failure the Watch reports")
+struct WorkoutFailureNoticeTests {
+
+    /// The poll snapshot the Watch sends after `handleWorkoutSessionFailure`:
+    /// the flag set, capture ended, delivered as a live reply.
+    private func failureSnapshot(fallback: Bool = false) -> [String: Any] {
+        var message: [String: Any] = [WatchPayloadKey.type: "command_poll",
+                                      WatchPayloadKey.Status.isRunning: false,
+                                      WatchPayloadKey.Status.workoutFailed: true]
+        if fallback { message[WatchPayloadKey.Status.fallback] = true }
+        return message
+    }
+
+    private func endsSession(_ message: [String: Any]) -> Bool {
+        FocusCommandPolicy.workoutFailureEndedFocusSession(
+            workoutFailed: message[WatchPayloadKey.Status.workoutFailed] as? Bool ?? false,
+            watchIsRunning: message[WatchPayloadKey.Status.isRunning] as? Bool ?? false,
+            deliveredAsFallback: WatchCommandSource.isFallbackDelivery(message))
+    }
+
+    // The silence itself: this snapshot is the only thing that says the
+    // session is over, and before it had a reader nothing did.
+    @Test("a live poll reporting a failed workout ends the session")
+    func liveFailureIsNews() {
+        #expect(endsSession(failureSnapshot()))
+    }
+
+    // A queued copy can be minutes old. Acting on one would fail the session
+    // the user just started with news about the previous one — the same
+    // stale-delivery mistake the stop path guards against.
+    @Test("a fallback delivery is not news")
+    func fallbackDeliveryIsNotNews() {
+        #expect(!endsSession(failureSnapshot(fallback: true)))
+    }
+
+    // The flag is also set when a *recording's* workout fails, and the Watch
+    // clears it at the start of every focus session. A Watch that is still
+    // capturing has not ended anything to report.
+    @Test("a failure while the Watch still captures ends nothing")
+    func stillRunningIsNotNews() {
+        var message = failureSnapshot()
+        message[WatchPayloadKey.Status.isRunning] = true
+        #expect(!endsSession(message))
+    }
+
+    // The ordinary snapshot, once a second, for the whole of every healthy
+    // session.
+    @Test("a healthy poll ends nothing")
+    func healthyPollIsNotNews() {
+        var message = failureSnapshot()
+        message[WatchPayloadKey.Status.workoutFailed] = false
+        message[WatchPayloadKey.Status.isRunning] = true
+        #expect(!endsSession(message))
+    }
+
+    // A poll from a Watch too old to carry the field, or a malformed one:
+    // absent is not a failure.
+    @Test("a snapshot without the field ends nothing")
+    func missingFieldIsNotNews() {
+        #expect(!endsSession([WatchPayloadKey.type: "command_poll"]))
+    }
+}

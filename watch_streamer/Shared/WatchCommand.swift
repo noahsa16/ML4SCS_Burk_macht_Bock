@@ -136,6 +136,13 @@ public enum WatchPayloadKey {
         public static let failedBatches = "failed_batches"
         public static let lastCommandID = "last_command_id"
         public static let uploadMode = "upload_mode"
+        /// The Watch could not run the workout session its capture depends on.
+        public static let workoutFailed = "workout_failed"
+        /// Stamped on the copy the Watch queues over `transferUserInfo` when a
+        /// poll's reply handler failed. That copy is durable, so it can be
+        /// delivered minutes late — anything that reads a poll as *news* has
+        /// to know which of the two it is holding.
+        public static let fallback = "fallback"
     }
 
     /// Camel-case reply fields, used in the Watch's command replies. Kept
@@ -161,6 +168,14 @@ public nonisolated enum WatchCommandSource {
 
     public static func isCommandPoll(_ message: [String: Any]) -> Bool {
         (message[WatchPayloadKey.source] as? String) == commandPoll
+    }
+
+    /// Whether this Watch → phone poll snapshot came by the durable queue
+    /// rather than as a live reply. The same staleness split as above, in the
+    /// other direction: the Watch queues a copy over `transferUserInfo` when
+    /// the reply handler failed, and that copy can arrive minutes later.
+    public static func isFallbackDelivery(_ message: [String: Any]) -> Bool {
+        (message[WatchPayloadKey.Status.fallback] as? Bool) ?? false
     }
 }
 
@@ -352,6 +367,34 @@ public nonisolated enum FocusCommandPolicy {
             return .ignoreStaleSession
         }
         return .obey
+    }
+
+    /// Whether a Watch status snapshot is news that a workout failure ended a
+    /// focus session.
+    ///
+    /// The Watch stops capturing when the workout session its stream depends
+    /// on cannot run — HealthKit unavailable, or the authorization prompt
+    /// denied after `focus_start` was already answered `ok`. That ending is
+    /// correct; its silence was not. The phone kept a session it believed
+    /// live, so the page stopped growing with nothing said, and the user's
+    /// later `focus_stop` was answered `no focus session` — which
+    /// `FocusStopOutcome` reads as a *confirmed* stop.
+    ///
+    /// The fact already travels: the poll payload has carried
+    /// `workout_failed` since before this, and the Watch clears it at the
+    /// start of every focus session, so a `true` is about the session running
+    /// now. What it needed was a reader.
+    ///
+    /// Two conditions beyond the flag. `watchIsRunning` must be false — a
+    /// workout that failed while the stream survives has not ended anything
+    /// to report. And the snapshot must not be a fallback delivery: a queued
+    /// copy can be minutes old, and failing a session the user just started
+    /// with news about the previous one is the same stale-delivery mistake
+    /// this file guards against for `stop`.
+    public static func workoutFailureEndedFocusSession(workoutFailed: Bool,
+                                                       watchIsRunning: Bool,
+                                                       deliveredAsFallback: Bool) -> Bool {
+        workoutFailed && !watchIsRunning && !deliveredAsFallback
     }
 
     /// Whether a study `start` may end what the Watch is running to take the
