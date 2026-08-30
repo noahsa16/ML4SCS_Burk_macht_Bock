@@ -494,10 +494,15 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     static func passiveSamples(from samples: [[String: Any]]) -> [PassiveSample] {
         samples.compactMap { s in
             guard let ts = WatchPayloadValue.int64(s["ts"]) else { return nil }
-            func f(_ key: String) -> Float { Float((s[key] as? Double) ?? 0) }
+            // Why WatchPayloadValue.double and not `as? Double`: these values
+            // cross the same WatchConnectivity/JSON round trip as `ts` and can
+            // surface as Int, Int64, Double, NSNumber or String depending on
+            // transport (see WatchPayloadValue's header) — a naive cast turns
+            // a whole-number sample into a silent zero.
+            func channel(_ key: String) -> Float { Float(WatchPayloadValue.double(s[key]) ?? 0) }
             return PassiveSample(timestamp: Double(ts) / 1000,
-                                 x: f("ax"), y: f("ay"), z: f("az"),
-                                 rx: f("rx"), ry: f("ry"), rz: f("rz"))
+                                 x: channel("ax"), y: channel("ay"), z: channel("az"),
+                                 rx: channel("rx"), ry: channel("ry"), rz: channel("rz"))
         }
     }
 

@@ -83,6 +83,26 @@ struct PhoneBridgePassiveSamplesTests {
         #expect(result[1].timestamp == 4.0)
     }
 
+    /// Channel values cross the same WatchConnectivity/JSON round trip as
+    /// `ts` and can arrive as `Int` when a sample happens to serialise as a
+    /// whole number (see `WatchPayloadValue`'s header, WatchCommand.swift).
+    /// Would still pass under a naive `as? Double` cast — the cast this test
+    /// replaces — which silently turns such a value into 0 rather than
+    /// throwing: exactly the "confidently classify nonsense" failure this
+    /// file's header warns about, and exactly what none of the other
+    /// fixtures above catch, since they all use Double literals.
+    @Test("channel values tolerate Int encoding, not just Double")
+    func channelValuesToleratesIntEncoding() throws {
+        let raw: [String: Any] = ["ts": 1_000, "ax": 3, "ay": -2.5, "az": 0]
+
+        let result = PhoneBridge.passiveSamples(from: [raw])
+
+        let sample = try #require(result.first)
+        #expect(sample.x == 3.0)
+        #expect(sample.y == -2.5)
+        #expect(sample.z == 0.0)
+    }
+
     /// Missing accelerometer/gyro keys are not treated as malformed — only a
     /// missing/unparseable `ts` drops a sample. Would still pass under a
     /// version that dropped the whole sample on any missing key, since we
