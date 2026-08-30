@@ -252,7 +252,7 @@ private struct PrivacyCard: View {
             Button("Löschen", role: .destructive, action: deleteLocalData)
             Button("Abbrechen", role: .cancel) {}
         } message: {
-            Text("Löscht deine gesamte Schreibzeit-Historie, noch nicht hochgeladene Rohdaten und alle Einstellungen auf diesem iPhone. Bereits auf den Server übertragene Aufnahmen sind davon nicht betroffen.")
+            Text("Löscht deine gesamte Schreibzeit-Historie, dein Bestiarium, noch nicht hochgeladene Rohdaten und alle Einstellungen auf diesem iPhone. Bereits auf den Server übertragene Aufnahmen sind davon nicht betroffen.")
         }
     }
 
@@ -272,6 +272,10 @@ private struct PrivacyCard: View {
         resetSettings()
         PhoneBridge.shared.deleteAllLocalData()
         focus.deleteAllLocalData()
+        // The collection is its own file, so it survives every other erase
+        // here — and a bestiary that outlives a deletion the user was told
+        // was total is the surprise this whole dialog exists to prevent.
+        BestiaryStore.shared.deleteAll()
     }
 }
 
