@@ -148,6 +148,40 @@ public enum WatchPayloadKey {
     }
 }
 
+/// Whether a focus session may start, and at what rate.
+///
+/// Split out of `MotionManager` because the decision is the part worth testing
+/// and CoreMotion cannot run in a unit test.
+public nonisolated enum FocusCommandPolicy {
+    public struct StartReply: Equatable {
+        public let ok: Bool
+        public let error: String?
+        public let requestedHz: Int
+    }
+
+    /// The shipped active model was trained on 50 Hz and never saw 100 Hz, so a
+    /// session states the rate rather than resampling into it afterwards.
+    public static let sessionHz = 50
+
+    public static func replyForStart(isRecording: Bool,
+                                     healthKitAuthorized: Bool) -> StartReply {
+        guard !isRecording else {
+            return StartReply(ok: false,
+                              error: "recording in progress",
+                              requestedHz: 0)
+        }
+        // Why refused rather than attempted: without a workout session the
+        // motion stream stops as soon as the wrist lowers, and the page would
+        // quietly stop growing mid-session with no visible cause.
+        guard healthKitAuthorized else {
+            return StartReply(ok: false,
+                              error: "workout permission missing",
+                              requestedHz: 0)
+        }
+        return StartReply(ok: true, error: nil, requestedHz: sessionHz)
+    }
+}
+
 /// Tolerant numeric coercion for values crossing a WatchConnectivity or JSON
 /// round trip, which may surface a number as `Int`, `Int64`, `Double`, `NSNumber`
 /// or `String` depending on transport. Was implemented three times with

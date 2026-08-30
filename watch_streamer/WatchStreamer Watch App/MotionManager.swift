@@ -34,6 +34,10 @@ class MotionManager: NSObject, ObservableObject {
         let stored = UserDefaults.standard.integer(forKey: CaptureSettings.effectiveBatchSizeKey)
         return CaptureSettings.isValidBatchSize(stored) ? stored : Config.batchSize
     }()
+    // Set by a successful focus_start, consumed by focus_stop. Deliberately
+    // in-memory only (not persisted like effectiveHz) — a focus rate override
+    // must not survive past its own session.
+    private var preFocusHz: Double?
 
     private var buffer: [[String: Any]] = []
     private var nextSequence = 0
@@ -886,6 +890,52 @@ extension MotionManager: WCSessionDelegate {
         return reply
     }
 
+    /// Answers focus_start / focus_stop off the recording dispatcher.
+    ///
+    /// Unlike the diagnostics above, these two do mutate capture
+    /// configuration and recording state — that's the whole point of a focus
+    /// session — so they must run on main rather than the utility queue, to
+    /// stay ordered with start()/stop() driven by the recording dispatcher.
+    fileprivate func handleFocusCommand(_ command: WatchCommandName,
+                                        message: [String: Any],
+                                        raw: String) -> [String: Any] {
+        let commandId = message[WatchPayloadKey.commandID] as? String ?? ""
+        switch command {
+        case .focusStart:
+            let reply = FocusCommandPolicy.replyForStart(isRecording: isRunning,
+                                                          healthKitAuthorized: isHealthKitAuthorized)
+            if reply.ok {
+                preFocusHz = effectiveHz
+                effectiveHz = Double(reply.requestedHz)
+                start()
+            }
+            return [
+                WatchPayloadKey.ok: reply.ok,
+                WatchPayloadKey.error: reply.error ?? "",
+                WatchPayloadKey.requestedHz: reply.requestedHz,
+                WatchPayloadKey.command: raw,
+                WatchPayloadKey.commandID: commandId
+            ]
+        case .focusStop:
+            stop()
+            // Why guarded: a focus_stop with no matching focus_start (a
+            // duplicate delivery, or a stray command) must not clobber
+            // effectiveHz with a stale in-memory value.
+            if let previous = preFocusHz {
+                effectiveHz = previous
+                preFocusHz = nil
+            }
+            return [
+                WatchPayloadKey.ok: true,
+                WatchPayloadKey.command: raw,
+                WatchPayloadKey.commandID: commandId
+            ]
+        default:
+            return [WatchPayloadKey.ok: false,
+                    WatchPayloadKey.error: "not a focus command"]
+        }
+    }
+
     @discardableResult
     fileprivate func handleCommand(_ message: [String: Any]) -> [String: Any] {
         // H3: jede iPhone-Nachricht kann requested_hz / batch_size tragen.
@@ -1054,6 +1104,15 @@ extension MotionManager: WCSessionDelegate {
                 }
                 return
             }
+            if command == .focusStart || command == .focusStop {
+                // Touches effectiveHz/isRunning/start()/stop() — everything
+                // else in this class only ever mutates those from main, and a
+                // focus session must not race the dispatcher's own start/stop.
+                DispatchQueue.main.async {
+                    replyHandler(self.handleFocusCommand(command, message: message, raw: raw))
+                }
+                return
+            }
             DispatchQueue.global(qos: .utility).async {
                 replyHandler(self.handleDiagnosticCommand(message))
             }
@@ -1075,6 +1134,16 @@ extension MotionManager: WCSessionDelegate {
 }
 
 extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate {
+    // Why this API and not a stored flag: `requestAuthorization` only ever
+    // reports back through a callback, but a focus_start reply must answer
+    // synchronously. `authorizationStatus(for:)` is HealthKit's own synchronous
+    // read of a share-authorization decision already made, for the same
+    // `workoutType()` requested below — it reports "already granted", not
+    // "grant it now".
+    private var isHealthKitAuthorized: Bool {
+        healthStore.authorizationStatus(for: HKObjectType.workoutType()) == .sharingAuthorized
+    }
+
     private func startWorkoutSessionIfNeeded() {
         guard workoutSession == nil else { return }
         guard HKHealthStore.isHealthDataAvailable() else {
