@@ -66,12 +66,21 @@ final class FocusSessionStore: ObservableObject {
     /// Grows with credited writing time, never with the number of bursts —
     /// see `Bestiary.strokesDrawn`. Pauses hold it still and never reduce it,
     /// and stopping early simply leaves the creature partly drawn.
+    ///
+    /// Measured against `Bestiary.secondsPerCreature`, not against the
+    /// session's own target: the target sets how long this sitting runs, never
+    /// what the animal costs.
     var strokesDrawn: Int {
-        guard case .running(_, let target) = phase else { return 0 }
-        return Bestiary.strokesDrawn(writingSeconds: writingSeconds,
-                                     targetSeconds: target,
+        guard case .running = phase else { return 0 }
+        return Bestiary.strokesDrawn(writingSeconds: carriedSeconds + writingSeconds,
+                                     targetSeconds: Bestiary.secondsPerCreature,
                                      strokesTotal: strokesTotal)
     }
+
+    /// Writing time an unfinished creature already carries from earlier
+    /// sittings. A creature belongs to accumulated writing, not to one session,
+    /// so a half-drawn animal resumes rather than restarting.
+    private(set) var carriedSeconds: Double = 0
 
     /// Test seam: enter `running` without the Watch round-trip.
     func beginForTesting(targetSeconds: Double, at date: Date = Date()) {

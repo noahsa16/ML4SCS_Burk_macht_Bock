@@ -23,6 +23,15 @@ public nonisolated struct BestiaryEntry: Codable, Equatable, Sendable {
 public nonisolated enum Bestiary {
     public static let speciesCount = 8
 
+    /// Writing time one creature costs, whatever the session's own target is.
+    ///
+    /// Tying this to the session target instead would let a five-minute goal
+    /// earn the same finished creature as a forty-five-minute one. A collection
+    /// that can be earned in five minutes counts sessions, not writing — and
+    /// sessions can be sliced as small as one likes. At a fixed rate the target
+    /// sets the length of the sitting; it never sets the price of the animal.
+    public static let secondsPerCreature: Double = 30 * 60
+
     /// Seeded from the session's start so abandoning and restarting cannot
     /// reroll for a rarer creature.
     public static func species(forSessionStartMs ms: Int64) -> Int {

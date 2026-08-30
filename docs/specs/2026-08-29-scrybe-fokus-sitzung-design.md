@@ -245,9 +245,22 @@ Formvokabular auf den Bildschirm kommt.
 
 ### Wie es entsteht
 
-Jedes Wesen ist ein **hand-gesetzter Pfad, zerlegt in geordnete Striche**. Es
-wächst mit **gutgeschriebener Schreibzeit**: bei einem Ziel von `T` Sekunden und
-`n` Strichen kommt alle `T/n` Sekunden Schreibzeit ein Strich hinzu.
+Jedes Wesen ist ein **Pfadsatz aus geordneten Strichen**. Es wächst mit
+**gutgeschriebener Schreibzeit** in festem Takt: ein Wesen kostet
+`Bestiary.secondsPerCreature` = **30 Minuten**, bei `n` Strichen also alle
+`1800/n` Sekunden einen Strich.
+
+**Der Takt hängt nicht am Sitzungsziel.** Täte er das, brächte ein
+Fünf-Minuten-Ziel dasselbe fertige Tier wie eine Dreiviertelstunde — die
+Sammlung zählte dann Sitzungen statt Schreibzeit, und Sitzungen lassen sich
+beliebig kleinschneiden. Die Zieldauer bestimmt die Länge des Sitzens, nie den
+Preis des Tieres.
+
+**Ein Wesen gehört der gesammelten Schreibzeit, nicht einer Sitzung.** Eine
+kurze Sitzung hinterlässt ein halbes Tier, das beim nächsten Mal
+**weiterwächst**, statt neu zu beginnen. Ist es fertig, wird es abgelegt und das
+nächste beginnt — überschüssige Schreibzeit derselben Sitzung zählt bereits für
+dieses.
 
 Pausen halten das Wachstum **an**, sie machen nichts rückgängig. Eine Lesepause
 kostet nichts außer der Zeit, die sie dauert.
@@ -257,8 +270,10 @@ war falsch herum: es hätte Zerhacken belohnt — viermal kurz schreiben hätte 
 Striche gebracht, einmal durchschreiben einen. Rhythmus und Menge gehören
 getrennt: **die Linie zeigt den Rhythmus, das Wesen die Menge.**
 
-- **Art** ist deterministisch aus `startMs` des Sitzungsbeginns gesät. Kein
-  Neuwürfeln durch Abbrechen und Neustarten.
+- **Art** ist deterministisch aus dem Zeitpunkt gesät, an dem *dieses Wesen*
+  begonnen wurde — nicht aus dem Sitzungsbeginn. Sonst wechselte ein halb
+  gezeichnetes Tier bei der nächsten Sitzung die Gestalt. Kein Neuwürfeln durch
+  Abbrechen und Neustarten.
 - **Es gibt kein Scheitern.** Das Wesen wird so weit gezeichnet, wie die
   Schreibzeit reichte. Wer bei 60 % aufhört, hat ein zu 60 % gezeichnetes Wesen —
   ein gesammeltes Ding, kein verlorenes. Nichts stirbt, nichts wird verworfen,
@@ -268,14 +283,17 @@ getrennt: **die Linie zeigt den Rhythmus, das Wesen die Menge.**
 ### Sammlung
 
 Die Wesen sammeln sich im **Verlauf** zu einem Bestiarium: ein Raster aus
-Rändern, jedes mit Wesen und Datum, unfertige als solche erkennbar. Die
+Rändern, jedes mit Wesen und Datum, das begonnene als solches erkennbar. Die
 Bestände sind aus den vorhandenen Tages-Rollups nicht ableitbar und brauchen
 deshalb einen eigenen, kleinen persistenten Speicher (`BestiaryStore`, JSON:
-Art-Id, Datum, gezeichnete Strichzahl, Sitzungsdauer).
+je Wesen Art-Id, Startzeitpunkt, gesammelte Schreibsekunden, Abschlusszeitpunkt
+sofern fertig). Genau **ein** Wesen ist zu jeder Zeit begonnen; jede Sitzung
+addiert ihre Schreibsekunden darauf.
 
 Das Bestiarium ist damit die **einzige** Ausnahme von §2: nicht die
-Live-Entscheidungen werden persistiert, sondern ihr Ergebnis als ein Datensatz
-pro Sitzung. Die Schreibzeit-Buchhaltung bleibt unberührt beim Passiv-Pfad.
+Live-Entscheidungen werden persistiert, sondern ihr Ergebnis als gesammelte
+Sekunden je Wesen. Nie ein Fenster, nie eine Entscheidung. Die
+Schreibzeit-Buchhaltung bleibt unberührt beim Passiv-Pfad.
 
 ### Umfang und Herkunft der Zeichnungen
 
