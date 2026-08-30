@@ -52,12 +52,21 @@ public nonisolated struct PassiveWindow: Equatable, Sendable {
 /// 2. **Channel order is fixed by the exported artifact.** 3-channel is
 ///    x, y, z row-major; 6-channel is ax, ay, az, rx, ry, rz row-major.
 ///    Getting it wrong produces confident nonsense rather than an error.
+/// 3. **A window really runs at `nominalHz`.** Everything downstream takes
+///    that rate on trust: `secondsPerWindow` is derived from it rather than
+///    measured, and the model was trained at it. A stream at another rate is
+///    declined rather than credited its nominal stride for a fraction of that
+///    wall time — see `spansNominalDuration`.
 public nonisolated struct PassiveWindowBuilder {
     public let seqLen: Int
     public let strideSamples: Int
     public let nominalHz: Double
     public let maxGapSeconds: TimeInterval
     public let channels: Int
+
+    /// How far a completed window's real span may sit from the one
+    /// `nominalHz` promises before the window is declined.
+    public static let rateTolerance = 0.2
 
     private var buffer: [PassiveSample] = []
     private var lastTimestamp: TimeInterval?
@@ -112,11 +121,31 @@ public nonisolated struct PassiveWindowBuilder {
             buffer.append(sample)
 
             if buffer.count == seqLen {
-                out.append(makeWindow())
+                if spansNominalDuration() { out.append(makeWindow()) }
+                // Advanced either way: a declined window must cost windows,
+                // not wedge the buffer on a full one it will never emit.
                 buffer.removeFirst(min(strideSamples, buffer.count))
             }
         }
         return out
+    }
+
+    /// Whether the buffered window really spans the wall time `nominalHz`
+    /// promises for it.
+    ///
+    /// The per-sample gap guard above only catches a stream that is too slow;
+    /// a *faster* one passes it sample by sample and then completes a window
+    /// covering a fraction of the intended duration. That is the study
+    /// recording's 100 Hz reaching a running focus session: 2.5 s of credit
+    /// for 1.25 s of writing, and half a window of signal handed to a model
+    /// trained on five seconds at 50 Hz. The server's live inference has the
+    /// same guard under the name `rate_mismatch`, at the same ±20 %.
+    private func spansNominalDuration() -> Bool {
+        guard nominalHz > 0, seqLen > 1,
+              let first = buffer.first, let last = buffer.prefix(seqLen).last
+        else { return true }
+        let expected = Double(seqLen - 1) / nominalHz
+        return abs(last.timestamp - first.timestamp - expected) <= expected * Self.rateTolerance
     }
 
     private func makeWindow() -> PassiveWindow {

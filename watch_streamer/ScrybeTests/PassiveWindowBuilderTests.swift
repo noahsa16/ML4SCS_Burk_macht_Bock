@@ -105,6 +105,36 @@ struct PassiveWindowBuilderTests {
         #expect(Double(b.seqLen) / b.nominalHz == 5.0)
     }
 
+    // `secondsPerWindow` above is derived from `nominalHz`, never measured,
+    // and the model was trained at that rate. The per-sample gap guard only
+    // catches a stream that is too slow — a faster one passes it sample by
+    // sample and then completes a window covering a fraction of the intended
+    // duration. That is the study recording's 100 Hz reaching a focus
+    // session: 2.5 s of credit for 1.25 s, on half a window of signal.
+    @Test("a window whose samples arrive at the wrong rate is declined")
+    func wrongRateDeclined() {
+        var b = PassiveWindowBuilder()
+        #expect(b.append(samples(count: 250, hz: 100)).isEmpty)
+    }
+
+    // Declining must cost windows, not wedge the builder on a full buffer it
+    // will never emit — so a well-paced stream afterwards still completes.
+    @Test("a declined window does not stall the builder")
+    func declinedWindowDoesNotStall() {
+        var b = PassiveWindowBuilder()
+        #expect(b.append(samples(count: 500, hz: 100)).isEmpty)
+        #expect(b.append(samples(count: 250, from: 100)).count == 1)
+    }
+
+    // A live stream jitters; only a different rate may be refused. 10 % off
+    // sits inside the ±20 % tolerance the server's own `rate_mismatch` guard
+    // uses, and must still be credited.
+    @Test("a slightly off-nominal rate is still accepted")
+    func nearNominalRateAccepted() {
+        var b = PassiveWindowBuilder()
+        #expect(b.append(samples(count: 250, hz: 55)).count == 1)
+    }
+
     // The model's channel order is fixed by the exported artifact; getting it
     // wrong produces confident nonsense rather than an error.
     @Test("six-channel windows are row-major ax, ay, az, rx, ry, rz")
