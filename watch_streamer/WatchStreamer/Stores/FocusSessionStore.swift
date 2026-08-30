@@ -16,9 +16,12 @@ final class FocusSessionStore: ObservableObject {
     /// Longest a session may run before it ends itself.
     ///
     /// Not a nicety: the Watch streams raw sensors for the whole session, so a
-    /// forgotten one drains the wrist battery. `nonisolated` so it can be read
-    /// from a default argument, which is evaluated outside the actor.
-    nonisolated static let hardCapSeconds: TimeInterval = 60 * 60
+    /// forgotten one drains the wrist battery. The number lives in
+    /// `FocusCommandPolicy` because the Watch enforces the same cap
+    /// independently; this is the phone's half of one guarantee, not a second
+    /// one. `nonisolated` so it can be read from a default argument, which is
+    /// evaluated outside the actor.
+    nonisolated static let hardCapSeconds: TimeInterval = FocusCommandPolicy.sessionCapSeconds
 
     enum Phase: Equatable {
         case idle

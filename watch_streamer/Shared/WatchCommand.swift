@@ -148,6 +148,38 @@ public enum WatchPayloadKey {
     }
 }
 
+/// Why the Watch refused a focus session.
+///
+/// The raw values are the strings that travel on the wire, so the phone can
+/// turn a refusal back into something it can say in the user's language. The
+/// two cases mean opposite things to a user — wait, versus grant a permission
+/// — and collapsing them into one message throws away the only actionable
+/// half of the answer.
+public nonisolated enum FocusStartRefusal: String, Sendable, CaseIterable {
+    case recordingInProgress = "recording in progress"
+    case workoutPermissionMissing = "workout permission missing"
+}
+
+/// What came back from a `focus_start`.
+public nonisolated enum FocusStartOutcome: Equatable, Sendable {
+    case started
+    case refused(FocusStartRefusal)
+    /// No usable answer: the deadline passed, the transport failed, or the
+    /// Watch refused for a reason this build does not recognise.
+    case noAnswer
+
+    /// Reads the Watch's reply. Lives here rather than in the caller so the
+    /// decode is testable without WatchConnectivity.
+    public static func from(reply: [String: Any]) -> FocusStartOutcome {
+        guard reply[WatchPayloadKey.ok] as? Bool ?? false else {
+            let raw = reply[WatchPayloadKey.error] as? String ?? ""
+            guard let refusal = FocusStartRefusal(rawValue: raw) else { return .noAnswer }
+            return .refused(refusal)
+        }
+        return .started
+    }
+}
+
 /// Whether a focus session may start, and at what rate.
 ///
 /// Split out of `MotionManager` because the decision is the part worth testing
@@ -163,11 +195,19 @@ public nonisolated enum FocusCommandPolicy {
     /// session states the rate rather than resampling into it afterwards.
     public static let sessionHz = 50
 
+    /// Longest a focus session may stream before it is ended.
+    ///
+    /// Shared rather than defined twice because both ends enforce it: the phone
+    /// for the clean stop, the Watch as the floor under it. A force-quit voids
+    /// every phone-side path while the workout session keeps the sensors
+    /// running, so the cap also has to live where the sensor does.
+    public static let sessionCapSeconds: TimeInterval = 60 * 60
+
     public static func replyForStart(isRecording: Bool,
                                      healthKitAuthorized: Bool) -> StartReply {
         guard !isRecording else {
             return StartReply(ok: false,
-                              error: "recording in progress",
+                              error: FocusStartRefusal.recordingInProgress.rawValue,
                               requestedHz: 0)
         }
         // Why refused rather than attempted: without a workout session the
@@ -175,7 +215,7 @@ public nonisolated enum FocusCommandPolicy {
         // quietly stop growing mid-session with no visible cause.
         guard healthKitAuthorized else {
             return StartReply(ok: false,
-                              error: "workout permission missing",
+                              error: FocusStartRefusal.workoutPermissionMissing.rawValue,
                               requestedHz: 0)
         }
         return StartReply(ok: true, error: nil, requestedHz: sessionHz)

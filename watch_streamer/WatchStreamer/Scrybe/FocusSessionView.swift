@@ -270,12 +270,26 @@ struct FocusSessionView: View {
         // start the Watch may already have accepted. The store owns the
         // session; this view only asks for it.
         Task {
-            let started = await ServerCommandListener.shared.startFocusSession()
-            if started {
+            switch await ServerCommandListener.shared.startFocusSession() {
+            case .started:
                 session.begin(targetSeconds: Double(targetMinutes) * 60)
-            } else {
-                session.failToStart(String(localized: "Die Uhr hat die Sitzung nicht gestartet. Läuft eine Aufnahme, oder fehlt die Workout-Freigabe?"))
+            case .refused(let refusal):
+                session.failToStart(Self.message(for: refusal))
+            case .noAnswer:
+                session.failToStart(String(localized: "Die Uhr hat nicht geantwortet. Prüfe, ob sie in Reichweite ist."))
             }
+        }
+    }
+
+    /// A refusal in the user's language. The two cases ask opposite things —
+    /// end the recording, or grant a permission — so they get their own copy
+    /// rather than one message covering both.
+    private static func message(for refusal: FocusStartRefusal) -> String {
+        switch refusal {
+        case .recordingInProgress:
+            return String(localized: "Es läuft gerade eine Aufnahme. Beende sie zuerst.")
+        case .workoutPermissionMissing:
+            return String(localized: "Der Uhr fehlt die Workout-Freigabe. Erteile sie in den Health-Einstellungen.")
         }
     }
 }

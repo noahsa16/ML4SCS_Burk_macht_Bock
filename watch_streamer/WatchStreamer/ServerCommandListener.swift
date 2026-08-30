@@ -393,13 +393,17 @@ class ServerCommandListener: NSObject, ObservableObject {
     /// runs. Without it the caller waits forever and the screen sits in
     /// `starting` with no way back — the failure this project already shipped
     /// once on pull-to-refresh.
-    func startFocusSession(timeout: TimeInterval = 8) async -> Bool {
+    ///
+    /// - Returns: the Watch's answer, refusal included. A refusal names which
+    ///   of the two preconditions failed, because "a recording is running" and
+    ///   "the workout permission is missing" ask opposite things of the user.
+    func startFocusSession(timeout: TimeInterval = 8) async -> FocusStartOutcome {
         await withCheckedContinuation { continuation in
             var resumed = false
             let deadline = DispatchWorkItem {
                 guard !resumed else { return }
                 resumed = true
-                continuation.resume(returning: false)
+                continuation.resume(returning: .noAnswer)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)
             forwardToWatch([WatchPayloadKey.command: WatchCommandName.focusStart.rawValue,
@@ -407,7 +411,7 @@ class ServerCommandListener: NSObject, ObservableObject {
                 guard !resumed else { return }
                 resumed = true
                 deadline.cancel()
-                continuation.resume(returning: reply[WatchPayloadKey.ok] as? Bool ?? false)
+                continuation.resume(returning: FocusStartOutcome.from(reply: reply))
             }
         }
     }

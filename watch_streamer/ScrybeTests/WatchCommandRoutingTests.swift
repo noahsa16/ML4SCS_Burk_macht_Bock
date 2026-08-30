@@ -99,6 +99,63 @@ struct WatchCommandRoutingTests {
     }
 }
 
+/// The refusal has to survive the trip to the phone, because the phone is what
+/// tells the user which of the two preconditions failed — and the two ask
+/// opposite things: end the recording, versus grant a permission.
+@Suite("Focus start outcome")
+struct FocusStartOutcomeTests {
+
+    // Pins wire format to enum. `replyForStart` writes the string and
+    // `FocusStartOutcome.from` reads it back; a literal edited on one side
+    // only would silently degrade every refusal to `.noAnswer`.
+    @Test("every refusal the policy can emit decodes back into its case")
+    func refusalsRoundTrip() {
+        let cases: [(isRecording: Bool, authorized: Bool, expected: FocusStartRefusal)] = [
+            (true, false, .recordingInProgress),
+            (false, false, .workoutPermissionMissing)
+        ]
+        // Fails when a refusal is added without a case here, rather than
+        // leaving the new one silently untested.
+        #expect(cases.count == FocusStartRefusal.allCases.count)
+        for c in cases {
+            let reply = FocusCommandPolicy.replyForStart(isRecording: c.isRecording,
+                                                         healthKitAuthorized: c.authorized)
+            #expect(!reply.ok)
+            let decoded = FocusStartOutcome.from(reply: [
+                WatchPayloadKey.ok: reply.ok,
+                WatchPayloadKey.error: reply.error ?? ""
+            ])
+            #expect(decoded == .refused(c.expected), "expected \(c.expected) for \(c)")
+        }
+    }
+
+    @Test("an accepted start decodes as started")
+    func acceptedStartDecodes() {
+        let reply = FocusCommandPolicy.replyForStart(isRecording: false, healthKitAuthorized: true)
+        #expect(reply.ok)
+        let decoded = FocusStartOutcome.from(reply: [WatchPayloadKey.ok: reply.ok])
+        #expect(decoded == .started)
+    }
+
+    // A refusal this build cannot name is not a refusal it may misreport: the
+    // user gets the generic message rather than one of the two specific ones.
+    @Test("an unknown or absent reason is not reported as a known refusal")
+    func unknownReasonFallsBack() {
+        #expect(FocusStartOutcome.from(reply: [:]) == .noAnswer)
+        #expect(FocusStartOutcome.from(reply: [WatchPayloadKey.ok: false,
+                                               WatchPayloadKey.error: "something new"]) == .noAnswer)
+    }
+
+    // One number, two enforcers. The Watch caps the session independently
+    // because a force-quit voids every phone-side path, and the two halves
+    // reading different constants would be worse than either alone.
+    @Test("phone and Watch cap a focus session at the same sixty minutes")
+    func capIsSharedAndSixtyMinutes() {
+        #expect(FocusCommandPolicy.sessionCapSeconds == 3600)
+        #expect(FocusSessionStore.hardCapSeconds == FocusCommandPolicy.sessionCapSeconds)
+    }
+}
+
 @Suite("WatchPayloadValue coercion")
 struct WatchPayloadValueTests {
 

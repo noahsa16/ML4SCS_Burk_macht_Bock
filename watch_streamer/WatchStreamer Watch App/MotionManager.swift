@@ -38,6 +38,10 @@ class MotionManager: NSObject, ObservableObject {
     // in-memory only (not persisted like effectiveHz) — a focus rate override
     // must not survive past its own session.
     private var preFocusHz: Double?
+    // When the running focus session began, or nil for anything else. Separate
+    // from `runStartedAt` because that one covers every run, and a study
+    // recording must never be cut short by the focus cap.
+    private var focusSessionStartedAt: Date?
 
     private var buffer: [[String: Any]] = []
     private var nextSequence = 0
@@ -245,6 +249,9 @@ class MotionManager: NSObject, ObservableObject {
     /// in die bestehende Main-Pipeline. Coalesced — ein Drain verarbeitet
     /// alles, was seit dem letzten aufgelaufen ist. Läuft auf Main.
     private func drainStaging() {
+        // The sample path is where the cap is enforced. Gated on isRunning so
+        // the drain that stop() performs on its way out cannot re-enter it.
+        if isRunning, enforceFocusSessionCapIfNeeded() { return }
         stagingLock.lock()
         let batch = stagedSamples
         stagedSamples.removeAll(keepingCapacity: true)
@@ -291,6 +298,9 @@ class MotionManager: NSObject, ObservableObject {
     }
 
     private func resetRunCounters() {
+        // A new run is never the old focus session, whichever caller starts
+        // it — focus_start sets this again straight after start() returns.
+        focusSessionStartedAt = nil
         buffer.removeAll()
         stagingLock.lock()
         stagedSamples.removeAll()
@@ -432,6 +442,10 @@ class MotionManager: NSObject, ObservableObject {
     }
 
     private func pollPhoneForCommand() {
+        // Second path to the cap: motion callbacks could stop while the
+        // workout session — the actual battery cost — keeps running. This
+        // timer runs from init onwards, so it needs no session of its own.
+        enforceFocusSessionCapIfNeeded()
         // Watchdog: if a poll has been in-flight for >3 s without a reply, force-clear the flag.
         if commandPollInFlight, let sentAt = commandPollSentAt,
            Date().timeIntervalSince(sentAt) > Config.commandPollWatchdog {
@@ -914,9 +928,35 @@ extension MotionManager: WCSessionDelegate {
     /// `preFocusHz` still holding the real rate. A no-op when no focus
     /// session set `preFocusHz` — the common case, an ordinary stop.
     private func restorePreFocusRateIfNeeded() {
+        focusSessionStartedAt = nil
         guard let previous = preFocusHz else { return }
         effectiveHz = previous
         preFocusHz = nil
+    }
+
+    /// Ends a focus session that has run past `FocusCommandPolicy.sessionCapSeconds`.
+    ///
+    /// The phone enforces the same cap, but a force-quit takes every
+    /// phone-side path with it while this workout session keeps the sensors
+    /// running — so the floor under it has to be here, where the sensor is.
+    ///
+    /// Checked against the wall clock on the sample path rather than from a
+    /// scheduled timer alone: a timer is the one thing the system may decline
+    /// to fire, whereas a session still costing battery is by definition still
+    /// producing samples. `focusSessionStartedAt` is cleared before `stop()`
+    /// rather than by it, so the `drainStaging()` inside `stop()` cannot
+    /// re-enter this.
+    ///
+    /// - Returns: whether it stopped the run.
+    @discardableResult
+    private func enforceFocusSessionCapIfNeeded() -> Bool {
+        guard let startedAt = focusSessionStartedAt,
+              Date().timeIntervalSince(startedAt) >= FocusCommandPolicy.sessionCapSeconds
+        else { return false }
+        focusSessionStartedAt = nil
+        stop()
+        status = "Focus session capped"
+        return true
     }
 
     /// Answers focus_start / focus_stop off the recording dispatcher.
@@ -939,6 +979,9 @@ extension MotionManager: WCSessionDelegate {
                 // Clear a previous attempt's failure — this is a fresh one.
                 workoutAuthorizationFailed = false
                 start()
+                // After start(), which resets it — and only if start() got
+                // anywhere, since it bails out when motion is unavailable.
+                if isRunning { focusSessionStartedAt = Date() }
             }
             return [
                 WatchPayloadKey.ok: reply.ok,

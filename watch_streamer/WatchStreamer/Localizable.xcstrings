@@ -41,6 +41,16 @@
         }
       }
     },
+    "Der Uhr fehlt die Workout-Freigabe. Erteile sie in den Health-Einstellungen." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The watch is missing the workout permission. Grant it in the Health settings."
+          }
+        }
+      }
+    },
     "Die Uhr hat den Stopp nicht bestätigt." : {
       "localizations" : {
         "en" : {
@@ -51,12 +61,12 @@
         }
       }
     },
-    "Die Uhr hat die Sitzung nicht gestartet. Läuft eine Aufnahme, oder fehlt die Workout-Freigabe?" : {
+    "Die Uhr hat nicht geantwortet. Prüfe, ob sie in Reichweite ist." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "The watch did not start the session. Is a recording running, or is the workout permission missing?"
+            "value" : "The watch did not answer. Check that it is in range."
           }
         }
       }
@@ -77,6 +87,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "The watch measures, the page fills."
+          }
+        }
+      }
+    },
+    "Es läuft gerade eine Aufnahme. Beende sie zuerst." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A recording is running. End it first."
           }
         }
       }
