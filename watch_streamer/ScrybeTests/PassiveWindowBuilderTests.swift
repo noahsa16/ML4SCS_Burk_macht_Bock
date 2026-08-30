@@ -104,4 +104,19 @@ struct PassiveWindowBuilderTests {
         #expect(b.secondsPerWindow == 2.5)
         #expect(Double(b.seqLen) / b.nominalHz == 5.0)
     }
+
+    // The model's channel order is fixed by the exported artifact; getting it
+    // wrong produces confident nonsense rather than an error.
+    @Test("six-channel windows are row-major ax, ay, az, rx, ry, rz")
+    func sixChannelLayout() {
+        var b = PassiveWindowBuilder(seqLen: 2, strideSamples: 2,
+                                     nominalHz: 50, channels: 6)
+        let s = (0..<2).map { i in
+            PassiveSample(timestamp: Double(i) / 50.0,
+                          x: 1, y: 2, z: 3, rx: 4, ry: 5, rz: 6)
+        }
+        let windows = b.append(s)
+        #expect(windows.count == 1)
+        #expect(windows[0].values == [1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6])
+    }
 }
