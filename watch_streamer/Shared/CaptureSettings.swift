@@ -29,6 +29,10 @@ public enum CaptureSettings {
     public static let hzRange: ClosedRange<Double> = 10.0...200.0
     public static let batchSizeRange: ClosedRange<Int> = 1...200
 
-    public static func isValidHz(_ hz: Double) -> Bool { hzRange.contains(hz) }
-    public static func isValidBatchSize(_ n: Int) -> Bool { batchSizeRange.contains(n) }
+    // Why nonisolated: pure range checks over immutable bounds, called from the
+    // nonisolated decision helpers in FocusCommandPolicy. Under the project's
+    // default MainActor isolation they would otherwise be actor-isolated, and
+    // every such call site warns.
+    public nonisolated static func isValidHz(_ hz: Double) -> Bool { hzRange.contains(hz) }
+    public nonisolated static func isValidBatchSize(_ n: Int) -> Bool { batchSizeRange.contains(n) }
 }

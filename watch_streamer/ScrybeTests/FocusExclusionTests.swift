@@ -236,3 +236,62 @@ struct PolledStopTests {
                       runningSessionID: "S042") == .obey)
     }
 }
+
+// Every message from the phone may carry `requested_hz`, and the reply to the
+// Watch's own 1 Hz poll restates the phone's setting on every tick. A focus
+// session states its own rate instead, and CoreMotion's interval is fixed once
+// inside start() — so the poll's rate could not change what the sensor did, it
+// could only make the record of it wrong.
+@Suite("Applying a rate while a focus session runs")
+struct FocusRateConfigTests {
+
+    /// The `requested_hz` a poll reply carries: the phone's own setting, which
+    /// a focus session has deliberately overridden with `sessionHz`.
+    private let phoneSetting = 100.0
+    private var sessionRate: Double { Double(FocusCommandPolicy.sessionHz) }
+
+    // Why: `effectiveHz` describes the rate the sensor is actually running at,
+    // not the rate the phone last asked for. Without the guard the poll
+    // overwrote it about a second into every focus session, leaving a field
+    // that reads like the truth and is not — inert only until something
+    // legitimately re-enters start() mid-session.
+    @Test("a poll's rate is not applied while a focus session runs")
+    func focusSessionRateSurvivesThePoll() {
+        #expect(FocusCommandPolicy.rateToApply(requestedHz: phoneSetting,
+                                               currentHz: sessionRate,
+                                               hasFocusSession: true) == nil)
+    }
+
+    // The ordinary path, unchanged: outside a focus session the phone's
+    // setting is exactly what the Watch should adopt.
+    @Test("a new rate applies when no focus session is running")
+    func rateAppliesOutsideAFocusSession() {
+        #expect(FocusCommandPolicy.rateToApply(requestedHz: phoneSetting,
+                                               currentHz: sessionRate,
+                                               hasFocusSession: false) == phoneSetting)
+    }
+
+    // The poll restates the same rate every second; only a change is a change.
+    @Test("a rate equal to the running one is not a change")
+    func unchangedRateIsNoChange() {
+        #expect(FocusCommandPolicy.rateToApply(requestedHz: phoneSetting,
+                                               currentHz: phoneSetting,
+                                               hasFocusSession: false) == nil)
+    }
+
+    // A value outside CaptureSettings.hzRange is ignored rather than clamped,
+    // so a malformed payload cannot quietly reconfigure a running study.
+    @Test("an out-of-range rate is ignored", arguments: [0.0, 9.0, 201.0])
+    func outOfRangeRateIsIgnored(_ hz: Double) {
+        #expect(FocusCommandPolicy.rateToApply(requestedHz: hz,
+                                               currentHz: sessionRate,
+                                               hasFocusSession: false) == nil)
+    }
+
+    @Test("a message without a rate leaves the running one alone")
+    func missingRateIsNoChange() {
+        #expect(FocusCommandPolicy.rateToApply(requestedHz: nil,
+                                               currentHz: sessionRate,
+                                               hasFocusSession: false) == nil)
+    }
+}

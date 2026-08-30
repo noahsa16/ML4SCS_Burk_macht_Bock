@@ -831,8 +831,10 @@ class MotionManager: NSObject, ObservableObject {
     /// (Command / Context / Poll-Reply — alle laufen durch handleCommand).
     /// Schreibt nur bei Aenderung. Wirkt ab dem naechsten start().
     private func applyMotionConfig(from message: [String: Any]) {
-        if let hz = WatchPayloadValue.double(message[WatchPayloadKey.requestedHz]),
-           CaptureSettings.isValidHz(hz), hz != effectiveHz {
+        if let hz = FocusCommandPolicy.rateToApply(
+            requestedHz: WatchPayloadValue.double(message[WatchPayloadKey.requestedHz]),
+            currentHz: effectiveHz,
+            hasFocusSession: focusSessionStartedUptime != nil) {
             effectiveHz = hz
             UserDefaults.standard.set(hz, forKey: CaptureSettings.effectiveHzKey)
         }

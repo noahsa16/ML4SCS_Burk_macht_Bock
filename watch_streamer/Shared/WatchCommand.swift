@@ -342,6 +342,33 @@ public nonisolated enum FocusCommandPolicy {
         return .obey
     }
 
+    /// The capture rate a configuration push should apply, or nil to leave the
+    /// running one alone.
+    ///
+    /// Every message from the phone may carry `requested_hz`, including the
+    /// reply to the Watch's own 1 Hz poll, which restates the phone's setting
+    /// on every tick. A focus session states its rate instead
+    /// (`sessionHz`), and CoreMotion's interval is fixed once inside
+    /// `start()` — so applying the poll's rate mid-session did not change what
+    /// the sensor did, it only made `effectiveHz` disagree with it about a
+    /// second into every session. Refusing the change keeps the field's
+    /// meaning intact: the rate the sensor is actually running at, not the
+    /// rate the phone last asked for.
+    ///
+    /// `preFocusHz` is unaffected — it is captured before the session sets
+    /// `sessionHz` and is what `restorePreFocusRateIfNeeded()` puts back. A
+    /// rate the phone changed during a session is simply applied by the next
+    /// poll once the session ends.
+    public static func rateToApply(requestedHz: Double?,
+                                   currentHz: Double,
+                                   hasFocusSession: Bool) -> Double? {
+        guard !hasFocusSession else { return nil }
+        guard let requestedHz, CaptureSettings.isValidHz(requestedHz),
+              requestedHz != currentHz
+        else { return nil }
+        return requestedHz
+    }
+
     /// Resolves the capture rate for a study recording's own "start", given
     /// three possibly-present rate signals with a fixed precedence.
     ///
