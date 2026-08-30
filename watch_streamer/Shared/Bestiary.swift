@@ -1,7 +1,7 @@
 import Foundation
 
 /// One collected creature.
-public nonisolated struct BestiaryEntry: Codable, Equatable {
+public nonisolated struct BestiaryEntry: Codable, Equatable, Sendable {
     public let speciesId: Int
     public let dateMs: Int64
     public let strokesDrawn: Int

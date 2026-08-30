@@ -8,11 +8,23 @@ struct BestiaryTests {
     // An earlier draft grew the creature once per completed writing run, which
     // paid for fragmentation: four short bursts earned four strokes where one
     // continuous stretch earned one. Growth follows the amount written.
+    //
+    // The fragmented side is summed at runtime from four uneven bursts (not
+    // folded by the compiler into a literal, and not a shape a reader could
+    // mentally collapse into the whole-side argument) so this test actually
+    // exercises two different call sites reaching the same total, rather than
+    // one constant-folded call compared against itself. The invariant holds
+    // structurally, not by luck: strokesDrawn accepts only a running total,
+    // never a list of bursts, so there is no code path that could truncate
+    // per burst and sum partial results — a future signature change that
+    // accepted a list of bursts would be the thing to make this test suspect.
     @Test("the same writing time draws the same creature, however broken up")
     func invariantToFragmentation() {
+        let bursts: [Double] = [212, 63, 187, 138]
+        let fragmentedTotal = bursts.reduce(0, +)
         let whole = Bestiary.strokesDrawn(writingSeconds: 600,
                                           targetSeconds: 1_500, strokesTotal: 10)
-        let pieces = Bestiary.strokesDrawn(writingSeconds: 150 * 4,
+        let pieces = Bestiary.strokesDrawn(writingSeconds: fragmentedTotal,
                                            targetSeconds: 1_500, strokesTotal: 10)
         #expect(whole == pieces)
         #expect(whole == 4)
