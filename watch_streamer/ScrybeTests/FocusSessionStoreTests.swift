@@ -49,7 +49,11 @@ struct FocusSessionStoreTests {
 
     @Test("one decision per stride once the first window is full")
     func decisionsFollowStride() {
-        let store = FocusSessionStore(classifier: FixedClassifier(value: 1))
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary)
         store.beginForTesting(targetSeconds: 1_500)
         store.consume(samples(250))              // 0 … 4.98 s
         #expect(store.decisions.count == 1)
@@ -61,7 +65,11 @@ struct FocusSessionStoreTests {
     // receive five seconds of signal spanning data that never existed.
     @Test("a gap in the stream resets the window rather than spanning it")
     func gapResetsTheWindow() {
-        let store = FocusSessionStore(classifier: FixedClassifier(value: 1))
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary)
         store.beginForTesting(targetSeconds: 1_500)
         store.consume(samples(200))                 // not yet a full window
         store.consume(samples(200, from: 60.0))     // one minute later
@@ -76,8 +84,11 @@ struct FocusSessionStoreTests {
     func nothingIsPersisted() throws {
         let url = PassiveDecisionStore.defaultFileURL()
         let before = (try? Data(contentsOf: url))?.count ?? -1
+        let (bestiary, bestiaryURL) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: bestiaryURL) }
 
-        let store = FocusSessionStore(classifier: FixedClassifier(value: 1))
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary)
         store.beginForTesting(targetSeconds: 1_500)
         store.consume(samples(500))
 
@@ -94,7 +105,12 @@ struct FocusSessionStoreTests {
     // leave the silent-no-op-on-load-failure defect uncovered.
     @Test("a classifier load failure surfaces as a phase, not a silent no-op")
     func classifierLoadFailureIsObservable() {
-        let store = FocusSessionStore(makeClassifier: { throw Boom() })
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let store = FocusSessionStore(makeClassifier: { throw Boom() },
+                                      bestiary: bestiary,
+                                      stopOnWatch: { .stopped })
         store.beginForTesting(targetSeconds: 1_500)
 
         store.consume(samples(250))
@@ -114,11 +130,14 @@ struct FocusSessionStoreTests {
         final class Counter: @unchecked Sendable {
             var calls = 0
         }
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+
         let counter = Counter()
         let store = FocusSessionStore(makeClassifier: {
             counter.calls += 1
             throw Boom()
-        })
+        }, bestiary: bestiary, stopOnWatch: { .stopped })
         store.beginForTesting(targetSeconds: 1_500)
 
         store.consume(samples(250))
@@ -276,8 +295,10 @@ struct FocusSessionStoreTests {
         #expect(store.phase == .finished(finished))
     }
 
-    // The window ledger's job: credit is written as windows arrive, so a
-    // batch delivered twice must not pay twice.
+    // Credit is written as windows arrive, so a batch delivered twice must not
+    // pay twice. What holds this here is the builder's own invariant — it
+    // drops the re-delivered samples as non-monotonic — not the store's
+    // ledger; the ledger's own case is the test below.
     @Test("a re-delivered batch is credited once")
     func redeliveredBatchIsCreditedOnce() throws {
         let (bestiary, url) = tempBestiary()
@@ -292,6 +313,33 @@ struct FocusSessionStoreTests {
 
         #expect(store.decisions.count == 3)
         #expect(try #require(bestiary.current).writingSeconds == 7.5)
+    }
+
+    // The ledger keys on the window's start *millisecond*, so two windows
+    // beginning inside one millisecond are one payment. The shipped builder
+    // spaces its windows 2.5 s apart and can never produce that, which is why
+    // the case needs a builder whose stride is finer than the key: the guard
+    // sits with the payment and has to hold on its own terms, not on the
+    // spacing of today's window shape.
+    @Test("two windows sharing a start millisecond are credited once")
+    func sameStartMillisecondIsCreditedOnce() throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+
+        let fine = PassiveWindowBuilder(seqLen: 2, strideSamples: 1,
+                                        nominalHz: 4_000, channels: 6)
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { .stopped },
+                                      windowBuilder: fine)
+        store.begin(targetSeconds: 900)
+        // Three samples 0.25 ms apart complete two windows, starting at
+        // 0.00 ms and 0.25 ms — the same key.
+        store.consume(samples(3, hz: 4_000))
+
+        #expect(store.decisions.count == 1)
+        #expect(store.writingSeconds == fine.secondsPerWindow)
+        #expect(try #require(bestiary.current).writingSeconds == fine.secondsPerWindow)
     }
 
     // MARK: - The stream's real rate

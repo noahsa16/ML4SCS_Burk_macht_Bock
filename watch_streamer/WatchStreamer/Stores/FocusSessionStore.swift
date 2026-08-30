@@ -40,8 +40,7 @@ final class FocusSessionStore: ObservableObject {
     /// unconfirmed stop means the sensor stream may still be running.
     @Published private(set) var stopUnconfirmed = false
 
-    private var builder = PassiveWindowBuilder(seqLen: 250, strideSamples: 125,
-                                               nominalHz: 50, channels: 6)
+    private var builder: PassiveWindowBuilder
     private let injected: PassiveClassifier?
     private let makeClassifier: () throws -> PassiveClassifier
     private let injectedBestiary: BestiaryStore?
@@ -64,7 +63,8 @@ final class FocusSessionStore: ObservableObject {
     /// Credit is written as windows arrive, so the ledger against re-delivery
     /// has to sit with the credit. `PassiveWindowBuilder` drops non-monotonic
     /// samples and so would not re-emit a window today; that is its
-    /// invariant, not this one's.
+    /// invariant, not this one's. The key is a millisecond, so two windows
+    /// that begin inside the same one are also one payment.
     private var creditedWindowStarts: Set<Int64> = []
     /// The lowest `ordinal` a creature completed by this session can carry.
     /// Read at `begin()` so the finished page can tell a creature this
@@ -79,12 +79,15 @@ final class FocusSessionStore: ObservableObject {
          hardCapSeconds: TimeInterval = FocusSessionStore.hardCapSeconds,
          stopOnWatch: @escaping @MainActor () async -> FocusStopOutcome = {
              await ServerCommandListener.shared.stopFocusSession()
-         }) {
+         },
+         windowBuilder: PassiveWindowBuilder = PassiveWindowBuilder(
+             seqLen: 250, strideSamples: 125, nominalHz: 50, channels: 6)) {
         self.injected = classifier
         self.makeClassifier = makeClassifier
         self.injectedBestiary = bestiary
         self.hardCapSeconds = hardCapSeconds
         self.stopOnWatch = stopOnWatch
+        self.builder = windowBuilder
     }
 
     /// Resolved here rather than in `init` so the default argument does not

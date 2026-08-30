@@ -185,7 +185,7 @@ final class FocusStore: ObservableObject {
     /// remainder (a harvest still short of a full minute) instead of
     /// letting it carry into the next pull's delta, so a user who writes in
     /// bursts under a minute would be told "nothing new" forever.
-    private func claimWholeMinutes(_ minutes: Int, now: Date) {
+    func claimWholeMinutes(_ minutes: Int, now: Date) {
         guard minutes > 0 else { return }
         lastHarvestedSeconds = harvestBaseline(now: now) + Double(minutes * 60)
         lastHarvestedDay = isoDay(now)
