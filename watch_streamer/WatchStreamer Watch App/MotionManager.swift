@@ -1257,6 +1257,14 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
             builder.delegate = self
             workoutSession = session
             workoutBuilder = builder
+            // Why here: this is the one point every path that ends in a
+            // working session passes through — a fresh focus_start, an
+            // ordinary recording's start(), and restartWorkoutIfNeeded()'s
+            // recovery after an auto-pause/stop all call beginWorkoutSession().
+            // A stale failure from an earlier attempt must not keep reporting
+            // "failed" once a session actually comes up, on any of those paths
+            // — not only the focus one, which is all the earlier fix cleared.
+            workoutAuthorizationFailed = false
             let now = Date()
             session.startActivity(with: now)
             builder.beginCollection(withStart: now) { [weak self] _, _ in
