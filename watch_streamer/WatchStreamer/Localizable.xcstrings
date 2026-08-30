@@ -11,6 +11,186 @@
         }
       }
     },
+    "%@ geschrieben" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ written"
+          }
+        }
+      }
+    },
+    "%lld Min" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld min"
+          }
+        }
+      }
+    },
+    "Beenden" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "End"
+          }
+        }
+      }
+    },
+    "Die Uhr hat den Stopp nicht bestätigt." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The watch did not confirm the stop."
+          }
+        }
+      }
+    },
+    "Die Uhr hat die Sitzung nicht gestartet. Läuft eine Aufnahme, oder fehlt die Workout-Freigabe?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The watch did not start the session. Is a recording running, or is the workout permission missing?"
+          }
+        }
+      }
+    },
+    "Die Uhr misst, das iPhone zeichnet mit. Deine Schreibzeit zählt weiterhin der Tagestracker." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The watch measures, the iPhone draws along. Your writing time is still counted by the daily tracker."
+          }
+        }
+      }
+    },
+    "Die Uhr misst, die Seite füllt sich." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The watch measures, the page fills."
+          }
+        }
+      }
+    },
+    "Fertig" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Done"
+          }
+        }
+      }
+    },
+    "Fokus-Sitzung" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Focus session"
+          }
+        }
+      }
+    },
+    "Löscht deine gesamte Schreibzeit-Historie, dein Bestiarium, noch nicht hochgeladene Rohdaten und alle Einstellungen auf diesem iPhone. Bereits auf den Server übertragene Aufnahmen sind davon nicht betroffen." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Deletes your entire writing-time history, your bestiary, any raw data not yet uploaded, and all settings on this iPhone. Recordings already sent to the server are not affected."
+          }
+        }
+      }
+    },
+    "Schließen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Close"
+          }
+        }
+      }
+    },
+    "Schreibseite dieser Sitzung" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This session's page of writing"
+          }
+        }
+      }
+    },
+    "Sitzung läuft" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session running"
+          }
+        }
+      }
+    },
+    "Sitzung starten" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start session"
+          }
+        }
+      }
+    },
+    "Sitzung wird gestartet …" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starting session …"
+          }
+        }
+      }
+    },
+    "Wie lange willst du schreiben?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How long do you want to write?"
+          }
+        }
+      }
+    },
+    "Zurück" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Back"
+          }
+        }
+      }
+    },
+    "von %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "of %@"
+          }
+        }
+      }
+    },
     "–" : {
       "localizations" : {
         "en" : {

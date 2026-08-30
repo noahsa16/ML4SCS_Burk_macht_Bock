@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TodayView: View {
     @ObservedObject private var focus = FocusStore.shared
+    @ObservedObject private var session = FocusSessionStore.shared
     @AppStorage(ScrybeSettings.goalKey) private var goalSeconds: Double = ScrybeSettings.defaultGoalSeconds
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -11,6 +12,7 @@ struct TodayView: View {
     @State private var celebrating = false
     @State private var shineOn = false
     @State private var celebrationTask: Task<Void, Never>?
+    @State private var focusPresented = false
 
     private var liveSeconds: Double { focus.todayWritingSeconds }
     private var progress: DailyGoalProgress {
@@ -39,11 +41,17 @@ struct TodayView: View {
                          lastWritingAt: focus.lastWritingAt) {
             VStack(spacing: 24) {
                 if isEmpty { emptyState } else { populated }
+                focusSessionEntry
             }
             .padding()
             .frame(maxWidth: .infinity)
         }
         .background { theme.paper.ignoresSafeArea() }
+        .fullScreenCover(isPresented: $focusPresented) {
+            ScrybeThemeProvider {
+                FocusSessionView(onClose: { focusPresented = false })
+            }
+        }
         .onChange(of: isWriting) { _ in updatePulse() }
         .onChange(of: goalMet) { met in handleGoal(met) }
         .onAppear { updatePulse(); celebrated = goalMet }
@@ -75,6 +83,39 @@ struct TodayView: View {
                     .padding(.horizontal)
             }
         }
+    }
+
+    /// Opens the focus session, and reports one that is already running.
+    ///
+    /// The session outlives its own screen — closing that screen leaves the
+    /// Watch streaming — so this row is where a running one is found again.
+    private var focusSessionEntry: some View {
+        Button { focusPresented = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "pencil.line")
+                    .font(.title3)
+                    .foregroundStyle(theme.accent)
+                VStack(alignment: .leading, spacing: 2) {
+                    if session.isActive {
+                        Text("Sitzung läuft").font(.headline)
+                    } else {
+                        Text("Fokus-Sitzung").font(.headline)
+                    }
+                    Text("Die Uhr misst, die Seite füllt sich.")
+                        .font(.caption)
+                        .foregroundStyle(theme.secondaryInk)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote)
+                    .foregroundStyle(theme.mutedInk)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(theme.ink)
+        .scrybeSurface(cornerRadius: 16)
     }
 
     private var ring: some View {

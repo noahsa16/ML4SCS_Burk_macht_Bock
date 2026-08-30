@@ -387,6 +387,58 @@ class ServerCommandListener: NSObject, ObservableObject {
                         WatchPayloadKey.serverIP: serverIP])
     }
 
+    /// Asks the Watch to begin a focus session.
+    ///
+    /// Why a deadline: `sendMessage` does not guarantee that either handler
+    /// runs. Without it the caller waits forever and the screen sits in
+    /// `starting` with no way back — the failure this project already shipped
+    /// once on pull-to-refresh.
+    func startFocusSession(timeout: TimeInterval = 8) async -> Bool {
+        await withCheckedContinuation { continuation in
+            var resumed = false
+            let deadline = DispatchWorkItem {
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: false)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)
+            forwardToWatch([WatchPayloadKey.command: WatchCommandName.focusStart.rawValue,
+                            WatchPayloadKey.commandID: UUID().uuidString]) { reply in
+                guard !resumed else { return }
+                resumed = true
+                deadline.cancel()
+                continuation.resume(returning: reply[WatchPayloadKey.ok] as? Bool ?? false)
+            }
+        }
+    }
+
+    /// Asks the Watch to end a focus session and restore its previous rate.
+    ///
+    /// Bounded for the same reason as the start, and the answer matters more:
+    /// the Watch streams raw sensors until it hears this, so a caller that
+    /// waited forever would have no way to report that the stream may still
+    /// be running.
+    ///
+    /// - Returns: whether the Watch confirmed the stop.
+    func stopFocusSession(timeout: TimeInterval = 8) async -> Bool {
+        await withCheckedContinuation { continuation in
+            var resumed = false
+            let deadline = DispatchWorkItem {
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: false)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)
+            forwardToWatch([WatchPayloadKey.command: WatchCommandName.focusStop.rawValue,
+                            WatchPayloadKey.commandID: UUID().uuidString]) { reply in
+                guard !resumed else { return }
+                resumed = true
+                deadline.cancel()
+                continuation.resume(returning: reply[WatchPayloadKey.ok] as? Bool ?? false)
+            }
+        }
+    }
+
     @Published var sensorProbeVerdict: SensorProbeVerdict?
     @Published var sensorProbeRaw: String?
     /// Wall-Zeit, die `SensorProbe.report()` fuer den CMSensorRecorder-Read

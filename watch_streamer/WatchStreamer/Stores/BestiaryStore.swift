@@ -114,6 +114,19 @@ final class BestiaryStore: ObservableObject {
         persist()
     }
 
+    /// The creature the next credited second will grow: the one in progress,
+    /// or — when none is — the one the next credit would begin.
+    ///
+    /// Derived on read and never stored, so asking does not put a strokeless
+    /// creature into the collection. A running session draws against this so
+    /// the animal in the margin is the one its writing time will actually
+    /// grow; `speciesId`, `strokesTotal`, `ordinal` and `writingSeconds` are
+    /// what `addWritingSeconds` will assign, while `startedMs` is a preview
+    /// whenever `current` is nil.
+    func creatureInProgress(now: Date = Date()) -> BestiaryEntry {
+        current ?? beginCreature(at: now)
+    }
+
     /// A credit that both finishes the in-progress creature and overflows
     /// into the next calls this again in the same loop iteration, with the
     /// same `now` the just-finished creature was completed at — `now` alone
