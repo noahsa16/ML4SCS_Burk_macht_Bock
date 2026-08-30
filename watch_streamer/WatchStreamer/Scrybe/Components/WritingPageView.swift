@@ -20,6 +20,15 @@ enum WritingPageLayout {
         let endOffset: Double
         let isSegmentStart: Bool
         let isSegmentEnd: Bool
+        /// The kind of the segment immediately before this one in the
+        /// original list — set only when `isSegmentStart` (there is nothing
+        /// else it could mean on a mid-wrap piece). Lets the taper suppress
+        /// itself when what precedes is a `.resting` pause the stroke must
+        /// run through rather than tear before.
+        let precedingKind: FocusSegmentKind?
+        /// Same, but the segment immediately after — set only when
+        /// `isSegmentEnd`.
+        let followingKind: FocusSegmentKind?
     }
 
     /// A `.paragraph` gap: no ink of its own, just the line it breaks onto
@@ -73,7 +82,10 @@ enum WritingPageLayout {
         var cursor = 0.0
         var maxLine = 0
 
-        for segment in segments {
+        for (index, segment) in segments.enumerated() {
+            let precedingKind = index > 0 ? segments[index - 1].kind : nil
+            let followingKind = index < segments.count - 1 ? segments[index + 1].kind : nil
+
             if segment.kind == .paragraph {
                 // Why: a paragraph is a real line break, not just a wide
                 // gap — it always starts a fresh line, even with room left
@@ -98,11 +110,14 @@ enum WritingPageLayout {
                 let lineStart = Double(line) * secondsPerLine
                 let lineEnd = lineStart + secondsPerLine
                 let runEnd = min(end, lineEnd)
+                let isEnd = runEnd >= end
                 runs.append(Run(kind: segment.kind, line: line,
                                 startOffset: lineCursor - lineStart,
                                 endOffset: runEnd - lineStart,
                                 isSegmentStart: first,
-                                isSegmentEnd: runEnd >= end))
+                                isSegmentEnd: isEnd,
+                                precedingKind: first ? precedingKind : nil,
+                                followingKind: isEnd ? followingKind : nil))
                 maxLine = max(maxLine, line)
                 first = false
                 lineCursor = runEnd
@@ -155,26 +170,29 @@ struct WritingPageView: View {
     private var latencySeconds: Double { max(0, Double(headMs - committedEndMs) / 1000) }
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion)) { timeline in
-            let page = page
-            Canvas { context, size in
-                let geo = RenderGeometry(size: size, marginLeft: marginLeft, marginRight: marginRight,
-                                         paragraphIndent: paragraphIndent, secondsPerLine: secondsPerLine,
-                                         indentedLines: Set(page.paragraphMarks.map(\.line)))
-                drawRules(page: page, width: size.width, in: &context)
-                drawCreature(in: &context)
-                for run in page.runs {
-                    draw(run, geo: geo, in: &context)
-                }
-                for mark in page.paragraphMarks {
-                    drawParagraphMark(mark, geo: geo, in: &context)
-                }
-                if !reduceMotion {
-                    drawWetHead(page: page, geo: geo, now: timeline.date, in: &context)
+        // Why: computed once per body evaluation (i.e. once per actual change
+        // to `segments`), not once per animation tick — the layout and the
+        // static page below share this single value instead of each layer
+        // (or worse, every 1/60s tick) re-running `WritingPageLayout.layout`.
+        let page = page
+        ZStack(alignment: .topLeading) {
+            staticPage(page)
+            if !reduceMotion {
+                // Why: only the wet head moves in real time -- the ruled
+                // lines, every ink/resting run, every paragraph mark, and up
+                // to 200+ creature strokes are static between decisions and
+                // must not be redrawn 60 times a second for a tip that is
+                // the only thing actually animating.
+                TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion)) { timeline in
+                    Canvas { context, size in
+                        let geo = renderGeometry(page: page, size: size)
+                        drawWetHead(page: page, geo: geo, now: timeline.date, in: &context)
+                    }
+                    .allowsHitTesting(false)
                 }
             }
-            .frame(height: pageHeight(page: page))
         }
+        .frame(height: pageHeight(page: page))
         .background(theme.paper)
         .onChange(of: segments.last?.endMs) { newValue in
             // Why: only genuine ink growth gets the dry-in highlight -- a
@@ -186,6 +204,29 @@ struct WritingPageView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Schreibseite dieser Sitzung"))
+    }
+
+    /// Rules, ink, resting hairlines, paragraph marks and the creature — the
+    /// entire page except the wet head. Redraws only when SwiftUI decides
+    /// this view's own inputs changed, never on the wet head's 60 Hz tick.
+    private func staticPage(_ page: WritingPageLayout.Page) -> some View {
+        Canvas { context, size in
+            let geo = renderGeometry(page: page, size: size)
+            drawRules(page: page, width: size.width, in: &context)
+            drawCreature(in: &context)
+            for run in page.runs {
+                draw(run, geo: geo, in: &context)
+            }
+            for mark in page.paragraphMarks {
+                drawParagraphMark(mark, geo: geo, in: &context)
+            }
+        }
+    }
+
+    private func renderGeometry(page: WritingPageLayout.Page, size: CGSize) -> RenderGeometry {
+        RenderGeometry(size: size, marginLeft: marginLeft, marginRight: marginRight,
+                       paragraphIndent: paragraphIndent, secondsPerLine: secondsPerLine,
+                       indentedLines: Set(page.paragraphMarks.map(\.line)))
     }
 
     // MARK: - Layout-derived geometry (SwiftUI-side; not part of the pure mapping)
@@ -302,16 +343,21 @@ struct WritingPageView: View {
         guard length > 0 else { return }
         let color = theme.ink.opacity(opacity)
 
-        // Why: an ink stroke never starts or ends hard-cut — the taper is
-        // 10-16 pt (offset) / 6-10 pt (onset), the same order of magnitude as
-        // the `.lift` bound the layout uses to tell a genuine pen-up from a
-        // continuing stroke (Spec §6 "Der Strich").
+        // Why: an ink stroke tapers at a genuine pen-down/pen-up — a segment
+        // boundary that neighbours a `.lift` or `.paragraph` — but NOT when
+        // what's on the other side is `.resting`: the spec requires that gap
+        // to read as the stroke running through, never a break, so the taper
+        // is suppressed there rather than firing on every segment boundary
+        // regardless of what follows it. Taper length 10-16 pt (offset) /
+        // 6-10 pt (onset) per spec (Spec §6 "Der Strich").
+        let onsetTapers = run.isSegmentStart && run.precedingKind != .resting
+        let offsetTapers = run.isSegmentEnd && run.followingKind != .resting
         let onsetLength = min(CGFloat(8), length / 2)
         let offsetLength = min(CGFloat(13), length / 2)
-        let onsetEnd = run.isSegmentStart ? x0 + onsetLength : x0
-        let offsetStart = run.isSegmentEnd ? x1 - offsetLength : x1
+        let onsetEnd = onsetTapers ? x0 + onsetLength : x0
+        let offsetStart = offsetTapers ? x1 - offsetLength : x1
 
-        if run.isSegmentStart, onsetEnd > x0 {
+        if onsetTapers, onsetEnd > x0 {
             rampStroke(from: x0, to: onsetEnd, y: y, baseWidth: baseWidth, growing: true, color: color, in: &context)
         }
         let middleStart = max(x0, onsetEnd)
@@ -322,7 +368,7 @@ struct WritingPageView: View {
             path.addLine(to: CGPoint(x: middleEnd, y: y))
             context.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: baseWidth, lineCap: .round))
         }
-        if run.isSegmentEnd, offsetStart < x1 {
+        if offsetTapers, offsetStart < x1 {
             rampStroke(from: max(offsetStart, x0), to: x1, y: y, baseWidth: baseWidth, growing: false,
                       color: color, in: &context)
         }

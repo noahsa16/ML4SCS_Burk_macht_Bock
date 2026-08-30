@@ -85,11 +85,14 @@ struct WritingPageLayoutTests {
         let page = WritingPageLayout.layout([segment], secondsPerLine: 120)
         #expect(page.runs.count == 3)
         #expect(page.runs[0] == .init(kind: .ink, line: 0, startOffset: 0, endOffset: 120,
-                                      isSegmentStart: true, isSegmentEnd: false))
+                                      isSegmentStart: true, isSegmentEnd: false,
+                                      precedingKind: nil, followingKind: nil))
         #expect(page.runs[1] == .init(kind: .ink, line: 1, startOffset: 0, endOffset: 120,
-                                      isSegmentStart: false, isSegmentEnd: false))
+                                      isSegmentStart: false, isSegmentEnd: false,
+                                      precedingKind: nil, followingKind: nil))
         #expect(page.runs[2] == .init(kind: .ink, line: 2, startOffset: 0, endOffset: 60,
-                                      isSegmentStart: false, isSegmentEnd: true))
+                                      isSegmentStart: false, isSegmentEnd: true,
+                                      precedingKind: nil, followingKind: nil))
         #expect(page.lineCount == 3)
     }
 
@@ -135,5 +138,60 @@ struct WritingPageLayoutTests {
         let midLine0 = WritingPageLayout.point(atDrawnSeconds: 45, secondsPerLine: 120)
         #expect(midLine0.line == 0)
         #expect(midLine0.offset == 45)
+    }
+
+    // MARK: - Run neighbours: what the taper needs to suppress itself
+
+    // A resting gap must read as the stroke running through, never a break —
+    // so the taper that fires at a genuine segment boundary has to know when
+    // its neighbour is `.resting` and stay off. These tests guard the data
+    // the drawing layer reads to make that call; the drawing itself is not
+    // exercised here.
+    @Test("a run's neighbours are recorded so the taper can suppress itself before a resting pause")
+    func neighborKindsAreRecorded() {
+        let segments = [
+            FocusSegment(kind: .resting, startMs: 0, endMs: 5_000),
+            FocusSegment(kind: .ink, startMs: 5_000, endMs: 15_000),
+            FocusSegment(kind: .resting, startMs: 15_000, endMs: 20_000),
+        ]
+        let page = WritingPageLayout.layout(segments, secondsPerLine: 120)
+        let ink = page.runs.first(where: { $0.kind == .ink })
+        #expect(ink?.precedingKind == .resting)
+        #expect(ink?.followingKind == .resting)
+    }
+
+    @Test("a genuine lift or paragraph neighbour is recorded distinctly from a resting one")
+    func nonRestingNeighborsAreRecorded() {
+        let segments = [
+            FocusSegment(kind: .lift, startMs: 0, endMs: 20_000),
+            FocusSegment(kind: .ink, startMs: 20_000, endMs: 30_000),
+            FocusSegment(kind: .paragraph, startMs: 30_000, endMs: 95_000),
+        ]
+        let page = WritingPageLayout.layout(segments, secondsPerLine: 120)
+        let ink = page.runs.first(where: { $0.kind == .ink })
+        #expect(ink?.precedingKind == .lift)
+        #expect(ink?.followingKind == .paragraph)
+    }
+
+    @Test("a run at the very start or end of the segment list has no neighbour on that side")
+    func edgeRunsHaveNoOutsideNeighbor() {
+        let segments = [
+            FocusSegment(kind: .ink, startMs: 0, endMs: 10_000),
+            FocusSegment(kind: .resting, startMs: 10_000, endMs: 15_000),
+            FocusSegment(kind: .ink, startMs: 15_000, endMs: 25_000),
+        ]
+        let page = WritingPageLayout.layout(segments, secondsPerLine: 120)
+        let inkRuns = page.runs.filter { $0.kind == .ink }
+        #expect(inkRuns.first?.precedingKind == nil)   // nothing before the session started
+        #expect(inkRuns.last?.followingKind == nil)    // nothing after the session ends yet
+    }
+
+    @Test("a wrapped mid-line piece carries no neighbour kind -- only the true start/end do")
+    func midWrapRunsHaveNoNeighborKind() {
+        let segment = FocusSegment(kind: .ink, startMs: 0, endMs: 300_000)
+        let page = WritingPageLayout.layout([segment], secondsPerLine: 120)
+        #expect(page.runs.count == 3)
+        #expect(page.runs[1].precedingKind == nil)
+        #expect(page.runs[1].followingKind == nil)
     }
 }
