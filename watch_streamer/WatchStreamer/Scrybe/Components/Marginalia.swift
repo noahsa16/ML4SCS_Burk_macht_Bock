@@ -10,14 +10,14 @@ import SwiftUI
 enum Marginalia {
 
     static let names = [
-        "trompeten hase",
-        "panzerschnecke",
-        "dreibein vogel",
-        "lesender greif",
-        "buecherwurm",
-        "mondhund",
-        "federfisch",
-        "zwei kopf kranich",
+        "Trompetenhase",
+        "Panzerschnecke",
+        "Dreibeinvogel",
+        "Lesender Greif",
+        "Bücherwurm",
+        "Mondhund",
+        "Federfisch",
+        "Zweikopfkranich",
     ]
 
     static func strokeCount(forSpecies id: Int) -> Int {
@@ -38,7 +38,7 @@ enum Marginalia {
         }
     }
 
-    // MARK: - trompeten hase
+    // MARK: - Trompetenhase
 
     private static var trompetenHase: [Path] {
         [
@@ -1253,7 +1253,7 @@ enum Marginalia {
         ]
     }
 
-    // MARK: - panzerschnecke
+    // MARK: - Panzerschnecke
 
     private static var panzerschnecke: [Path] {
         [
@@ -2577,7 +2577,7 @@ enum Marginalia {
         ]
     }
 
-    // MARK: - dreibein vogel
+    // MARK: - Dreibeinvogel
 
     private static var dreibeinVogel: [Path] {
         [
@@ -3718,7 +3718,7 @@ enum Marginalia {
         ]
     }
 
-    // MARK: - lesender greif
+    // MARK: - Lesender Greif
 
     private static var lesenderGreif: [Path] {
         [
@@ -5708,7 +5708,7 @@ enum Marginalia {
         ]
     }
 
-    // MARK: - buecherwurm
+    // MARK: - Bücherwurm
 
     private static var buecherwurm: [Path] {
         [
@@ -7569,7 +7569,7 @@ enum Marginalia {
         ]
     }
 
-    // MARK: - mondhund
+    // MARK: - Mondhund
 
     private static var mondhund: [Path] {
         [
@@ -8967,7 +8967,7 @@ enum Marginalia {
         ]
     }
 
-    // MARK: - federfisch
+    // MARK: - Federfisch
 
     private static var federfisch: [Path] {
         [
@@ -11290,7 +11290,7 @@ enum Marginalia {
         ]
     }
 
-    // MARK: - zwei kopf kranich
+    // MARK: - Zweikopfkranich
 
     private static var zweiKopfKranich: [Path] {
         [

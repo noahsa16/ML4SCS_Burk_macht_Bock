@@ -315,8 +315,33 @@ def identifier(stem: str) -> str:
     return parts[0].lower() + "".join(p.capitalize() for p in parts[1:])
 
 
+# The names a reader sees, keyed by the file stem with its roster number
+# stripped. These are read aloud by VoiceOver ("Bücherwurm, im Entstehen"), so
+# they are spelled out here rather than derived: an ASCII file stem cannot say
+# whether "ue" is an umlaut or two letters, nor whether two words are a German
+# compound ("Trompetenhase") or an adjective and its noun ("Lesender Greif").
+DISPLAY_NAMES = {
+    "trompeten-hase": "Trompetenhase",
+    "panzerschnecke": "Panzerschnecke",
+    "dreibein-vogel": "Dreibeinvogel",
+    "lesender-greif": "Lesender Greif",
+    "buecherwurm": "Bücherwurm",
+    "mondhund": "Mondhund",
+    "federfisch": "Federfisch",
+    "zwei-kopf-kranich": "Zweikopfkranich",
+}
+
+
 def display_name(stem: str) -> str:
-    return re.sub(r"^\d+[-_ ]*", "", stem).replace("-", " ").replace("_", " ").strip()
+    """The creature's name, from DISPLAY_NAMES or capitalised from the stem.
+
+    The fallback keeps a newly added drawing usable before anyone has named
+    it, but a name it produces is a placeholder: add the real one above.
+    """
+    slug = re.sub(r"^\d+[-_ ]*", "", stem).replace("_", "-").strip("- ")
+    if slug in DISPLAY_NAMES:
+        return DISPLAY_NAMES[slug]
+    return " ".join(w[:1].upper() + w[1:] for w in slug.split("-") if w)
 
 
 def emit(creatures: list[tuple[str, str, list[list[tuple]]]]) -> str:
