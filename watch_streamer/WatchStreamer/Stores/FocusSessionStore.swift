@@ -46,7 +46,7 @@ final class FocusSessionStore: ObservableObject {
     private let makeClassifier: () throws -> PassiveClassifier
     private let injectedBestiary: BestiaryStore?
     private let hardCapSeconds: TimeInterval
-    private let stopOnWatch: @MainActor () async -> Bool
+    private let stopOnWatch: @MainActor () async -> FocusStopOutcome
     private var classifier: PassiveClassifier?
     private var hardStopTask: Task<Void, Never>?
     // Why tracked rather than derived from `phase`: `focus_stop` ends the
@@ -66,7 +66,7 @@ final class FocusSessionStore: ObservableObject {
          },
          bestiary: BestiaryStore? = nil,
          hardCapSeconds: TimeInterval = FocusSessionStore.hardCapSeconds,
-         stopOnWatch: @escaping @MainActor () async -> Bool = {
+         stopOnWatch: @escaping @MainActor () async -> FocusStopOutcome = {
              await ServerCommandListener.shared.stopFocusSession()
          }) {
         self.injected = classifier
@@ -187,6 +187,19 @@ final class FocusSessionStore: ObservableObject {
         stopWatchIfStreaming()
     }
 
+    /// A study recording has taken the Watch.
+    ///
+    /// The research path outranks this feature and the Watch preempts without
+    /// asking, so the session closes here rather than running on against a
+    /// stream that is no longer its own. No `focus_stop` goes out: the Watch
+    /// is at this moment being told to record, and stopping it is exactly
+    /// what must not happen.
+    func watchPreemptedByRecording() {
+        guard case .running = phase else { return }
+        watchIsStreaming = false
+        end()
+    }
+
     /// Leaves `failed` or `finished` for the picker again. A live session is
     /// never discarded this way — it has to be ended.
     func returnToIdle() {
@@ -271,8 +284,8 @@ final class FocusSessionStore: ObservableObject {
         guard watchIsStreaming else { return }
         watchIsStreaming = false
         Task { [weak self, stopOnWatch] in
-            let confirmed = await stopOnWatch()
-            self?.stopUnconfirmed = !confirmed
+            let outcome = await stopOnWatch()
+            self?.stopUnconfirmed = !outcome.focusSessionIsStopped
         }
     }
 

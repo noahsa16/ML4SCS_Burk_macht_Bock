@@ -423,14 +423,16 @@ class ServerCommandListener: NSObject, ObservableObject {
     /// waited forever would have no way to report that the stream may still
     /// be running.
     ///
-    /// - Returns: whether the Watch confirmed the stop.
-    func stopFocusSession(timeout: TimeInterval = 8) async -> Bool {
+    /// - Returns: the Watch's answer. A refusal is not a failure here — the
+    ///   Watch only refuses when no focus session is running, which is what
+    ///   the stop was asking it to bring about.
+    func stopFocusSession(timeout: TimeInterval = 8) async -> FocusStopOutcome {
         await withCheckedContinuation { continuation in
             var resumed = false
             let deadline = DispatchWorkItem {
                 guard !resumed else { return }
                 resumed = true
-                continuation.resume(returning: false)
+                continuation.resume(returning: .noAnswer)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)
             forwardToWatch([WatchPayloadKey.command: WatchCommandName.focusStop.rawValue,
@@ -438,7 +440,7 @@ class ServerCommandListener: NSObject, ObservableObject {
                 guard !resumed else { return }
                 resumed = true
                 deadline.cancel()
-                continuation.resume(returning: reply[WatchPayloadKey.ok] as? Bool ?? false)
+                continuation.resume(returning: FocusStopOutcome.from(reply: reply))
             }
         }
     }
@@ -622,6 +624,15 @@ class ServerCommandListener: NSObject, ObservableObject {
         let route = WatchCommandName(rawValue: command)
         let mayReplaceDurableState = route?.mayReplaceDurableState ?? false
         let mayFallBackToUserInfo = route?.mayFallBackToUserInfo ?? false
+
+        // Why here: this is the single funnel every study "start" leaves the
+        // phone through, and the Watch answers one by preempting a running
+        // focus session (`MotionManager.handleCommand`) with no way to say so.
+        // Told at the source, the session closes on the writing time it
+        // earned instead of running on against a stream it no longer owns.
+        if route == .start {
+            FocusSessionStore.shared.watchPreemptedByRecording()
+        }
 
         if mayReplaceDurableState {
             // Why: ein neuer Befehl macht alle gequeueten älteren obsolet. Ohne

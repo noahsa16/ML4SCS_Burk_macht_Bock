@@ -180,6 +180,46 @@ public nonisolated enum FocusStartOutcome: Equatable, Sendable {
     }
 }
 
+/// Why the Watch refused a `focus_stop`.
+///
+/// Both cases assert the same fact the caller needs — no focus session holds
+/// the Watch's sensors — but they say different things about what does. The
+/// first is the dangerous one: a study recording preempted the session
+/// without the phone hearing about it, and `focus_stop` would otherwise end a
+/// proband recording mid-run.
+public nonisolated enum FocusStopRefusal: String, Sendable, CaseIterable {
+    case recordingInProgress = "recording in progress"
+    case noFocusSession = "no focus session"
+}
+
+/// What came back from a `focus_stop`.
+public nonisolated enum FocusStopOutcome: Equatable, Sendable {
+    case stopped
+    case refused(FocusStopRefusal)
+    /// No usable answer: the deadline passed, the transport failed, or the
+    /// Watch refused for a reason this build does not recognise.
+    case noAnswer
+
+    /// Whether the answer establishes that no focus session is streaming.
+    /// A refusal does establish it — the Watch checked and said so — which is
+    /// the whole question the caller asked. Only silence leaves it open.
+    public var focusSessionIsStopped: Bool {
+        switch self {
+        case .stopped, .refused: return true
+        case .noAnswer: return false
+        }
+    }
+
+    public static func from(reply: [String: Any]) -> FocusStopOutcome {
+        guard reply[WatchPayloadKey.ok] as? Bool ?? false else {
+            let raw = reply[WatchPayloadKey.error] as? String ?? ""
+            guard let refusal = FocusStopRefusal(rawValue: raw) else { return .noAnswer }
+            return .refused(refusal)
+        }
+        return .stopped
+    }
+}
+
 /// Whether a focus session may start, and at what rate.
 ///
 /// Split out of `MotionManager` because the decision is the part worth testing
@@ -219,6 +259,30 @@ public nonisolated enum FocusCommandPolicy {
                               requestedHz: 0)
         }
         return StartReply(ok: true, error: nil, requestedHz: sessionHz)
+    }
+
+    public struct StopReply: Equatable {
+        public let ok: Bool
+        public let error: String?
+    }
+
+    /// Whether a `focus_stop` may be obeyed.
+    ///
+    /// `focus_stop` calls `stop()`, which ends whatever the Watch is
+    /// capturing — it is not scoped to focus sessions by anything but this
+    /// check. A study recording preempts a running focus session and tells
+    /// the phone nothing, so the phone can still send `focus_stop` long
+    /// after: when the user taps "Beenden", or with no user action at all
+    /// when its own session cap fires up to an hour later. Obeying that would
+    /// end a proband recording mid-run, and answering `ok` would hide it.
+    ///
+    /// The Watch is the only side that knows what it is running, so the
+    /// decision belongs here.
+    public static func replyForStop(hasFocusSession: Bool,
+                                    isRecording: Bool) -> StopReply {
+        guard !hasFocusSession else { return StopReply(ok: true, error: nil) }
+        let refusal: FocusStopRefusal = isRecording ? .recordingInProgress : .noFocusSession
+        return StopReply(ok: false, error: refusal.rawValue)
     }
 
     /// Resolves the capture rate for a study recording's own "start", given

@@ -16,7 +16,7 @@ struct FocusSessionStoreTests {
     /// directions.
     private final class StopRecorder: @unchecked Sendable {
         var calls = 0
-        var confirm = true
+        var outcome: FocusStopOutcome = .stopped
     }
 
     /// A collection on its own file. Every test that credits writing time
@@ -165,7 +165,7 @@ struct FocusSessionStoreTests {
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
                                       bestiary: bestiary,
-                                      stopOnWatch: { true })
+                                      stopOnWatch: { .stopped })
         store.begin(targetSeconds: 900)
         let drawnSpecies = store.currentSpecies
         let drawnStrokes = store.strokesTotal
@@ -190,7 +190,7 @@ struct FocusSessionStoreTests {
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
                                       bestiary: bestiary,
-                                      stopOnWatch: { true })
+                                      stopOnWatch: { .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
         #expect(store.writingSeconds == 7.5)
@@ -207,7 +207,7 @@ struct FocusSessionStoreTests {
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: -1),
                                       bestiary: bestiary,
-                                      stopOnWatch: { true })
+                                      stopOnWatch: { .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
         store.end()
@@ -230,7 +230,7 @@ struct FocusSessionStoreTests {
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
                                       bestiary: bestiary,
-                                      stopOnWatch: { true })
+                                      stopOnWatch: { .stopped })
         let start = Date().addingTimeInterval(-(FocusSessionStore.hardCapSeconds + 1))
         store.begin(targetSeconds: 900, at: start)
         store.consume(samples(500))
@@ -253,7 +253,7 @@ struct FocusSessionStoreTests {
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
                                       bestiary: bestiary,
                                       hardCapSeconds: 0.05,
-                                      stopOnWatch: { stops.calls += 1; return stops.confirm })
+                                      stopOnWatch: { stops.calls += 1; return stops.outcome })
         store.begin(targetSeconds: 900)
         await settle()
         await settle()
@@ -278,7 +278,7 @@ struct FocusSessionStoreTests {
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
                                       bestiary: bestiary,
-                                      stopOnWatch: { stops.calls += 1; return true })
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
         store.markStarting()
         store.failToStart("refused")
         await settle()
@@ -288,6 +288,35 @@ struct FocusSessionStoreTests {
             Issue.record("expected .failed phase, got \(store.phase)")
             return
         }
+    }
+
+    // MARK: - Preemption by a study recording
+
+    // The Watch ends a focus session on its own when a study recording
+    // starts, and says nothing. Left running, the session would go on
+    // classifying a stream it no longer owns — and would later send
+    // `focus_stop` into the proband recording.
+    @Test("a study recording ends the session without stopping the Watch")
+    func preemptionEndsTheSessionAndSendsNoStop() async throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stops = StopRecorder()
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
+        store.begin(targetSeconds: 900)
+        store.consume(samples(500))
+        store.watchPreemptedByRecording()
+        await settle()
+
+        guard case .finished = store.phase else {
+            Issue.record("expected .finished phase, got \(store.phase)")
+            return
+        }
+        #expect(stops.calls == 0)
+        // The writing time the session did earn stays earned.
+        #expect(try #require(bestiary.current).writingSeconds == 7.5)
     }
 
     // The model can only fail once the session is already running, so the
@@ -301,7 +330,7 @@ struct FocusSessionStoreTests {
 
         let store = FocusSessionStore(makeClassifier: { throw Boom() },
                                       bestiary: bestiary,
-                                      stopOnWatch: { stops.calls += 1; return true })
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(250))
         await settle()
@@ -321,11 +350,11 @@ struct FocusSessionStoreTests {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
         let stops = StopRecorder()
-        stops.confirm = false
+        stops.outcome = .noAnswer
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
                                       bestiary: bestiary,
-                                      stopOnWatch: { stops.calls += 1; return stops.confirm })
+                                      stopOnWatch: { stops.calls += 1; return stops.outcome })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
         store.end()
@@ -348,7 +377,7 @@ struct FocusSessionStoreTests {
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
                                       bestiary: bestiary,
-                                      stopOnWatch: { stops.calls += 1; return true })
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
         store.returnToIdle()

@@ -991,11 +991,20 @@ extension MotionManager: WCSessionDelegate {
                 WatchPayloadKey.commandID: commandId
             ]
         case .focusStop:
+            // `focusSessionStartedAt` is the discriminator: set only by an
+            // accepted focus_start, cleared by stop() itself — including the
+            // stop() that a study recording's "start" performs to preempt a
+            // focus session. So a nil here means the Watch is not running a
+            // focus session, whatever else it may be running.
+            let reply = FocusCommandPolicy.replyForStop(
+                hasFocusSession: focusSessionStartedAt != nil,
+                isRecording: isRunning)
             // stop() itself restores effectiveHz from preFocusHz — no need to
             // repeat that here.
-            stop()
+            if reply.ok { stop() }
             return [
-                WatchPayloadKey.ok: true,
+                WatchPayloadKey.ok: reply.ok,
+                WatchPayloadKey.error: reply.error ?? "",
                 WatchPayloadKey.command: raw,
                 WatchPayloadKey.commandID: commandId
             ]
