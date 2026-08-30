@@ -33,7 +33,42 @@ Besonders ergiebig sind der **Luttrell Psalter** (British Library, Add MS 42130,
 über 600 Randzeichnungen) und der **Gorleston Psalter** (Add MS 49622). Die
 British Library hat ihre Handschriften-Digitalisate vor 1800 gemeinfrei gestellt.
 
-### 2. Nachzeichnen
+### 2a. Automatisch nachzeichnen (ohne Zeichnen)
+
+`trace_to_strokes.py` reduziert die Tinte eines Scans auf ihre Mittellinien und
+schreibt daraus ein SVG mit einem Pfad je Federstrich. Damit braucht es weder
+Zeichenkenntnis noch Zeit.
+
+```bash
+.venv/bin/python tools/trace_to_strokes.py ausschnitt.png --out 0-hase.svg \
+    --window 41 --despeckle 1 --bridge 4 --min-blob 400 --min-stroke 30
+```
+
+Diese Werte stammen aus einem echten Beispiel (Feder auf Pergament, 14. Jh.,
+480×780 Ausschnitt) und sind der sinnvolle Ausgangspunkt für Handschriften.
+
+Was die Schalter tun, und warum die Reihenfolge zählt:
+
+- `--window` schaltet auf eine **lokale** Schwelle (Sauvola). Eine globale
+  Schwelle erfasst auf fleckigem Pergament nur die dunkelsten Teile jeder Linie
+  und zerhackt sie.
+- `--despeckle` entfernt alles, was **schmaler als ein Federstrich** ist. Genau
+  das ist die Pergamentkörnung, und die Breite ist das einzige Merkmal, das sie
+  von der Zeichnung trennt.
+- `--bridge` schließt danach die Lücken, die eine springende Feder lässt.
+
+**Öffnen muss vor Schließen kommen.** Umgekehrt schweißt man die Körnung an die
+Zeichnung, und danach kann kein Filter sie mehr unterscheiden. Das war der Fehler,
+an dem der erste Versuch an einer echten Handschrift scheiterte.
+
+Vorher eng auf das Tier zuschneiden — Text und Zeilenlineatur werden sonst
+mitgezeichnet.
+
+**Ergebnis prüfen, nicht annehmen.** Eine Federzeichnung kommt mit Lücken heraus;
+klein im Seitenrand liest sich das als Federtextur und ist stimmig, aber
+ansehen muss man es.
+
+### 2b. Selbst nachzeichnen
 
 In [Linearity Curve](https://www.linearity.io/curve/) (kostenlos für iPad, iPhone
 und Mac). Vorlage als Hintergrundebene, darüber mit dem Stift nachziehen.
