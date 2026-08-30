@@ -83,3 +83,5 @@ final class ScrybeModel {
         return data.withUnsafeBytes { Array($0.bindMemory(to: Float32.self)) }
     }
 }
+
+extension ScrybeModel: PassiveClassifier {}
