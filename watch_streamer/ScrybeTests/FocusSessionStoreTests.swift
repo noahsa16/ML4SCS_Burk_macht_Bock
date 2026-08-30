@@ -429,6 +429,62 @@ struct FocusSessionStoreTests {
         #expect(stops.calls == 0)
     }
 
+    // The same preemption again, with the one step that defeated the phase
+    // guard above: the failure screen has a "Zurück" button, and pressing it
+    // calls `returnToIdle()`, which restores `.idle` — a phase `begin` admits.
+    // The Watch's reply is still in flight at that point, so the guard needs a
+    // fact that outlives the phase.
+    @Test("leaving the failure screen does not let the late reply open a session")
+    func preemptionSurvivesReturnToIdle() async throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stops = StopRecorder()
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
+        store.markStarting()
+        store.watchPreemptedByRecording()
+        store.returnToIdle()
+        #expect(store.phase == .idle)
+
+        // The Watch's `.started` reply, up to eight seconds after the ask.
+        store.begin(targetSeconds: 900)
+        #expect(!store.isActive)
+        #expect(store.phase == .failed(FocusStartRefusal.recordingInProgress.message))
+
+        // The proband's writing must not reach this phone owner's creature.
+        store.consume(samples(500))
+        #expect(store.decisions.isEmpty)
+        #expect(bestiary.current == nil)
+
+        await settle()
+        #expect(stops.calls == 0)
+    }
+
+    // The guard above must not become a latch. Once the recording is over the
+    // user starts another session, and that fresh ask is what clears it.
+    @Test("a fresh ask clears the preemption and starts normally")
+    func aFreshAskClearsThePreemption() async throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stops = StopRecorder()
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
+        store.markStarting()
+        store.watchPreemptedByRecording()
+        store.returnToIdle()
+
+        store.markStarting()
+        store.begin(targetSeconds: 900)
+        #expect(store.isActive)
+
+        store.consume(samples(250))
+        #expect(store.decisions.count == 1)
+    }
+
     // MARK: - The sixty-minute cap
 
     // The cap is a battery guarantee: the Watch streams raw sensors for the

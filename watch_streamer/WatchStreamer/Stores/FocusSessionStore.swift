@@ -52,6 +52,13 @@ final class FocusSessionStore: ObservableObject {
     // Watch's capture outright. Sending it after a start the Watch refused
     // would stop a study recording this session never owned.
     private var watchIsStreaming = false
+    // Why not derived from `phase`: a recording that preempts a start still in
+    // flight moves the phase to `.failed`, and the user can leave that screen
+    // — `returnToIdle` puts the phase back to `.idle`, which `begin` accepts.
+    // The reply the Watch owes us is still coming, so the fact that has to
+    // outlive the phase is "a recording took the Watch after we asked", and it
+    // is cleared only by the next ask.
+    private var startPreemptedByRecording = false
     // Why a stored message and not a bool: a missing or malformed bundle
     // resource will not fix itself while the process is alive, so one failed
     // attempt is final for the store's lifetime — not just for this session —
@@ -148,6 +155,7 @@ final class FocusSessionStore: ObservableObject {
     /// cannot outlive that timeout.
     func markStarting() {
         guard case .idle = phase else { return }
+        startPreemptedByRecording = false
         phase = .starting
     }
 
@@ -171,8 +179,19 @@ final class FocusSessionStore: ObservableObject {
     /// preempted the session inside that window has already moved the phase to
     /// `failed`. Without the guard, the late `started` reply would open a
     /// session on a stream the recording owns.
+    ///
+    /// The phase alone does not carry that, because the user can leave the
+    /// failure screen: `returnToIdle` restores `.idle`, which this guard
+    /// admits. `startPreemptedByRecording` is the half that survives it, so a
+    /// reply overtaken by a recording is refused however the screen moved on
+    /// in the meantime. No `focus_stop` follows — the Watch is recording, and
+    /// stopping it is exactly what must not happen.
     func begin(targetSeconds: Double, at date: Date = Date()) {
         guard phase == .idle || phase == .starting else { return }
+        guard !startPreemptedByRecording else {
+            failToStart(FocusStartRefusal.recordingInProgress.message)
+            return
+        }
         reset()
         stopUnconfirmed = false
         firstOrdinalThisSession = bestiary.creatureInProgress(now: date).ordinal
@@ -219,6 +238,7 @@ final class FocusSessionStore: ObservableObject {
     /// side has not heard back about yet, and the session that reply would
     /// open would never have owned the stream.
     func watchPreemptedByRecording() {
+        startPreemptedByRecording = true
         switch phase {
         case .running:
             watchIsStreaming = false
