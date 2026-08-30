@@ -131,6 +131,11 @@ class MotionManager: NSObject, ObservableObject {
     @Published private(set) var serverSessionId: String?
     @Published private(set) var uploadMode = "Offline"
     @Published private(set) var workoutStatus = "Workout idle"
+    // Distinct from workoutStatus (a free-text string nothing outside this
+    // file reads): this is the one bit the phone needs, carried in the poll
+    // payload, because without it a failed workout session looks like a
+    // healthy focus recording that just never produces samples.
+    @Published private(set) var workoutAuthorizationFailed = false
     @Published private(set) var lastCommandPollStatus = "No poll yet"
     @Published private(set) var lastCommandId: String?
     @Published private(set) var actualSampleRateHz = 0.0
@@ -275,6 +280,14 @@ class MotionManager: NSObject, ObservableObject {
             status = "Stopped"
         }
         endWorkoutSessionIfNeeded()
+        // Why unconditional here rather than at each call site: stop() has
+        // several callers (a plain "stop", a stale-recovery poll stop, a
+        // recording "start" preempting a focus session, focus_stop itself),
+        // and a caller that forgets this leaves effectiveHz stuck at 50 with
+        // preFocusHz still holding the real rate — silently corrupting
+        // whatever runs next. Putting it here means no future call site can
+        // forget it.
+        restorePreFocusRateIfNeeded()
     }
 
     private func resetRunCounters() {
@@ -437,7 +450,8 @@ class MotionManager: NSObject, ObservableObject {
             "spilled_samples": spilledSampleCount,
             "failed_batches": failedBatchCount,
             "last_command_id": lastCommandId ?? "",
-            "upload_mode": uploadMode
+            "upload_mode": uploadMode,
+            "workout_failed": workoutAuthorizationFailed
         ]
 
         WCSession.default.sendMessage(message, replyHandler: { [weak self] reply in
@@ -893,14 +907,12 @@ extension MotionManager: WCSessionDelegate {
     /// Restores `effectiveHz` from a focus session's saved pre-focus rate, if
     /// one is pending, and clears it.
     ///
-    /// Shared by two call sites that both end an active focus session and
-    /// must not leave its 50 Hz override in place for whatever runs next:
-    /// `focus_stop` itself, and a study recording's own "start" — a study
-    /// recording ends any active focus session before proceeding rather than
-    /// being refused by it (the recording must never lose that race), so it
-    /// needs the same restore. A no-op when no focus session set `preFocusHz`
-    /// — guards a duplicate `focus_stop`, or a "start" that preempted an
-    /// ordinary recording rather than a focus session.
+    /// Called from `stop()` itself, not from each of its callers — `stop()`
+    /// has several (a plain "stop", a poll-driven recovery stop, a study
+    /// recording's "start" preempting a focus session, `focus_stop`), and any
+    /// one of them forgetting this would leave `effectiveHz` stuck at 50 with
+    /// `preFocusHz` still holding the real rate. A no-op when no focus
+    /// session set `preFocusHz` — the common case, an ordinary stop.
     private func restorePreFocusRateIfNeeded() {
         guard let previous = preFocusHz else { return }
         effectiveHz = previous
@@ -924,6 +936,8 @@ extension MotionManager: WCSessionDelegate {
             if reply.ok {
                 preFocusHz = effectiveHz
                 effectiveHz = Double(reply.requestedHz)
+                // Clear a previous attempt's failure — this is a fresh one.
+                workoutAuthorizationFailed = false
                 start()
             }
             return [
@@ -934,8 +948,9 @@ extension MotionManager: WCSessionDelegate {
                 WatchPayloadKey.commandID: commandId
             ]
         case .focusStop:
+            // stop() itself restores effectiveHz from preFocusHz — no need to
+            // repeat that here.
             stop()
-            restorePreFocusRateIfNeeded()
             return [
                 WatchPayloadKey.ok: true,
                 WatchPayloadKey.command: raw,
@@ -995,25 +1010,17 @@ extension MotionManager: WCSessionDelegate {
                 // Why: a study recording ends any active focus session and
                 // proceeds rather than losing to it — the opposite of
                 // focus_start, which refuses while a recording runs. The
-                // focus session may have ended just above (this "start"
-                // preempting it) or earlier via focus_stop; either way, a
-                // fresh recording must never inherit its 50 Hz.
-                //
-                // applyMotionConfig() already ran (top of handleCommand) and
-                // applied this message's own requested_hz if it carried one —
-                // every study "start" does (ServerCommandListener.watchPayload
-                // always attaches the phone's current setting), and that live
-                // value is more authoritative than a saved pre-focus rate.
-                // Only fall back to the saved rate when this message carried
-                // no explicit one, so an explicit rate is never clobbered by
-                // a stale preFocusHz.
-                let hasExplicitHz = WatchPayloadValue.double(message[WatchPayloadKey.requestedHz])
-                    .map(CaptureSettings.isValidHz) ?? false
-                if hasExplicitHz {
-                    preFocusHz = nil
-                } else {
-                    restorePreFocusRateIfNeeded()
-                }
+                // preemption stop() just above (if it ran) already restored
+                // effectiveHz from preFocusHz; resolveRateForStart's job here
+                // is precedence — this message's own explicit rate, sent with
+                // every study "start" (ServerCommandListener.watchPayload),
+                // must win over that restore rather than be clobbered by it.
+                let resolved = FocusCommandPolicy.resolveRateForStart(
+                    explicitHz: WatchPayloadValue.double(message[WatchPayloadKey.requestedHz]),
+                    preFocusHz: preFocusHz,
+                    currentHz: effectiveHz)
+                effectiveHz = resolved.hz
+                preFocusHz = resolved.preFocusHz
                 start(sessionId: sid)
             } else if let sid, !sid.isEmpty, !fromPoll {
                 serverSessionId = sid
@@ -1189,10 +1196,28 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
         healthStore.authorizationStatus(for: HKObjectType.workoutType()) != .sharingDenied
     }
 
+    /// Marks the workout session as unable to start, and — only when a focus
+    /// session was waiting on it, not an ordinary recording — ends capture
+    /// immediately.
+    ///
+    /// Why the asymmetry: `.notDetermined` deliberately lets `start()`
+    /// proceed and this very prompt decide the outcome (see
+    /// `isHealthKitAuthorized`). If it comes back denied, a focus session
+    /// must not sit there reporting `isRunning: true` while producing nothing
+    /// once the wrist lowers — that is the silent-death shape this codebase
+    /// has already fixed twice. An ordinary recording's existing retry
+    /// behaviour (`restartWorkoutIfNeeded`) is untouched.
+    private func handleWorkoutSessionFailure() {
+        workoutAuthorizationFailed = true
+        guard preFocusHz != nil else { return }
+        stop()
+    }
+
     private func startWorkoutSessionIfNeeded() {
         guard workoutSession == nil else { return }
         guard HKHealthStore.isHealthDataAvailable() else {
             workoutStatus = "HealthKit unavailable"
+            handleWorkoutSessionFailure()
             return
         }
 
@@ -1202,10 +1227,12 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
                 guard let self else { return }
                 if let error {
                     self.workoutStatus = error.localizedDescription
+                    self.handleWorkoutSessionFailure()
                     return
                 }
                 guard success else {
                     self.workoutStatus = "Workout permission denied"
+                    self.handleWorkoutSessionFailure()
                     return
                 }
                 self.beginWorkoutSession()
@@ -1237,6 +1264,7 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
             }
         } catch {
             workoutStatus = error.localizedDescription
+            handleWorkoutSessionFailure()
         }
     }
 

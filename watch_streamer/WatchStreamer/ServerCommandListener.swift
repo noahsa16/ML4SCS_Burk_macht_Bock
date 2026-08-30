@@ -33,6 +33,12 @@ class ServerCommandListener: NSObject, ObservableObject {
     @Published var watchLastCommandId = ""
     @Published var watchUploadMode = "Offline"
     @Published var watchActualHz: Double = 0
+    // Why this exists: without it, a focus session whose HKWorkoutSession
+    // failed to start (e.g. a denied permission prompt) looks identical to a
+    // healthy one — isRunning stays true, but the stream dies the moment the
+    // wrist lowers. No retry or UI is built on this yet; it only makes the
+    // failure observable.
+    @Published var watchWorkoutFailed = false
     @Published var liveInference: LiveInferencePayload?
 
     private var reconnectWorkItem: DispatchWorkItem?
@@ -508,6 +514,7 @@ class ServerCommandListener: NSObject, ObservableObject {
             self.watchFailedBatches = message["failed_batches"] as? Int ?? 0
             self.watchLastCommandId = message["last_command_id"] as? String ?? ""
             self.watchUploadMode = message["upload_mode"] as? String ?? "Offline"
+            self.watchWorkoutFailed = message["workout_failed"] as? Bool ?? false
         }
     }
 

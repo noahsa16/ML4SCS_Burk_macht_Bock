@@ -180,6 +180,35 @@ public nonisolated enum FocusCommandPolicy {
         }
         return StartReply(ok: true, error: nil, requestedHz: sessionHz)
     }
+
+    /// Resolves the capture rate for a study recording's own "start", given
+    /// three possibly-present rate signals with a fixed precedence.
+    ///
+    /// 1. An explicit, valid rate carried by this exact message wins — it is
+    ///    the phone's live setting, sent with every study "start"
+    ///    (`ServerCommandListener.watchPayload`), and more authoritative than
+    ///    anything saved earlier.
+    /// 2. Otherwise, a still-pending focus-session rate (`preFocusHz`) is
+    ///    restored — a study recording must never inherit an active focus
+    ///    session's 50 Hz.
+    /// 3. Otherwise, the current rate is left untouched.
+    ///
+    /// Pure and framework-free on purpose: this precedence is the one piece
+    /// of the whole focus/recording interaction subtle enough to have
+    /// produced a bug on first writing (an unconditional restore clobbered an
+    /// explicit rate sent in the same message), so it needs to be testable
+    /// without `MotionManager`, CoreMotion, or HealthKit.
+    public static func resolveRateForStart(explicitHz: Double?,
+                                           preFocusHz: Double?,
+                                           currentHz: Double) -> (hz: Double, preFocusHz: Double?) {
+        if let explicitHz, CaptureSettings.isValidHz(explicitHz) {
+            return (explicitHz, nil)
+        }
+        if let preFocusHz {
+            return (preFocusHz, nil)
+        }
+        return (currentHz, preFocusHz)
+    }
 }
 
 /// Tolerant numeric coercion for values crossing a WatchConnectivity or JSON
