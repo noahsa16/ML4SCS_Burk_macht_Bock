@@ -24,95 +24,95 @@ public nonisolated struct FocusSegment: Equatable {
 /// two-state line tore on every ten-second look at the page and claimed an
 /// interruption the writer had not made.
 public nonisolated enum FocusStrokes {
-    /// Up to this, the pen merely rests. Also the bound past which a gap's
-    /// drawn width is compressed — one threshold, two effects.
+    /// Up to this much idle, the pen merely rests. Also the bound past which a
+    /// gap's drawn width is compressed — one threshold, two effects.
     public static let restingGapMs: Int64 = 15_000
     /// Past this, the page starts a new line.
     public static let paragraphGapMs: Int64 = 60_000
+
+    /// Which kind of pause `idleMs` of credited idle time is.
+    ///
+    /// Extracted because the same three-way split classifies four different
+    /// gaps below, and thresholds that must never drift apart may not be
+    /// written out four times.
+    private static func classify(idleMs: Int64) -> FocusSegmentKind {
+        if idleMs > paragraphGapMs { return .paragraph }
+        if idleMs > restingGapMs { return .lift }
+        return .resting
+    }
+
+    /// A decision's own contribution to the pause, in milliseconds.
+    ///
+    /// Why `creditSeconds` and not `endMs - startMs`: windows overlap — five
+    /// seconds of signal every 2.5 s — so their spans sum to twice the wall
+    /// time they cover. The wall-clock hole between two ink runs is one
+    /// stride shorter than the idle actually credited across it, which put
+    /// the 15 s boundary at roughly 17.5 s of real pause.
+    private static func creditedMs(_ decision: PassiveDecision) -> Int64 {
+        Int64((decision.creditSeconds * 1000).rounded())
+    }
 
     public static func segments(from decisions: [PassiveDecision]) -> [FocusSegment] {
         guard !decisions.isEmpty else { return [] }
 
         let sorted = decisions.sorted { $0.startMs < $1.startMs }
 
-        // Extract ink (writing) segments by combining consecutive writing decisions
+        // Ink runs, plus the idle credited immediately before each of them.
+        // Whatever idle is still pending when the list ends is the trailing
+        // pause — and, if no ink was found at all, the whole session's.
         var inkSegments: [FocusSegment] = []
-        var currentInkStart: Int64? = nil
-        var currentInkEnd: Int64? = nil
+        var idleBeforeInk: [Int64] = []
+        var pendingIdleMs: Int64 = 0
+        var currentInkStart: Int64?
+        var currentInkEnd: Int64?
 
         for d in sorted {
-            if d.writing {
-                if currentInkStart == nil {
-                    currentInkStart = d.startMs
-                }
-                currentInkEnd = d.endMs
-            } else {
+            guard d.writing else {
                 if let start = currentInkStart, let end = currentInkEnd {
                     inkSegments.append(FocusSegment(kind: .ink, startMs: start, endMs: end))
                     currentInkStart = nil
                     currentInkEnd = nil
                 }
+                pendingIdleMs += creditedMs(d)
+                continue
             }
+            if currentInkStart == nil {
+                currentInkStart = d.startMs
+                idleBeforeInk.append(pendingIdleMs)
+                pendingIdleMs = 0
+            }
+            currentInkEnd = d.endMs
         }
         if let start = currentInkStart, let end = currentInkEnd {
             inkSegments.append(FocusSegment(kind: .ink, startMs: start, endMs: end))
         }
 
+        let firstStart = sorted[0].startMs
+        let lastEnd = sorted[sorted.count - 1].endMs
+
+        guard let firstInk = inkSegments.first, let lastInk = inkSegments.last else {
+            return [FocusSegment(kind: classify(idleMs: pendingIdleMs),
+                                 startMs: firstStart, endMs: lastEnd)]
+        }
+
         var result: [FocusSegment] = []
 
-        if inkSegments.isEmpty {
-            // All decisions are idle: emit one idle segment spanning all decisions
-            let allIdleStart = sorted.first!.startMs
-            let allIdleEnd = sorted.last!.endMs
-            let allIdleSpan = allIdleEnd - allIdleStart
-            let allIdleKind: FocusSegmentKind =
-                allIdleSpan > paragraphGapMs ? .paragraph
-                : allIdleSpan > restingGapMs ? .lift
-                : .resting
-            result.append(FocusSegment(kind: allIdleKind, startMs: allIdleStart, endMs: allIdleEnd))
-        } else {
-            // Handle leading idle (from start of decisions to start of first ink)
-            let firstInk = inkSegments.first!
-            if sorted.first!.startMs < firstInk.startMs {
-                let leadingStart = sorted.first!.startMs
-                let leadingEnd = firstInk.startMs
-                let leadingSpan = leadingEnd - leadingStart
-                let leadingKind: FocusSegmentKind =
-                    leadingSpan > paragraphGapMs ? .paragraph
-                    : leadingSpan > restingGapMs ? .lift
-                    : .resting
-                result.append(FocusSegment(kind: leadingKind, startMs: leadingStart, endMs: leadingEnd))
-            }
+        if firstStart < firstInk.startMs {
+            result.append(FocusSegment(kind: classify(idleMs: idleBeforeInk[0]),
+                                       startMs: firstStart, endMs: firstInk.startMs))
+        }
 
-            // Add ink segments with interior gaps
-            for (i, ink) in inkSegments.enumerated() {
-                result.append(ink)
+        for (i, ink) in inkSegments.enumerated() {
+            result.append(ink)
+            guard i < inkSegments.count - 1 else { continue }
+            result.append(FocusSegment(kind: classify(idleMs: idleBeforeInk[i + 1]),
+                                       startMs: ink.endMs,
+                                       endMs: inkSegments[i + 1].startMs))
+        }
 
-                if i < inkSegments.count - 1 {
-                    let nextInk = inkSegments[i + 1]
-                    let gapStart = ink.endMs
-                    let gapEnd = nextInk.startMs
-                    let gapSpan = gapEnd - gapStart
-                    let gapKind: FocusSegmentKind =
-                        gapSpan > paragraphGapMs ? .paragraph
-                        : gapSpan > restingGapMs ? .lift
-                        : .resting
-                    result.append(FocusSegment(kind: gapKind, startMs: gapStart, endMs: gapEnd))
-                }
-            }
-
-            // Handle trailing idle (from end of last ink to end of all decisions)
-            let lastInk = inkSegments.last!
-            if lastInk.endMs < sorted.last!.endMs {
-                let trailingStart = lastInk.endMs
-                let trailingEnd = sorted.last!.endMs
-                let trailingSpan = trailingEnd - trailingStart
-                let trailingKind: FocusSegmentKind =
-                    trailingSpan > paragraphGapMs ? .paragraph
-                    : trailingSpan > restingGapMs ? .lift
-                    : .resting
-                result.append(FocusSegment(kind: trailingKind, startMs: trailingStart, endMs: trailingEnd))
-            }
+        if lastInk.endMs < lastEnd {
+            result.append(FocusSegment(kind: classify(idleMs: pendingIdleMs),
+                                       startMs: lastInk.endMs, endMs: lastEnd))
         }
 
         return result
