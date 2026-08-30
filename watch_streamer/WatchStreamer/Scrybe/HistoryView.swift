@@ -21,7 +21,10 @@ struct HistoryView: View {
             // One container for both states, so an empty Verlauf can be pulled
             // to refresh — it is exactly the screen a new user waits on.
             InkRefreshScroll(action: { await focus.refreshForPull() }) {
-                if activeDays.isEmpty { emptyState } else { days }
+                VStack(spacing: 0) {
+                    if activeDays.isEmpty { emptyState } else { days }
+                    BestiaryView()
+                }
             }
             .background { theme.paper.ignoresSafeArea() }
             .navigationDestination(for: String.self) { DayDetailView(date: $0) }

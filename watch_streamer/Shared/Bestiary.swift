@@ -1,23 +1,45 @@
 import Foundation
 
 /// One collected creature.
-public nonisolated struct BestiaryEntry: Codable, Equatable, Sendable {
+///
+/// A creature belongs to accumulated writing time, not to a session, so this
+/// tracks the creature's own lifetime rather than any one sitting:
+/// `startedMs` is when its first second of writing was credited, and
+/// `writingSeconds` keeps growing across however many sessions it takes to
+/// finish it. `strokesTotal` is stored rather than re-derived from
+/// `speciesId` because this type lives in code shared with the watch target,
+/// which cannot see `Marginalia` (app-target only, imports SwiftUI).
+public nonisolated struct BestiaryEntry: Codable, Identifiable, Equatable, Sendable {
     public let speciesId: Int
-    public let dateMs: Int64
-    public let strokesDrawn: Int
+    public let startedMs: Int64
     public let strokesTotal: Int
     public let writingSeconds: Double
+    /// Wall-clock ms this creature reached `Bestiary.secondsPerCreature`, or
+    /// `nil` while it is still being drawn. The persisted fact `isComplete`
+    /// is derived from, rather than `writingSeconds` crossing a threshold
+    /// again — the store sets both at the same instant, but only one of them
+    /// needs to be the source of truth.
+    public let completedMs: Int64?
 
-    public init(speciesId: Int, dateMs: Int64, strokesDrawn: Int,
-                strokesTotal: Int, writingSeconds: Double) {
+    public init(speciesId: Int, startedMs: Int64, strokesTotal: Int,
+                writingSeconds: Double, completedMs: Int64? = nil) {
         self.speciesId = speciesId
-        self.dateMs = dateMs
-        self.strokesDrawn = strokesDrawn
+        self.startedMs = startedMs
         self.strokesTotal = strokesTotal
         self.writingSeconds = writingSeconds
+        self.completedMs = completedMs
     }
 
-    public var isComplete: Bool { strokesDrawn >= strokesTotal }
+    public var id: Int64 { startedMs }
+    public var isComplete: Bool { completedMs != nil }
+
+    /// Strokes earned so far by `writingSeconds`, against the fixed
+    /// per-creature target every consumer draws against.
+    public var strokesDrawn: Int {
+        Bestiary.strokesDrawn(writingSeconds: writingSeconds,
+                              targetSeconds: Bestiary.secondsPerCreature,
+                              strokesTotal: strokesTotal)
+    }
 }
 
 public nonisolated enum Bestiary {

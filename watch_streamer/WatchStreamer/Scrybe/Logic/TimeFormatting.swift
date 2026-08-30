@@ -71,4 +71,11 @@ enum DateFormatting {
         guard let d = date(from: iso) else { return iso }
         return formatter("dMMMM").string(from: d)
     }
+
+    /// Localized day-and-month for a millisecond timestamp, e.g. "22. Juni" —
+    /// for data keyed by wall-clock ms rather than an ISO day, such as a
+    /// finished `BestiaryEntry`.
+    static func dayMonth(ms: Int64) -> String {
+        formatter("dMMMM").string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
+    }
 }
