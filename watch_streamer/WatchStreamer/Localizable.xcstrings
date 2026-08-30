@@ -766,6 +766,16 @@
         }
       }
     },
+    "Keine Verbindung zur Uhr" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No connection to the watch"
+          }
+        }
+      }
+    },
     "Keine Verbindung · Daten bleiben erhalten" : {
       "localizations" : {
         "en" : {
@@ -1596,7 +1606,7 @@
       "localizations" : {
         "de" : {
           "stringUnit" : {
-            "state" : "new",
+            "state" : "translated",
             "value" : "%1$@, fertig am %2$@"
           }
         },
