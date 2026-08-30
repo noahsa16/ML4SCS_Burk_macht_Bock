@@ -5,15 +5,17 @@ import SwiftUI
 @Suite("Marginalia")
 struct MarginaliaTests {
 
-    // The upper bound is deliberately generous: a traced drollery may run to
-    // dozens of strokes, and more strokes only means the creature grows more
-    // finely as writing time accumulates. The lower bound is the real check —
-    // a creature of one or two strokes is a conversion that went wrong.
+    // The upper bound is deliberately loose. Creatures are traced at the
+    // fidelity of their source, so a densely drawn one carries two hundred
+    // strokes where a plain one carries eighty — and at a fixed rate that only
+    // means it grows more finely, never that it costs more writing. The lower
+    // bound is the real check: a creature of one or two strokes is a conversion
+    // that went wrong.
     @Test("every species has an ordered set of strokes in a plausible range")
     func strokeCounts() {
         for id in 0..<Bestiary.speciesCount {
             let strokes = Marginalia.strokes(forSpecies: id)
-            #expect((6...80).contains(strokes.count),
+            #expect((6...400).contains(strokes.count),
                     "species \(id) has \(strokes.count) strokes")
             #expect(Marginalia.strokeCount(forSpecies: id) == strokes.count)
         }
