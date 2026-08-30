@@ -18,6 +18,21 @@ public nonisolated protocol PassiveRecordingController {
     func armRecording(for duration: TimeInterval) -> Bool
 }
 
+/// A run of writing windows, as a person would describe it: one sitting.
+public nonisolated struct WritingPhase: Equatable, Sendable {
+    public let startMs: Int64
+    public let endMs: Int64
+    /// Credited writing time — the sum of the windows' strides, not the wall
+    /// extent. The windows overlap, so the extent would double-count.
+    public let seconds: Double
+
+    public init(startMs: Int64, endMs: Int64, seconds: Double) {
+        self.startMs = startMs
+        self.endMs = endMs
+        self.seconds = seconds
+    }
+}
+
 /// The autonomous writing tracker's engine.
 ///
 /// **Not validated on hardware.** Every branch below is exercised by unit
@@ -36,21 +51,6 @@ public nonisolated protocol PassiveRecordingController {
 /// `nonisolated` on purpose: a twelve-hour backlog is roughly 17 000
 /// windows, and running that many Core ML passes on the main actor would
 /// freeze the Watch UI. The facade hops results back to main.
-/// A run of writing windows, as a person would describe it: one sitting.
-public nonisolated struct WritingPhase: Equatable, Sendable {
-    public let startMs: Int64
-    public let endMs: Int64
-    /// Credited writing time — the sum of the windows' strides, not the wall
-    /// extent. The windows overlap, so the extent would double-count.
-    public let seconds: Double
-
-    public init(startMs: Int64, endMs: Int64, seconds: Double) {
-        self.startMs = startMs
-        self.endMs = endMs
-        self.seconds = seconds
-    }
-}
-
 public nonisolated final class PassiveTrackerEngine {
 
     public enum State: Equatable {
@@ -59,7 +59,6 @@ public nonisolated final class PassiveTrackerEngine {
         case running
         case failed(String)
     }
-
 
     public struct CycleResult: Equatable {
         public let decisionsRecorded: Int
