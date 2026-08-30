@@ -41,7 +41,11 @@ class MotionManager: NSObject, ObservableObject {
     // When the running focus session began, or nil for anything else. Separate
     // from `runStartedAt` because that one covers every run, and a study
     // recording must never be cut short by the focus cap.
-    private var focusSessionStartedAt: Date?
+    // Why uptime and not `Date()`: the same reason the capture clock rejects it
+    // above — an NTP step moves wall clock but not elapsed time, and a step
+    // forward larger than the session's remaining budget would end a live focus
+    // session on the spot. `systemUptime` is monotonic.
+    private var focusSessionStartedUptime: TimeInterval?
 
     private var buffer: [[String: Any]] = []
     private var nextSequence = 0
@@ -300,7 +304,7 @@ class MotionManager: NSObject, ObservableObject {
     private func resetRunCounters() {
         // A new run is never the old focus session, whichever caller starts
         // it — focus_start sets this again straight after start() returns.
-        focusSessionStartedAt = nil
+        focusSessionStartedUptime = nil
         buffer.removeAll()
         stagingLock.lock()
         stagedSamples.removeAll()
@@ -928,7 +932,7 @@ extension MotionManager: WCSessionDelegate {
     /// `preFocusHz` still holding the real rate. A no-op when no focus
     /// session set `preFocusHz` — the common case, an ordinary stop.
     private func restorePreFocusRateIfNeeded() {
-        focusSessionStartedAt = nil
+        focusSessionStartedUptime = nil
         guard let previous = preFocusHz else { return }
         effectiveHz = previous
         preFocusHz = nil
@@ -940,20 +944,21 @@ extension MotionManager: WCSessionDelegate {
     /// phone-side path with it while this workout session keeps the sensors
     /// running — so the floor under it has to be here, where the sensor is.
     ///
-    /// Checked against the wall clock on the sample path rather than from a
+    /// Checked against elapsed time on the sample path rather than from a
     /// scheduled timer alone: a timer is the one thing the system may decline
     /// to fire, whereas a session still costing battery is by definition still
-    /// producing samples. `focusSessionStartedAt` is cleared before `stop()`
+    /// producing samples. `focusSessionStartedUptime` is cleared before `stop()`
     /// rather than by it, so the `drainStaging()` inside `stop()` cannot
     /// re-enter this.
     ///
     /// - Returns: whether it stopped the run.
     @discardableResult
     private func enforceFocusSessionCapIfNeeded() -> Bool {
-        guard let startedAt = focusSessionStartedAt,
-              Date().timeIntervalSince(startedAt) >= FocusCommandPolicy.sessionCapSeconds
+        guard let startedUptime = focusSessionStartedUptime,
+              ProcessInfo.processInfo.systemUptime - startedUptime
+                >= FocusCommandPolicy.sessionCapSeconds
         else { return false }
-        focusSessionStartedAt = nil
+        focusSessionStartedUptime = nil
         stop()
         status = "Focus session capped"
         return true
@@ -981,7 +986,9 @@ extension MotionManager: WCSessionDelegate {
                 start()
                 // After start(), which resets it — and only if start() got
                 // anywhere, since it bails out when motion is unavailable.
-                if isRunning { focusSessionStartedAt = Date() }
+                if isRunning {
+                    focusSessionStartedUptime = ProcessInfo.processInfo.systemUptime
+                }
             }
             return [
                 WatchPayloadKey.ok: reply.ok,
@@ -991,13 +998,13 @@ extension MotionManager: WCSessionDelegate {
                 WatchPayloadKey.commandID: commandId
             ]
         case .focusStop:
-            // `focusSessionStartedAt` is the discriminator: set only by an
+            // `focusSessionStartedUptime` is the discriminator: set only by an
             // accepted focus_start, cleared by stop() itself — including the
             // stop() that a study recording's "start" performs to preempt a
             // focus session. So a nil here means the Watch is not running a
             // focus session, whatever else it may be running.
             let reply = FocusCommandPolicy.replyForStop(
-                hasFocusSession: focusSessionStartedAt != nil,
+                hasFocusSession: focusSessionStartedUptime != nil,
                 isRecording: isRunning)
             // stop() itself restores effectiveHz from preFocusHz — no need to
             // repeat that here.

@@ -46,7 +46,8 @@ final class WatchDecisionSync {
                 guard !resumed else { return }
                 resumed = true
                 deadline.cancel()
-                continuation.resume(returning: reply[WatchPayloadKey.ok] as? Bool ?? false)
+                let ok = WatchPayloadValue.bool(reply[WatchPayloadKey.ok]) ?? false
+                continuation.resume(returning: ok)
             }
         }
     }

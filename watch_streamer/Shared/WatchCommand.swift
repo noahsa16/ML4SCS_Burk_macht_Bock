@@ -171,7 +171,7 @@ public nonisolated enum FocusStartOutcome: Equatable, Sendable {
     /// Reads the Watch's reply. Lives here rather than in the caller so the
     /// decode is testable without WatchConnectivity.
     public static func from(reply: [String: Any]) -> FocusStartOutcome {
-        guard reply[WatchPayloadKey.ok] as? Bool ?? false else {
+        guard WatchPayloadValue.bool(reply[WatchPayloadKey.ok]) ?? false else {
             let raw = reply[WatchPayloadKey.error] as? String ?? ""
             guard let refusal = FocusStartRefusal(rawValue: raw) else { return .noAnswer }
             return .refused(refusal)
@@ -211,7 +211,7 @@ public nonisolated enum FocusStopOutcome: Equatable, Sendable {
     }
 
     public static func from(reply: [String: Any]) -> FocusStopOutcome {
-        guard reply[WatchPayloadKey.ok] as? Bool ?? false else {
+        guard WatchPayloadValue.bool(reply[WatchPayloadKey.ok]) ?? false else {
             let raw = reply[WatchPayloadKey.error] as? String ?? ""
             guard let refusal = FocusStopRefusal(rawValue: raw) else { return .noAnswer }
             return .refused(refusal)
@@ -319,7 +319,11 @@ public nonisolated enum FocusCommandPolicy {
 /// round trip, which may surface a number as `Int`, `Int64`, `Double`, `NSNumber`
 /// or `String` depending on transport. Was implemented three times with
 /// slightly different tolerances.
-public enum WatchPayloadValue {
+///
+/// `nonisolated` because the decoders that need it are: `FocusStartOutcome`
+/// and `FocusStopOutcome` read a reply off the WatchConnectivity callback,
+/// outside the main actor, and pure coercion has no state to protect.
+public nonisolated enum WatchPayloadValue {
     public static func int64(_ value: Any?) -> Int64? {
         switch value {
         case let v as Int64:  return v

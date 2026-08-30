@@ -326,4 +326,14 @@ struct PassiveTrackerEngineTests {
         // 2001-01-01T00:00:00Z is reference date 0 and Unix 978 307 200 s.
         #expect(PassiveTrackerEngine.epochMs(fromReferenceDate: 0) == 978_307_200_000)
     }
+
+    // The watch says which stretches it found and the phone re-derives the same
+    // day from the same windows. A gap the two forgive differently would have
+    // them disagree about a day neither measured wrong. The constants cannot be
+    // shared — this engine ships in the Watch app, which must not reach into the
+    // phone's stores — so the assertion is what holds them together.
+    @Test("watch and phone forgive the same silence")
+    func phaseGapMatchesThePhone() {
+        #expect(PassiveTrackerEngine.phaseGapMs == PassiveFocusAggregator.stretchGapMs)
+    }
 }

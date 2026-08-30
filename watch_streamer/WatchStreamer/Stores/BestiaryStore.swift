@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 
 /// The collected creatures.
 ///
@@ -56,10 +57,19 @@ final class BestiaryStore: ObservableObject {
         case .loaded(let snapshot):
             completed = snapshot.completed.map(Self.redrawable)
             current = snapshot.current.map(Self.redrawable)
-        case .unreadable:
+        case .unreadable(let reason):
             completed = []
             current = nil
             persistenceSuspended = true
+            // Why logged: the suspension is silent by design — the collection
+            // keeps working in memory — so without a line here a user losing
+            // every creature on each launch leaves no trace to work from. The
+            // reason separates the two cases that need different answers: a
+            // protected file usually clears on the next unlock, a decode
+            // failure never does.
+            FTLogStore.shared.add("BESTIARY",
+                                  "Sammlung nicht lesbar, Speichern ausgesetzt: \(reason)",
+                                  color: ScrybeTheme.standard.danger)
         }
     }
 
@@ -169,7 +179,9 @@ final class BestiaryStore: ObservableObject {
     private enum LoadResult {
         case absent
         case loaded(Snapshot)
-        case unreadable
+        /// Carries why: an unreadable file and an undecodable one suspend
+        /// persistence alike but mean different things to whoever reads the log.
+        case unreadable(reason: String)
     }
 
     /// Restores a stroke count `BestiaryEntry`'s tolerant decoding could not
@@ -189,10 +201,12 @@ final class BestiaryStore: ObservableObject {
 
     private static func load(from url: URL) -> LoadResult {
         guard FileManager.default.fileExists(atPath: url.path) else { return .absent }
-        guard let data = try? Data(contentsOf: url) else { return .unreadable }
-        guard let decoded = try? JSONDecoder().decode(Snapshot.self, from: data)
-        else { return .unreadable }
-        return .loaded(decoded)
+        do {
+            let data = try Data(contentsOf: url)
+            return .loaded(try JSONDecoder().decode(Snapshot.self, from: data))
+        } catch {
+            return .unreadable(reason: "\(error)")
+        }
     }
 
     private func persist() {

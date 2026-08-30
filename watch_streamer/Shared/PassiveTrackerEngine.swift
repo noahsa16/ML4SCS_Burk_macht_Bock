@@ -158,9 +158,14 @@ public nonisolated final class PassiveTrackerEngine {
         store.writingSeconds(onDayContaining: now)
     }
 
-    /// Silence that does not break a phase. Mirrors the phone's
+    /// Silence that does not break a phase. Must equal the phone's
     /// `PassiveFocusAggregator.stretchGapMs`, which is the training-time label
     /// closing gap, so watch and phone describe the same day the same way.
+    ///
+    /// Two literals rather than one shared constant: this file compiles into
+    /// the Watch app, which must not reach into the phone's stores. What keeps
+    /// them from drifting is an equality assertion — see
+    /// `PassiveTrackerEngineTests.phaseGapMatchesThePhone`.
     public static let phaseGapMs: Int64 = 2_500
 
     /// The day's writing runs, oldest first.

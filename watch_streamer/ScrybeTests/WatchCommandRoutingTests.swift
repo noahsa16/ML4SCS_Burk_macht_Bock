@@ -137,6 +137,17 @@ struct FocusStartOutcomeTests {
         #expect(decoded == .started)
     }
 
+    // `ok` crosses the same WatchConnectivity round trip as the six channel
+    // values, so it can surface as Int or NSNumber rather than Bool. Read with
+    // a naive `as? Bool`, an accepted start would decode as a refusal with no
+    // reason — `.noAnswer` — and the session would never begin.
+    @Test("an accepted start decodes whatever shape the transport gave `ok`")
+    func acceptedStartSurvivesTheTransport() {
+        #expect(FocusStartOutcome.from(reply: [WatchPayloadKey.ok: 1]) == .started)
+        #expect(FocusStartOutcome.from(reply: [WatchPayloadKey.ok: "true"]) == .started)
+        #expect(FocusStopOutcome.from(reply: [WatchPayloadKey.ok: 1]) == .stopped)
+    }
+
     // A refusal this build cannot name is not a refusal it may misreport: the
     // user gets the generic message rather than one of the two specific ones.
     @Test("an unknown or absent reason is not reported as a known refusal")
