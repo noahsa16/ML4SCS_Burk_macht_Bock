@@ -61,4 +61,50 @@ struct FocusSessionStoreTests {
         let after = (try? Data(contentsOf: url))?.count ?? -1
         #expect(after == before)
     }
+
+    private struct Boom: Error {}
+
+    // Pins the load path, not just a throwing `logit`: no `classifier` is
+    // injected here, so `consume` must attempt `makeClassifier()` for real
+    // and surface *that* failure. A test that only threw from `logit` would
+    // leave the silent-no-op-on-load-failure defect uncovered.
+    @Test("a classifier load failure surfaces as a phase, not a silent no-op")
+    func classifierLoadFailureIsObservable() {
+        let store = FocusSessionStore(makeClassifier: { throw Boom() })
+        store.beginForTesting(targetSeconds: 1_500)
+
+        store.consume(samples(250))
+        guard case .failed(let message) = store.phase else {
+            Issue.record("expected .failed phase, got \(store.phase)")
+            return
+        }
+        #expect(message.contains("Boom"))
+        #expect(store.decisions.isEmpty)
+    }
+
+    // The second half of the same defect: a load failure must not be
+    // retried per batch (a bundle lookup plus a manifest parse each time).
+    // One attempt only, tracked via a call counter on `makeClassifier`.
+    @Test("a load failure is attempted once, not retried per batch")
+    func classifierLoadIsAttemptedOnce() {
+        final class Counter: @unchecked Sendable {
+            var calls = 0
+        }
+        let counter = Counter()
+        let store = FocusSessionStore(makeClassifier: {
+            counter.calls += 1
+            throw Boom()
+        })
+        store.beginForTesting(targetSeconds: 1_500)
+
+        store.consume(samples(250))
+        store.consume(samples(250, from: 5.0))
+        store.consume(samples(250, from: 10.0))
+
+        #expect(counter.calls == 1)
+        guard case .failed = store.phase else {
+            Issue.record("expected .failed phase, got \(store.phase)")
+            return
+        }
+    }
 }
