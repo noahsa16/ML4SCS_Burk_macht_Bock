@@ -308,38 +308,79 @@ public nonisolated enum FocusCommandPolicy {
         /// A pushed stop naming a session other than the running one — it can
         /// have sat in the durable FIFO for minutes.
         case ignoreStaleSession
-        /// A polled stop while a focus session holds the sensors.
+        /// A stop that names no session, or a polled one, while a focus
+        /// session holds the sensors.
         case ignoreFocusSession
     }
 
     /// Whether a study `stop` may end what the Watch is currently running.
     ///
-    /// The phone answers every `command_poll` with `stop` whenever no *study*
-    /// session is active, once a second. A focus session is not a study
-    /// session, so a focus session was told to stop about a second after it
-    /// began — and the poll path deliberately skips the stale-session guard
-    /// (a poll reply is synchronous and cannot be stale), which is what let
-    /// that reach `stop()`. Nothing surfaced: capture ended, the page never
-    /// grew, and the user's own "Beenden" was answered `no focus session`.
+    /// The phone builds a `stop` from a nil `currentSessionId` whenever no
+    /// *study* session is active, and a focus session is not a study session —
+    /// so a bare `stop` goes out throughout every focus session. It reaches
+    /// the Watch by two paths that both bypass the stale-session guard: the
+    /// reply to the 1 Hz `command_poll` (which skips the guard deliberately,
+    /// a synchronous reply cannot be stale), and every pushed
+    /// `refreshWatchContext()` — sent on each return to the foreground —
+    /// whose missing `session_id` makes the guard's comparison `nil != nil`.
+    /// Either one ended the session silently: capture stopped, the page never
+    /// grew, and the user's own "Beenden" came back `no focus session`.
     ///
-    /// `hasFocusSession` is the discriminator. A poll's `stop` carries no
-    /// opinion about focus sessions — it only reports that no study session
-    /// is running, which is true throughout every focus session — so it may
-    /// not end one. It still ends a study recording, which is the lost-push
-    /// recovery the poll path exists for. A focus session's own end comes
-    /// from `focus_stop`, or from the Watch's session cap.
+    /// So the rule is about the command, not its delivery: a `stop` that
+    /// names no session names nothing the Watch could mean by it while a
+    /// focus session runs, and may not end one. A `stop` that *does* name a
+    /// session is aimed at a study recording and is judged exactly as before
+    /// — during a focus session `runningSessionID` is nil, so the stale guard
+    /// already refuses it. A focus session's own end comes from `focus_stop`,
+    /// from the Watch's session cap, or from a study recording starting.
+    ///
+    /// A polled stop still ends a study *recording*: that is the lost-push
+    /// recovery the poll path exists for.
     public static func admitStop(fromPoll: Bool,
                                  hasFocusSession: Bool,
                                  isRunning: Bool,
                                  commandSessionID: String?,
                                  runningSessionID: String?) -> StopAdmission {
+        let namesASession = !(commandSessionID ?? "").isEmpty
+        if hasFocusSession, fromPoll || !namesASession {
+            return .ignoreFocusSession
+        }
         if fromPoll {
-            return hasFocusSession ? .ignoreFocusSession : .obey
+            return .obey
         }
         if isRunning, commandSessionID != runningSessionID {
             return .ignoreStaleSession
         }
         return .obey
+    }
+
+    /// Whether a study `start` may end what the Watch is running to take the
+    /// stream for the recording it names.
+    ///
+    /// A study recording outranks a focus session and preempts it rather than
+    /// losing to it — the opposite of `focus_start`, which refuses while a
+    /// recording runs. `fromPoll` is what protects a running *recording* from
+    /// being stopped and restarted by a poll reply built off-main from a
+    /// seconds-stale `currentSessionId` (the "starts itself again" bug), and
+    /// that protection is unchanged.
+    ///
+    /// It does not extend to focus sessions. Before a focus session survived
+    /// the poll's stray `stop`, it was gone within a second and a later
+    /// polled `start` simply found the Watch idle; now the session persists,
+    /// and without this a polled `start` would be inert for as long as one
+    /// runs — the poll's documented recovery role, silently narrowed. A focus
+    /// session carries no `serverSessionId` and nothing stale can be said
+    /// about it, so a poll may preempt one.
+    public static func startMayPreempt(fromPoll: Bool,
+                                       hasFocusSession: Bool,
+                                       isRunning: Bool,
+                                       commandSessionID: String?,
+                                       runningSessionID: String?) -> Bool {
+        guard isRunning,
+              let sessionID = commandSessionID, !sessionID.isEmpty,
+              sessionID != runningSessionID
+        else { return false }
+        return !fromPoll || hasFocusSession
     }
 
     /// The capture rate a configuration push should apply, or nil to leave the

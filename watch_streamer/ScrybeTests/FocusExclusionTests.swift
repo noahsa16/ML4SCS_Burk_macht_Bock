@@ -159,40 +159,46 @@ struct RecordingStartRatePrecedenceTests {
     }
 }
 
-// The Watch polls the phone once a second and feeds the reply into the same
-// command handler a pushed command reaches. The phone answers that poll with
-// `stop` whenever no *study* session is active — which is the whole duration
-// of every focus session — and the poll path deliberately skips the
-// stale-session guard, because a synchronous reply cannot be stale. So every
-// focus session was told to stop about a second after it began, silently:
-// capture ended, the writing page never grew, and the user's own "Beenden"
-// came back "no focus session".
-@Suite("A polled stop and a focus session")
+// `currentWatchCommandPayload()` builds a bare `stop` — no `session_id` field
+// at all — whenever no *study* session is active, which is the whole duration
+// of every focus session. It reaches the Watch two ways, and both bypass the
+// stale-session guard: as the reply to the 1 Hz poll (which skips the guard
+// deliberately), and as a push on every return to the foreground, where the
+// guard's comparison is `nil != nil` and admits it. Either one ended the
+// session silently: capture stopped, the writing page never grew, and the
+// user's own "Beenden" came back "no focus session".
+@Suite("A study stop and a focus session")
 struct PolledStopTests {
 
     /// The reply `currentWatchCommandPayload()` builds with no study session
     /// running, stamped by `handleWatchCommandPoll` on its way back.
-    private func polledStop() -> [String: Any] {
-        [WatchPayloadKey.command: WatchCommandName.stop.rawValue,
-         WatchPayloadKey.ok: true,
-         WatchPayloadKey.source: WatchCommandSource.commandPoll,
-         WatchPayloadKey.requestedHz: 100.0]
+    private func polledStop(sessionID: String? = nil) -> [String: Any] {
+        var message: [String: Any] = [WatchPayloadKey.command: WatchCommandName.stop.rawValue,
+                                      WatchPayloadKey.ok: true,
+                                      WatchPayloadKey.source: WatchCommandSource.commandPoll,
+                                      WatchPayloadKey.requestedHz: 100.0]
+        if let sessionID { message[WatchPayloadKey.sessionID] = sessionID }
+        return message
     }
 
-    /// A `stop` the phone pushed, naming the recording it means to end.
-    private func pushedStop(sessionID: String) -> [String: Any] {
-        [WatchPayloadKey.command: WatchCommandName.stop.rawValue,
-         WatchPayloadKey.sessionID: sessionID,
-         WatchPayloadKey.requestedHz: 100.0]
+    /// A `stop` the phone pushed. With `sessionID` nil this is what
+    /// `refreshWatchContext()` sends on every return to the foreground:
+    /// `watchPayload` omits the field entirely when there is no session.
+    private func pushedStop(sessionID: String? = nil) -> [String: Any] {
+        var message: [String: Any] = [WatchPayloadKey.command: WatchCommandName.stop.rawValue,
+                                      WatchPayloadKey.requestedHz: 100.0]
+        if let sessionID { message[WatchPayloadKey.sessionID] = sessionID }
+        return message
     }
 
     private func admit(_ message: [String: Any],
                        hasFocusSession: Bool,
+                       isRunning: Bool = true,
                        runningSessionID: String?) -> FocusCommandPolicy.StopAdmission {
         FocusCommandPolicy.admitStop(
             fromPoll: WatchCommandSource.isCommandPoll(message),
             hasFocusSession: hasFocusSession,
-            isRunning: true,
+            isRunning: isRunning,
             commandSessionID: message[WatchPayloadKey.sessionID] as? String,
             runningSessionID: runningSessionID)
     }
@@ -234,6 +240,112 @@ struct PolledStopTests {
     func pushedMatchingStopObeyed() {
         #expect(admit(pushedStop(sessionID: "S042"), hasFocusSession: false,
                       runningSessionID: "S042") == .obey)
+    }
+
+    // The second door, and the one that reopened after the poll was closed:
+    // every return to the foreground pushes this exact payload, and the stale
+    // guard compares `nil != nil` and admits it. A focus session ended
+    // whenever the user picked the phone back up.
+    @Test("a pushed stop naming no session does not end a focus session")
+    func pushedBareStopSparesFocusSession() {
+        #expect(admit(pushedStop(), hasFocusSession: true, runningSessionID: nil)
+                == .ignoreFocusSession)
+    }
+
+    // The same message with the field present but empty — `watchPayload`
+    // treats an empty id as no id, and so must this.
+    @Test("an empty session id does not name a session")
+    func emptySessionIDIsNotANamedStop() {
+        #expect(admit(pushedStop(sessionID: ""), hasFocusSession: true,
+                      runningSessionID: nil) == .ignoreFocusSession)
+    }
+
+    // The property is about the command, not its delivery: a stop that does
+    // name a session cannot reach a focus session either, whichever path it
+    // came by.
+    @Test("a polled stop naming a session does not end a focus session")
+    func polledNamedStopSparesFocusSession() {
+        #expect(admit(polledStop(sessionID: "S042"), hasFocusSession: true,
+                      runningSessionID: nil) == .ignoreFocusSession)
+    }
+
+    // Unchanged by the new guard, and the reason it is scoped to focus
+    // sessions: a bare push while a recording runs was already refused by the
+    // stale guard, and a bare push with nothing to protect is still obeyed.
+    @Test("a pushed stop naming no session is still refused during a recording")
+    func pushedBareStopStillRefusedDuringRecording() {
+        #expect(admit(pushedStop(), hasFocusSession: false, runningSessionID: "S042")
+                == .ignoreStaleSession)
+    }
+
+    @Test("a pushed stop naming no session is obeyed when nothing is running")
+    func pushedBareStopObeyedWhenIdle() {
+        #expect(admit(pushedStop(), hasFocusSession: false, isRunning: false,
+                      runningSessionID: nil) == .obey)
+    }
+}
+
+// A study recording outranks a focus session, so its `start` preempts one.
+// The poll is the path that had to be reasoned about twice: it must never
+// stop and restart a running *recording* (a poll reply is built off-main from
+// a `currentSessionId` that can lag seconds behind), but before the focus
+// session survived the poll's stray `stop` it was gone within a second and a
+// polled `start` simply found the Watch idle. With the session now
+// persisting, a poll that could not preempt would be inert for as long as one
+// runs — losing the lost-push recovery the poll path exists for.
+@Suite("A study start reaching a busy Watch")
+struct StartPreemptionTests {
+
+    private func mayPreempt(fromPoll: Bool,
+                            hasFocusSession: Bool = false,
+                            isRunning: Bool = true,
+                            commandSessionID: String? = "S042",
+                            runningSessionID: String? = nil) -> Bool {
+        FocusCommandPolicy.startMayPreempt(fromPoll: fromPoll,
+                                           hasFocusSession: hasFocusSession,
+                                           isRunning: isRunning,
+                                           commandSessionID: commandSessionID,
+                                           runningSessionID: runningSessionID)
+    }
+
+    // The contract the stop-side fix narrowed without saying so.
+    @Test("a polled start preempts a focus session")
+    func polledStartPreemptsFocusSession() {
+        #expect(mayPreempt(fromPoll: true, hasFocusSession: true))
+    }
+
+    // Untouched: this is the "starts itself again" bug, where a poll reply
+    // carrying a stale session id stopped and restarted a live recording.
+    @Test("a polled start does not preempt a study recording")
+    func polledStartSparesRecording() {
+        #expect(!mayPreempt(fromPoll: true, runningSessionID: "S041"))
+    }
+
+    // A push can be trusted with a session change, which is why the stale
+    // guard exists only for polls.
+    @Test("a pushed start preempts a recording of another session")
+    func pushedStartPreemptsRecording() {
+        #expect(mayPreempt(fromPoll: false, runningSessionID: "S041"))
+    }
+
+    // Nothing to preempt: the recording this start names is the one already
+    // running, so stopping it would only interrupt itself.
+    @Test("a start naming the running session does not preempt it")
+    func matchingStartIsNoPreemption() {
+        #expect(!mayPreempt(fromPoll: false, runningSessionID: "S042"))
+    }
+
+    // A start with no session to record cannot claim the stream from anything.
+    @Test("a start naming no session preempts nothing",
+          arguments: [nil, ""] as [String?])
+    func unnamedStartIsNoPreemption(_ sessionID: String?) {
+        #expect(!mayPreempt(fromPoll: false, hasFocusSession: true,
+                            commandSessionID: sessionID))
+    }
+
+    @Test("an idle Watch has nothing to preempt")
+    func idleWatchIsNoPreemption() {
+        #expect(!mayPreempt(fromPoll: false, isRunning: false))
     }
 }
 

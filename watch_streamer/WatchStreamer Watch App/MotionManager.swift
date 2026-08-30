@@ -1059,12 +1059,19 @@ extension MotionManager: WCSessionDelegate {
         // selbst neu"-Bug); nur ein expliziter Push (sendMessage /
         // applicationContext) darf die Session einer laufenden Aufnahme
         // wechseln. Ein Poll darf weiterhin eine *gestoppte* Watch starten
-        // (Recovery, falls ein Push verloren ging) und jederzeit stoppen.
+        // (Recovery, falls ein Push verloren ging), eine laufende Aufnahme
+        // jederzeit stoppen und eine Fokus-Sitzung verdrängen — die trägt
+        // keine serverSessionId, über die etwas stale sein könnte.
         let fromPoll = WatchCommandSource.isCommandPoll(message)
+        let hasFocusSession = focusSessionStartedUptime != nil
 
         switch command {
         case "start":
-            if isRunning, let sid, !sid.isEmpty, sid != serverSessionId, !fromPoll {
+            if FocusCommandPolicy.startMayPreempt(fromPoll: fromPoll,
+                                                  hasFocusSession: hasFocusSession,
+                                                  isRunning: isRunning,
+                                                  commandSessionID: sid,
+                                                  runningSessionID: serverSessionId) {
                 stop()
             }
             if !isRunning {
@@ -1093,11 +1100,12 @@ extension MotionManager: WCSessionDelegate {
             // Aufnahme nur beenden, wenn er deren session_id trägt. Der
             // Poll-Pfad (synchrone Reply, kann nicht stale sein) bleibt der
             // Recovery-Weg und darf eine laufende Aufnahme weiterhin jederzeit
-            // stoppen — aber keine Fokus-Sitzung: siehe
+            // stoppen — aber keine Fokus-Sitzung, und ein Stop ohne session_id
+            // ebenso wenig, egal auf welchem Weg er ankam: siehe
             // FocusCommandPolicy.admitStop.
             switch FocusCommandPolicy.admitStop(
                 fromPoll: fromPoll,
-                hasFocusSession: focusSessionStartedUptime != nil,
+                hasFocusSession: hasFocusSession,
                 isRunning: isRunning,
                 commandSessionID: sid,
                 runningSessionID: serverSessionId) {
@@ -1119,7 +1127,7 @@ extension MotionManager: WCSessionDelegate {
                     "focus_session": true,
                     "isRunning": isRunning,
                     "session_id": serverSessionId ?? "",
-                    "error": "poll stop ignored (focus session in progress)"
+                    "error": "unnamed stop ignored (focus session in progress)"
                 ]
             case .obey:
                 stop()
