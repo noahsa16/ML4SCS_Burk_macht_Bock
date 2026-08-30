@@ -51,6 +51,28 @@ final class FocusSessionStore: ObservableObject {
 
     var segments: [FocusSegment] { FocusStrokes.segments(from: decisions) }
 
+    // MARK: - The creature in the margin
+
+    /// Seeded from the session's start, so abandoning and restarting cannot
+    /// reroll for a different animal.
+    var currentSpecies: Int {
+        guard case .running(let startedAt, _) = phase else { return 0 }
+        return Bestiary.species(
+            forSessionStartMs: Int64(startedAt.timeIntervalSince1970 * 1000))
+    }
+
+    var strokesTotal: Int { Marginalia.strokeCount(forSpecies: currentSpecies) }
+
+    /// Grows with credited writing time, never with the number of bursts —
+    /// see `Bestiary.strokesDrawn`. Pauses hold it still and never reduce it,
+    /// and stopping early simply leaves the creature partly drawn.
+    var strokesDrawn: Int {
+        guard case .running(_, let target) = phase else { return 0 }
+        return Bestiary.strokesDrawn(writingSeconds: writingSeconds,
+                                     targetSeconds: target,
+                                     strokesTotal: strokesTotal)
+    }
+
     /// Test seam: enter `running` without the Watch round-trip.
     func beginForTesting(targetSeconds: Double, at date: Date = Date()) {
         reset()
