@@ -73,9 +73,14 @@ enum RenderMarginalia {
             ctx.setStrokeColor(ink.cgColor)
             ctx.setLineCap(.round)
             ctx.setLineJoin(.round)
-            for (index, stroke) in Marginalia.strokes(forSpecies: species).enumerated() {
+            let all = Marginalia.strokes(forSpecies: species)
+            // A detailed creature needs a finer pen. At nine strokes a heavy
+            // line reads as confident; at seventy the same line welds the
+            // detail into blobs, so the weight follows the stroke count.
+            let base = max(0.9, 2.6 - CGFloat(all.count) * 0.03)
+            for (index, stroke) in all.enumerated() {
                 // Later strokes sit slightly finer, the way a pen loses ink.
-                ctx.setLineWidth(2.6 - min(0.8, CGFloat(index) * 0.09))
+                ctx.setLineWidth(base - min(base * 0.3, CGFloat(index) * 0.01))
                 ctx.addPath(stroke.cgPath)
                 ctx.strokePath()
             }
