@@ -1,11 +1,17 @@
 import Foundation
 
-/// One raw accelerometer sample as `CMSensorRecorder` delivers it.
+/// One six-channel IMU sample, shape depending on who produced it — this
+/// type does not fix which signal `x/y/z` carries, only that the model
+/// consuming it must be trained on the same one:
+/// - `CMSensorRecorder` on the watch supplies raw acceleration (it offers
+///   nothing else); the passive model (`ScrybePassive.json`,
+///   `channels: "raw_accel"`) is trained on that.
+/// - The live watch stream (`PhoneBridge`) supplies `userAcceleration` plus
+///   rotation rate; the active model (`ScrybeActive.json`, `channels:
+///   "imu"`) is trained on that.
 ///
-/// Deliberately raw acceleration, not `userAcceleration`: the passive
-/// recorder only offers the raw signal, and the shipped model was trained on
-/// it (`ScrybePassive.json` → `channels: "raw_accel"`). Feeding it
-/// gravity-removed data would be a silent distribution mismatch.
+/// Feeding either model the other producer's signal would be a silent
+/// distribution mismatch.
 public nonisolated struct PassiveSample: Equatable, Sendable {
     public let timestamp: TimeInterval
     public let x: Float
