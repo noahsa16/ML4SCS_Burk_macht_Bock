@@ -1361,6 +1361,42 @@
           }
         }
       }
+    },
+    "Bestiarium" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bestiary"
+          }
+        }
+      }
+    },
+    "%@, im Entstehen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, still forming"
+          }
+        }
+      }
+    },
+    "%@, fertig am %@" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, fertig am %2$@"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@, finished on %@"
+          }
+        }
+      }
     }
   },
   "version" : "1.0"

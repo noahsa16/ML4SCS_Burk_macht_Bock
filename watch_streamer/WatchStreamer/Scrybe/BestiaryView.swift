@@ -13,19 +13,21 @@ struct BestiaryView: View {
     private let columns = [GridItem(.adaptive(minimum: 96, maximum: 132), spacing: 16)]
 
     var body: some View {
-        if !store.all.isEmpty {
+        if !store.visible.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Bestiarium")
                     .font(.headline)
                     .foregroundStyle(theme.ink)
                 LazyVGrid(columns: columns, spacing: 16) {
-                    ForEach(store.all) { entry in
+                    ForEach(store.visible) { entry in
                         CreatureCell(entry: entry)
                     }
                 }
             }
+            // No top padding of its own: HistoryView only ever shows this
+            // view directly under `days`, whose own `.padding(.bottom, 24)`
+            // is already the gap — adding one here would double it.
             .padding(.horizontal, 16)
-            .padding(.top, 24)
         }
     }
 }
@@ -38,30 +40,43 @@ private struct CreatureCell: View {
         Marginalia.names.indices.contains(entry.speciesId) ? Marginalia.names[entry.speciesId] : ""
     }
 
-    /// Blank for the creature still in progress — it has no completion date
-    /// yet, and the reserved caption line keeps every cell in the row the
-    /// same height whether or not it has one.
-    private var completedLabel: String {
-        entry.completedMs.map { DateFormatting.dayMonth(ms: $0) } ?? ""
-    }
-
     var body: some View {
         VStack(spacing: 8) {
             CreatureCanvas(speciesId: entry.speciesId, strokesDrawn: entry.strokesDrawn)
                 .aspectRatio(1, contentMode: .fit)
                 .padding(12)
                 .scrybeSurface(cornerRadius: 16)
-            Text(completedLabel)
-                .font(.caption)
-                .foregroundStyle(theme.secondaryInk)
+            captionRow
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(accessibilityLabel)
     }
 
-    private var accessibilityLabel: String {
-        guard let completedMs = entry.completedMs else { return "\(speciesName), im Entstehen" }
-        return "\(speciesName), fertig am \(DateFormatting.dayMonth(ms: completedMs))"
+    /// The completion date once archived, nothing visible while still in
+    /// progress — but the row always reserves a full caption line via a
+    /// hidden placeholder, rather than trusting an empty string to report
+    /// the same height a real one would.
+    private var captionRow: some View {
+        ZStack {
+            Text(" ").hidden()
+            if let completedMs = entry.completedMs {
+                Text(DateFormatting.dayMonth(ms: completedMs))
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(theme.secondaryInk)
+    }
+
+    /// `LocalizedStringKey`, not `String`: binding the `StringProtocol`
+    /// overload of `.accessibilityLabel` would make these two phrasings
+    /// untranslatable regardless of what the catalog holds. Each branch's
+    /// interpolation pattern (`"%@, im Entstehen"` / `"%@, fertig am %@"`)
+    /// has its own entry in `Localizable.xcstrings`.
+    private var accessibilityLabel: LocalizedStringKey {
+        if let completedMs = entry.completedMs {
+            return "\(speciesName), fertig am \(DateFormatting.dayMonth(ms: completedMs))"
+        }
+        return "\(speciesName), im Entstehen"
     }
 }
 
@@ -70,7 +85,9 @@ private struct CreatureCell: View {
 /// Density-matched line width, so a species traced in two hundred strokes
 /// gets a finer pen than one traced in twenty — at a fixed width the detail
 /// of a dense creature would weld into a blob (mirrors
-/// `tools/render_marginalia.swift`'s renderer).
+/// `tools/render_marginalia.swift`'s renderer, boost included: below the
+/// tool's own 100pt reference size the same line reads too faint, so it's
+/// widened back up rather than left to fade with the cell).
 private struct CreatureCanvas: View {
     let speciesId: Int
     let strokesDrawn: Int
@@ -86,7 +103,8 @@ private struct CreatureCanvas: View {
             // the coordinate system rather than the paths lets it shrink
             // with the cell the same way it shrinks with stroke density.
             context.scaleBy(x: side / 100, y: side / 100)
-            let lineWidth = max(0.9, 2.6 - CGFloat(strokes.count) * 0.03)
+            let base = max(0.9, 2.6 - CGFloat(strokes.count) * 0.03)
+            let lineWidth = base * (side < 100 ? 1.6 : 1)
             for path in strokes.prefix(strokesDrawn) {
                 context.stroke(path, with: .color(theme.secondaryInk), lineWidth: lineWidth)
             }

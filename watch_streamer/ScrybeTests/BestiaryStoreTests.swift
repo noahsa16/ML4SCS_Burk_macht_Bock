@@ -32,12 +32,12 @@ struct BestiaryStoreTests {
     // replaces — `current` would read 400, not the summed 900, and this would
     // fail; it cannot pass by only checking `isComplete` or a count.
     @Test("writing seconds accumulate across separate sessions")
-    func writingSecondsAccumulateAcrossSessions() {
+    func writingSecondsAccumulateAcrossSessions() throws {
         let (store, url) = tempStore()
         defer { try? FileManager.default.removeItem(at: url) }
         store.addWritingSeconds(500, now: date(t0))
         store.addWritingSeconds(400, now: date(t1))
-        let current = try! #require(store.current)
+        let current = try #require(store.current)
         #expect(current.writingSeconds == 900)
         #expect(store.completed.isEmpty)
         #expect(!current.isComplete)
@@ -46,12 +46,12 @@ struct BestiaryStoreTests {
     // MARK: - Completion boundary
 
     @Test("a creature completes at exactly thirty minutes")
-    func completesAtExactlyThirtyMinutes() {
+    func completesAtExactlyThirtyMinutes() throws {
         let (store, url) = tempStore()
         defer { try? FileManager.default.removeItem(at: url) }
         store.addWritingSeconds(Bestiary.secondsPerCreature, now: date(t0))
         #expect(store.current == nil)
-        let finished = try! #require(store.completed.first)
+        let finished = try #require(store.completed.first)
         #expect(finished.isComplete)
         #expect(finished.writingSeconds == Bestiary.secondsPerCreature)
         #expect(finished.completedMs == t0)
@@ -60,12 +60,12 @@ struct BestiaryStoreTests {
     // The off-by-one edge the truncating stroke math makes easy to miss: one
     // second short of the target must still read unfinished, not complete.
     @Test("one second short of the target is still unfinished")
-    func justUnderTargetStaysUnfinished() {
+    func justUnderTargetStaysUnfinished() throws {
         let (store, url) = tempStore()
         defer { try? FileManager.default.removeItem(at: url) }
         store.addWritingSeconds(Bestiary.secondsPerCreature - 1, now: date(t0))
         #expect(store.completed.isEmpty)
-        let current = try! #require(store.current)
+        let current = try #require(store.current)
         #expect(!current.isComplete)
     }
 
@@ -75,17 +75,30 @@ struct BestiaryStoreTests {
     // start the next. Checks the archived creature is capped at the target
     // (never overdrawn) and the new one opens with exactly the remainder —
     // not the full session length, which would silently invent writing time.
-    @Test("surplus from one long session carries into the next creature")
-    func surplusCarriesWithinOneCall() {
+    //
+    // Both entries share the same `now` (the instant one finished is the
+    // instant the other began), so the interesting assertions are the
+    // identity ones: a store that seeded id/species from `startedMs` instead
+    // of `ordinal` would archive one creature and reopen an entry that is,
+    // by id and by species, the *same* creature — the bug this test exists
+    // to catch. `startedMs` itself legitimately matches `t0` on both sides
+    // (that's the correct caption, not the bug), so it alone can't tell
+    // these apart.
+    @Test("surplus from one long session carries into a genuinely new creature")
+    func surplusCarriesWithinOneCall() throws {
         let (store, url) = tempStore()
         defer { try? FileManager.default.removeItem(at: url) }
         store.addWritingSeconds(Bestiary.secondsPerCreature + 200, now: date(t0))
-        let finished = try! #require(store.completed.first)
+        let finished = try #require(store.completed.first)
         #expect(finished.writingSeconds == Bestiary.secondsPerCreature)
-        let next = try! #require(store.current)
+        let next = try #require(store.current)
         #expect(next.writingSeconds == 200)
         #expect(next.startedMs == t0)
-        #expect(next.speciesId == Bestiary.species(forSessionStartMs: t0))
+        // `id` is defined as `ordinal` (see `BestiaryEntry`), so this is the
+        // same fact `ForEach(store.all)` in `BestiaryView` actually depends
+        // on — checked via `ordinal` since that's the field the store owns.
+        #expect(next.ordinal != finished.ordinal)
+        #expect(next.speciesId == Bestiary.species(seed: next.ordinal))
     }
 
     // Same overshoot, but split across two sittings the way it actually
@@ -93,17 +106,42 @@ struct BestiaryStoreTests {
     // tips it over. Exercises the boundary through `current` state carried
     // between two separate calls, not just arithmetic inside one.
     @Test("surplus carries into the next creature across two sessions")
-    func surplusCarriesAcrossTwoCalls() {
+    func surplusCarriesAcrossTwoCalls() throws {
         let (store, url) = tempStore()
         defer { try? FileManager.default.removeItem(at: url) }
         store.addWritingSeconds(Bestiary.secondsPerCreature - 100, now: date(t0))
         store.addWritingSeconds(300, now: date(t1))
-        let finished = try! #require(store.completed.first)
+        let finished = try #require(store.completed.first)
         #expect(finished.writingSeconds == Bestiary.secondsPerCreature)
         #expect(finished.completedMs == t1)
-        let next = try! #require(store.current)
+        let next = try #require(store.current)
         #expect(next.writingSeconds == 200)
         #expect(next.startedMs == t1)
+        #expect(next.ordinal != finished.ordinal)
+        #expect(next.speciesId == Bestiary.species(seed: next.ordinal))
+    }
+
+    // The exact shape the review reported: a credit spanning more than one
+    // boundary re-enters the rollover loop several times with `current ==
+    // nil` and the same `now` every time. Direct regression test for the
+    // critical finding — asserts the thing that actually broke (identity
+    // uniqueness across all three entries), not just the visible totals.
+    @Test("a credit spanning multiple creature boundaries never reuses an identity")
+    func multipleBoundariesInOneCallNeverCollide() throws {
+        let (store, url) = tempStore()
+        defer { try? FileManager.default.removeItem(at: url) }
+        store.addWritingSeconds(Bestiary.secondsPerCreature * 2 + 300, now: date(t0))
+
+        #expect(store.completed.count == 2)
+        let all = store.completed + (store.current.map { [$0] } ?? [])
+        #expect(all.count == 3)
+        // `id` is defined as `ordinal`, so a duplicate here is exactly the
+        // `ForEach(store.all)` collision the review reported.
+        #expect(Set(all.map(\.id)).count == 3)
+        for entry in all {
+            #expect(entry.speciesId == Bestiary.species(seed: entry.ordinal))
+        }
+        #expect(store.current?.writingSeconds == 300)
     }
 
     // MARK: - Species stability
@@ -113,20 +151,25 @@ struct BestiaryStoreTests {
     // that (incorrectly) re-derives species from the latest session start
     // would be caught here rather than passing by a 1-in-8 coincidence.
     @Test("the species and start of a resumed creature never reroll")
-    func speciesAndStartAreStableAcrossAResume() {
-        let firstSpecies = Bestiary.species(forSessionStartMs: t0)
+    func speciesAndStartAreStableAcrossAResume() throws {
+        let firstSpecies = Bestiary.species(seed: 0)
         var laterMs = t2
-        while Bestiary.species(forSessionStartMs: laterMs) == firstSpecies { laterMs += 1_000 }
+        while Bestiary.species(seed: laterMs) == firstSpecies { laterMs += 1_000 }
         let laterDate = date(laterMs)
 
         let (store, url) = tempStore()
         defer { try? FileManager.default.removeItem(at: url) }
         store.addWritingSeconds(100, now: date(t0))
-        let first = try! #require(store.current)
+        let first = try #require(store.current)
+        // `ordinal` is 0 for the first creature any fresh store ever begins,
+        // so this is what the store itself will have used to seed it —
+        // checked directly rather than assumed.
+        #expect(first.ordinal == 0)
         #expect(first.speciesId == firstSpecies)
 
         store.addWritingSeconds(100, now: laterDate)
-        let resumed = try! #require(store.current)
+        let resumed = try #require(store.current)
+        #expect(resumed.ordinal == first.ordinal)
         #expect(resumed.startedMs == first.startedMs)
         #expect(resumed.speciesId == firstSpecies)
         // Also pins `strokesTotal`, which only exists because species can't be
@@ -174,7 +217,7 @@ struct BestiaryStoreTests {
     // still show data from the first instance's own properties, so this must
     // read a fresh instance's state, not the one that wrote it.
     @Test("entries survive a fresh store instance reading the same file")
-    func entriesPersistAcrossInstances() {
+    func entriesPersistAcrossInstances() throws {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("bestiary-\(UUID().uuidString).json")
         defer { try? FileManager.default.removeItem(at: url) }
@@ -184,8 +227,54 @@ struct BestiaryStoreTests {
         let reopened = BestiaryStore(fileURL: url)
         #expect(reopened.completed.count == 1)
         #expect(reopened.completed.first?.writingSeconds == Bestiary.secondsPerCreature)
-        let current = try! #require(reopened.current)
+        let current = try #require(reopened.current)
         #expect(current.writingSeconds == 300)
+    }
+
+    // A file that exists but can't be decoded (corrupt, or — on device —
+    // still behind `completeUntilFirstUserAuthentication` before first
+    // unlock) must never be treated as "nothing here yet, safe to start
+    // writing over". A collection can't be rebuilt from anything else, so a
+    // write that would normally persist has to leave the original bytes
+    // alone rather than replace them with the empty state this instance
+    // started from.
+    @Test("a present but undecodable file is never written over")
+    func undecodableFileIsNeverOverwritten() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bestiary-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let corrupt = Data("not json".utf8)
+        try corrupt.write(to: url)
+
+        let store = BestiaryStore(fileURL: url)
+        #expect(store.completed.isEmpty)
+        #expect(store.current == nil)
+
+        store.addWritingSeconds(500, now: date(t0))
+        let onDisk = try Data(contentsOf: url)
+        #expect(onDisk == corrupt)
+    }
+
+    // The suspension above must not be permanent once the user has
+    // deliberately wiped the collection — at that point there is no
+    // surviving data left for a write to clobber, so persistence has to
+    // resume. Verified by reopening a third instance rather than trusting
+    // the live one's in-memory state, which would hold even if the write
+    // never reached disk.
+    @Test("deleting all data re-enables persistence after an unreadable load")
+    func deleteAllReenablesPersistenceAfterUnreadableLoad() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bestiary-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try Data("not json".utf8).write(to: url)
+
+        let store = BestiaryStore(fileURL: url)
+        store.deleteAll()
+        store.addWritingSeconds(500, now: date(t0))
+
+        let reopened = BestiaryStore(fileURL: url)
+        let current = try #require(reopened.current)
+        #expect(current.writingSeconds == 500)
     }
 
     // MARK: - Erasure

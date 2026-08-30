@@ -57,8 +57,7 @@ final class FocusSessionStore: ObservableObject {
     /// reroll for a different animal.
     var currentSpecies: Int {
         guard case .running(let startedAt, _) = phase else { return 0 }
-        return Bestiary.species(
-            forSessionStartMs: Int64(startedAt.timeIntervalSince1970 * 1000))
+        return Bestiary.species(seed: Int64(startedAt.timeIntervalSince1970 * 1000))
     }
 
     var strokesTotal: Int { Marginalia.strokeCount(forSpecies: currentSpecies) }

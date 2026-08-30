@@ -9,7 +9,18 @@ import Foundation
 /// finish it. `strokesTotal` is stored rather than re-derived from
 /// `speciesId` because this type lives in code shared with the watch target,
 /// which cannot see `Marginalia` (app-target only, imports SwiftUI).
+///
+/// `ordinal` — not `startedMs` — is the stable identity and the species
+/// seed. A credit that both finishes one creature and opens the next hands
+/// both entries the *same* `now`, so `startedMs` alone cannot tell them
+/// apart: seeding species from it, or using it as `Identifiable`'s `id`,
+/// would mint two entries that are the same creature twice (identical id,
+/// identical species) whenever a single session's credit spans a creature
+/// boundary — which a session long enough to both finish and restart a
+/// creature does routinely. `ordinal` increments once per creature ever
+/// begun, so it never collides even when two creatures share a `startedMs`.
 public nonisolated struct BestiaryEntry: Codable, Identifiable, Equatable, Sendable {
+    public let ordinal: Int64
     public let speciesId: Int
     public let startedMs: Int64
     public let strokesTotal: Int
@@ -21,8 +32,9 @@ public nonisolated struct BestiaryEntry: Codable, Identifiable, Equatable, Senda
     /// needs to be the source of truth.
     public let completedMs: Int64?
 
-    public init(speciesId: Int, startedMs: Int64, strokesTotal: Int,
+    public init(ordinal: Int64, speciesId: Int, startedMs: Int64, strokesTotal: Int,
                 writingSeconds: Double, completedMs: Int64? = nil) {
+        self.ordinal = ordinal
         self.speciesId = speciesId
         self.startedMs = startedMs
         self.strokesTotal = strokesTotal
@@ -30,7 +42,7 @@ public nonisolated struct BestiaryEntry: Codable, Identifiable, Equatable, Senda
         self.completedMs = completedMs
     }
 
-    public var id: Int64 { startedMs }
+    public var id: Int64 { ordinal }
     public var isComplete: Bool { completedMs != nil }
 
     /// Strokes earned so far by `writingSeconds`, against the fixed
@@ -54,10 +66,12 @@ public nonisolated enum Bestiary {
     /// sets the length of the sitting; it never sets the price of the animal.
     public static let secondsPerCreature: Double = 30 * 60
 
-    /// Seeded from the session's start so abandoning and restarting cannot
-    /// reroll for a rarer creature.
-    public static func species(forSessionStartMs ms: Int64) -> Int {
-        var x = UInt64(bitPattern: Int64(ms))
+    /// Deterministic species for a seed value. A stable seed (a creature's
+    /// `ordinal`, not a timestamp — see `BestiaryEntry`'s header) means
+    /// abandoning and restarting cannot reroll for a rarer creature, and two
+    /// creatures never land on the same identity by construction.
+    public static func species(seed: Int64) -> Int {
+        var x = UInt64(bitPattern: seed)
         x ^= x >> 33; x = x &* 0xff51afd7ed558ccd
         x ^= x >> 33; x = x &* 0xc4ceb9fe1a85ec53
         x ^= x >> 33

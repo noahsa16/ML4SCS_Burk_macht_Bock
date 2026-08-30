@@ -3,7 +3,7 @@ import Foundation
 
 /// The collected creatures.
 ///
-/// Exactly one creature is ever in progress. Every session's credited
+/// At most one creature is ever in progress. Every session's credited
 /// writing seconds add to it — a short session leaves it partly drawn and
 /// the next session resumes it, rather than starting over. It completes once
 /// it holds a full `Bestiary.secondsPerCreature`, is archived, and the next
@@ -18,21 +18,49 @@ final class BestiaryStore: ObservableObject {
 
     /// Finished creatures, most recently completed first.
     @Published private(set) var completed: [BestiaryEntry] = []
-    /// The creature presently being drawn. `nil` only before the very first
-    /// second of writing has ever been credited.
+    /// The creature presently being drawn — `nil` before any writing has
+    /// ever been credited, right after `deleteAll()`, and briefly whenever
+    /// the last credit landed exactly on `Bestiary.secondsPerCreature` with
+    /// no surplus to open the next creature. None of those states means "has
+    /// never written" on their own; check `completed` too if that's the
+    /// question.
     @Published private(set) var current: BestiaryEntry?
 
     /// Every creature the collection holds, in display order: the one still
     /// being drawn first (if any), then finished creatures newest to oldest.
     var all: [BestiaryEntry] { (current.map { [$0] } ?? []) + completed }
 
+    /// `all`, minus a creature that has accumulated writing but not yet
+    /// earned its first stroke (up to 23 s of a 1800 s target on the
+    /// sparsest species). What `BestiaryView` draws, and what any other
+    /// screen should check before deciding the collection has something to
+    /// show — an entry with credited seconds but zero visible strokes reads
+    /// as broken, not "in progress".
+    var visible: [BestiaryEntry] { all.filter { $0.strokesDrawn > 0 } }
+
     private let fileURL: URL
+    /// Set when the file on disk exists but could not be read or decoded —
+    /// e.g. still protected under `completeUntilFirstUserAuthentication`
+    /// after a reboot, or genuinely corrupt. A collection cannot be rebuilt
+    /// from anything else, so this instance never writes over data it could
+    /// not first read; it stays in memory only until the next relaunch, by
+    /// which point whatever blocked the read has usually cleared.
+    private var persistenceSuspended = false
 
     init(fileURL: URL = BestiaryStore.defaultFileURL()) {
         self.fileURL = fileURL
-        let snapshot = Self.load(from: fileURL)
-        completed = snapshot.completed
-        current = snapshot.current
+        switch Self.load(from: fileURL) {
+        case .absent:
+            completed = []
+            current = nil
+        case .loaded(let snapshot):
+            completed = snapshot.completed
+            current = snapshot.current
+        case .unreadable:
+            completed = []
+            current = nil
+            persistenceSuspended = true
+        }
     }
 
     /// Mirrors `FocusArchive.defaultFileURL()` so both live in one place.
@@ -71,31 +99,40 @@ final class BestiaryStore: ObservableObject {
             let newTotal = creature.writingSeconds + add
             if newTotal >= Bestiary.secondsPerCreature {
                 completed.insert(BestiaryEntry(
-                    speciesId: creature.speciesId, startedMs: creature.startedMs,
-                    strokesTotal: creature.strokesTotal,
+                    ordinal: creature.ordinal, speciesId: creature.speciesId,
+                    startedMs: creature.startedMs, strokesTotal: creature.strokesTotal,
                     writingSeconds: Bestiary.secondsPerCreature,
                     completedMs: Int64(now.timeIntervalSince1970 * 1000)), at: 0)
                 current = nil
             } else {
                 current = BestiaryEntry(
-                    speciesId: creature.speciesId, startedMs: creature.startedMs,
-                    strokesTotal: creature.strokesTotal,
+                    ordinal: creature.ordinal, speciesId: creature.speciesId,
+                    startedMs: creature.startedMs, strokesTotal: creature.strokesTotal,
                     writingSeconds: newTotal, completedMs: nil)
             }
         }
         persist()
     }
 
-    /// Seeded from the moment the creature begins, not from any one session's
-    /// own start — a half-drawn creature must not change species when a
-    /// later session resumes it (see `addWritingSeconds`, which only calls
-    /// this when there is no creature to resume).
+    /// A credit that both finishes the in-progress creature and overflows
+    /// into the next calls this again in the same loop iteration, with the
+    /// same `now` the just-finished creature was completed at — `now` alone
+    /// cannot identify or seed the new creature (see `BestiaryEntry`'s
+    /// header). `ordinal` can: it counts creatures ever begun, so the new
+    /// one always gets a fresh identity and an independently seeded species,
+    /// never a copy of the one that just finished.
     private func beginCreature(at now: Date) -> BestiaryEntry {
+        let ordinal = nextOrdinal()
+        let speciesId = Bestiary.species(seed: ordinal)
         let startedMs = Int64(now.timeIntervalSince1970 * 1000)
-        let speciesId = Bestiary.species(forSessionStartMs: startedMs)
-        return BestiaryEntry(speciesId: speciesId, startedMs: startedMs,
+        return BestiaryEntry(ordinal: ordinal, speciesId: speciesId, startedMs: startedMs,
                              strokesTotal: Marginalia.strokeCount(forSpecies: speciesId),
                              writingSeconds: 0, completedMs: nil)
+    }
+
+    private func nextOrdinal() -> Int64 {
+        let highest = (completed.map(\.ordinal) + (current.map { [$0.ordinal] } ?? [])).max()
+        return (highest ?? -1) + 1
     }
 
     // MARK: - Erasing
@@ -103,6 +140,9 @@ final class BestiaryStore: ObservableObject {
     func deleteAll() {
         completed.removeAll()
         current = nil
+        // The user just asked to discard everything, so there is no longer
+        // any surviving data a later write could clobber.
+        persistenceSuspended = false
         try? FileManager.default.removeItem(at: fileURL)
     }
 
@@ -113,14 +153,22 @@ final class BestiaryStore: ObservableObject {
         var current: BestiaryEntry?
     }
 
-    private static func load(from url: URL) -> Snapshot {
-        guard let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder().decode(Snapshot.self, from: data)
-        else { return Snapshot(completed: [], current: nil) }
-        return decoded
+    private enum LoadResult {
+        case absent
+        case loaded(Snapshot)
+        case unreadable
+    }
+
+    private static func load(from url: URL) -> LoadResult {
+        guard FileManager.default.fileExists(atPath: url.path) else { return .absent }
+        guard let data = try? Data(contentsOf: url) else { return .unreadable }
+        guard let decoded = try? JSONDecoder().decode(Snapshot.self, from: data)
+        else { return .unreadable }
+        return .loaded(decoded)
     }
 
     private func persist() {
+        guard !persistenceSuspended else { return }
         let snapshot = Snapshot(completed: completed, current: current)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         // Why atomic: a torn file would lose the collection outright, and

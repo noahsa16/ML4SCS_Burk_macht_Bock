@@ -44,10 +44,10 @@ struct BestiaryTests {
                                       strokesTotal: 10) == 10)
     }
 
-    @Test("the species is reproducible from the session start")
+    @Test("the species is reproducible from the same seed")
     func speciesIsDeterministic() {
-        let a = Bestiary.species(forSessionStartMs: 1_788_010_163_073)
-        let b = Bestiary.species(forSessionStartMs: 1_788_010_163_073)
+        let a = Bestiary.species(seed: 1_788_010_163_073)
+        let b = Bestiary.species(seed: 1_788_010_163_073)
         #expect(a == b)
         #expect((0..<Bestiary.speciesCount).contains(a))
     }
@@ -66,5 +66,15 @@ struct BestiaryTests {
     func exactlyOneStrokeWorth() {
         #expect(Bestiary.strokesDrawn(writingSeconds: 150, targetSeconds: 1_500,
                                       strokesTotal: 10) == 1)
+    }
+
+    // Every boundary test in this file and in `BestiaryStoreTests` expresses
+    // the target through this constant on both sides of its comparisons, so
+    // none of them would notice if it silently drifted back to a per-session
+    // value — the farmability this whole design exists to remove. This is
+    // the one assertion that pins the literal.
+    @Test("a creature costs a fixed thirty minutes of writing")
+    func creatureCostIsPinnedAtThirtyMinutes() {
+        #expect(Bestiary.secondsPerCreature == 30 * 60)
     }
 }

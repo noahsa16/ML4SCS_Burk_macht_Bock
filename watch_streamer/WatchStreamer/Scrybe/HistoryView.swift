@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @ObservedObject private var focus = FocusStore.shared
+    @ObservedObject private var bestiary = BestiaryStore.shared
     @AppStorage(ScrybeSettings.goalKey) private var goalSeconds: Double = ScrybeSettings.defaultGoalSeconds
     @Environment(\.scrybe) private var theme
 
@@ -22,7 +23,11 @@ struct HistoryView: View {
             // to refresh — it is exactly the screen a new user waits on.
             InkRefreshScroll(action: { await focus.refreshForPull() }) {
                 VStack(spacing: 0) {
-                    if activeDays.isEmpty { emptyState } else { days }
+                    // The "your sessions will appear here" hint would sit
+                    // directly above an already-populated collection
+                    // otherwise — show it only when there is truly nothing
+                    // on the screen yet.
+                    if activeDays.isEmpty && bestiary.visible.isEmpty { emptyState } else { days }
                     BestiaryView()
                 }
             }
