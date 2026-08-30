@@ -23,7 +23,15 @@ enum RenderMarginalia {
         let ink = NSColor(calibratedRed: 0.122, green: 0.165, blue: 0.239, alpha: 1)
         let rule = NSColor(calibratedRed: 0.878, green: 0.855, blue: 0.804, alpha: 1)
 
-        let single = CommandLine.arguments.dropFirst().first.flatMap(Int.init)
+        let args = Array(CommandLine.arguments.dropFirst())
+        // `grow N` shows one creature at the stages a session draws it, which
+        // is the only way to judge the mechanic: a creature can look right
+        // finished and read as scribble at a third of the way through.
+        if args.first == "grow" {
+            growth(species: args.dropFirst().first.flatMap(Int.init) ?? 0)
+            return
+        }
+        let single = args.first.flatMap(Int.init)
         let indices = single.map { [$0] } ?? Array(0..<Marginalia.names.count)
         let columns = single == nil ? 4 : 1
         let scale: CGFloat = single == nil ? 1 : 2
@@ -100,5 +108,76 @@ enum RenderMarginalia {
         let out = URL(fileURLWithPath: "/tmp/marginalia.png")
         try! rep.representation(using: .png, properties: [:])!.write(to: out)
         print("wrote \(out.path)  (\(width)x\(height), \(indices.count) species)")
+    }
+
+    /// One creature at six points of a session, plus the same at margin size.
+    static func growth(species: Int) {
+        let strokes = Marginalia.strokes(forSpecies: species)
+        let targetMinutes = 25.0
+        let stages = [0.08, 0.25, 0.45, 0.65, 0.85, 1.0]
+
+        let cell: CGFloat = 190
+        let label: CGFloat = 30
+        let small: CGFloat = 64          // roughly the size in a page margin
+        let width = Int(cell * CGFloat(stages.count))
+        let height = Int(cell + label + small + label)
+
+        let paper = NSColor(calibratedRed: 0.949, green: 0.937, blue: 0.878, alpha: 1)
+        let ink = NSColor(calibratedRed: 0.165, green: 0.153, blue: 0.200, alpha: 1)
+
+        let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height,
+            bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        let ctx = NSGraphicsContext.current!.cgContext
+        ctx.setFillColor(paper.cgColor)
+        ctx.fill(CGRect(x: 0, y: 0, width: width, height: height))
+
+        func draw(_ count: Int, at origin: CGPoint, side: CGFloat) {
+            ctx.saveGState()
+            ctx.translateBy(x: origin.x, y: origin.y + side)
+            ctx.scaleBy(x: 1, y: -1)
+            ctx.scaleBy(x: side / 100, y: side / 100)
+            ctx.setStrokeColor(ink.cgColor)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            let base = max(0.9, 2.6 - CGFloat(strokes.count) * 0.03) * (side < 100 ? 1.6 : 1)
+            for (i, stroke) in strokes.prefix(count).enumerated() {
+                // The newest stroke is still wet, so it sits a shade darker.
+                let fresh = i == count - 1 && count < strokes.count
+                ctx.setLineWidth(fresh ? base * 1.15 : base)
+                ctx.setAlpha(fresh ? 1.0 : 0.92)
+                ctx.addPath(stroke.cgPath)
+                ctx.strokePath()
+            }
+            ctx.setAlpha(1)
+            ctx.restoreGState()
+        }
+
+        for (i, fraction) in stages.enumerated() {
+            let count = max(1, Int((Double(strokes.count) * fraction).rounded()))
+            let x = CGFloat(i) * cell
+
+            draw(count, at: CGPoint(x: x + 10, y: CGFloat(height) - cell - label), side: cell - 20)
+            draw(count, at: CGPoint(x: x + (cell - small) / 2, y: label), side: small)
+
+            let minutes = targetMinutes * fraction
+            let top = "\(Int(minutes)) min · \(count)/\(strokes.count)" as NSString
+            top.draw(at: NSPoint(x: x + 14, y: CGFloat(height) - cell - label + 6),
+                     withAttributes: [.font: NSFont.systemFont(ofSize: 12),
+                                      .foregroundColor: NSColor(calibratedWhite: 0.38, alpha: 1)])
+        }
+
+        let caption = "oben in voller Groesse, unten wie im Seitenrand" as NSString
+        caption.draw(at: NSPoint(x: 14, y: 8),
+                     withAttributes: [.font: NSFont.systemFont(ofSize: 12),
+                                      .foregroundColor: NSColor(calibratedWhite: 0.5, alpha: 1)])
+
+        NSGraphicsContext.restoreGraphicsState()
+        let out = URL(fileURLWithPath: "/tmp/marginalia_growth.png")
+        try! rep.representation(using: .png, properties: [:])!.write(to: out)
+        print("wrote \(out.path)  (\(strokes.count) strokes over \(Int(targetMinutes)) min)")
     }
 }

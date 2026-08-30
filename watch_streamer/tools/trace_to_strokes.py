@@ -200,6 +200,43 @@ def smooth_path(points: list[tuple[float, float]]) -> str:
     return " ".join(out)
 
 
+def drawing_order(strokes: list[list[tuple[float, float]]]) -> list:
+    """Order the strokes so the creature grows instead of assembling.
+
+    Sorting by length alone looked right finished and wrong in motion: the
+    longest strokes are scattered across the figure, so a session showed two
+    ears floating in space, then a disconnected leg. A drawing does not appear
+    that way. Each stroke here is the one nearest to what is already on the
+    page, starting from the longest, so the figure spreads from a first mark
+    the way it does under a hand.
+
+    Among strokes that are equally close, the longer wins: contours before the
+    details that hang off them.
+    """
+    if not strokes:
+        return strokes
+    remaining = sorted(strokes, key=length_of, reverse=True)
+    ordered = [remaining.pop(0)]
+    # Endpoints are enough: strokes meet at their ends, and comparing every
+    # point against every point costs far more for no better an order.
+    anchors = [ordered[0][0], ordered[0][-1]]
+
+    while remaining:
+        best, best_distance = 0, None
+        for i, stroke in enumerate(remaining):
+            d = min(np.hypot(p[0] - a[0], p[1] - a[1])
+                    for p in (stroke[0], stroke[-1]) for a in anchors)
+            if best_distance is None or d < best_distance - 1e-9:
+                best, best_distance = i, d
+            elif abs(d - best_distance) <= 6.0 and \
+                    length_of(stroke) > length_of(remaining[best]):
+                best, best_distance = i, d
+        stroke = remaining.pop(best)
+        ordered.append(stroke)
+        anchors += [stroke[0], stroke[-1]]
+    return ordered
+
+
 def length_of(points) -> float:
     return sum(np.hypot(points[i + 1][0] - points[i][0], points[i + 1][1] - points[i][1])
                for i in range(len(points) - 1))
@@ -247,10 +284,7 @@ def main() -> int:
     if not strokes:
         raise SystemExit("no strokes survived; try --min-stroke lower")
 
-    # Longest first: that is how a drawing is built — the big shapes that carry
-    # the silhouette, then the details. It is also the order that looks right
-    # when the creature grows a stroke at a time.
-    strokes.sort(key=length_of, reverse=True)
+    strokes = drawing_order(strokes)
     dropped = max(0, len(strokes) - args.max_strokes)
     strokes = strokes[:args.max_strokes]
 
