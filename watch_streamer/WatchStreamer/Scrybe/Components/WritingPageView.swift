@@ -148,12 +148,18 @@ struct WritingPageView: View {
     /// seconds, and a Dynamic Type setting must not move where a stroke falls
     /// on the page's time axis.
     @ScaledMetric private var lineHeight: CGFloat = 32
-    private let marginLeft: CGFloat = 40
+    /// Scaled with the line height, not held at 40: the creature is drawn
+    /// inside this margin, so a margin that stayed put would have it spill
+    /// over the ink once the reader's text size grew it.
+    @ScaledMetric private var marginLeft: CGFloat = 40
     private let marginRight: CGFloat = 24
     private let topInset: CGFloat = 24
     private let bottomInset: CGFloat = 16
     private let paragraphIndent: CGFloat = 16
-    private let creatureBoxSize: CGFloat = 32
+    /// The creature fills one ruled line, so it takes the line's own metric
+    /// rather than a second copy of 32 that would stay 32 while the rules
+    /// moved apart — which left it stranded in a widening margin.
+    private var creatureBoxSize: CGFloat { lineHeight }
     /// The serif figure beside a paragraph mark.
     @ScaledMetric(relativeTo: .caption2) private var paragraphFigureSize: CGFloat = 10
     /// One line of page holds this much writing (Spec §6).
