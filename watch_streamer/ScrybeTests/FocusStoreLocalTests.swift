@@ -12,7 +12,13 @@ struct FocusStoreLocalTests {
         let raw = PassiveDecisionStore(
             fileURL: dir.appendingPathComponent("decisions-\(id).jsonl"))
         let archive = FocusArchive(fileURL: dir.appendingPathComponent("archive-\(id).json"))
-        return (FocusStore(decisions: raw, archive: archive), raw, archive)
+        // Why an isolated suite: `.standard` is process-wide, and the harvest
+        // baseline is a plain UserDefaults key — sharing it across test
+        // structs would leak one test's claimed minutes into the next.
+        let suite = "focus-store-test-\(id)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return (FocusStore(decisions: raw, archive: archive, defaults: defaults), raw, archive)
     }
 
     private func windows(_ offsetDays: Int, count: Int, writing: Bool = true,
@@ -215,5 +221,27 @@ struct FocusStoreLocalTests {
         store.advanceDemo(at: start.addingTimeInterval(9))
         #expect(store.demoIsWriting == false)
         await store.stopDemo()
+    }
+
+    // The number shown on a pull is what arrived since the user last looked,
+    // so two pulls in a row must not claim the same minutes twice.
+    @Test("a second pull claims no minutes")
+    func harvestIsNotDoubleCounted() async {
+        let (store, _, _) = tempStore()
+        await store.ingest(windows(0, count: 8))
+        await store.refresh()
+        let first = store.harvestDelta()
+        #expect(first == 20.0)
+        store.markHarvested()
+        #expect(store.harvestDelta() == 0)
+    }
+
+    @Test("the first ever pull does not claim the whole history")
+    func firstRunClaimsNothing() async {
+        let (store, _, _) = tempStore()
+        await store.ingest(windows(-3, count: 8) + windows(0, count: 8))
+        await store.refresh()
+        store.primeHarvestBaseline()
+        #expect(store.harvestDelta() == 0)
     }
 }

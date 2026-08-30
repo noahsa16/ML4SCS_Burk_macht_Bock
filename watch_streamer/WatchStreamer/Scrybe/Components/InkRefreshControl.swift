@@ -156,7 +156,10 @@ struct InkRefreshIndicator: View {
         case .hint: return String(localized: "Zum Aktualisieren ziehen")
         case .release: return String(localized: "Loslassen zum Abgleichen")
         case .syncing: return String(localized: "Schreibzeit wird abgeglichen …")
-        case .updated(let at):
+        case .updated(let at, let minutes):
+            if let minutes, minutes > 0 {
+                return String(localized: "+\(minutes) Minuten")
+            }
             if let lastWritingAt {
                 let time = lastWritingAt.formatted(date: .omitted, time: .shortened)
                 return String(localized: "Zuletzt geschrieben \(time)")

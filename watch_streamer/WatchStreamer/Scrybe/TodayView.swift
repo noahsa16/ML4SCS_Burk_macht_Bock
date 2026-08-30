@@ -13,6 +13,21 @@ struct TodayView: View {
     @State private var shineOn = false
     @State private var celebrationTask: Task<Void, Never>?
     @State private var focusPresented = false
+    /// Non-nil only while the ring is sweeping in minutes a pull just
+    /// harvested; every other fraction change (background ingest, session
+    /// end, day rollover) falls back to `InkRing`'s own gentle default.
+    @State private var harvestSweep: Animation?
+    @State private var harvestSweepResetTask: Task<Void, Never>?
+
+    /// Fast attack, long settle — the reward reads as "arriving", not as a
+    /// routine progress update.
+    private static let harvestSweepDuration: TimeInterval = 1.4
+    private static let harvestSweepCurve = Animation.timingCurve(
+        0.2, 0.9, 0.3, 1.0, duration: harvestSweepDuration)
+    /// Reduce Motion swap-in for the same event: a plain cross-dissolve
+    /// instead of a directional sweep. The centre number still updates either
+    /// way, so the harvested minutes stay visible without the motion.
+    private static let harvestCrossfade = Animation.easeInOut(duration: 0.3)
 
     private var liveSeconds: Double { focus.todayWritingSeconds }
     private var progress: DailyGoalProgress {
@@ -37,8 +52,11 @@ struct TodayView: View {
         // user — or a product-video run — could not tell whether detection was
         // live, disconnected or stale at exactly the moment setup feedback
         // matters most. The empty state pulls to refresh too.
-        InkRefreshScroll(action: { await focus.refreshForPull() },
-                         lastWritingAt: focus.lastWritingAt) {
+        InkRefreshScroll(action: {
+            let outcome = await focus.refreshForPull()
+            applyHarvestSweep(for: outcome)
+            return outcome
+        }, lastWritingAt: focus.lastWritingAt) {
             VStack(spacing: 24) {
                 if isEmpty { emptyState } else { populated }
                 focusSessionEntry
@@ -55,7 +73,10 @@ struct TodayView: View {
         .onChange(of: isWriting) { _ in updatePulse() }
         .onChange(of: goalMet) { met in handleGoal(met) }
         .onAppear { updatePulse(); celebrated = goalMet }
-        .onDisappear { celebrationTask?.cancel() }
+        .onDisappear {
+            celebrationTask?.cancel()
+            harvestSweepResetTask?.cancel()
+        }
         .goalReachedFeedback(trigger: celebrated)
     }
 
@@ -128,7 +149,8 @@ struct TodayView: View {
                 fraction: isEmpty ? 0 : progress.fraction,
                 centerText: isEmpty ? nil : TimeFormatting.clock(seconds: liveSeconds),
                 subtitle: isEmpty ? nil : ringSubtitle,
-                tint: goalMet ? theme.goalReached : nil
+                tint: goalMet ? theme.goalReached : nil,
+                sweepAnimation: harvestSweep
             )
             .frame(width: side, height: side)
             .scaleEffect(pulse ? 1.03 : 1.0)
@@ -149,6 +171,25 @@ struct TodayView: View {
     /// Mirrors the GeometryReader's clamp so the container reserves the right
     /// height; `ViewThatFits` cannot express a square capped by its own width.
     @ScaledMetric(relativeTo: .largeTitle) private var ringSide: CGFloat = 240
+
+    /// Arms the ring's harvest curve exactly for the update this pull
+    /// causes, then clears it once the sweep has had time to finish so a
+    /// later, unrelated change (a live session, a day rollover) falls back to
+    /// the ordinary easing.
+    private func applyHarvestSweep(for outcome: InkRefreshOutcome) {
+        harvestSweepResetTask?.cancel()
+        guard case .updated(_, let minutes) = outcome, let minutes, minutes > 0 else {
+            harvestSweep = nil
+            return
+        }
+        harvestSweep = reduceMotion ? Self.harvestCrossfade : Self.harvestSweepCurve
+        harvestSweepResetTask = Task { @MainActor in
+            try? await Task.sleep(
+                nanoseconds: UInt64(Self.harvestSweepDuration * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            harvestSweep = nil
+        }
+    }
 
     private func updatePulse() {
         if isWriting && !reduceMotion {

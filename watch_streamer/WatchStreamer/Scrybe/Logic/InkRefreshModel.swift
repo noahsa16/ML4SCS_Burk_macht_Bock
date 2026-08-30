@@ -6,7 +6,9 @@ import Foundation
 /// sync that never reached the watch reads as a failed sync rather than as an
 /// empty screen.
 enum InkRefreshOutcome: Equatable {
-    case updated(at: Date)
+    /// `harvestedMinutes` is whole minutes newly claimed by this pull, or
+    /// `nil` when there was nothing new to report.
+    case updated(at: Date, harvestedMinutes: Int? = nil)
     case offline
 }
 
@@ -16,7 +18,7 @@ enum InkRefreshStatus: Equatable {
     case hint
     case release
     case syncing
-    case updated(Date)
+    case updated(Date, harvestedMinutes: Int? = nil)
     case offline
 }
 
@@ -68,7 +70,7 @@ struct InkRefreshModel: Equatable {
         case .idle, .pulling: return .hint
         case .armed: return .release
         case .refreshing: return .syncing
-        case .settled(.updated(let at)): return .updated(at)
+        case .settled(.updated(let at, let minutes)): return .updated(at, harvestedMinutes: minutes)
         case .settled(.offline): return .offline
         }
     }

@@ -8,6 +8,12 @@ struct InkRing: View {
     /// Ring fill colour; defaults to the theme accent. Pass the goal-reached tone
     /// at the goal-met moment.
     var tint: Color? = nil
+    /// Curve for the fill sweep when `fraction` changes. `nil` keeps the
+    /// component's own gentle default (and Reduce Motion's plain snap) — a
+    /// caller marking one specific update as an event (e.g. minutes a pull
+    /// just harvested) passes its own curve, already resolved for Reduce
+    /// Motion, so it applies only to that update rather than every change.
+    var sweepAnimation: Animation? = nil
 
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -22,7 +28,8 @@ struct InkRing: View {
                 .stroke(tint ?? theme.accent,
                         style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
                 .rotationEffect(.degrees(-90))
-                .animation(reduceMotion ? nil : .easeOut(duration: 0.6), value: fraction)
+                .animation(sweepAnimation ?? (reduceMotion ? nil : .easeOut(duration: 0.6)),
+                          value: fraction)
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: tint)
             VStack(spacing: 4) {
                 if let centerText {

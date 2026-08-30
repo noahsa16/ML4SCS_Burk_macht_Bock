@@ -49,6 +49,7 @@ final class FocusStore: ObservableObject {
 
     private let decisions: PassiveDecisionStore
     private let archive: FocusArchive
+    private let defaults: UserDefaults
     private let historyDays = 90
     private let calendar = Calendar.current
     /// Advances after a durable Watch batch lands. Pull-to-refresh waits for
@@ -60,18 +61,23 @@ final class FocusStore: ObservableObject {
 
     init(decisions: PassiveDecisionStore = PassiveDecisionStore(
             fileURL: PassiveDecisionStore.defaultFileURL()),
-         archive: FocusArchive? = nil) {
+         archive: FocusArchive? = nil,
+         defaults: UserDefaults = .standard) {
         self.decisions = decisions
         // Default-argument expressions are evaluated outside the actor even
         // though this initializer is MainActor-isolated. Construct the archive
         // in the body so Xcode 26.6 does not flag a false cross-actor call.
         self.archive = archive ?? FocusArchive()
+        self.defaults = defaults
     }
 
     /// Loads what is already on disk. There is nothing to poll — data arrives
     /// when the watch hands it over, and `ingest` refreshes then.
     func start() {
-        Task { await refresh() }
+        Task {
+            await refresh()
+            primeHarvestBaseline()
+        }
     }
 
     func stop() {}
@@ -117,7 +123,43 @@ final class FocusStore: ObservableObject {
         }
         await refresh()
         watchUnreachable = !reached
-        return reached ? .updated(at: lastUpdated ?? Date()) : .offline
+        guard reached else { return .offline }
+        // Why claimed here, not after the capsule renders: the minutes live
+        // inside the outcome that becomes the settled phase, so a dropped
+        // callback could never lose them independently of the phase itself.
+        let minutes = Int(harvestDelta() / 60)
+        markHarvested()
+        return .updated(at: lastUpdated ?? Date(),
+                        harvestedMinutes: minutes > 0 ? minutes : nil)
+    }
+
+    // MARK: - Harvest
+
+    private static let lastHarvestedSecondsKey = "focusStore.lastHarvestedSeconds"
+
+    private var lastHarvestedSeconds: Double {
+        get { defaults.double(forKey: Self.lastHarvestedSecondsKey) }
+        set { defaults.set(newValue, forKey: Self.lastHarvestedSecondsKey) }
+    }
+
+    /// Seconds that arrived since the last claim — what a pull announces.
+    /// `UserDefaults.double(forKey:)` reads 0 for an absent key, so an
+    /// unprimed baseline correctly treats the whole current total as new.
+    func harvestDelta(now: Date = Date()) -> Double {
+        max(0, todayWritingSeconds - lastHarvestedSeconds)
+    }
+
+    /// Claims today's total so the next pull only reports what is new.
+    func markHarvested() {
+        lastHarvestedSeconds = todayWritingSeconds
+    }
+
+    /// Sets the baseline once, on first run, so a fresh install does not
+    /// claim its already-ingested history as newly arrived. A no-op once the
+    /// key exists — callers must not rely on it running more than once.
+    func primeHarvestBaseline() {
+        guard defaults.object(forKey: Self.lastHarvestedSecondsKey) == nil else { return }
+        lastHarvestedSeconds = todayWritingSeconds
     }
 
     /// Stores a batch handed over by the watch and refreshes.

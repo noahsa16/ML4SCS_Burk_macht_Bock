@@ -273,6 +273,16 @@
         }
       }
     },
+    "+%lld Minuten" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "+%lld minutes"
+          }
+        }
+      }
+    },
     "%lld Schreibphasen" : {
       "localizations" : {
         "en" : {
