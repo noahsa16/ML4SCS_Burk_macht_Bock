@@ -182,10 +182,15 @@ final class FocusSessionStore: ObservableObject {
     ///
     /// The phase alone does not carry that, because the user can leave the
     /// failure screen: `returnToIdle` restores `.idle`, which this guard
-    /// admits. `startPreemptedByRecording` is the half that survives it, so a
-    /// reply overtaken by a recording is refused however the screen moved on
-    /// in the meantime. No `focus_stop` follows — the Watch is recording, and
-    /// stopping it is exactly what must not happen.
+    /// admits. `startPreemptedByRecording` survives that move, so a reply
+    /// overtaken by a recording is refused however the screen moved on — with
+    /// one gap it does not close. Asking again clears the flag
+    /// (`markStarting`), and if the first ask's reply is still in flight when
+    /// that happens, it now passes both guards. The window is the first ask's
+    /// own eight seconds and the second ask re-establishes the truth when it
+    /// answers, so what gets through is the already-accepted class of a stale
+    /// reply, not a new one. No `focus_stop` follows either way — the Watch is
+    /// recording, and stopping it is exactly what must not happen.
     func begin(targetSeconds: Double, at date: Date = Date()) {
         guard phase == .idle || phase == .starting else { return }
         guard !startPreemptedByRecording else {
