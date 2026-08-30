@@ -392,6 +392,43 @@ struct FocusSessionStoreTests {
         #expect(try #require(bestiary.current).writingSeconds == 7.5)
     }
 
+    // The same preemption, one phase earlier. `focus_start` has an
+    // eight-second round trip; a study recording forwarded inside it is
+    // answered by the Watch alone, and the reply that arrives afterwards
+    // would otherwise open a session on the recording's stream.
+    @Test("a recording during a start in flight refuses the start that follows")
+    func preemptionDuringStartingRefusesTheLateReply() async throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let stops = StopRecorder()
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary,
+                                      stopOnWatch: { stops.calls += 1; return .stopped })
+        store.markStarting()
+        store.watchPreemptedByRecording()
+
+        guard case .failed(let message) = store.phase else {
+            Issue.record("expected .failed phase, got \(store.phase)")
+            return
+        }
+        #expect(message == FocusStartRefusal.recordingInProgress.message)
+
+        // The Watch's `.started` reply, arriving after the preemption.
+        store.begin(targetSeconds: 900)
+        #expect(store.phase == .failed(message))
+        #expect(!store.isActive)
+
+        // Samples still on their way from the recording's stream reach a
+        // session that no longer exists, and are not credited to it.
+        store.consume(samples(500))
+        #expect(store.decisions.isEmpty)
+        #expect(bestiary.current == nil)
+
+        await settle()
+        #expect(stops.calls == 0)
+    }
+
     // MARK: - The sixty-minute cap
 
     // The cap is a battery guarantee: the Watch streams raw sensors for the

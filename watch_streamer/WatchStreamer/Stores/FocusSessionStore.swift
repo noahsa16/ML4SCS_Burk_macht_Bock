@@ -165,7 +165,14 @@ final class FocusSessionStore: ObservableObject {
     /// Called once the Watch has confirmed the start, so from here the Watch
     /// is streaming and every exit — the user's, a failure, or the hard cap —
     /// has to stop it again.
+    ///
+    /// Refuses from any phase but `idle` and `starting`: the Watch's answer
+    /// arrives up to eight seconds after the ask, and a study recording that
+    /// preempted the session inside that window has already moved the phase to
+    /// `failed`. Without the guard, the late `started` reply would open a
+    /// session on a stream the recording owns.
     func begin(targetSeconds: Double, at date: Date = Date()) {
+        guard phase == .idle || phase == .starting else { return }
         reset()
         stopUnconfirmed = false
         firstOrdinalThisSession = bestiary.creatureInProgress(now: date).ordinal
@@ -206,10 +213,21 @@ final class FocusSessionStore: ObservableObject {
     /// stream that is no longer its own. No `focus_stop` goes out: the Watch
     /// is at this moment being told to record, and stopping it is exactly
     /// what must not happen. The writing time is already in the collection.
+    ///
+    /// `starting` counts as well as `running`. A recording forwarded inside
+    /// the eight seconds a `focus_start` may take preempts a session this
+    /// side has not heard back about yet, and the session that reply would
+    /// open would never have owned the stream.
     func watchPreemptedByRecording() {
-        guard case .running = phase else { return }
-        watchIsStreaming = false
-        end()
+        switch phase {
+        case .running:
+            watchIsStreaming = false
+            end()
+        case .starting:
+            failToStart(FocusStartRefusal.recordingInProgress.message)
+        case .idle, .failed, .finished:
+            break
+        }
     }
 
     /// Leaves `failed` or `finished` for the picker again. A live session is

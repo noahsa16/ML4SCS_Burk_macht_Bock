@@ -27,6 +27,10 @@ struct FocusSessionView: View {
     @ObservedObject private var session = FocusSessionStore.shared
     @Environment(\.scrybe) private var theme
 
+    /// The running session's clock. Scaled: it is the largest thing on the
+    /// screen and the one a reader at arm's length actually reads.
+    @ScaledMetric(relativeTo: .largeTitle) private var sessionClockSize: CGFloat = 44
+
     @State private var targetMinutes = 25
     @State private var lastSegmentKind: FocusSegmentKind?
 
@@ -155,7 +159,7 @@ struct FocusSessionView: View {
         VStack(spacing: 16) {
             VStack(spacing: 4) {
                 Text(sessionClock(now.timeIntervalSince(startedAt)))
-                    .font(.system(size: 44, weight: .regular, design: .serif))
+                    .font(.system(size: sessionClockSize, weight: .regular, design: .serif))
                     .monospacedDigit()
                     .foregroundStyle(theme.ink)
                 Text("von \(TimeFormatting.human(seconds: targetSeconds))")
@@ -235,8 +239,9 @@ struct FocusSessionView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.title2)
                 .foregroundStyle(theme.danger)
-            // The reason comes from the Watch's refusal or the model loader,
-            // so it is shown as data rather than through the catalog.
+            // A refusal arrives already translated (`FocusStartRefusal.message`);
+            // only the model loader's message is raw data, which is why this
+            // is `Text(String)` rather than a catalog key.
             Text(message)
                 .font(.subheadline)
                 .foregroundStyle(theme.ink)
@@ -274,22 +279,10 @@ struct FocusSessionView: View {
             case .started:
                 session.begin(targetSeconds: Double(targetMinutes) * 60)
             case .refused(let refusal):
-                session.failToStart(Self.message(for: refusal))
+                session.failToStart(refusal.message)
             case .noAnswer:
                 session.failToStart(String(localized: "Die Uhr hat nicht geantwortet. Prüfe, ob sie in Reichweite ist."))
             }
-        }
-    }
-
-    /// A refusal in the user's language. The two cases ask opposite things —
-    /// end the recording, or grant a permission — so they get their own copy
-    /// rather than one message covering both.
-    private static func message(for refusal: FocusStartRefusal) -> String {
-        switch refusal {
-        case .recordingInProgress:
-            return String(localized: "Es läuft gerade eine Aufnahme. Beende sie zuerst.")
-        case .workoutPermissionMissing:
-            return String(localized: "Der Uhr fehlt die Workout-Freigabe. Erteile sie in den Health-Einstellungen.")
         }
     }
 }
