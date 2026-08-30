@@ -6,7 +6,10 @@ import Foundation
 @MainActor
 struct FocusStoreLocalTests {
 
-    private func tempStore() -> (FocusStore, PassiveDecisionStore, FocusArchive) {
+    // `defaults` is returned so a test can seed or inspect the harvest
+    // baseline through the store's own public API (e.g. `markHarvested(now:)`
+    // with a past date) instead of duplicating this setup.
+    private func tempStore() -> (FocusStore, PassiveDecisionStore, FocusArchive, UserDefaults) {
         let dir = FileManager.default.temporaryDirectory
         let id = UUID().uuidString
         let raw = PassiveDecisionStore(
@@ -18,7 +21,8 @@ struct FocusStoreLocalTests {
         let suite = "focus-store-test-\(id)"
         let defaults = UserDefaults(suiteName: suite)!
         defaults.removePersistentDomain(forName: suite)
-        return (FocusStore(decisions: raw, archive: archive, defaults: defaults), raw, archive)
+        return (FocusStore(decisions: raw, archive: archive, defaults: defaults),
+                raw, archive, defaults)
     }
 
     private func windows(_ offsetDays: Int, count: Int, writing: Bool = true,
@@ -37,7 +41,7 @@ struct FocusStoreLocalTests {
 
     @Test("today's total comes from ingested windows")
     func ingestFeedsToday() async {
-        let (store, _, _) = tempStore()
+        let (store, _, _, _) = tempStore()
         await store.ingest(windows(0, count: 8))
         await store.refresh()
         #expect(store.todayWritingSeconds == 20.0)
@@ -49,7 +53,7 @@ struct FocusStoreLocalTests {
     // cost roughly twenty times the storage for nothing.
     @Test("idle windows are not stored")
     func idleIsDropped() async {
-        let (store, raw, _) = tempStore()
+        let (store, raw, _, _) = tempStore()
         await store.ingest(windows(0, count: 8, writing: false))
         await store.refresh()
         #expect(raw.allDecisions().isEmpty)
@@ -58,7 +62,7 @@ struct FocusStoreLocalTests {
 
     @Test("a mixed batch keeps only the writing windows")
     func mixedBatch() async {
-        let (store, raw, _) = tempStore()
+        let (store, raw, _, _) = tempStore()
         await store.ingest(windows(0, count: 4) + windows(0, count: 4, writing: false, hour: 14))
         await store.refresh()
         #expect(raw.allDecisions().count == 4)
@@ -69,7 +73,7 @@ struct FocusStoreLocalTests {
     // windows are gone.
     @Test("an old day survives as a summary once its windows are pruned")
     func oldDayIsSealedAndPruned() async throws {
-        let (store, raw, archive) = tempStore()
+        let (store, raw, archive, _) = tempStore()
         await store.ingest(windows(-10, count: 8))
         await store.refresh()
 
@@ -83,7 +87,7 @@ struct FocusStoreLocalTests {
 
     @Test("a sealed day still lists its stretches in the detail view")
     func sealedDayKeepsStretches() async throws {
-        let (store, _, archive) = tempStore()
+        let (store, _, archive, _) = tempStore()
         await store.ingest(windows(-10, count: 8))
         await store.refresh()
         let date = try #require(archive.all().first?.date)
@@ -95,7 +99,7 @@ struct FocusStoreLocalTests {
 
     @Test("recent days keep their raw windows so late deliveries still land")
     func recentDaysAreNotSealed() async {
-        let (store, raw, archive) = tempStore()
+        let (store, raw, archive, _) = tempStore()
         await store.ingest(windows(0, count: 4) + windows(-1, count: 4))
         await store.refresh()
         #expect(raw.allDecisions().count == 8)
@@ -104,7 +108,7 @@ struct FocusStoreLocalTests {
 
     @Test("a late delivery for a kept day is added, not lost")
     func lateDeliveryForKeptDay() async {
-        let (store, _, _) = tempStore()
+        let (store, _, _, _) = tempStore()
         await store.ingest(windows(-1, count: 4))
         await store.refresh()
         await store.ingest(windows(-1, count: 4, hour: 15))
@@ -115,7 +119,7 @@ struct FocusStoreLocalTests {
 
     @Test("the time-of-day chart looks back only seven days")
     func timeOfDayWindowIsSevenDays() async throws {
-        let (store, _, _) = tempStore()
+        let (store, _, _, _) = tempStore()
         await store.ingest(windows(0, count: 4, hour: 9))
         await store.ingest(windows(-10, count: 4, hour: 9))
         await store.refresh()
@@ -129,7 +133,7 @@ struct FocusStoreLocalTests {
     // that proves sealed days still feed the chart.
     @Test("an archived day inside the window still feeds the time-of-day chart")
     func timeOfDayReadsTheArchive() async throws {
-        let (store, raw, archive) = tempStore()
+        let (store, raw, archive, _) = tempStore()
         await store.ingest(windows(-5, count: 4, hour: 9))
         await store.refresh()
         #expect(raw.allDecisions().isEmpty)
@@ -141,7 +145,7 @@ struct FocusStoreLocalTests {
 
     @Test("the last writing time is the end of the newest writing window")
     func lastWritingAt() async throws {
-        let (store, _, _) = tempStore()
+        let (store, _, _, _) = tempStore()
         let w = windows(0, count: 4)
         await store.ingest(w)
         await store.refresh()
@@ -156,7 +160,7 @@ struct FocusStoreLocalTests {
     // no server showed a breathing ring beside a glyph claiming nothing.
     @Test("recent-writing is one answer for the ring and the header glyph")
     func recentWritingIsShared() async {
-        let (store, _, _) = tempStore()
+        let (store, _, _, _) = tempStore()
         let now = Date()
         let endMs = Int64(now.timeIntervalSince1970 * 1000) - 60_000
         await store.ingest([PassiveDecision(startMs: endMs - 5_000, endMs: endMs,
@@ -171,26 +175,34 @@ struct FocusStoreLocalTests {
 
     @Test("an empty store never claims recent writing")
     func recentWritingNeedsData() {
-        let (store, _, _) = tempStore()
+        let (store, _, _, _) = tempStore()
         #expect(!store.isRecentlyWriting())
     }
 
-    @Test("deleting local data clears both stores and every screen")
+    @Test("deleting local data clears both stores, every screen, and the harvest baseline")
     func deleteClearsEverything() async {
-        let (store, raw, archive) = tempStore()
+        let (store, raw, archive, _) = tempStore()
         await store.ingest(windows(0, count: 4) + windows(-10, count: 4))
         await store.refresh()
+        store.markHarvested()
         store.deleteAllLocalData()
         #expect(raw.allDecisions().isEmpty)
         #expect(archive.all().isEmpty)
         #expect(store.today == nil)
         #expect(store.history == nil)
         #expect(store.lastWritingAt == nil)
+
+        // The old baseline must not survive "alle Einstellungen löschen":
+        // fresh data afterwards should report its full total, not total minus
+        // a claim from before the delete.
+        await store.ingest(windows(0, count: 4))
+        await store.refresh()
+        #expect(store.harvestDelta() == 10.0)
     }
 
     @Test("product demo grows the UI without touching real decisions")
     func demoIsEphemeral() async {
-        let (store, raw, _) = tempStore()
+        let (store, raw, _, _) = tempStore()
         let start = Date()
         store.startDemo(startingSeconds: 1_800, secondsPerTick: 10)
 
@@ -211,7 +223,7 @@ struct FocusStoreLocalTests {
 
     @Test("product demo visibly alternates writing and pauses")
     func demoAlternatesState() async {
-        let (store, _, _) = tempStore()
+        let (store, _, _, _) = tempStore()
         let start = Date()
         store.startDemo(startingSeconds: 0, secondsPerTick: 1)
         for tick in 1...8 {
@@ -227,7 +239,7 @@ struct FocusStoreLocalTests {
     // so two pulls in a row must not claim the same minutes twice.
     @Test("a second pull claims no minutes")
     func harvestIsNotDoubleCounted() async {
-        let (store, _, _) = tempStore()
+        let (store, _, _, _) = tempStore()
         await store.ingest(windows(0, count: 8))
         await store.refresh()
         let first = store.harvestDelta()
@@ -238,7 +250,7 @@ struct FocusStoreLocalTests {
 
     @Test("the first ever pull does not claim the whole history")
     func firstRunClaimsNothing() async {
-        let (store, _, _) = tempStore()
+        let (store, _, _, _) = tempStore()
         await store.ingest(windows(-3, count: 8) + windows(0, count: 8))
         await store.refresh()
         store.primeHarvestBaseline()
@@ -246,32 +258,25 @@ struct FocusStoreLocalTests {
     }
 
     // Old behaviour: the baseline was a bare seconds value that outlived the
-    // day it was claimed on, so on the first pull of a new day the (larger)
-    // previous total clamped `harvestDelta` to 0 until today caught up to
-    // it. Seeded directly through the store's own UserDefaults suite and an
-    // explicit `now` so the day boundary is deterministic, not wall-clock
-    // dependent.
+    // day it was claimed on, so a claim tagged to an earlier day still got
+    // subtracted from today's total instead of being discarded. Seeded
+    // entirely through the public API (`markHarvested(now:)`, itself taking
+    // an explicit `now` for exactly this) rather than the store's private
+    // UserDefaults keys, so the test survives a key rename instead of
+    // silently exercising nothing once one changes.
     @Test("a stale claim from a previous day does not swallow today's harvest")
     func harvestResetsAcrossDays() async {
-        let dir = FileManager.default.temporaryDirectory
-        let id = UUID().uuidString
-        let raw = PassiveDecisionStore(
-            fileURL: dir.appendingPathComponent("decisions-\(id).jsonl"))
-        let archive = FocusArchive(fileURL: dir.appendingPathComponent("archive-\(id).json"))
-        let suite = "focus-store-test-\(id)"
-        let defaults = UserDefaults(suiteName: suite)!
-        defaults.removePersistentDomain(forName: suite)
-        let store = FocusStore(decisions: raw, archive: archive, defaults: defaults)
-
-        let calendar = Calendar.current
+        let (store, _, _, _) = tempStore()
         let now = Date()
-        let yesterday = calendar.date(byAdding: .day, value: -1, to: now)!
-        defaults.set(3_600.0, forKey: "focusStore.lastHarvestedSeconds")
-        defaults.set(PassiveFocusAggregator.isoDate(yesterday, calendar: calendar),
-                     forKey: "focusStore.lastHarvestedDay")
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: now)!
 
-        await store.ingest(windows(0, count: 8))
+        await store.ingest(windows(0, count: 4))
         await store.refresh()
+        store.markHarvested(now: yesterday)
+
+        await store.ingest(windows(0, count: 4, hour: 14))
+        await store.refresh()
+
         #expect(store.harvestDelta(now: now) == 20.0)
     }
 }

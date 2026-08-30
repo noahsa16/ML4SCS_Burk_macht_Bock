@@ -13,9 +13,12 @@ struct TodayView: View {
     @State private var shineOn = false
     @State private var celebrationTask: Task<Void, Never>?
     @State private var focusPresented = false
-    /// Non-nil only while the ring is sweeping in minutes a pull just
-    /// harvested; every other fraction change (background ingest, session
-    /// end, day rollover) falls back to `InkRing`'s own gentle default.
+    /// Non-nil only while a pull is either armed to harvest or actively
+    /// sweeping in what it harvested; every other fraction change
+    /// (background ingest outside a pull, session end, day rollover) falls
+    /// back to `InkRing`'s own gentle default. Cleared on every path that
+    /// leaves it non-nil — pull settle, disappear — so it never survives to
+    /// sweep an unrelated later change.
     @State private var harvestSweep: Animation?
     @State private var harvestSweepResetTask: Task<Void, Never>?
 
@@ -24,10 +27,6 @@ struct TodayView: View {
     private static let harvestSweepDuration: TimeInterval = 1.4
     private static let harvestSweepCurve = Animation.timingCurve(
         0.2, 0.9, 0.3, 1.0, duration: harvestSweepDuration)
-    /// Reduce Motion swap-in for the same event: a plain cross-dissolve
-    /// instead of a directional sweep. The centre number still updates either
-    /// way, so the harvested minutes stay visible without the motion.
-    private static let harvestCrossfade = Animation.easeInOut(duration: 0.3)
 
     private var liveSeconds: Double { focus.todayWritingSeconds }
     private var progress: DailyGoalProgress {
@@ -53,8 +52,15 @@ struct TodayView: View {
         // live, disconnected or stale at exactly the moment setup feedback
         // matters most. The empty state pulls to refresh too.
         InkRefreshScroll(action: {
+            // Armed *before* the pull starts, not after it returns: the
+            // watch batch can land — and `today` reassign, and the ring
+            // re-render with a new `fraction` — while `refreshForPull` is
+            // still parked in its delivery wait, well before it returns an
+            // outcome. Arming late meant the sweep for the value change was
+            // always in the past by the time it applied.
+            armHarvestSweep()
             let outcome = await focus.refreshForPull()
-            applyHarvestSweep(for: outcome)
+            settleHarvestSweep(for: outcome)
             return outcome
         }, lastWritingAt: focus.lastWritingAt) {
             VStack(spacing: 24) {
@@ -76,6 +82,7 @@ struct TodayView: View {
         .onDisappear {
             celebrationTask?.cancel()
             harvestSweepResetTask?.cancel()
+            harvestSweep = nil
         }
         .goalReachedFeedback(trigger: celebrated)
     }
@@ -172,17 +179,26 @@ struct TodayView: View {
     /// height; `ViewThatFits` cannot express a square capped by its own width.
     @ScaledMetric(relativeTo: .largeTitle) private var ringSide: CGFloat = 240
 
-    /// Arms the ring's harvest curve exactly for the update this pull
-    /// causes, then clears it once the sweep has had time to finish so a
-    /// later, unrelated change (a live session, a day rollover) falls back to
-    /// the ordinary easing.
-    private func applyHarvestSweep(for outcome: InkRefreshOutcome) {
+    /// Arms the harvest curve speculatively, before the pull's outcome is
+    /// known, so it is already in place for whatever fraction change the
+    /// pull causes. Under Reduce Motion this stays `nil` — `InkRing` already
+    /// falls back to no animation at all there, and the capsule's number is
+    /// the reward, not a softened sweep in its place.
+    private func armHarvestSweep() {
         harvestSweepResetTask?.cancel()
+        harvestSweep = reduceMotion ? nil : Self.harvestSweepCurve
+    }
+
+    /// Resolves the speculative arm once the pull's outcome is known: a real
+    /// harvest keeps the curve alive for the rest of its sweep, anything
+    /// else (nothing new, offline) clears it immediately so a later,
+    /// unrelated fraction change (a live session, a day rollover) is not
+    /// swept with an event curve that was never really this pull's.
+    private func settleHarvestSweep(for outcome: InkRefreshOutcome) {
         guard case .updated(_, let minutes) = outcome, let minutes, minutes > 0 else {
             harvestSweep = nil
             return
         }
-        harvestSweep = reduceMotion ? Self.harvestCrossfade : Self.harvestSweepCurve
         harvestSweepResetTask = Task { @MainActor in
             try? await Task.sleep(
                 nanoseconds: UInt64(Self.harvestSweepDuration * 1_000_000_000))

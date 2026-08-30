@@ -127,9 +127,10 @@ final class FocusStore: ObservableObject {
         // Why claimed here, not after the capsule renders: the minutes live
         // inside the outcome that becomes the settled phase, so a dropped
         // callback could never lose them independently of the phase itself.
-        let minutes = Int(harvestDelta() / 60)
-        markHarvested()
-        return .updated(at: lastUpdated ?? Date(),
+        let now = Date()
+        let minutes = Int(harvestDelta(now: now) / 60)
+        claimWholeMinutes(minutes, now: now)
+        return .updated(at: lastUpdated ?? now,
                         harvestedMinutes: minutes > 0 ? minutes : nil)
     }
 
@@ -153,23 +154,41 @@ final class FocusStore: ObservableObject {
         set { defaults.set(newValue, forKey: Self.lastHarvestedDayKey) }
     }
 
+    private func isoDay(_ date: Date) -> String {
+        PassiveFocusAggregator.isoDate(date, calendar: calendar)
+    }
+
+    /// The seconds baseline, if it was claimed on `now`'s day — else 0, a
+    /// claim from an earlier day describes a total that no longer exists.
+    private func harvestBaseline(now: Date) -> Double {
+        lastHarvestedDay == isoDay(now) ? lastHarvestedSeconds : 0
+    }
+
     /// Seconds that arrived since the last claim — what a pull announces.
     /// `UserDefaults.double(forKey:)` reads 0 for an absent key, so an
     /// unprimed baseline correctly treats the whole current total as new.
-    /// A baseline claimed on an earlier day is treated as 0 for the same
-    /// reason — it describes a total that no longer exists.
     func harvestDelta(now: Date = Date()) -> Double {
-        let today = PassiveFocusAggregator.isoDate(now, calendar: calendar)
-        let baseline = lastHarvestedDay == today ? lastHarvestedSeconds : 0
-        return max(0, todayWritingSeconds - baseline)
+        max(0, todayWritingSeconds - harvestBaseline(now: now))
     }
 
     /// Claims today's total, tagged with today's date, so the next pull only
     /// reports what is new — and so tomorrow's first pull does not inherit
     /// today's total as its baseline.
-    func markHarvested() {
+    func markHarvested(now: Date = Date()) {
         lastHarvestedSeconds = todayWritingSeconds
-        lastHarvestedDay = PassiveFocusAggregator.isoDate(Date(), calendar: calendar)
+        lastHarvestedDay = isoDay(now)
+    }
+
+    /// Advances the baseline by whole minutes only, tagged to `now`'s day —
+    /// used by the pull path instead of `markHarvested()`, which claims the
+    /// *entire* current total. A full claim would swallow any sub-minute
+    /// remainder (a harvest still short of a full minute) instead of
+    /// letting it carry into the next pull's delta, so a user who writes in
+    /// bursts under a minute would be told "nothing new" forever.
+    private func claimWholeMinutes(_ minutes: Int, now: Date) {
+        guard minutes > 0 else { return }
+        lastHarvestedSeconds = harvestBaseline(now: now) + Double(minutes * 60)
+        lastHarvestedDay = isoDay(now)
     }
 
     /// Sets the baseline once, on first run, so a fresh install does not
@@ -177,8 +196,7 @@ final class FocusStore: ObservableObject {
     /// key exists — callers must not rely on it running more than once.
     func primeHarvestBaseline() {
         guard defaults.object(forKey: Self.lastHarvestedSecondsKey) == nil else { return }
-        lastHarvestedSeconds = todayWritingSeconds
-        lastHarvestedDay = PassiveFocusAggregator.isoDate(Date(), calendar: calendar)
+        markHarvested()
     }
 
     /// Stores a batch handed over by the watch and refreshes.
@@ -406,6 +424,11 @@ final class FocusStore: ObservableObject {
         today = nil; week = nil; history = nil; timeOfDay = nil
         dayCache = [:]; dayState = [:]
         lastWritingAt = nil; lastUpdated = nil
+        // Why cleared here too: "alle Einstellungen" implies a clean slate,
+        // and a surviving baseline would immediately re-clamp the next
+        // harvest against a total that no longer exists.
+        defaults.removeObject(forKey: Self.lastHarvestedSecondsKey)
+        defaults.removeObject(forKey: Self.lastHarvestedDayKey)
     }
 
     // MARK: - Derived

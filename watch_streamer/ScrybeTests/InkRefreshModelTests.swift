@@ -93,6 +93,16 @@ struct InkRefreshModelTests {
         #expect(m.isActive)
     }
 
+    @Test("a settled outcome carries its harvested minutes through to status")
+    func successCarriesHarvestedMinutes() {
+        var m = InkRefreshModel()
+        let at = Date(timeIntervalSince1970: 1_700_000_000)
+        m.pull(threshold)
+        _ = m.release()
+        m.finish(.updated(at: at, harvestedMinutes: 14))
+        #expect(m.status == .updated(at, harvestedMinutes: 14))
+    }
+
     @Test("a failure settles as offline")
     func failureSettles() {
         var m = InkRefreshModel()
