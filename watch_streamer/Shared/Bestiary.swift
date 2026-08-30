@@ -42,6 +42,36 @@ public nonisolated struct BestiaryEntry: Codable, Identifiable, Equatable, Senda
         self.completedMs = completedMs
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case ordinal, speciesId, startedMs, strokesTotal, writingSeconds, completedMs
+    }
+
+    /// Decoded field by field so a shape change degrades one value instead of
+    /// the whole collection.
+    ///
+    /// **Every field added here must keep using `decodeIfPresent` with a
+    /// default.** A single non-optional field would make every stored
+    /// `bestiary.json` written before it undecodable, and `BestiaryStore`
+    /// answers an undecodable file by suspending persistence for the rest of
+    /// the process — leaving the collection unrecoverable and `deleteAll()`,
+    /// which destroys it, the only way out. Unknown keys are ignored by
+    /// `JSONDecoder` already, so this covers the other direction too.
+    ///
+    /// `ordinal` falls back to `startedMs`, the identity it replaced, rather
+    /// than to a constant: it is the species seed and `Identifiable`'s `id`,
+    /// so several entries sharing one default would read as the same creature
+    /// repeated.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        startedMs = try c.decodeIfPresent(Int64.self, forKey: .startedMs) ?? 0
+        ordinal = try c.decodeIfPresent(Int64.self, forKey: .ordinal) ?? startedMs
+        speciesId = try c.decodeIfPresent(Int.self, forKey: .speciesId)
+            ?? Bestiary.species(seed: ordinal)
+        strokesTotal = try c.decodeIfPresent(Int.self, forKey: .strokesTotal) ?? 0
+        writingSeconds = try c.decodeIfPresent(Double.self, forKey: .writingSeconds) ?? 0
+        completedMs = try c.decodeIfPresent(Int64.self, forKey: .completedMs)
+    }
+
     public var id: Int64 { ordinal }
     public var isComplete: Bool { completedMs != nil }
 

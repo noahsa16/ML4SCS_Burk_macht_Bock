@@ -54,8 +54,8 @@ final class BestiaryStore: ObservableObject {
             completed = []
             current = nil
         case .loaded(let snapshot):
-            completed = snapshot.completed
-            current = snapshot.current
+            completed = snapshot.completed.map(Self.redrawable)
+            current = snapshot.current.map(Self.redrawable)
         case .unreadable:
             completed = []
             current = nil
@@ -170,6 +170,21 @@ final class BestiaryStore: ObservableObject {
         case absent
         case loaded(Snapshot)
         case unreadable
+    }
+
+    /// Restores a stroke count `BestiaryEntry`'s tolerant decoding could not
+    /// supply. It defaults `strokesTotal` to zero when the field is absent —
+    /// the only value it can pick without `Marginalia`, which lives in this
+    /// target — and a zero-stroke entry draws nothing and is filtered out of
+    /// `visible`. Here the species is enough to recover the real count, so a
+    /// degraded file loses no creature.
+    private static func redrawable(_ entry: BestiaryEntry) -> BestiaryEntry {
+        guard entry.strokesTotal <= 0 else { return entry }
+        return BestiaryEntry(ordinal: entry.ordinal, speciesId: entry.speciesId,
+                             startedMs: entry.startedMs,
+                             strokesTotal: Marginalia.strokeCount(forSpecies: entry.speciesId),
+                             writingSeconds: entry.writingSeconds,
+                             completedMs: entry.completedMs)
     }
 
     private static func load(from url: URL) -> LoadResult {

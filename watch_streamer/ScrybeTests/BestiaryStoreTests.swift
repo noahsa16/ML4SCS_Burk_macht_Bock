@@ -277,6 +277,44 @@ struct BestiaryStoreTests {
         #expect(current.writingSeconds == 500)
     }
 
+    // The suspension exists for a file that cannot be read; it must not be
+    // reachable by adding a field to `BestiaryEntry`. A non-optional field
+    // would make every file written before it undecodable, and the only exit
+    // from the suspension is `deleteAll()` — which destroys the collection
+    // the suspension was protecting. So a payload missing a field has to
+    // decode into entries that are still drawable and still counted.
+    @Test("a payload missing a field still yields usable entries")
+    func missingFieldStillDecodes() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("bestiary-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: url) }
+        // `ordinal` and `strokesTotal` absent — the identity field the review
+        // flagged, plus the one whose default alone would leave an entry that
+        // draws nothing.
+        try Data("""
+        {"completed":[{"speciesId":3,"startedMs":\(t0),"writingSeconds":1800,\
+        "completedMs":\(t1)}],\
+        "current":{"speciesId":5,"startedMs":\(t2),"writingSeconds":600}}
+        """.utf8).write(to: url)
+
+        let store = BestiaryStore(fileURL: url)
+        let finished = try #require(store.completed.first)
+        let inProgress = try #require(store.current)
+        #expect(finished.isComplete)
+        #expect(inProgress.writingSeconds == 600)
+        // Distinct identities, so neither reads as the other repeated.
+        #expect(finished.ordinal != inProgress.ordinal)
+        // Drawable: `visible` drops an entry with no strokes, which is how a
+        // "decoded fine" claim would still lose the collection on screen.
+        #expect(inProgress.strokesTotal == Marginalia.strokeCount(forSpecies: 5))
+        #expect(store.visible.count == 2)
+
+        // And the store did not suspend itself: a later credit reaches disk.
+        store.addWritingSeconds(300, now: date(t2))
+        let reopened = BestiaryStore(fileURL: url)
+        #expect(reopened.current?.writingSeconds == 900)
+    }
+
     // MARK: - Erasure
 
     @Test("deleting all data clears both the in-progress and finished creatures, on disk too")
