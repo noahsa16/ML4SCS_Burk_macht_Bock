@@ -141,13 +141,21 @@ struct WritingPageView: View {
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let lineHeight: CGFloat = 32
+    /// Ruled-line spacing, and the only vertical metric the page has. Scaled:
+    /// the creature and the ink between the rules grow with the reader's text
+    /// size, so lines held at 32 pt would crowd them into each other.
+    /// `WritingPageLayout` stays free of it — the pure mapping is in drawn
+    /// seconds, and a Dynamic Type setting must not move where a stroke falls
+    /// on the page's time axis.
+    @ScaledMetric private var lineHeight: CGFloat = 32
     private let marginLeft: CGFloat = 40
     private let marginRight: CGFloat = 24
     private let topInset: CGFloat = 24
     private let bottomInset: CGFloat = 16
     private let paragraphIndent: CGFloat = 16
     private let creatureBoxSize: CGFloat = 32
+    /// The serif figure beside a paragraph mark.
+    @ScaledMetric(relativeTo: .caption2) private var paragraphFigureSize: CGFloat = 10
     /// One line of page holds this much writing (Spec §6).
     private let secondsPerLine: Double = 120
     /// How long the "wet ink" highlight on freshly arrived content takes to
@@ -398,9 +406,10 @@ struct WritingPageView: View {
         // the on-page width is compressed, the number is not (Spec §6
         // "Lücken", > 60 s tier).
         let text = Text(durationLabel(ms: mark.durationMs))
-            .font(.system(size: 10, design: .serif))
+            .font(.system(size: paragraphFigureSize, design: .serif))
             .foregroundColor(theme.ink.opacity(0.4))
-        context.draw(text, at: CGPoint(x: geo.marginLeft, y: y - 10), anchor: .leading)
+        context.draw(text, at: CGPoint(x: geo.marginLeft, y: y - paragraphFigureSize),
+                     anchor: .leading)
     }
 
     private func durationLabel(ms: Int64) -> String {

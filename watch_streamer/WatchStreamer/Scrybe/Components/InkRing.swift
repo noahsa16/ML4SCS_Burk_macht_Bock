@@ -34,7 +34,12 @@ struct InkRing: View {
             VStack(spacing: 4) {
                 if let centerText {
                     Text(centerText)
-                        .font(.system(.largeTitle, design: .serif).weight(.semibold))
+                        // Why `.regular` and not a heavier weight: a serif
+                        // carries hierarchy through size, and this figure is
+                        // already the largest thing on the screen. Bold, round
+                        // and centred is the fitness-app reflex this design is
+                        // avoiding.
+                        .font(.system(.largeTitle, design: .serif))
                         .foregroundStyle(theme.ink)
                         .monospacedDigit()
                         .contentTransition(.numericText())
