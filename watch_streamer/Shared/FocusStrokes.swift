@@ -58,21 +58,60 @@ public nonisolated enum FocusStrokes {
             inkSegments.append(FocusSegment(kind: .ink, startMs: start, endMs: end))
         }
 
-        // Fill in gaps between writing segments and classify them
         var result: [FocusSegment] = []
-        for (i, ink) in inkSegments.enumerated() {
-            result.append(ink)
 
-            if i < inkSegments.count - 1 {
-                let nextInk = inkSegments[i + 1]
-                let gapStart = ink.endMs
-                let gapEnd = nextInk.startMs
-                let gapSpan = gapEnd - gapStart
-                let gapKind: FocusSegmentKind =
-                    gapSpan > paragraphGapMs ? .paragraph
-                    : gapSpan > restingGapMs ? .lift
+        if inkSegments.isEmpty {
+            // All decisions are idle: emit one idle segment spanning all decisions
+            let allIdleStart = sorted.first!.startMs
+            let allIdleEnd = sorted.last!.endMs
+            let allIdleSpan = allIdleEnd - allIdleStart
+            let allIdleKind: FocusSegmentKind =
+                allIdleSpan > paragraphGapMs ? .paragraph
+                : allIdleSpan > restingGapMs ? .lift
+                : .resting
+            result.append(FocusSegment(kind: allIdleKind, startMs: allIdleStart, endMs: allIdleEnd))
+        } else {
+            // Handle leading idle (from start of decisions to start of first ink)
+            let firstInk = inkSegments.first!
+            if sorted.first!.startMs < firstInk.startMs {
+                let leadingStart = sorted.first!.startMs
+                let leadingEnd = firstInk.startMs
+                let leadingSpan = leadingEnd - leadingStart
+                let leadingKind: FocusSegmentKind =
+                    leadingSpan > paragraphGapMs ? .paragraph
+                    : leadingSpan > restingGapMs ? .lift
                     : .resting
-                result.append(FocusSegment(kind: gapKind, startMs: gapStart, endMs: gapEnd))
+                result.append(FocusSegment(kind: leadingKind, startMs: leadingStart, endMs: leadingEnd))
+            }
+
+            // Add ink segments with interior gaps
+            for (i, ink) in inkSegments.enumerated() {
+                result.append(ink)
+
+                if i < inkSegments.count - 1 {
+                    let nextInk = inkSegments[i + 1]
+                    let gapStart = ink.endMs
+                    let gapEnd = nextInk.startMs
+                    let gapSpan = gapEnd - gapStart
+                    let gapKind: FocusSegmentKind =
+                        gapSpan > paragraphGapMs ? .paragraph
+                        : gapSpan > restingGapMs ? .lift
+                        : .resting
+                    result.append(FocusSegment(kind: gapKind, startMs: gapStart, endMs: gapEnd))
+                }
+            }
+
+            // Handle trailing idle (from end of last ink to end of all decisions)
+            let lastInk = inkSegments.last!
+            if lastInk.endMs < sorted.last!.endMs {
+                let trailingStart = lastInk.endMs
+                let trailingEnd = sorted.last!.endMs
+                let trailingSpan = trailingEnd - trailingStart
+                let trailingKind: FocusSegmentKind =
+                    trailingSpan > paragraphGapMs ? .paragraph
+                    : trailingSpan > restingGapMs ? .lift
+                    : .resting
+                result.append(FocusSegment(kind: trailingKind, startMs: trailingStart, endMs: trailingEnd))
             }
         }
 
