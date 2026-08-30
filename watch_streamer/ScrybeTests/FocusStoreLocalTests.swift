@@ -244,4 +244,34 @@ struct FocusStoreLocalTests {
         store.primeHarvestBaseline()
         #expect(store.harvestDelta() == 0)
     }
+
+    // Old behaviour: the baseline was a bare seconds value that outlived the
+    // day it was claimed on, so on the first pull of a new day the (larger)
+    // previous total clamped `harvestDelta` to 0 until today caught up to
+    // it. Seeded directly through the store's own UserDefaults suite and an
+    // explicit `now` so the day boundary is deterministic, not wall-clock
+    // dependent.
+    @Test("a stale claim from a previous day does not swallow today's harvest")
+    func harvestResetsAcrossDays() async {
+        let dir = FileManager.default.temporaryDirectory
+        let id = UUID().uuidString
+        let raw = PassiveDecisionStore(
+            fileURL: dir.appendingPathComponent("decisions-\(id).jsonl"))
+        let archive = FocusArchive(fileURL: dir.appendingPathComponent("archive-\(id).json"))
+        let suite = "focus-store-test-\(id)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        let store = FocusStore(decisions: raw, archive: archive, defaults: defaults)
+
+        let calendar = Calendar.current
+        let now = Date()
+        let yesterday = calendar.date(byAdding: .day, value: -1, to: now)!
+        defaults.set(3_600.0, forKey: "focusStore.lastHarvestedSeconds")
+        defaults.set(PassiveFocusAggregator.isoDate(yesterday, calendar: calendar),
+                     forKey: "focusStore.lastHarvestedDay")
+
+        await store.ingest(windows(0, count: 8))
+        await store.refresh()
+        #expect(store.harvestDelta(now: now) == 20.0)
+    }
 }

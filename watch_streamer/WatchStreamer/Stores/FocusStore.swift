@@ -136,22 +136,40 @@ final class FocusStore: ObservableObject {
     // MARK: - Harvest
 
     private static let lastHarvestedSecondsKey = "focusStore.lastHarvestedSeconds"
+    // Why a day tag alongside the seconds: `todayWritingSeconds` resets at
+    // midnight but a bare seconds baseline does not, so the first pull of a
+    // new day would subtract yesterday's (larger) total and clamp to 0 —
+    // silently hiding the whole day's first harvest until it caught up to
+    // yesterday's total.
+    private static let lastHarvestedDayKey = "focusStore.lastHarvestedDay"
 
     private var lastHarvestedSeconds: Double {
         get { defaults.double(forKey: Self.lastHarvestedSecondsKey) }
         set { defaults.set(newValue, forKey: Self.lastHarvestedSecondsKey) }
     }
 
+    private var lastHarvestedDay: String? {
+        get { defaults.string(forKey: Self.lastHarvestedDayKey) }
+        set { defaults.set(newValue, forKey: Self.lastHarvestedDayKey) }
+    }
+
     /// Seconds that arrived since the last claim — what a pull announces.
     /// `UserDefaults.double(forKey:)` reads 0 for an absent key, so an
     /// unprimed baseline correctly treats the whole current total as new.
+    /// A baseline claimed on an earlier day is treated as 0 for the same
+    /// reason — it describes a total that no longer exists.
     func harvestDelta(now: Date = Date()) -> Double {
-        max(0, todayWritingSeconds - lastHarvestedSeconds)
+        let today = PassiveFocusAggregator.isoDate(now, calendar: calendar)
+        let baseline = lastHarvestedDay == today ? lastHarvestedSeconds : 0
+        return max(0, todayWritingSeconds - baseline)
     }
 
-    /// Claims today's total so the next pull only reports what is new.
+    /// Claims today's total, tagged with today's date, so the next pull only
+    /// reports what is new — and so tomorrow's first pull does not inherit
+    /// today's total as its baseline.
     func markHarvested() {
         lastHarvestedSeconds = todayWritingSeconds
+        lastHarvestedDay = PassiveFocusAggregator.isoDate(Date(), calendar: calendar)
     }
 
     /// Sets the baseline once, on first run, so a fresh install does not
@@ -160,6 +178,7 @@ final class FocusStore: ObservableObject {
     func primeHarvestBaseline() {
         guard defaults.object(forKey: Self.lastHarvestedSecondsKey) == nil else { return }
         lastHarvestedSeconds = todayWritingSeconds
+        lastHarvestedDay = PassiveFocusAggregator.isoDate(Date(), calendar: calendar)
     }
 
     /// Stores a batch handed over by the watch and refreshes.
