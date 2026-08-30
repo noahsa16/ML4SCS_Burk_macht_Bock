@@ -284,9 +284,15 @@ def main() -> int:
     if not strokes:
         raise SystemExit("no strokes survived; try --min-stroke lower")
 
-    strokes = drawing_order(strokes)
+    # Selection and sequence are two questions, and merging them loses the
+    # figure. Ordering by adjacency first and capping afterwards truncates
+    # *spatially*: the order grows outward from the longest stroke, so a
+    # detailed drawing spent its whole budget on one wing and never reached the
+    # head. Keep the longest strokes — they carry the figure wherever they lie —
+    # and only then sequence them so the creature grows.
+    strokes.sort(key=length_of, reverse=True)
     dropped = max(0, len(strokes) - args.max_strokes)
-    strokes = strokes[:args.max_strokes]
+    strokes = drawing_order(strokes[:args.max_strokes])
 
     height, width = ink.shape
     body = "\n".join(
