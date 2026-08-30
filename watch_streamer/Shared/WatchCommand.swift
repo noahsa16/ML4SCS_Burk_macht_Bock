@@ -27,6 +27,10 @@ public enum WatchCommandName: String, CaseIterable, Sendable {
     case parityCheck = "parity_check"
     /// Run a retrieval cycle now and hand over pending decisions.
     case syncDecisions = "sync_decisions"
+    /// Begin a focus session: switch the stream to 50 Hz and consume locally.
+    case focusStart = "focus_start"
+    /// End a focus session and restore the previous capture configuration.
+    case focusStop = "focus_stop"
 }
 
 /// How a command may be delivered.
@@ -48,7 +52,7 @@ extension WatchCommandName {
         switch self {
         case .start, .stop:
             return .durableState
-        case .drainSpill, .clearSpill, .sensorProbeStart, .syncDecisions:
+        case .drainSpill, .clearSpill, .sensorProbeStart, .syncDecisions, .focusStart, .focusStop:
             return .idempotentOperation
         case .sensorProbeReport, .parityCheck:
             return .directQuery
@@ -75,7 +79,7 @@ extension WatchCommandName {
         switch self {
         case .sensorProbeStart, .sensorProbeReport, .parityCheck:
             return true
-        case .start, .stop, .drainSpill, .clearSpill, .syncDecisions:
+        case .start, .stop, .drainSpill, .clearSpill, .syncDecisions, .focusStart, .focusStop:
             return false
         }
     }
@@ -83,11 +87,13 @@ extension WatchCommandName {
     /// Commands answered off the recording dispatcher: they run on a background
     /// queue and must not touch capture configuration or recording state.
     ///
-    /// Broader than `isDiagnostic` since the passive sync joins them — it may
-    /// run a Core ML retrieval cycle, which would blow the phone's sendMessage
-    /// timeout on the main thread, but it is a product path, not a diagnostic.
+    /// Broader than `isDiagnostic` since the passive sync and the focus
+    /// commands join them — the passive sync may run a Core ML retrieval
+    /// cycle, which would blow the phone's sendMessage timeout on the main
+    /// thread, and focus start/stop must not race the dispatcher's own
+    /// start/stop handling, but none of the three is a diagnostic.
     public var bypassesRecordingDispatcher: Bool {
-        isDiagnostic || self == .syncDecisions
+        isDiagnostic || self == .syncDecisions || self == .focusStart || self == .focusStop
     }
 }
 

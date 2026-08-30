@@ -84,6 +84,19 @@ struct WatchCommandRoutingTests {
         #expect(WatchCommandName.sensorProbeReport.rawValue == "sensor_probe_report")
         #expect(WatchCommandName.parityCheck.rawValue == "parity_check")
     }
+
+    // A session start that lands minutes late is wrong, not late: it must never
+    // fall back to the durable queue.
+    @Test("focus commands are live-only operations that bypass the dispatcher")
+    func focusCommandRouting() {
+        for name in [WatchCommandName.focusStart, .focusStop] {
+            #expect(name.transport == .idempotentOperation)
+            #expect(name.bypassesRecordingDispatcher)
+            #expect(!name.mayFallBackToUserInfo)
+            #expect(!name.mayReplaceDurableState)
+            #expect(!name.isDiagnostic)
+        }
+    }
 }
 
 @Suite("WatchPayloadValue coercion")
