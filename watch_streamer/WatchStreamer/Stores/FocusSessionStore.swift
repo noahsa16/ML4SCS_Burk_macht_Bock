@@ -26,14 +26,6 @@ final class FocusSessionStore: ObservableObject {
                                                nominalHz: 50, channels: 6)
     private let injected: PassiveClassifier?
     private var classifier: PassiveClassifier?
-    // Why: `PassiveWindowBuilder` treats a non-monotonic sample as a recorder
-    // artefact and drops it (correct for the passive path's long-lived
-    // absolute clock). The live path instead gets fed successive batches
-    // whose own timestamp base is the caller's concern, not this store's —
-    // so windowing here runs on a clock this store owns: one tick per sample
-    // actually consumed, anchored to the moment the session started.
-    private var sessionAnchor: TimeInterval = 0
-    private var sampleCount: Int = 0
 
     init(classifier: PassiveClassifier? = nil) {
         self.injected = classifier
@@ -49,15 +41,17 @@ final class FocusSessionStore: ObservableObject {
     func beginForTesting(targetSeconds: Double, at date: Date = Date()) {
         reset()
         classifier = injected
-        sessionAnchor = date.timeIntervalSince1970
         phase = .running(startedAt: date, targetSeconds: targetSeconds)
     }
 
     /// Feeds samples handed over by `PhoneBridge` while a session runs.
     ///
-    /// Only `x/y/z/rx/ry/rz` are trusted from the caller; each sample's
-    /// windowing timestamp is resynthesized on `builder.nominalHz` from
-    /// `sessionAnchor` — see the property comment for why.
+    /// Windows off each sample's own `timestamp` — no synthetic clock. A gap
+    /// in the caller's stream (a WatchConnectivity stall, routine on the live
+    /// path) must reset the buffer rather than being concatenated across, or
+    /// the model would classify a window spanning signal that never happened.
+    /// See `PassiveWindowBuilder`'s header for why that invariant lives there,
+    /// not here.
     func consume(_ samples: [PassiveSample]) {
         guard case .running = phase else { return }
         if classifier == nil {
@@ -65,13 +59,7 @@ final class FocusSessionStore: ObservableObject {
                                                        channels: 6, seqLen: 250))
         }
         guard let classifier else { return }
-        let clocked = samples.map { sample -> PassiveSample in
-            let ts = sessionAnchor + Double(sampleCount) / builder.nominalHz
-            sampleCount += 1
-            return PassiveSample(timestamp: ts, x: sample.x, y: sample.y, z: sample.z,
-                                 rx: sample.rx, ry: sample.ry, rz: sample.rz)
-        }
-        for window in builder.append(clocked) {
+        for window in builder.append(samples) {
             guard let logit = try? classifier.logit(window: window.values) else { continue }
             decisions.append(PassiveDecision(
                 startMs: Int64(window.startTimestamp * 1000),
@@ -85,6 +73,5 @@ final class FocusSessionStore: ObservableObject {
     private func reset() {
         decisions.removeAll()
         builder.reset()
-        sampleCount = 0
     }
 }

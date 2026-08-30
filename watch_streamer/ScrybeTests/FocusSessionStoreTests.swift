@@ -11,10 +11,15 @@ struct FocusSessionStoreTests {
         func logit(window: [Float]) throws -> Float { value }
     }
 
-    /// `count` samples at 50 Hz, six channels, starting at t = 0.
-    private func samples(_ count: Int) -> [PassiveSample] {
+    /// `count` samples at 50 Hz beginning at `start`. The offset matters: two
+    /// batches must form one monotonic stream, or the builder correctly reads
+    /// the second as a gap and resets — which is the behaviour under test
+    /// elsewhere, not something to work around here.
+    private func samples(_ count: Int, from start: TimeInterval = 0) -> [PassiveSample] {
         (0..<count).map { i in
-            PassiveSample(timestamp: Double(i) / 50.0, x: 0.1, y: 0.2, z: 0.98)
+            PassiveSample(timestamp: start + Double(i) / 50.0,
+                          x: 0.1, y: 0.2, z: 0.98,
+                          rx: 0.01, ry: 0.02, rz: 0.03)
         }
     }
 
@@ -22,10 +27,21 @@ struct FocusSessionStoreTests {
     func decisionsFollowStride() {
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1))
         store.beginForTesting(targetSeconds: 1_500)
-        store.consume(samples(250))
+        store.consume(samples(250))              // 0 … 4.98 s
         #expect(store.decisions.count == 1)
-        store.consume(samples(125))
+        store.consume(samples(125, from: 5.0))   // continues the same stream
         #expect(store.decisions.count == 2)
+    }
+
+    // A stalled stream must not be concatenated across the hole: the model would
+    // receive five seconds of signal spanning data that never existed.
+    @Test("a gap in the stream resets the window rather than spanning it")
+    func gapResetsTheWindow() {
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1))
+        store.beginForTesting(targetSeconds: 1_500)
+        store.consume(samples(200))                 // not yet a full window
+        store.consume(samples(200, from: 60.0))     // one minute later
+        #expect(store.decisions.count == 0)
     }
 
     // The viewfinder principle (Spec §2): live windows must never reach the
