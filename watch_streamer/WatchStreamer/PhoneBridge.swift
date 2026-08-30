@@ -471,6 +471,12 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
                 IMUDataStore.shared.pushBatch(accValues: accValues, gyroValues: gyroValues)
 
+                // Why here and not in place of the upload: a focus session is a
+                // second reader of the same stream, not a different stream. The
+                // study path keeps working unchanged, including its queue.
+                FocusSessionStore.shared.consume(
+                    PhoneBridge.passiveSamples(from: samples))
+
                 // Why: the ack rides on the next successful snapshot write, so
                 // it reports durability rather than intent. Batches arriving
                 // inside one debounce window share that write, so the disk cost
@@ -480,6 +486,19 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             }
         }
         return true
+    }
+
+    /// Maps a received watch batch onto the model's sample type.
+    ///
+    /// Channel order is fixed by the exported artifact: ax, ay, az, rx, ry, rz.
+    static func passiveSamples(from samples: [[String: Any]]) -> [PassiveSample] {
+        samples.compactMap { s in
+            guard let ts = WatchPayloadValue.int64(s["ts"]) else { return nil }
+            func f(_ key: String) -> Float { Float((s[key] as? Double) ?? 0) }
+            return PassiveSample(timestamp: Double(ts) / 1000,
+                                 x: f("ax"), y: f("ay"), z: f("az"),
+                                 rx: f("rx"), ry: f("ry"), rz: f("rz"))
+        }
     }
 
     /// Returns true if this batch has already been processed.
