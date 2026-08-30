@@ -918,11 +918,24 @@ Expected: FAIL, „cannot find 'Marginalia' in scope".
 „Federfisch", „Zwei-Kopf-Kranich") und der ersten Art als geordnete `Path`-Liste
 in der 100×100-Box.
 
-Dann rendern und **hinsehen**, nicht blind weiterschreiben:
+Dann rendern und **hinsehen**, nicht blind weiterschreiben. Der Weg ist
+verifiziert (2026-08-30): ein eigenständiges Swift-Programm kann das App-Modul
+nicht importieren, also werden beide Dateien zusammen übersetzt —
 
 ```bash
-cd watch_streamer && swift tools/render_marginalia.swift --out /tmp/marginalia.png
+cd watch_streamer && swiftc -O -o /tmp/render \
+    tools/render_marginalia.swift \
+    WatchStreamer/Scrybe/Components/Marginalia.swift && /tmp/render
 ```
+
+Das setzt voraus, dass `Marginalia.swift` **nichts außer SwiftUI importiert**.
+`Path.cgPath` ist verfügbar, `NSBitmapImageRep` schreibt das PNG.
+
+**Die y-Achse muss gekippt werden.** SwiftUI rechnet y nach unten, AppKit und
+CoreGraphics rechnen y nach oben. Ohne `ctx.translateBy(x: 0, y: höhe)` plus
+`ctx.scaleBy(x: 1, y: -1)` zeigt der Renderer jedes Wesen gespiegelt — man
+begutachtet dann etwas anderes als das, was in der App erscheint. Gemessen an
+einer Probe, nicht abgeleitet.
 
 Der Renderer zeichnet alle Arten als Raster in eine PNG. Diese Datei ansehen,
 bevor die nächste Art entsteht. Eine Art gilt erst als fertig, wenn sie im
