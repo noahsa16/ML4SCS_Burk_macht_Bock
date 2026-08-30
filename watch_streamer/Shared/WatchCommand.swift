@@ -148,6 +148,22 @@ public enum WatchPayloadKey {
     }
 }
 
+/// Where a command reached the Watch from.
+///
+/// The Watch polls the phone once a second and feeds the reply into the same
+/// `handleCommand` path a pushed command takes, but the two have opposite
+/// staleness properties: a poll reply is synchronous and current, a pushed
+/// one can sit in the `transferUserInfo` FIFO for minutes. Several decisions
+/// turn on the difference, so the reply says which it is.
+public nonisolated enum WatchCommandSource {
+    /// The `source` value the phone stamps on a reply to `command_poll`.
+    public static let commandPoll = "iphone_command_poll"
+
+    public static func isCommandPoll(_ message: [String: Any]) -> Bool {
+        (message[WatchPayloadKey.source] as? String) == commandPoll
+    }
+}
+
 /// Why the Watch refused a focus session.
 ///
 /// The raw values are the strings that travel on the wire, so the phone can
@@ -283,6 +299,47 @@ public nonisolated enum FocusCommandPolicy {
         guard !hasFocusSession else { return StopReply(ok: true, error: nil) }
         let refusal: FocusStopRefusal = isRecording ? .recordingInProgress : .noFocusSession
         return StopReply(ok: false, error: refusal.rawValue)
+    }
+
+    /// What the Watch does with a study-vocabulary `stop`.
+    public enum StopAdmission: Equatable, Sendable {
+        /// End whatever is running.
+        case obey
+        /// A pushed stop naming a session other than the running one — it can
+        /// have sat in the durable FIFO for minutes.
+        case ignoreStaleSession
+        /// A polled stop while a focus session holds the sensors.
+        case ignoreFocusSession
+    }
+
+    /// Whether a study `stop` may end what the Watch is currently running.
+    ///
+    /// The phone answers every `command_poll` with `stop` whenever no *study*
+    /// session is active, once a second. A focus session is not a study
+    /// session, so a focus session was told to stop about a second after it
+    /// began — and the poll path deliberately skips the stale-session guard
+    /// (a poll reply is synchronous and cannot be stale), which is what let
+    /// that reach `stop()`. Nothing surfaced: capture ended, the page never
+    /// grew, and the user's own "Beenden" was answered `no focus session`.
+    ///
+    /// `hasFocusSession` is the discriminator. A poll's `stop` carries no
+    /// opinion about focus sessions — it only reports that no study session
+    /// is running, which is true throughout every focus session — so it may
+    /// not end one. It still ends a study recording, which is the lost-push
+    /// recovery the poll path exists for. A focus session's own end comes
+    /// from `focus_stop`, or from the Watch's session cap.
+    public static func admitStop(fromPoll: Bool,
+                                 hasFocusSession: Bool,
+                                 isRunning: Bool,
+                                 commandSessionID: String?,
+                                 runningSessionID: String?) -> StopAdmission {
+        if fromPoll {
+            return hasFocusSession ? .ignoreFocusSession : .obey
+        }
+        if isRunning, commandSessionID != runningSessionID {
+            return .ignoreStaleSession
+        }
+        return .obey
     }
 
     /// Resolves the capture rate for a study recording's own "start", given

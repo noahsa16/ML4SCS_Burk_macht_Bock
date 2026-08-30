@@ -1058,7 +1058,7 @@ extension MotionManager: WCSessionDelegate {
         // applicationContext) darf die Session einer laufenden Aufnahme
         // wechseln. Ein Poll darf weiterhin eine *gestoppte* Watch starten
         // (Recovery, falls ein Push verloren ging) und jederzeit stoppen.
-        let fromPoll = (message["source"] as? String) == "iphone_command_poll"
+        let fromPoll = WatchCommandSource.isCommandPoll(message)
 
         switch command {
         case "start":
@@ -1090,8 +1090,16 @@ extension MotionManager: WCSessionDelegate {
             // WC-Jam → ~3 min Datenverlust). Ein Push-Stop darf eine laufende
             // Aufnahme nur beenden, wenn er deren session_id trägt. Der
             // Poll-Pfad (synchrone Reply, kann nicht stale sein) bleibt der
-            // Recovery-Weg und darf weiterhin jederzeit stoppen.
-            if isRunning, !fromPoll, sid != serverSessionId {
+            // Recovery-Weg und darf eine laufende Aufnahme weiterhin jederzeit
+            // stoppen — aber keine Fokus-Sitzung: siehe
+            // FocusCommandPolicy.admitStop.
+            switch FocusCommandPolicy.admitStop(
+                fromPoll: fromPoll,
+                hasFocusSession: focusSessionStartedUptime != nil,
+                isRunning: isRunning,
+                commandSessionID: sid,
+                runningSessionID: serverSessionId) {
+            case .ignoreStaleSession:
                 return [
                     "ok": false,
                     "command": command,
@@ -1101,9 +1109,20 @@ extension MotionManager: WCSessionDelegate {
                     "session_id": serverSessionId ?? "",
                     "error": "stale stop ignored (session mismatch)"
                 ]
+            case .ignoreFocusSession:
+                return [
+                    "ok": false,
+                    "command": command,
+                    "command_id": commandId ?? "",
+                    "focus_session": true,
+                    "isRunning": isRunning,
+                    "session_id": serverSessionId ?? "",
+                    "error": "poll stop ignored (focus session in progress)"
+                ]
+            case .obey:
+                stop()
+                serverSessionId = nil
             }
-            stop()
-            serverSessionId = nil
         case "drain_spill":
             // Nicht-destruktiv: gesamten Spill jetzt im Burst senden.
             forceDrainSpill()

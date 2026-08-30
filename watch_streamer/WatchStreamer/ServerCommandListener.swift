@@ -341,7 +341,7 @@ class ServerCommandListener: NSObject, ObservableObject {
         let watchSessionId = message["session_id"] as? String ?? ""
         let watchLastCommandId = message["last_command_id"] as? String ?? ""
         payload["ok"] = true
-        payload["source"] = "iphone_command_poll"
+        payload[WatchPayloadKey.source] = WatchCommandSource.commandPoll
         payload["server_connected"] = isConnected
         let pollStatus = "poll \(command)"
         DispatchQueue.main.async {
@@ -625,11 +625,18 @@ class ServerCommandListener: NSObject, ObservableObject {
         let mayReplaceDurableState = route?.mayReplaceDurableState ?? false
         let mayFallBackToUserInfo = route?.mayFallBackToUserInfo ?? false
 
-        // Why here: this is the single funnel every study "start" leaves the
-        // phone through, and the Watch answers one by preempting a running
-        // focus session (`MotionManager.handleCommand`) with no way to say so.
-        // Told at the source, the session closes on the writing time it
-        // earned instead of running on against a stream it no longer owns.
+        // Why here: the Watch answers a study "start" by preempting a running
+        // focus session (`MotionManager.handleCommand`) with no way to say so,
+        // and this is the earliest point on the phone that knows one is going
+        // out. Not the only path a "start" reaches the Watch by — the Watch's
+        // own poll is answered straight from `currentWatchCommandPayload()`,
+        // which never passes through here — but that snapshot can only read
+        // "start" once a WebSocket `start` or `status` has already set
+        // `currentSessionId`, and both of those forward through this function
+        // first. So every "start" the poll can repeat was announced here, and
+        // announcing it before the send means the session closes on the
+        // writing time it earned rather than running on against a stream it
+        // no longer owns.
         if route == .start {
             FocusSessionStore.shared.watchPreemptedByRecording()
         }

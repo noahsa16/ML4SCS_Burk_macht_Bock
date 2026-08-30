@@ -158,3 +158,81 @@ struct RecordingStartRatePrecedenceTests {
         #expect(resolved.preFocusHz == nil)
     }
 }
+
+// The Watch polls the phone once a second and feeds the reply into the same
+// command handler a pushed command reaches. The phone answers that poll with
+// `stop` whenever no *study* session is active — which is the whole duration
+// of every focus session — and the poll path deliberately skips the
+// stale-session guard, because a synchronous reply cannot be stale. So every
+// focus session was told to stop about a second after it began, silently:
+// capture ended, the writing page never grew, and the user's own "Beenden"
+// came back "no focus session".
+@Suite("A polled stop and a focus session")
+struct PolledStopTests {
+
+    /// The reply `currentWatchCommandPayload()` builds with no study session
+    /// running, stamped by `handleWatchCommandPoll` on its way back.
+    private func polledStop() -> [String: Any] {
+        [WatchPayloadKey.command: WatchCommandName.stop.rawValue,
+         WatchPayloadKey.ok: true,
+         WatchPayloadKey.source: WatchCommandSource.commandPoll,
+         WatchPayloadKey.requestedHz: 100.0]
+    }
+
+    /// A `stop` the phone pushed, naming the recording it means to end.
+    private func pushedStop(sessionID: String) -> [String: Any] {
+        [WatchPayloadKey.command: WatchCommandName.stop.rawValue,
+         WatchPayloadKey.sessionID: sessionID,
+         WatchPayloadKey.requestedHz: 100.0]
+    }
+
+    private func admit(_ message: [String: Any],
+                       hasFocusSession: Bool,
+                       runningSessionID: String?) -> FocusCommandPolicy.StopAdmission {
+        FocusCommandPolicy.admitStop(
+            fromPoll: WatchCommandSource.isCommandPoll(message),
+            hasFocusSession: hasFocusSession,
+            isRunning: true,
+            commandSessionID: message[WatchPayloadKey.sessionID] as? String,
+            runningSessionID: runningSessionID)
+    }
+
+    // Only the poll stamps `source`, and only that stamp separates a reply
+    // that cannot be stale from a push that can sit in the FIFO for minutes.
+    @Test("the poll's stamp is what tells the two apart")
+    func onlyThePollIsStamped() {
+        #expect(WatchCommandSource.isCommandPoll(polledStop()))
+        #expect(!WatchCommandSource.isCommandPoll(pushedStop(sessionID: "S042")))
+    }
+
+    // The blocker. A focus session is running; the poll says "stop" because no
+    // study session is. Obeying it ends the session the user just started.
+    @Test("a polled stop does not end a focus session")
+    func polledStopSparesFocusSession() {
+        #expect(admit(polledStop(), hasFocusSession: true, runningSessionID: nil)
+                == .ignoreFocusSession)
+    }
+
+    // The behaviour the skipped stale guard exists for, unchanged: a study
+    // recording whose "stop" push was lost is still recovered by the poll.
+    @Test("a polled stop still ends a study recording")
+    func polledStopStillEndsRecording() {
+        #expect(admit(polledStop(), hasFocusSession: false, runningSessionID: "S042")
+                == .obey)
+    }
+
+    // A pushed stop naming another session stays refused — a minutes-old
+    // stop/start pair from the durable FIFO once cost three minutes of a
+    // recording (S044).
+    @Test("a pushed stop naming another session is still refused")
+    func pushedStaleStopStillRefused() {
+        #expect(admit(pushedStop(sessionID: "S041"), hasFocusSession: false,
+                      runningSessionID: "S042") == .ignoreStaleSession)
+    }
+
+    @Test("a pushed stop naming the running session is obeyed")
+    func pushedMatchingStopObeyed() {
+        #expect(admit(pushedStop(sessionID: "S042"), hasFocusSession: false,
+                      runningSessionID: "S042") == .obey)
+    }
+}
