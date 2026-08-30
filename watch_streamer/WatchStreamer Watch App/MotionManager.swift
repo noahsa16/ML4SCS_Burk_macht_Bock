@@ -890,6 +890,23 @@ extension MotionManager: WCSessionDelegate {
         return reply
     }
 
+    /// Restores `effectiveHz` from a focus session's saved pre-focus rate, if
+    /// one is pending, and clears it.
+    ///
+    /// Shared by two call sites that both end an active focus session and
+    /// must not leave its 50 Hz override in place for whatever runs next:
+    /// `focus_stop` itself, and a study recording's own "start" — a study
+    /// recording ends any active focus session before proceeding rather than
+    /// being refused by it (the recording must never lose that race), so it
+    /// needs the same restore. A no-op when no focus session set `preFocusHz`
+    /// — guards a duplicate `focus_stop`, or a "start" that preempted an
+    /// ordinary recording rather than a focus session.
+    private func restorePreFocusRateIfNeeded() {
+        guard let previous = preFocusHz else { return }
+        effectiveHz = previous
+        preFocusHz = nil
+    }
+
     /// Answers focus_start / focus_stop off the recording dispatcher.
     ///
     /// Unlike the diagnostics above, these two do mutate capture
@@ -918,13 +935,7 @@ extension MotionManager: WCSessionDelegate {
             ]
         case .focusStop:
             stop()
-            // Why guarded: a focus_stop with no matching focus_start (a
-            // duplicate delivery, or a stray command) must not clobber
-            // effectiveHz with a stale in-memory value.
-            if let previous = preFocusHz {
-                effectiveHz = previous
-                preFocusHz = nil
-            }
+            restorePreFocusRateIfNeeded()
             return [
                 WatchPayloadKey.ok: true,
                 WatchPayloadKey.command: raw,
@@ -981,6 +992,28 @@ extension MotionManager: WCSessionDelegate {
                 stop()
             }
             if !isRunning {
+                // Why: a study recording ends any active focus session and
+                // proceeds rather than losing to it — the opposite of
+                // focus_start, which refuses while a recording runs. The
+                // focus session may have ended just above (this "start"
+                // preempting it) or earlier via focus_stop; either way, a
+                // fresh recording must never inherit its 50 Hz.
+                //
+                // applyMotionConfig() already ran (top of handleCommand) and
+                // applied this message's own requested_hz if it carried one —
+                // every study "start" does (ServerCommandListener.watchPayload
+                // always attaches the phone's current setting), and that live
+                // value is more authoritative than a saved pre-focus rate.
+                // Only fall back to the saved rate when this message carried
+                // no explicit one, so an explicit rate is never clobbered by
+                // a stale preFocusHz.
+                let hasExplicitHz = WatchPayloadValue.double(message[WatchPayloadKey.requestedHz])
+                    .map(CaptureSettings.isValidHz) ?? false
+                if hasExplicitHz {
+                    preFocusHz = nil
+                } else {
+                    restorePreFocusRateIfNeeded()
+                }
                 start(sessionId: sid)
             } else if let sid, !sid.isEmpty, !fromPoll {
                 serverSessionId = sid
@@ -1140,8 +1173,20 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
     // read of a share-authorization decision already made, for the same
     // `workoutType()` requested below — it reports "already granted", not
     // "grant it now".
+    //
+    // Three statuses, three meanings:
+    // - `.sharingAuthorized` — already granted. Proceed.
+    // - `.notDetermined` — never asked. NOT a refusal: the user hasn't said
+    //   anything yet, and starting is what triggers `requestAuthorization`'s
+    //   prompt (via `startWorkoutSessionIfNeeded()` inside `start()`). Blocking
+    //   here would mean a first-ever focus session could never start, since
+    //   asking only happens once a session is already underway. Proceed and
+    //   let that request prompt or fail on its own.
+    // - `.sharingDenied` — explicit refusal. The one case that must actually
+    //   block: without a workout session the stream dies on wrist-lower, and
+    //   a denied prompt will never grant itself on a later attempt.
     private var isHealthKitAuthorized: Bool {
-        healthStore.authorizationStatus(for: HKObjectType.workoutType()) == .sharingAuthorized
+        healthStore.authorizationStatus(for: HKObjectType.workoutType()) != .sharingDenied
     }
 
     private func startWorkoutSessionIfNeeded() {
