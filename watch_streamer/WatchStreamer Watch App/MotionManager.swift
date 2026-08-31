@@ -901,7 +901,7 @@ extension MotionManager: WCSessionDelegate {
         guard let raw = message[WatchPayloadKey.command] as? String,
               let command = WatchCommandName(rawValue: raw), command.isDiagnostic else {
             return [WatchPayloadKey.ok: false,
-                    WatchPayloadKey.error: "not a diagnostic command"]
+                    WatchPayloadKey.error: "Kein Diagnose-Befehl"]
         }
         let commandId = message[WatchPayloadKey.commandID] as? String ?? ""
 
@@ -917,7 +917,7 @@ extension MotionManager: WCSessionDelegate {
             reply = WatchParityCheck.run()
         default:
             return [WatchPayloadKey.ok: false,
-                    WatchPayloadKey.error: "not a diagnostic command"]
+                    WatchPayloadKey.error: "Kein Diagnose-Befehl"]
         }
         reply[WatchPayloadKey.command] = raw
         reply[WatchPayloadKey.commandID] = commandId
@@ -1019,7 +1019,7 @@ extension MotionManager: WCSessionDelegate {
             ]
         default:
             return [WatchPayloadKey.ok: false,
-                    WatchPayloadKey.error: "not a focus command"]
+                    WatchPayloadKey.error: "Kein Fokus-Befehl"]
         }
     }
 
@@ -1150,7 +1150,7 @@ extension MotionManager: WCSessionDelegate {
             return [
                 WatchPayloadKey.ok: false,
                 WatchPayloadKey.command: command,
-                WatchPayloadKey.error: "diagnostic command requires a direct reply",
+                WatchPayloadKey.error: "Diagnose-Befehl braucht eine direkte Antwort",
             ]
         case "clear_spill":
             // Destruktiv: Spill verwerfen. clearSpill() weigert sich, wenn

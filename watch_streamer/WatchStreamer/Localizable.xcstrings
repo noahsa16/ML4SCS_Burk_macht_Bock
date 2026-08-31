@@ -501,6 +501,16 @@
         }
       }
     },
+    "Das Modell konnte nicht geladen werden." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The model could not be loaded."
+          }
+        }
+      }
+    },
     "Daten exportieren" : {
       "localizations" : {
         "en" : {

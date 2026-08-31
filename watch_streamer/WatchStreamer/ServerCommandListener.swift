@@ -495,7 +495,7 @@ class ServerCommandListener: NSObject, ObservableObject {
     static func probeStartStatus(from reply: [String: Any]) -> String {
         let ok = WatchPayloadValue.bool(reply[WatchPayloadKey.ok]) ?? false
         guard ok else {
-            let error = reply[WatchPayloadKey.error] as? String ?? "unknown error"
+            let error = reply[WatchPayloadKey.error] as? String ?? "Unbekannter Fehler"
             if let remaining = WatchPayloadValue.double(reply["remainingSeconds"]) {
                 return "\(error) — noch \(Int(remaining.rounded())) s"
             }

@@ -330,7 +330,7 @@ final class FocusSessionStore: ObservableObject {
             do {
                 classifier = try injected ?? makeClassifier()
             } catch {
-                let message = "model unavailable: \(error)"
+                let message = String(localized: "Das Modell konnte nicht geladen werden.") + " \(error)"
                 loadFailureMessage = message
                 failWhileRunning(message)
                 return
