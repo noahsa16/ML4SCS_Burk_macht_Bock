@@ -360,6 +360,14 @@ class ServerCommandListener: NSObject, ObservableObject {
                 FocusSessionStore.shared.watchWorkoutFailed()
             }
         }
+        // Why here, unconditionally: this poll is the only way back after a
+        // force-quit — the store holds no copy of a running session, and the
+        // Watch is the side that survived. A no-op unless the store is idle
+        // and the Watch reports `focus`, so this costs nothing on every other
+        // poll.
+        DispatchQueue.main.async {
+            FocusSessionStore.shared.adoptIfWatchIsInFocus(poll: message)
+        }
         confirmCommandFromWatchPoll(command: command,
                                     watchRunning: watchRunning,
                                     watchSessionId: watchSessionId,

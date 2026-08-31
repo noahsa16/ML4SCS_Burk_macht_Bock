@@ -327,6 +327,33 @@ final class FocusSessionStore: ObservableObject {
         phase = .idle
     }
 
+    /// Picks a session back up that the Watch is still running — after a
+    /// force-quit, a crash, or simply the app being killed in the background.
+    ///
+    /// Why no goal is restored: the target lives only in the phone's UI, and
+    /// the store is in-memory on purpose. An adopted session is a goalless
+    /// one, which is honest — nobody can say what was chosen before.
+    ///
+    /// Only from `.idle`: a running or starting session must not be reset by
+    /// a later poll, and a `.failed`/`.finished` phase is still showing its
+    /// outcome — a poll that arrives while that screen is up must not
+    /// silently swap it out for a resumed session.
+    ///
+    /// A start older than the cap is refused rather than adopted: the cap
+    /// should already have ended a session that old, so showing it running
+    /// would contradict the guarantee the cap exists to make. `begin(at:)`
+    /// still schedules the cap from the real, backdated start (see
+    /// `scheduleHardStop`), so a session adopted close to its deadline ends
+    /// close to that deadline, not a fresh cap later.
+    func adoptIfWatchIsInFocus(poll: [String: Any], now: Date = Date()) {
+        guard case .idle = phase,
+              CaptureMode.from(poll: poll) == .focus,
+              let startedMs = CaptureMode.focusStartedAtMs(poll: poll) else { return }
+        let startedAt = Date(timeIntervalSince1970: Double(startedMs) / 1000)
+        guard now.timeIntervalSince(startedAt) < hardCapSeconds else { return }
+        begin(targetSeconds: nil, at: startedAt)
+    }
+
     /// Feeds samples handed over by `PhoneBridge` while a session runs.
     ///
     /// Windows off each sample's own `timestamp` — no synthetic clock. A gap
@@ -423,11 +450,16 @@ final class FocusSessionStore: ObservableObject {
     private func scheduleHardStop(from start: Date) {
         hardStopTask?.cancel()
         let cap = max(0, hardCapSeconds)
+        // Why not sleep the full cap unconditionally: `start` can be backdated
+        // (adopting a session the Watch already ran for a while), and sleeping
+        // the whole cap from the moment of scheduling would buy an adopted
+        // session a second full cap's worth of wall-clock runtime.
+        let remaining = max(0, cap - Date().timeIntervalSince(start))
         // Why the store owns this task and not the screen: the cap is a
         // battery guarantee, and the session outlives the screen — closing
         // the page leaves the Watch streaming.
         hardStopTask = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(cap * 1_000_000_000))
+            try? await Task.sleep(nanoseconds: UInt64(remaining * 1_000_000_000))
             guard !Task.isCancelled else { return }
             self?.end(at: start.addingTimeInterval(cap), reason: .hardCap)
         }

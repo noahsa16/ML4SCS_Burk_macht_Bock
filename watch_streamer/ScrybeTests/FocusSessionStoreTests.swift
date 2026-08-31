@@ -804,4 +804,135 @@ struct FocusSessionStoreTests {
         #expect(!store.isActive)
         #expect(store.finishReason == .hardCap)
     }
+
+    // MARK: - Resuming a session the Watch is still running
+
+    /// Why the Watch and not a stored copy: the store is in-memory on
+    /// purpose, and the Watch owns the sensor — it is the side that
+    /// survives the force-quit this exists for.
+    @Test func aFocusPollResumesTheSession() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary)
+
+        let startedAt = Date().addingTimeInterval(-300)
+        let poll: [String: Any] = [
+            WatchPayloadKey.Status.captureMode: "focus",
+            WatchPayloadKey.Status.focusStartedAtMs:
+                Int64(startedAt.timeIntervalSince1970 * 1000),
+        ]
+        store.adoptIfWatchIsInFocus(poll: poll)
+
+        guard case .running(let resumed, _) = store.phase else {
+            Issue.record("expected running, got \(store.phase)"); return
+        }
+        #expect(abs(resumed.timeIntervalSince(startedAt)) < 1)
+    }
+
+    /// A study recording must not be adopted as a focus session.
+    @Test func aRecordingPollIsNotAdopted() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary)
+
+        store.adoptIfWatchIsInFocus(poll: [WatchPayloadKey.Status.captureMode: "recording"])
+        #expect(!store.isActive)
+    }
+
+    /// Adopting on top of a live session would restart its clock.
+    @Test func adoptingDoesNothingWhileASessionRuns() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary)
+
+        store.beginForTesting(targetSeconds: 1500)
+        guard case .running(let original, _) = store.phase else {
+            Issue.record("expected running"); return
+        }
+        let poll: [String: Any] = [
+            WatchPayloadKey.Status.captureMode: "focus",
+            WatchPayloadKey.Status.focusStartedAtMs: Int64(0),
+        ]
+        store.adoptIfWatchIsInFocus(poll: poll)
+
+        guard case .running(let after, _) = store.phase else {
+            Issue.record("expected running"); return
+        }
+        #expect(after == original)
+    }
+
+    /// A poll must not overwrite a session that already finished and is
+    /// still showing its outcome — the picker only reopens once the user
+    /// leaves that screen (`returnToIdle`).
+    @Test func adoptingDoesNothingWhileASessionIsFinished() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary, stopOnWatch: { .stopped })
+
+        store.beginForTesting(targetSeconds: 1500)
+        store.end()
+        guard case .finished(let outcome) = store.phase else {
+            Issue.record("expected finished, got \(store.phase)"); return
+        }
+
+        let poll: [String: Any] = [
+            WatchPayloadKey.Status.captureMode: "focus",
+            WatchPayloadKey.Status.focusStartedAtMs: Int64(0),
+        ]
+        store.adoptIfWatchIsInFocus(poll: poll)
+
+        #expect(store.phase == .finished(outcome))
+    }
+
+    /// A start older than the cap would already have ended the session on
+    /// its own; adopting it would show one the cap should have closed.
+    @Test func aStaleFocusStartIsNotAdopted() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary)
+
+        let startedAt = Date().addingTimeInterval(-(FocusSessionStore.hardCapSeconds + 60))
+        let poll: [String: Any] = [
+            WatchPayloadKey.Status.captureMode: "focus",
+            WatchPayloadKey.Status.focusStartedAtMs:
+                Int64(startedAt.timeIntervalSince1970 * 1000),
+        ]
+        store.adoptIfWatchIsInFocus(poll: poll)
+
+        #expect(store.phase == .idle)
+        #expect(!store.isActive)
+    }
+
+    /// The cap must be scheduled from the real, backdated start — not from
+    /// the moment of adoption. A buggy `scheduleHardStop` that always sleeps
+    /// the full cap from "now" would let a session adopted just short of its
+    /// deadline run for a fresh cap's length again; this pins the correct
+    /// behaviour by giving it a tiny amount of runway relative to a much
+    /// longer cap and proving it still ends promptly.
+    // Why hardCapSeconds 1.0s + two settle() (0.3s, well above the ~0.05s
+    // runway left but far short of the full 1.0s cap): mirrors this file's
+    // margin convention (`capStopsTheWatchOnItsOwn`) while still
+    // discriminating a full-cap-from-adoption bug, which would still be
+    // running at the 0.3s mark.
+    @Test func adoptionSchedulesTheCapFromTheRealStart() async {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: 1.0,
+                                      stopOnWatch: { .stopped })
+
+        let startedAt = Date().addingTimeInterval(-0.95)
+        let poll: [String: Any] = [
+            WatchPayloadKey.Status.captureMode: "focus",
+            WatchPayloadKey.Status.focusStartedAtMs:
+                Int64(startedAt.timeIntervalSince1970 * 1000),
+        ]
+        store.adoptIfWatchIsInFocus(poll: poll)
+        #expect(store.isActive)
+
+        await settle()
+        await settle()
+
+        #expect(!store.isActive)
+        #expect(store.finishReason == .hardCap)
+    }
 }
