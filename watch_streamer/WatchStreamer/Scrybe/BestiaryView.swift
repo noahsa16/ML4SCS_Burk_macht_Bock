@@ -36,9 +36,7 @@ private struct CreatureCell: View {
     let entry: BestiaryEntry
     @Environment(\.scrybe) private var theme
 
-    private var speciesName: String {
-        Marginalia.names.indices.contains(entry.speciesId) ? Marginalia.names[entry.speciesId] : ""
-    }
+    private var speciesName: String { Marginalia.name(forSpecies: entry.speciesId) }
 
     var body: some View {
         VStack(spacing: 8) {
@@ -77,38 +75,6 @@ private struct CreatureCell: View {
             return "\(speciesName), fertig am \(DateFormatting.dayMonth(ms: completedMs))"
         }
         return "\(speciesName), im Entstehen"
-    }
-}
-
-/// Draws a creature's first `strokesDrawn` strokes, scaled into the cell.
-///
-/// Density-matched line width, so a species traced in two hundred strokes
-/// gets a finer pen than one traced in twenty — at a fixed width the detail
-/// of a dense creature would weld into a blob (mirrors
-/// `tools/render_marginalia.swift`'s renderer, boost included: below the
-/// tool's own 100pt reference size the same line reads too faint, so it's
-/// widened back up rather than left to fade with the cell).
-private struct CreatureCanvas: View {
-    let speciesId: Int
-    let strokesDrawn: Int
-    @Environment(\.scrybe) private var theme
-
-    var body: some View {
-        Canvas { context, size in
-            let strokes = Marginalia.strokes(forSpecies: speciesId)
-            guard !strokes.isEmpty, strokesDrawn > 0 else { return }
-            let side = min(size.width, size.height)
-            context.translateBy(x: (size.width - side) / 2, y: (size.height - side) / 2)
-            // The line width below is defined in this 100-unit box; scaling
-            // the coordinate system rather than the paths lets it shrink
-            // with the cell the same way it shrinks with stroke density.
-            context.scaleBy(x: side / 100, y: side / 100)
-            let base = max(0.9, 2.6 - CGFloat(strokes.count) * 0.03)
-            let lineWidth = base * (side < 100 ? 1.6 : 1)
-            for path in strokes.prefix(strokesDrawn) {
-                context.stroke(path, with: .color(theme.secondaryInk), lineWidth: lineWidth)
-            }
-        }
     }
 }
 
