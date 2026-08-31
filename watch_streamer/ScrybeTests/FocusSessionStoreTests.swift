@@ -536,15 +536,20 @@ struct FocusSessionStoreTests {
     /// Why an injected cap: the shipped value is two hours. Testing the
     /// behaviour against the constant would cost that long per run, so the
     /// test proves the mechanism and the device check proves the number.
-    @Test func sessionEndsAtTheInjectedCap() async throws {
+    // Why: the margin follows `capStopsTheWatchOnItsOwn` (cap 0.05s, two
+    // settle() = 0.3s wait, 6x) rather than the brief's tighter 2x — the
+    // mechanism under test is itself a Task.sleep plus a MainActor hop, and
+    // shrinking this back invites flakiness.
+    @Test func sessionEndsAtTheInjectedCap() async {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: 0.2)
+        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: 0.05)
 
         store.beginForTesting(targetSeconds: 3600)
         #expect(store.isActive)
 
-        try await Task.sleep(nanoseconds: 400_000_000)
+        await settle()
+        await settle()
         #expect(!store.isActive)
     }
 
