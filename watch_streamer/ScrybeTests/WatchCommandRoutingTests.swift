@@ -102,12 +102,12 @@ struct WatchCommandRoutingTests {
 /// The refusal has to survive the trip to the phone, because the phone is what
 /// tells the user which of the two preconditions failed — and the two ask
 /// opposite things: end the recording, versus grant a permission.
-@Suite("Focus start outcome")
-struct FocusStartOutcomeTests {
+@Suite("Focus command outcome decoding")
+struct FocusCommandOutcomeTests {
 
     // Pins wire format to enum. `replyForStart` writes the string and
     // `FocusStartOutcome.from` reads it back; a literal edited on one side
-    // only would silently degrade every refusal to `.noAnswer`.
+    // only would silently degrade every refusal to `.unconfirmed`.
     @Test("every refusal the policy can emit decodes back into its case")
     func refusalsRoundTrip() {
         let cases: [(isRecording: Bool, authorized: Bool, expected: FocusStartRefusal)] = [
@@ -140,7 +140,7 @@ struct FocusStartOutcomeTests {
     // `ok` crosses the same WatchConnectivity round trip as the six channel
     // values, so it can surface as Int or NSNumber rather than Bool. Read with
     // a naive `as? Bool`, an accepted start would decode as a refusal with no
-    // reason — `.noAnswer` — and the session would never begin.
+    // reason — `.unconfirmed` — and the session would never begin.
     @Test("an accepted start decodes whatever shape the transport gave `ok`")
     func acceptedStartSurvivesTheTransport() {
         #expect(FocusStartOutcome.from(reply: [WatchPayloadKey.ok: 1]) == .started)
@@ -150,11 +150,13 @@ struct FocusStartOutcomeTests {
 
     // A refusal this build cannot name is not a refusal it may misreport: the
     // user gets the generic message rather than one of the two specific ones.
+    // Both cases decode as `.unconfirmed`, never `.unreachable` — a reply
+    // that did arrive says nothing about reachability, known or unknown.
     @Test("an unknown or absent reason is not reported as a known refusal")
     func unknownReasonFallsBack() {
-        #expect(FocusStartOutcome.from(reply: [:]) == .noAnswer)
+        #expect(FocusStartOutcome.from(reply: [:]) == .unconfirmed)
         #expect(FocusStartOutcome.from(reply: [WatchPayloadKey.ok: false,
-                                               WatchPayloadKey.error: "something new"]) == .noAnswer)
+                                               WatchPayloadKey.error: "something new"]) == .unconfirmed)
     }
 
     // One number, two enforcers. The Watch caps the session independently

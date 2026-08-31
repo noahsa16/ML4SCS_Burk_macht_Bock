@@ -81,6 +81,16 @@
         }
       }
     },
+    "Die Uhr hat nicht rechtzeitig geantwortet." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The watch did not answer in time."
+          }
+        }
+      }
+    },
     "Die Uhr misst, das iPhone zeichnet mit. Deine Schreibzeit zählt weiterhin der Tagestracker." : {
       "localizations" : {
         "en" : {

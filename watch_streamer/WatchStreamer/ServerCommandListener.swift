@@ -415,7 +415,7 @@ class ServerCommandListener: NSObject, ObservableObject {
             let deadline = DispatchWorkItem {
                 guard !resumed else { return }
                 resumed = true
-                continuation.resume(returning: .noAnswer)
+                continuation.resume(returning: .unconfirmed)
             }
             DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)
             forwardToWatch([WatchPayloadKey.command: WatchCommandName.focusStart.rawValue,
@@ -423,7 +423,15 @@ class ServerCommandListener: NSObject, ObservableObject {
                 guard !resumed else { return }
                 resumed = true
                 deadline.cancel()
-                continuation.resume(returning: FocusStartOutcome.from(reply: reply))
+                // Why checked here rather than in `FocusStartOutcome.from`: a
+                // transport failure never produced a reply to decode — this
+                // is `forwardToWatch` reporting its own error handler firing,
+                // not the Watch answering with something unrecognised.
+                if WatchPayloadValue.bool(reply[WatchPayloadKey.transportFailure]) ?? false {
+                    continuation.resume(returning: .unreachable)
+                } else {
+                    continuation.resume(returning: FocusStartOutcome.from(reply: reply))
+                }
             }
         }
     }
@@ -720,6 +728,7 @@ class ServerCommandListener: NSObject, ObservableObject {
                 onReply?([
                     WatchPayloadKey.ok: false,
                     WatchPayloadKey.command: command,
+                    WatchPayloadKey.transportFailure: true,
                     WatchPayloadKey.error:
                         "Watch unreachable (\(error.localizedDescription)); "
                         + "the query did not run"

@@ -113,6 +113,10 @@ public enum WatchPayloadKey {
     public static let type = "type"
     public static let ok = "ok"
     public static let error = "error"
+    /// Marks a reply `forwardToWatch` fabricates itself when `sendMessage`'s
+    /// error handler fires: the command never reached the Watch, as opposed
+    /// to a reply the Watch sent that this build merely does not recognise.
+    public static let transportFailure = "transport_failure"
     public static let requestedHz = "requested_hz"
     public static let batchSize = "batch_size"
     public static let durationSeconds = "duration_seconds"
@@ -224,16 +228,23 @@ public nonisolated enum FocusStartRefusal: String, Sendable, CaseIterable {
 public nonisolated enum FocusStartOutcome: Equatable, Sendable {
     case started
     case refused(FocusStartRefusal)
-    /// No usable answer: the deadline passed, the transport failed, or the
-    /// Watch refused for a reason this build does not recognise.
-    case noAnswer
+    /// The deadline passed, or the Watch refused for a reason this build does
+    /// not recognise. Says nothing about reachability in either direction.
+    case unconfirmed
+    /// WatchConnectivity reported a transport failure. The request did not
+    /// arrive.
+    case unreachable
 
     /// Reads the Watch's reply. Lives here rather than in the caller so the
     /// decode is testable without WatchConnectivity.
+    ///
+    /// Never produces `.unreachable`: that case names a transport failure,
+    /// which by definition leaves no reply for this to read. The caller
+    /// detects it before a reply dictionary exists to hand here.
     public static func from(reply: [String: Any]) -> FocusStartOutcome {
         guard WatchPayloadValue.bool(reply[WatchPayloadKey.ok]) ?? false else {
             let raw = reply[WatchPayloadKey.error] as? String ?? ""
-            guard let refusal = FocusStartRefusal(rawValue: raw) else { return .noAnswer }
+            guard let refusal = FocusStartRefusal(rawValue: raw) else { return .unconfirmed }
             return .refused(refusal)
         }
         return .started

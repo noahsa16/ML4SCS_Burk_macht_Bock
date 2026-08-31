@@ -284,7 +284,9 @@ struct FocusSessionView: View {
                 session.begin(targetSeconds: Double(targetMinutes) * 60)
             case .refused(let refusal):
                 session.failToStart(refusal.message)
-            case .noAnswer:
+            case .unconfirmed:
+                session.failToStart(String(localized: "Die Uhr hat nicht rechtzeitig geantwortet."))
+            case .unreachable:
                 session.failToStart(String(localized: "Die Uhr hat nicht geantwortet. Prüfe, ob sie in Reichweite ist."))
             }
         }
