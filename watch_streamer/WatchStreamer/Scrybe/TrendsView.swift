@@ -42,11 +42,9 @@ struct TrendsView: View {
                     if focus.watchUnreachable {
                         OfflineBanner(lastUpdated: focus.lastUpdated)
                     }
-                    Picker("Zeitraum", selection: $range) {
-                        ForEach(TrendRange.allCases) { Text(LocalizedStringKey($0.rawValue)).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
+                    SerifSegmentedControl(
+                        options: TrendRange.allCases.map { ($0, $0.rawValue) },
+                        selection: $range)
                     if !hasAnyData {
                         Text("Deine Trends füllen sich mit den ersten Tagen.")
                             .font(.subheadline)
@@ -90,7 +88,10 @@ struct TrendsView: View {
     private var streakCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: "flame.fill").foregroundStyle(theme.sepia)
+                ScrybeGlyphShape(glyph: .streak)
+                    .stroke(style: StrokeStyle(lineWidth: 1.4, lineCap: .round))
+                    .frame(width: 16, height: 16)
+                    .foregroundStyle(theme.sepia)
                 Text("\(focus.streak)")
                     .font(.system(.largeTitle, design: .serif).weight(.semibold))
                     .foregroundStyle(theme.ink)
