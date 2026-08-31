@@ -980,6 +980,7 @@ extension MotionManager: WCSessionDelegate {
                 >= FocusCommandPolicy.sessionCapSeconds
         else { return false }
         focusSessionStartedUptime = nil
+        focusSessionStartedAtMs = nil
         stop()
         status = "Focus session capped"
         return true
