@@ -93,8 +93,7 @@ struct HistoryView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "list.bullet.rectangle")
-                .font(.largeTitle).foregroundStyle(theme.mutedInk)
+            EmptyPageVignette()
             Text("Deine Sessions erscheinen hier, sobald die erste Aufnahme läuft.")
                 .font(.subheadline).foregroundStyle(theme.secondaryInk)
                 .multilineTextAlignment(.center).padding(.horizontal, 40)
