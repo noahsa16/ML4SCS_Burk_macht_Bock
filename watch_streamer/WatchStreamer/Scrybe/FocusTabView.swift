@@ -1,29 +1,10 @@
 import SwiftUI
 import UIKit
 
-/// When the page's line tears.
-///
-/// Only a `.lift` at the end of the page counts, and only with ink before it:
-/// a `.resting` gap is the thinking pause the three-state line exists to draw
-/// as continuous, and a session that opens with a pause tears nothing.
-enum FocusPageTear {
-    static func occurred(previousLastKind: FocusSegmentKind?,
-                         segments: [FocusSegment]) -> Bool {
-        guard previousLastKind != .lift,
-              segments.count >= 2,
-              segments.last?.kind == .lift else { return false }
-        return segments[segments.count - 2].kind == .ink
-    }
-}
-
-/// A deliberately started writing session: the Watch measures, the page fills.
-///
-/// The session lives in `FocusSessionStore`, not here. Closing this screen
-/// leaves it running — which is why the entry point on `TodayView` says so and
-/// why the hard cap is the store's task, not the view's.
-struct FocusSessionView: View {
-    let onClose: () -> Void
-
+/// The focus area. Owns the tab's `NavigationStack` — `HistoryView` and
+/// `BestiaryView` give theirs up, because a pushed stack inside a stack
+/// produces two navigation bars and an unpredictable back gesture.
+struct FocusTabView: View {
     @ObservedObject private var session = FocusSessionStore.shared
     @Environment(\.scrybe) private var theme
 
@@ -31,22 +12,24 @@ struct FocusSessionView: View {
     /// screen and the one a reader at arm's length actually reads.
     @ScaledMetric(relativeTo: .largeTitle) private var sessionClockSize: CGFloat = 44
 
-    @State private var targetMinutes = 25
+    @State private var startOutcome: FocusOutcomeView.Outcome?
+    @State private var lastRequested: Double?
     @State private var lastSegmentKind: FocusSegmentKind?
-
-    private static let targetChoices = [15, 25, 45]
 
     var body: some View {
         let segments = session.segments
-        return VStack(spacing: 0) {
-            topBar
+        NavigationStack {
             ScrollView {
                 content(segments: segments)
                     .padding(.horizontal, 16)
                     .padding(.bottom, 24)
             }
+            .background { theme.paper.ignoresSafeArea() }
+            .navigationDestination(for: BestiaryDestination.self) { _ in
+                BestiaryView()
+            }
         }
-        .background { theme.paper.ignoresSafeArea() }
+        .toolbar(session.isActive ? .hidden : .visible, for: .tabBar)
         .onChange(of: segments.last?.kind) { kind in
             if FocusPageTear.occurred(previousLastKind: lastSegmentKind, segments: segments) {
                 UIImpactFeedbackGenerator(style: .soft).impactOccurred()
@@ -55,88 +38,36 @@ struct FocusSessionView: View {
         }
     }
 
-    private var topBar: some View {
-        HStack(spacing: 0) {
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(theme.secondaryInk)
-                    .frame(width: 44, height: 44)
-            }
-            .accessibilityLabel(Text("Schließen"))
-            Spacer()
-            Text("Fokus-Sitzung")
-                .font(.system(.headline, design: .serif))
-                .foregroundStyle(theme.ink)
-            Spacer()
-            // Balances the close button so the title stays centred.
-            Color.clear.frame(width: 44, height: 44)
-        }
-        .padding(.horizontal, 8)
-    }
-
     @ViewBuilder
     private func content(segments: [FocusSegment]) -> some View {
-        switch session.phase {
-        case .idle:
-            picker
-        case .starting:
-            starting
-        case .running(let startedAt, let targetSeconds):
-            // Why a TimelineView: the session clock and the pen tip both run
-            // on wall-clock time, while the decisions behind them arrive every
-            // 2.5 s. A per-second tick keeps the two honest about the lag.
-            TimelineView(.periodic(from: startedAt, by: 1)) { context in
-                running(segments: segments, startedAt: startedAt,
-                        targetSeconds: targetSeconds, now: context.date)
-            }
-        case .failed(let message):
-            failure(message)
-        case .finished(let entry):
-            finished(segments: segments, entry: entry)
-        }
-    }
-
-    // MARK: - Idle
-
-    private var picker: some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 8) {
-                Text("Wie lange willst du schreiben?")
-                    .font(.system(.title3, design: .serif))
-                    .foregroundStyle(theme.ink)
-                    .multilineTextAlignment(.center)
-                Text("Die Uhr misst, das iPhone zeichnet mit. Deine Schreibzeit zählt weiterhin der Tagestracker.")
-                    .font(.footnote)
-                    .foregroundStyle(theme.secondaryInk)
-                    .multilineTextAlignment(.center)
-            }
-            HStack(spacing: 12) {
-                ForEach(Self.targetChoices, id: \.self) { minutes in
-                    targetChip(minutes)
+        if let startOutcome {
+            FocusOutcomeView(outcome: startOutcome,
+                             onRetry: {
+                                 self.startOutcome = nil
+                                 start(seconds: lastRequested)
+                             },
+                             onDismiss: { self.startOutcome = nil })
+                .padding(.top, 24)
+        } else {
+            switch session.phase {
+            case .idle:
+                FocusReadyView(onStart: start(seconds:))
+            case .starting:
+                starting
+            case .running(let startedAt, let targetSeconds):
+                // Why a TimelineView: the session clock and the pen tip both run
+                // on wall-clock time, while the decisions behind them arrive every
+                // 2.5 s. A per-second tick keeps the two honest about the lag.
+                TimelineView(.periodic(from: startedAt, by: 1)) { context in
+                    running(segments: segments, startedAt: startedAt,
+                            targetSeconds: targetSeconds, now: context.date)
                 }
+            case .failed(let message):
+                failure(message)
+            case .finished(let entry):
+                finished(segments: segments, entry: entry)
             }
-            primaryButton("Sitzung starten", action: startSession)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity)
-        .scrybeSurface(cornerRadius: 16)
-        .padding(.top, 24)
-    }
-
-    private func targetChip(_ minutes: Int) -> some View {
-        let selected = minutes == targetMinutes
-        return Button { targetMinutes = minutes } label: {
-            Text("\(minutes) Min")
-                .font(.system(.body, design: .serif))
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(selected ? theme.ink : theme.secondaryInk)
-        .background(selected ? theme.wash(theme.accent) : theme.track,
-                    in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 
     // MARK: - Starting
@@ -162,10 +93,15 @@ struct FocusSessionView: View {
                     .font(.system(size: sessionClockSize, weight: .regular, design: .serif))
                     .monospacedDigit()
                     .foregroundStyle(theme.ink)
-                // Why no fallback line for `nil`: a goalless session has
-                // nothing here to say — the clock above is the whole story.
+                // Why the start time when there is no goal: a goalless session
+                // has no "of 25 min" to state, but when it began is still the
+                // one fact the clock alone cannot give back.
                 if let targetSeconds {
                     Text("von \(TimeFormatting.human(seconds: targetSeconds))")
+                        .font(.footnote)
+                        .foregroundStyle(theme.secondaryInk)
+                } else {
+                    Text("seit \(startedAt.formatted(date: .omitted, time: .shortened))")
                         .font(.footnote)
                         .foregroundStyle(theme.secondaryInk)
                 }
@@ -216,8 +152,12 @@ struct FocusSessionView: View {
                 .font(.system(.title3, design: .serif))
                 .foregroundStyle(theme.ink)
 
-            if session.stopUnconfirmed {
-                Label("Die Uhr hat den Stopp nicht bestätigt.", systemImage: "exclamationmark.triangle")
+            // Why a banner and not a screen of its own: the written page IS the
+            // outcome of an ordinary ending, and an exceptional reason is a
+            // remark about that page, not a replacement for it.
+            if let reason = session.finishReason, reason != .user, reason != .hardCap {
+                Label(FocusOutcomeView.Outcome.finished(reason).detail,
+                      systemImage: "exclamationmark.triangle")
                     .font(.footnote)
                     .foregroundStyle(theme.warning)
             }
@@ -225,6 +165,7 @@ struct FocusSessionView: View {
             primaryButton("Fertig") { session.returnToIdle() }
         }
         .padding(.top, 16)
+        .animation(.easeInOut(duration: 0.25), value: session.finishReason)
     }
 
     /// `29. August · 14:31–15:06` — what makes the page a document (Spec §6).
@@ -273,26 +214,33 @@ struct FocusSessionView: View {
         .background(theme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    private func startSession() {
+    private func start(seconds: Double?) {
+        lastRequested = seconds
         session.markStarting()
-        // Why an unstructured task: dismissing this screen must not abandon a
+        // Why an unstructured task: leaving this screen must not abandon a
         // start the Watch may already have accepted. The store owns the
         // session; this view only asks for it.
         Task {
             switch await ServerCommandListener.shared.startFocusSession() {
             case .started:
-                session.begin(targetSeconds: Double(targetMinutes) * 60)
+                session.begin(targetSeconds: seconds)
             case .refused(let refusal):
-                session.failToStart(refusal.message)
+                startOutcome = .refused(refusal)
+                session.returnToIdle()
             case .unconfirmed:
-                session.failToStart(String(localized: "Die Uhr hat nicht rechtzeitig geantwortet."))
+                startOutcome = .unconfirmed
+                session.returnToIdle()
             case .unreachable:
-                session.failToStart(String(localized: "Die Uhr hat nicht geantwortet. Prüfe, ob sie in Reichweite ist."))
+                startOutcome = .unreachable
+                session.returnToIdle()
             }
         }
     }
 }
 
+/// A push target with no payload; the gallery reads the shared store.
+struct BestiaryDestination: Hashable {}
+
 #Preview {
-    FocusSessionView(onClose: {}).scrybeTheme()
+    FocusTabView().scrybeTheme()
 }

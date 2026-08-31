@@ -18,22 +18,18 @@ struct HistoryView: View {
     
 
     var body: some View {
-        NavigationStack {
-            // One container for both states, so an empty Verlauf can be pulled
-            // to refresh — it is exactly the screen a new user waits on.
-            InkRefreshScroll(action: { await focus.refreshForPull() }) {
-                VStack(spacing: 0) {
-                    // The "your sessions will appear here" hint would sit
-                    // directly above an already-populated collection
-                    // otherwise — show it only when there is truly nothing
-                    // on the screen yet.
-                    if activeDays.isEmpty && bestiary.visible.isEmpty { emptyState } else { days }
-                    BestiaryView()
-                }
+        // One container for both states, so an empty Verlauf can be pulled
+        // to refresh — it is exactly the screen a new user waits on.
+        InkRefreshScroll(action: { await focus.refreshForPull() }) {
+            VStack(spacing: 0) {
+                // The "your sessions will appear here" hint would sit
+                // directly above an already-populated collection
+                // otherwise — show it only when there is truly nothing
+                // on the screen yet.
+                if activeDays.isEmpty { emptyState } else { days }
             }
-            .background { theme.paper.ignoresSafeArea() }
-            .navigationDestination(for: String.self) { DayDetailView(date: $0) }
         }
+        .background { theme.paper.ignoresSafeArea() }
     }
 
     // Why a LazyVStack and not a List: the ink pull-to-refresh has to measure

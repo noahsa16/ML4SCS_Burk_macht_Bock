@@ -321,6 +321,26 @@
         }
       }
     },
+    "Fokus" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Focus"
+          }
+        }
+      }
+    },
+    "Fokus läuft — öffnen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Focus running — open"
+          }
+        }
+      }
+    },
     "Fokus-Sitzung" : {
       "localizations" : {
         "en" : {
@@ -471,6 +491,16 @@
         }
       }
     },
+    "Verlauf öffnen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Open history"
+          }
+        }
+      }
+    },
     "Wie lange willst du schreiben?" : {
       "localizations" : {
         "en" : {
@@ -517,6 +547,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "just write"
+          }
+        }
+      }
+    },
+    "seit %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "since %@"
           }
         }
       }

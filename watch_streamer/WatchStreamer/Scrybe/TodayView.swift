@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct TodayView: View {
+    @Binding var selection: RootPagerView.Tab
     @ObservedObject private var focus = FocusStore.shared
     @ObservedObject private var session = FocusSessionStore.shared
     @AppStorage(ScrybeSettings.goalKey) private var goalSeconds: Double = ScrybeSettings.defaultGoalSeconds
@@ -12,7 +13,6 @@ struct TodayView: View {
     @State private var celebrating = false
     @State private var shineOn = false
     @State private var celebrationTask: Task<Void, Never>?
-    @State private var focusPresented = false
     /// Non-nil only while a pull is either armed to harvest or actively
     /// sweeping in what it harvested; every other fraction change
     /// (background ingest outside a pull, session end, day rollover) falls
@@ -71,11 +71,6 @@ struct TodayView: View {
             .frame(maxWidth: .infinity)
         }
         .background { theme.paper.ignoresSafeArea() }
-        .fullScreenCover(isPresented: $focusPresented) {
-            ScrybeThemeProvider {
-                FocusSessionView(onClose: { focusPresented = false })
-            }
-        }
         .onChange(of: isWriting) { _ in updatePulse() }
         .onChange(of: goalMet) { met in handleGoal(met) }
         .onAppear { updatePulse(); celebrated = goalMet }
@@ -113,37 +108,34 @@ struct TodayView: View {
         }
     }
 
-    /// Opens the focus session, and reports one that is already running.
+    /// Reports a running session and leads to it.
     ///
-    /// The session outlives its own screen — closing that screen leaves the
-    /// Watch streaming — so this row is where a running one is found again.
+    /// The session outlives its own screen — leaving the tab keeps the Watch
+    /// streaming — so this line is where a running one is found again. It says
+    /// nothing while none is running: the focus tab is one tap away regardless.
+    @ViewBuilder
     private var focusSessionEntry: some View {
-        Button { focusPresented = true } label: {
-            HStack(spacing: 12) {
-                Image(systemName: "pencil.line")
-                    .font(.title3)
-                    .foregroundStyle(theme.accent)
-                VStack(alignment: .leading, spacing: 2) {
-                    if session.isActive {
-                        Text("Sitzung läuft").font(.headline)
-                    } else {
-                        Text("Fokus-Sitzung").font(.headline)
-                    }
-                    Text("Die Uhr misst, die Seite füllt sich.")
-                        .font(.caption)
-                        .foregroundStyle(theme.secondaryInk)
+        if session.isActive {
+            Button { selection = .focus } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "pencil.line")
+                        .font(.footnote)
+                        .foregroundStyle(theme.accent)
+                    Text("Fokus läuft — öffnen")
+                        .font(.footnote)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.caption2)
+                        .foregroundStyle(theme.mutedInk)
                 }
-                Spacer()
-                Image(systemName: "chevron.right")
-                    .font(.footnote)
-                    .foregroundStyle(theme.mutedInk)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(16)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .buttonStyle(.plain)
+            .foregroundStyle(theme.secondaryInk)
+            .scrybeSurface(cornerRadius: 12)
         }
-        .buttonStyle(.plain)
-        .foregroundStyle(theme.ink)
-        .scrybeSurface(cornerRadius: 16)
     }
 
     private var ring: some View {
@@ -254,5 +246,5 @@ private extension View {
 }
 
 #Preview {
-    TodayView().scrybeTheme()
+    TodayView(selection: .constant(.today)).scrybeTheme()
 }

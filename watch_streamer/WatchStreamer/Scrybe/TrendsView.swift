@@ -26,6 +26,16 @@ struct TrendsView: View {
     private var summaryTitle: String { range == .week ? "Diese Woche" : "Letzte 30 Tage" }
 
     var body: some View {
+        // Why the stack lives here: Verlauf lost its own when it left the tab
+        // strip, and a day selection has to land somewhere.
+        NavigationStack {
+            content
+                .navigationDestination(for: HistoryDestination.self) { _ in HistoryView() }
+                .navigationDestination(for: String.self) { DayDetailView(date: $0) }
+        }
+    }
+
+    private var content: some View {
         InkRefreshScroll(action: { await focus.refreshForPull() }) {
             ScrybeGlassGroup(spacing: 24) {
                 VStack(alignment: .leading, spacing: 24) {
@@ -45,6 +55,7 @@ struct TrendsView: View {
                     summaryCard
                     streakCard
                     timeOfDayCard
+                    historyRow
                 }
             }
             .padding()
@@ -100,6 +111,22 @@ struct TrendsView: View {
         .scrybeSurface(cornerRadius: 16)
     }
 
+    private var historyRow: some View {
+        NavigationLink(value: HistoryDestination()) {
+            HStack(spacing: 12) {
+                Text("Verlauf öffnen").font(.headline).foregroundStyle(theme.ink)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.footnote)
+                    .foregroundStyle(theme.mutedInk)
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.plain)
+        .scrybeSurface(cornerRadius: 16)
+    }
+
     private var timeOfDayCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Tageszeit").font(.headline).foregroundStyle(theme.ink)
@@ -128,3 +155,6 @@ struct TrendsView: View {
 #Preview {
     TrendsView().scrybeTheme()
 }
+
+/// A push target with no payload; Verlauf reads the shared store.
+struct HistoryDestination: Hashable {}

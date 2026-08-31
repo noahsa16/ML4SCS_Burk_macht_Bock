@@ -1,13 +1,14 @@
 import SwiftUI
 
 struct RootPagerView: View {
-    private enum Tab: String {
+    enum Tab: String {
         case today = "Heute"
         case trends = "Trends"
-        case history = "Verlauf"
+        case focus = "Fokus"
         case profile = "Profil"
     }
 
+    @ObservedObject private var session = FocusSessionStore.shared
     @State private var selection: Tab = .today
     @State private var showSplash = true
     /// Why view-owned rather than `.constant(!onboardingDone)`: a constant
@@ -22,17 +23,22 @@ struct RootPagerView: View {
 
     var body: some View {
         VStack(spacing: 12) {
-            ScrybeHeader(label: selection.rawValue)
+            // Why the condition: the header is a sibling of the TabView, so
+            // hiding the tab bar alone would leave it standing over a page
+            // meant to be alone with the writer.
+            if !session.isActive {
+                ScrybeHeader(label: selection.rawValue)
+            }
             TabView(selection: $selection) {
-                TodayView()
+                TodayView(selection: $selection)
                     .tabItem { Label("Heute", systemImage: "circle.dashed") }
                     .tag(Tab.today)
                 TrendsView()
                     .tabItem { Label("Trends", systemImage: "chart.bar.fill") }
                     .tag(Tab.trends)
-                HistoryView()
-                    .tabItem { Label("Verlauf", systemImage: "list.bullet") }
-                    .tag(Tab.history)
+                FocusTabView()
+                    .tabItem { Label("Fokus", systemImage: "circle.dashed") }
+                    .tag(Tab.focus)
                 ProfileView()
                     .tabItem { Label("Profil", systemImage: "person.fill") }
                     .tag(Tab.profile)

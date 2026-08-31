@@ -19,11 +19,11 @@ struct FocusOutcomeView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text(title)
+            Text(outcome.title)
                 .font(.system(.title3, design: .serif))
                 .foregroundStyle(theme.ink)
                 .multilineTextAlignment(.center)
-            Text(detail)
+            Text(outcome.detail)
                 .font(.subheadline)
                 .foregroundStyle(theme.secondaryInk)
                 .multilineTextAlignment(.center)
@@ -48,8 +48,26 @@ struct FocusOutcomeView: View {
         }
     }
 
-    private var title: String {
-        switch outcome {
+    private func button(_ label: LocalizedStringKey,
+                        action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(theme.paperTop)
+        .background(theme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+}
+
+extension FocusOutcomeView.Outcome {
+    /// Why the wording lives on the outcome and not inside the view: the
+    /// finished page states the same thing as a banner beside the written page,
+    /// which it must not replace. One outcome, one sentence, two presentations.
+    var title: String {
+        switch self {
         case .refused(.recordingInProgress):
             return String(localized: "Die Uhr nimmt gerade auf")
         case .refused(.workoutPermissionMissing):
@@ -71,8 +89,8 @@ struct FocusOutcomeView: View {
         }
     }
 
-    private var detail: String {
-        switch outcome {
+    var detail: String {
+        switch self {
         case .refused(.recordingInProgress):
             return String(localized: "Beende sie zuerst, dann kann die Sitzung starten.")
         case .refused(.workoutPermissionMissing):
@@ -90,18 +108,5 @@ struct FocusOutcomeView: View {
         case .finished(.stopUnconfirmed):
             return String(localized: "Die Uhr hat den Stopp nicht bestätigt. Der Sensorstrom läuft womöglich weiter.")
         }
-    }
-
-    private func button(_ title: LocalizedStringKey,
-                        action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(theme.paperTop)
-        .background(theme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 }
