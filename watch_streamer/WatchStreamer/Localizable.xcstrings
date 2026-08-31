@@ -1041,6 +1041,16 @@
         }
       }
     },
+    "Nur ganze Minuten." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Whole minutes only."
+          }
+        }
+      }
+    },
     "P3" : {
       "localizations" : {
         "en" : {
@@ -1394,6 +1404,16 @@
         }
       }
     },
+    "Trage eine Dauer in Minuten ein." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Enter a duration in minutes."
+          }
+        }
+      }
+    },
     "Trends" : {
       "localizations" : {
         "en" : {
@@ -1598,6 +1618,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reset"
+          }
+        }
+      }
+    },
+    "Zwischen 5 und 120 Minuten." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Between 5 and 120 minutes."
           }
         }
       }
