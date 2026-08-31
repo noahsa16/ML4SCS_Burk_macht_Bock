@@ -262,9 +262,7 @@ private struct PrivacyCard: View {
 
     private func resetSettings() {
         let d = UserDefaults.standard
-        [ScrybeSettings.goalKey, ScrybeSettings.reminderEnabledKey,
-         ScrybeSettings.reminderMinutesKey, ScrybeSettings.languageKey,
-         ScrybeSettings.weekStartKey].forEach { d.removeObject(forKey: $0) }
+        ScrybeSettings.resettableKeys.forEach { d.removeObject(forKey: $0) }
         NotificationScheduler.cancel()
     }
 

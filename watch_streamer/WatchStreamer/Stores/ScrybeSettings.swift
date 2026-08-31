@@ -40,6 +40,21 @@ enum ScrybeSettings {
     static let weekStartKey = "scrybe.weekStart"
     static let defaultWeekStart = 2
 
+    // Length of a deliberately started focus session, in whole minutes.
+    // Separate from `goalKey`: that one is the day's target, this one is the
+    // last session length, and the ready screen opens with it so it never has
+    // to ask.
+    static let focusDurationKey = "scrybe.focusDurationMinutes"
+    static let defaultFocusMinutes = 25
+
+    /// Every key "delete all local data" must remove. Kept here rather than
+    /// inline in the view so a new setting cannot be added without a place
+    /// that erases it.
+    static let resettableKeys = [
+        goalKey, reminderEnabledKey, reminderMinutesKey,
+        languageKey, weekStartKey, focusDurationKey,
+    ]
+
     static var goalSeconds: Double {
         let v = UserDefaults.standard.double(forKey: goalKey)
         return v > 0 ? v : defaultGoalSeconds
