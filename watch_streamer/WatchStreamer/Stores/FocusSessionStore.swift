@@ -50,7 +50,11 @@ final class FocusSessionStore: ObservableObject {
     /// Set when a session ended but the Watch never confirmed the stop. The
     /// screen says so rather than implying a clean close, because an
     /// unconfirmed stop means the sensor stream may still be running.
-    @Published private(set) var stopUnconfirmed = false
+    ///
+    /// Derived rather than stored: `finishReason == .stopUnconfirmed` is the
+    /// same fact, and a second stored property kept in sync only by the
+    /// discipline of one call site is a duplicate waiting to drift.
+    var stopUnconfirmed: Bool { finishReason == .stopUnconfirmed }
 
     private var builder: PassiveWindowBuilder
     private let injected: PassiveClassifier?
@@ -210,7 +214,6 @@ final class FocusSessionStore: ObservableObject {
             return
         }
         reset()
-        stopUnconfirmed = false
         finishReason = nil
         firstOrdinalThisSession = bestiary.creatureInProgress(now: date).ordinal
         watchIsStreaming = true
@@ -318,7 +321,6 @@ final class FocusSessionStore: ObservableObject {
     func returnToIdle() {
         guard !isActive else { return }
         reset()
-        stopUnconfirmed = false
         finishReason = nil
         phase = .idle
     }
@@ -406,7 +408,6 @@ final class FocusSessionStore: ObservableObject {
         Task { [weak self, stopOnWatch] in
             let outcome = await stopOnWatch()
             let confirmed = outcome.focusSessionIsStopped
-            self?.stopUnconfirmed = !confirmed
             // Why this overrides whatever reason the ending already carried:
             // "you ended it" or "the cap ended it" is moot once it is unclear
             // the sensors actually stopped — that doubt is the one the screen

@@ -626,6 +626,7 @@ struct FocusSessionStoreTests {
         #expect(!store.stopUnconfirmed)
         await settle()
         #expect(store.stopUnconfirmed)
+        #expect(store.finishReason == .stopUnconfirmed)
     }
 
     @Test("returning to idle clears the finished page but never a live session")
