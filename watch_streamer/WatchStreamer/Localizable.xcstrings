@@ -1561,6 +1561,26 @@
         }
       }
     },
+    "Watch verbunden, Messung läuft" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Watch connected, measuring"
+          }
+        }
+      }
+    },
+    "Watch verbunden, keine Messung" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Watch connected, not measuring"
+          }
+        }
+      }
+    },
     "Weiter" : {
       "localizations" : {
         "en" : {

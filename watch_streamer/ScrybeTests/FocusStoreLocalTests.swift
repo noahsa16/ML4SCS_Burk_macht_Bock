@@ -313,4 +313,23 @@ struct FocusStoreLocalTests {
 
         #expect(store.harvestDelta(now: now) == 110.0)
     }
+
+    /// Why two statements and not two answers to one question: the passive
+    /// path cannot say "now" — the recorder is readable only minutes later —
+    /// while a focus session can. One dot saying both makes it mean neither.
+    @Test func recencyAndMeasuringAreDifferentClaims() {
+        let (store, _, _) = tempStore()
+        store.applyCaptureMode(.focus)
+        #expect(store.isMeasuringNow)
+        #expect(!store.isRecentlyWriting())
+
+        store.applyCaptureMode(.idle)
+        #expect(!store.isMeasuringNow)
+    }
+
+    @Test func aStudyRecordingAlsoCountsAsMeasuring() {
+        let (store, _, _) = tempStore()
+        store.applyCaptureMode(.recording)
+        #expect(store.isMeasuringNow)
+    }
 }

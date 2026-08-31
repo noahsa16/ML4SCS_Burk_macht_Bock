@@ -44,6 +44,23 @@ final class FocusStore: ObservableObject {
         return now.timeIntervalSince(lastWritingAt) < Self.recentWritingWindow
     }
 
+    /// Whether the Watch's sensors are running right now, for a focus session
+    /// or a study recording.
+    ///
+    /// A different claim from `isRecentlyWriting()`, not a second answer to
+    /// the same question. The passive path cannot say "now" at all, while a
+    /// running session can — one dot asserting both would mean neither.
+    var isMeasuringNow: Bool {
+        if demoModeEnabled { return demoIsWriting }
+        return captureIsRunning
+    }
+
+    func applyCaptureMode(_ mode: CaptureMode) {
+        captureIsRunning = mode != .idle
+    }
+
+    @Published private(set) var captureIsRunning = false
+
     /// Per-day payloads for the Verlauf detail.
     @Published private(set) var dayCache: [String: FocusTodayDTO] = [:]
 

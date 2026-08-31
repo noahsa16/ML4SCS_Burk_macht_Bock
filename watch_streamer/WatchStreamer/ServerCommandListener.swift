@@ -367,6 +367,7 @@ class ServerCommandListener: NSObject, ObservableObject {
         // poll.
         DispatchQueue.main.async {
             FocusSessionStore.shared.adoptIfWatchIsInFocus(poll: message)
+            FocusStore.shared.applyCaptureMode(CaptureMode.from(poll: message))
         }
         confirmCommandFromWatchPoll(command: command,
                                     watchRunning: watchRunning,
