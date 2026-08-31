@@ -33,7 +33,19 @@ final class FocusSessionStore: ObservableObject {
         case finished(BestiaryEntry)
     }
 
+    /// Why the ending is a value and not a sentence: the screen branches on
+    /// it, and a test can assert it. A message string can only be compared to
+    /// itself.
+    enum FinishReason: Equatable {
+        case user
+        case hardCap
+        case studyPreemption
+        case watchFailure
+        case stopUnconfirmed
+    }
+
     @Published private(set) var phase: Phase = .idle
+    @Published private(set) var finishReason: FinishReason?
     @Published private(set) var decisions: [PassiveDecision] = []
     /// Set when a session ended but the Watch never confirmed the stop. The
     /// screen says so rather than implying a clean close, because an
@@ -199,6 +211,7 @@ final class FocusSessionStore: ObservableObject {
         }
         reset()
         stopUnconfirmed = false
+        finishReason = nil
         firstOrdinalThisSession = bestiary.creatureInProgress(now: date).ordinal
         watchIsStreaming = true
         phase = .running(startedAt: date, targetSeconds: targetSeconds)
@@ -221,11 +234,19 @@ final class FocusSessionStore: ObservableObject {
     /// Watch never confirms is reported through `stopUnconfirmed` rather than
     /// holding the screen in a state it might never leave.
     func end(at date: Date = Date()) {
+        end(at: date, reason: .user)
+    }
+
+    /// Why a private overload rather than a parameter on the public `end()`:
+    /// the hard cap ends a running session the same way the user does, and
+    /// the only difference the screen needs is which of the two it was.
+    private func end(at date: Date, reason: FinishReason) {
         guard case .running(let startedAt, _) = phase else { return }
         hardStopTask?.cancel()
         hardStopTask = nil
         lastSessionStart = startedAt
         lastSessionEnd = date
+        finishReason = reason
         phase = .finished(creatureToShow())
         stopWatchIfStreaming()
     }
@@ -247,7 +268,7 @@ final class FocusSessionStore: ObservableObject {
         switch phase {
         case .running:
             watchIsStreaming = false
-            end()
+            end(at: Date(), reason: .studyPreemption)
         case .starting:
             failToStart(FocusStartRefusal.recordingInProgress.message)
         case .idle, .failed, .finished:
@@ -276,6 +297,7 @@ final class FocusSessionStore: ObservableObject {
         switch phase {
         case .running:
             watchIsStreaming = false
+            finishReason = .watchFailure
             failWhileRunning(Self.workoutFailureMessage)
         case .starting:
             failToStart(Self.workoutFailureMessage)
@@ -297,6 +319,7 @@ final class FocusSessionStore: ObservableObject {
         guard !isActive else { return }
         reset()
         stopUnconfirmed = false
+        finishReason = nil
         phase = .idle
     }
 
@@ -315,7 +338,7 @@ final class FocusSessionStore: ObservableObject {
         // samples arrive means a session cannot outlive the cap merely
         // because the phone was asleep when the deadline passed.
         if Date().timeIntervalSince(startedAt) >= hardCapSeconds {
-            end(at: startedAt.addingTimeInterval(hardCapSeconds))
+            end(at: startedAt.addingTimeInterval(hardCapSeconds), reason: .hardCap)
             return
         }
         if let loadFailureMessage {
@@ -382,7 +405,15 @@ final class FocusSessionStore: ObservableObject {
         watchIsStreaming = false
         Task { [weak self, stopOnWatch] in
             let outcome = await stopOnWatch()
-            self?.stopUnconfirmed = !outcome.focusSessionIsStopped
+            let confirmed = outcome.focusSessionIsStopped
+            self?.stopUnconfirmed = !confirmed
+            // Why this overrides whatever reason the ending already carried:
+            // "you ended it" or "the cap ended it" is moot once it is unclear
+            // the sensors actually stopped — that doubt is the one the screen
+            // needs to lead with.
+            if !confirmed {
+                self?.finishReason = .stopUnconfirmed
+            }
         }
     }
 
@@ -395,7 +426,7 @@ final class FocusSessionStore: ObservableObject {
         hardStopTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(cap * 1_000_000_000))
             guard !Task.isCancelled else { return }
-            self?.end(at: start.addingTimeInterval(cap))
+            self?.end(at: start.addingTimeInterval(cap), reason: .hardCap)
         }
     }
 

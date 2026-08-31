@@ -732,4 +732,38 @@ struct FocusSessionStoreTests {
         await settle()
         #expect(stops.calls == 0)
     }
+
+    // MARK: - Naming the ending
+
+    @Test func endingReportsWhoEndedIt() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: FocusSessionStore.hardCapSeconds)
+
+        store.beginForTesting(targetSeconds: 1500)
+        store.end()
+        #expect(store.finishReason == .user)
+    }
+
+    /// Why this one matters most: a study recording taking the Watch is the
+    /// one ending the user did not cause and cannot see coming.
+    @Test func preemptionIsNamedAsPreemption() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: FocusSessionStore.hardCapSeconds)
+
+        store.beginForTesting(targetSeconds: 1500)
+        store.watchPreemptedByRecording()
+        #expect(store.finishReason == .studyPreemption)
+    }
+
+    @Test func workoutFailureIsNamedAsWatchFailure() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: FocusSessionStore.hardCapSeconds)
+
+        store.beginForTesting(targetSeconds: 1500)
+        store.watchWorkoutFailed()
+        #expect(store.finishReason == .watchFailure)
+    }
 }
