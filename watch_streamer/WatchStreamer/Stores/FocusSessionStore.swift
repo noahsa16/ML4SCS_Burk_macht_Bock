@@ -26,7 +26,7 @@ final class FocusSessionStore: ObservableObject {
     enum Phase: Equatable {
         case idle
         case starting
-        case running(startedAt: Date, targetSeconds: Double)
+        case running(startedAt: Date, targetSeconds: Double?)
         /// The session could not start classifying. Carries the reason so the
         /// screen can say what went wrong instead of drawing an empty page.
         case failed(String)
@@ -207,7 +207,9 @@ final class FocusSessionStore: ObservableObject {
     /// answers, so what gets through is the already-accepted class of a stale
     /// reply, not a new one. No `focus_stop` follows either way — the Watch is
     /// recording, and stopping it is exactly what must not happen.
-    func begin(targetSeconds: Double, at date: Date = Date()) {
+    /// `nil` means the session has no goal: it ends when the user says so or
+    /// when the cap does — never at a chosen value, because there is none.
+    func begin(targetSeconds: Double?, at date: Date = Date()) {
         guard phase == .idle || phase == .starting else { return }
         guard !startPreemptedByRecording else {
             failToStart(FocusStartRefusal.recordingInProgress.message)
@@ -224,7 +226,7 @@ final class FocusSessionStore: ObservableObject {
     /// Test seam: enter `running` without the Watch round-trip. Uses the same
     /// path a real start does, so an injected `BestiaryStore` is what keeps a
     /// test off the app's real collection.
-    func beginForTesting(targetSeconds: Double, at date: Date = Date()) {
+    func beginForTesting(targetSeconds: Double?, at date: Date = Date()) {
         begin(targetSeconds: targetSeconds, at: date)
     }
 

@@ -767,4 +767,41 @@ struct FocusSessionStoreTests {
         store.watchWorkoutFailed()
         #expect(store.finishReason == .watchFailure)
     }
+
+    // MARK: - Sessions without a goal
+
+    /// Why: the goal was always decorative — it fills a subtitle. Making it
+    /// optional makes that visible instead of implying a countdown.
+    @Test func aGoallessSessionRunsAndEndsOnlyWhenAsked() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: FocusSessionStore.hardCapSeconds)
+
+        store.begin(targetSeconds: nil)
+        guard case .running(_, let target) = store.phase else {
+            Issue.record("expected running, got \(store.phase)"); return
+        }
+        #expect(target == nil)
+        #expect(store.isActive)
+
+        store.end()
+        #expect(store.finishReason == .user)
+    }
+
+    /// The cap does not hang off the goal, so a goalless session still ends.
+    // Why hardCapSeconds 0.05 + two settle(): the same margin as
+    // `sessionEndsAtTheInjectedCap` (6x over the cap under test).
+    @Test func aGoallessSessionStillObeysTheCap() async {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: 0.05,
+                                      stopOnWatch: { .stopped })
+
+        store.begin(targetSeconds: nil)
+        await settle()
+        await settle()
+
+        #expect(!store.isActive)
+        #expect(store.finishReason == .hardCap)
+    }
 }

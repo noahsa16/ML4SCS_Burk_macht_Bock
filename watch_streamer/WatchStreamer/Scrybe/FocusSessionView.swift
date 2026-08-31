@@ -155,16 +155,20 @@ struct FocusSessionView: View {
     // MARK: - Running
 
     private func running(segments: [FocusSegment], startedAt: Date,
-                         targetSeconds: Double, now: Date) -> some View {
+                         targetSeconds: Double?, now: Date) -> some View {
         VStack(spacing: 16) {
             VStack(spacing: 4) {
                 Text(sessionClock(now.timeIntervalSince(startedAt)))
                     .font(.system(size: sessionClockSize, weight: .regular, design: .serif))
                     .monospacedDigit()
                     .foregroundStyle(theme.ink)
-                Text("von \(TimeFormatting.human(seconds: targetSeconds))")
-                    .font(.footnote)
-                    .foregroundStyle(theme.secondaryInk)
+                // Why no fallback line for `nil`: a goalless session has
+                // nothing here to say — the clock above is the whole story.
+                if let targetSeconds {
+                    Text("von \(TimeFormatting.human(seconds: targetSeconds))")
+                        .font(.footnote)
+                        .foregroundStyle(theme.secondaryInk)
+                }
             }
             .padding(.top, 16)
             .accessibilityElement(children: .combine)
