@@ -31,12 +31,72 @@
         }
       }
     },
+    "Beende sie zuerst, dann kann die Sitzung starten." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "End it first, then the session can start."
+          }
+        }
+      }
+    },
     "Beenden" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "End"
+          }
+        }
+      }
+    },
+    "Beendet, ohne Bestätigung" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Ended, unconfirmed"
+          }
+        }
+      }
+    },
+    "Binnen 8 Sekunden kam keine Antwort. Ob die Uhr misst, ist damit offen." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No answer arrived within 8 seconds. Whether the Watch is measuring is therefore open."
+          }
+        }
+      }
+    },
+    "Dauer: %lld Minuten" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duration: %lld minutes"
+          }
+        }
+      }
+    },
+    "Dauer: ohne Ziel" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Duration: no goal"
+          }
+        }
+      }
+    },
+    "Deine Schreibzeit ist gutgeschrieben." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your writing time is credited."
           }
         }
       }
@@ -51,12 +111,42 @@
         }
       }
     },
+    "Die Anfrage kam nicht an. Prüfe, ob die Uhr in Reichweite ist." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The request did not arrive. Check whether the Watch is in range."
+          }
+        }
+      }
+    },
+    "Die Sitzung endete, weil eine Studien-Aufnahme die Sensoren braucht." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The session ended because a study recording needs the sensors."
+          }
+        }
+      }
+    },
     "Die Uhr hat den Stopp nicht bestätigt." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "The watch did not confirm the stop."
+          }
+        }
+      }
+    },
+    "Die Uhr hat den Stopp nicht bestätigt. Der Sensorstrom läuft womöglich weiter." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Watch did not confirm the stop. The sensor stream may still be running."
           }
         }
       }
@@ -91,6 +181,26 @@
         }
       }
     },
+    "Die Uhr ist nicht erreichbar" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Watch is unreachable"
+          }
+        }
+      }
+    },
+    "Die Uhr konnte nicht weiter messen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Watch could not keep measuring"
+          }
+        }
+      }
+    },
     "Die Uhr misst, das iPhone zeichnet mit. Deine Schreibzeit zählt weiterhin der Tagestracker." : {
       "localizations" : {
         "en" : {
@@ -107,6 +217,86 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "The watch measures, the page fills."
+          }
+        }
+      }
+    },
+    "Die Uhr nimmt gerade auf" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The Watch is recording"
+          }
+        }
+      }
+    },
+    "Die Workout-Freigabe fehlt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "The workout permission is missing"
+          }
+        }
+      }
+    },
+    "Eigene Dauer in Minuten" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Custom duration in minutes"
+          }
+        }
+      }
+    },
+    "Eine Aufnahme hat die Uhr übernommen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A recording took over the Watch"
+          }
+        }
+      }
+    },
+    "Eine Sitzung von " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "A session of "
+          }
+        }
+      }
+    },
+    "Einfach schreiben" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Just write"
+          }
+        }
+      }
+    },
+    "Erneut versuchen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Try again"
+          }
+        }
+      }
+    },
+    "Erteile sie in den Health-Einstellungen." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Grant it in the Health settings."
           }
         }
       }
@@ -151,6 +341,56 @@
         }
       }
     },
+    "Minuten" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Minutes"
+          }
+        }
+      }
+    },
+    "Noch etwa %lld Minuten, bis er fertig gezeichnet ist — und du beginnst ein neues." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About %lld minutes left until it is fully drawn — and you begin a new one."
+          }
+        }
+      }
+    },
+    "Noch etwa %lld Minuten, bis er fertig gezeichnet ist." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "About %lld minutes left until it is fully drawn."
+          }
+        }
+      }
+    },
+    "Ohne Ziel — " : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No goal — "
+          }
+        }
+      }
+    },
+    "Prüfe die Workout-Freigabe in den Health-Einstellungen." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Check the workout permission in the Health settings."
+          }
+        }
+      }
+    },
     "Schließen" : {
       "localizations" : {
         "en" : {
@@ -167,6 +407,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "This session's page of writing"
+          }
+        }
+      }
+    },
+    "Sitzung beendet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Session ended"
           }
         }
       }
@@ -201,12 +451,52 @@
         }
       }
     },
+    "Start unbestätigt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Start unconfirmed"
+          }
+        }
+      }
+    },
+    "Startet ohne Ziel. Die Sitzung endet, wenn du sie beendest." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Starts without a goal. The session ends when you end it."
+          }
+        }
+      }
+    },
     "Wie lange willst du schreiben?" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "How long do you want to write?"
+          }
+        }
+      }
+    },
+    "Wie lange?" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "How long?"
+          }
+        }
+      }
+    },
+    "Zeitgrenze erreicht" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Time limit reached"
           }
         }
       }
@@ -221,12 +511,42 @@
         }
       }
     },
+    "einfach schreiben" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "just write"
+          }
+        }
+      }
+    },
     "von %@" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "of %@"
+          }
+        }
+      }
+    },
+    "Ändert die Dauer." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes the duration."
+          }
+        }
+      }
+    },
+    "Übernehmen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apply"
           }
         }
       }
