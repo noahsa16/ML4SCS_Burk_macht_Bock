@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct RootPagerView: View {
     enum Tab: String {
@@ -46,6 +47,7 @@ struct RootPagerView: View {
         }
         .background(theme.paper.ignoresSafeArea())
         .onAppear {
+            applyTabBarAppearance()
             FocusStore.shared.start()
             showOnboarding = !onboardingDone
         }
@@ -69,6 +71,18 @@ struct RootPagerView: View {
                     .onAppear(perform: dismissSplash)
             }
         }
+    }
+
+    /// Why UIKit here: SwiftUI has no API for the tab bar's background on
+    /// iOS 16, and the container stays stock on purpose — this changes how it
+    /// looks, never how it behaves.
+    private func applyTabBarAppearance() {
+        let appearance = UITabBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor(theme.paperTop)
+        appearance.shadowColor = UIColor(theme.track)
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
     }
 
     private func dismissSplash() {
