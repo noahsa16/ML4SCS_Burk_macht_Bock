@@ -160,9 +160,9 @@ struct FocusStartOutcomeTests {
     // One number, two enforcers. The Watch caps the session independently
     // because a force-quit voids every phone-side path, and the two halves
     // reading different constants would be worse than either alone.
-    @Test("phone and Watch cap a focus session at the same sixty minutes")
-    func capIsSharedAndSixtyMinutes() {
-        #expect(FocusCommandPolicy.sessionCapSeconds == 3600)
+    @Test("phone and Watch cap a focus session at the same two hours")
+    func capIsSharedAndTwoHours() {
+        #expect(FocusCommandPolicy.sessionCapSeconds == 7200)
         #expect(FocusSessionStore.hardCapSeconds == FocusCommandPolicy.sessionCapSeconds)
     }
 }

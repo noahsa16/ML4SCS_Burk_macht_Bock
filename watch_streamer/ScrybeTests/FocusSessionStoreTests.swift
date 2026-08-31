@@ -533,6 +533,21 @@ struct FocusSessionStoreTests {
         #expect(stops.calls == 1)
     }
 
+    /// Why an injected cap: the shipped value is two hours. Testing the
+    /// behaviour against the constant would cost that long per run, so the
+    /// test proves the mechanism and the device check proves the number.
+    @Test func sessionEndsAtTheInjectedCap() async throws {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: 0.2)
+
+        store.beginForTesting(targetSeconds: 3600)
+        #expect(store.isActive)
+
+        try await Task.sleep(nanoseconds: 400_000_000)
+        #expect(!store.isActive)
+    }
+
     // MARK: - Stopping the Watch
 
     // `focus_stop` ends the Watch's capture outright. A start the Watch

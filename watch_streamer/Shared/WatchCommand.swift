@@ -301,7 +301,12 @@ public nonisolated enum FocusCommandPolicy {
     /// for the clean stop, the Watch as the floor under it. A force-quit voids
     /// every phone-side path while the workout session keeps the sensors
     /// running, so the cap also has to live where the sensor does.
-    public static let sessionCapSeconds: TimeInterval = 60 * 60
+    ///
+    /// Raised from one hour to two on 2026-08-31 so the app can offer the long
+    /// sessions its duration picker allows. The price is stated rather than
+    /// hidden: the window in which a crashed phone leaves the Watch measuring
+    /// doubles.
+    public static let sessionCapSeconds: TimeInterval = 120 * 60
 
     public static func replyForStart(isRecording: Bool,
                                      healthKitAuthorized: Bool) -> StartReply {
