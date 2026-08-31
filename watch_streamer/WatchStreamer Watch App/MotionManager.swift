@@ -46,6 +46,19 @@ class MotionManager: NSObject, ObservableObject {
     // forward larger than the session's remaining budget would end a live focus
     // session on the spot. `systemUptime` is monotonic.
     private var focusSessionStartedUptime: TimeInterval?
+    // Wall-clock companion to `focusSessionStartedUptime`, kept in lockstep
+    // with it (set/cleared at the same points). Uptime cannot cross a
+    // force-quit meaningfully — a fresh process has a fresh uptime origin —
+    // so the poll needs this Unix-ms value for the phone to recover the
+    // session's actual start.
+    private var focusSessionStartedAtMs: Int64?
+
+    /// Why derived rather than stored: `isRunning` plus focus ownership is
+    /// already the truth; a second stored flag could disagree with it.
+    private var currentCaptureMode: CaptureMode {
+        if focusSessionStartedAtMs != nil { return .focus }
+        return isRunning ? .recording : .idle
+    }
 
     private var buffer: [[String: Any]] = []
     private var nextSequence = 0
@@ -305,6 +318,7 @@ class MotionManager: NSObject, ObservableObject {
         // A new run is never the old focus session, whichever caller starts
         // it — focus_start sets this again straight after start() returns.
         focusSessionStartedUptime = nil
+        focusSessionStartedAtMs = nil
         buffer.removeAll()
         stagingLock.lock()
         stagedSamples.removeAll()
@@ -458,7 +472,7 @@ class MotionManager: NSObject, ObservableObject {
         guard WCSession.default.activationState == .activated, !commandPollInFlight else { return }
         commandPollInFlight = true
         commandPollSentAt = Date()
-        let message: [String: Any] = [
+        var message: [String: Any] = [
             "type": "command_poll",
             "is_running": isRunning,
             "session_id": serverSessionId ?? "",
@@ -469,8 +483,12 @@ class MotionManager: NSObject, ObservableObject {
             "failed_batches": failedBatchCount,
             "last_command_id": lastCommandId ?? "",
             "upload_mode": uploadMode,
-            WatchPayloadKey.Status.workoutFailed: workoutAuthorizationFailed
+            WatchPayloadKey.Status.workoutFailed: workoutAuthorizationFailed,
+            WatchPayloadKey.Status.captureMode: currentCaptureMode.rawValue
         ]
+        if let focusSessionStartedAtMs {
+            message[WatchPayloadKey.Status.focusStartedAtMs] = focusSessionStartedAtMs
+        }
 
         WCSession.default.sendMessage(message, replyHandler: { [weak self] reply in
             DispatchQueue.main.async {
@@ -935,6 +953,7 @@ extension MotionManager: WCSessionDelegate {
     /// session set `preFocusHz` — the common case, an ordinary stop.
     private func restorePreFocusRateIfNeeded() {
         focusSessionStartedUptime = nil
+        focusSessionStartedAtMs = nil
         guard let previous = preFocusHz else { return }
         effectiveHz = previous
         preFocusHz = nil
@@ -990,6 +1009,7 @@ extension MotionManager: WCSessionDelegate {
                 // anywhere, since it bails out when motion is unavailable.
                 if isRunning {
                     focusSessionStartedUptime = ProcessInfo.processInfo.systemUptime
+                    focusSessionStartedAtMs = Self.currentTimestampMillis()
                 }
             }
             return [

@@ -143,6 +143,14 @@ public enum WatchPayloadKey {
         /// delivered minutes late — anything that reads a poll as *news* has
         /// to know which of the two it is holding.
         public static let fallback = "fallback"
+        /// What the Watch's sensors are doing right now. `is_running` cannot
+        /// answer this: it is true for a study recording and for a focus
+        /// session alike, and resuming the wrong one would end a proband run.
+        public static let captureMode = "capture_mode"
+        /// Unix ms the focus session began, present only when `capture_mode`
+        /// is `focus`. The phone holds no copy — the store is in-memory on
+        /// purpose — so this is the only way back after a force-quit.
+        public static let focusStartedAtMs = "focus_started_at_ms"
     }
 
     /// Camel-case reply fields, used in the Watch's command replies. Kept
@@ -152,6 +160,27 @@ public enum WatchPayloadKey {
         public static let isRunning = "isRunning"
         public static let sampleCount = "sampleCount"
         public static let uploadMode = "uploadMode"
+    }
+}
+
+/// What the Watch's sensors are doing, as read from a poll reply.
+public nonisolated enum CaptureMode: String, Sendable, CaseIterable {
+    case idle
+    case recording
+    case focus
+
+    /// Why idle on anything unrecognised: an older Watch build sends no mode,
+    /// and a build that sends one this app does not know is not a session this
+    /// app may adopt.
+    public static func from(poll: [String: Any]) -> CaptureMode {
+        guard let raw = poll[WatchPayloadKey.Status.captureMode] as? String,
+              let mode = CaptureMode(rawValue: raw) else { return .idle }
+        return mode
+    }
+
+    public static func focusStartedAtMs(poll: [String: Any]) -> Int64? {
+        guard from(poll: poll) == .focus else { return nil }
+        return WatchPayloadValue.int64(poll[WatchPayloadKey.Status.focusStartedAtMs])
     }
 }
 
