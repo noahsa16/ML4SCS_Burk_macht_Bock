@@ -6,7 +6,7 @@ struct FocusProgressTests {
 
     @Test func remainingCountsDownFromThirtyMinutes() {
         #expect(FocusProgress.remainingSeconds(writingSeconds: 0) == 30 * 60)
-        #expect(FocusProgress.remainingSeconds(writingSeconds: 600) == 24 * 60)
+        #expect(FocusProgress.remainingSeconds(writingSeconds: 600) == 20 * 60)
     }
 
     /// Why the clamp: past the creature's thirty minutes the subtraction goes
