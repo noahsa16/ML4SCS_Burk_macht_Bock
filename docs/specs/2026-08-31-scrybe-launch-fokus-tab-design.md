@@ -27,6 +27,11 @@ Dieser Pass macht vier Dinge:
 4. **Die Designsprache erreicht die Ränder** — Tab-Bar, Picker, Splash,
    Streak-Marke, Empty-States.
 
+**Der Pass ist nicht rein telefonseitig.** Zwei Änderungen liegen auf der Uhr
+beziehungsweise im geteilten Code: die Obergrenze für eine Sitzung (§5) und ein
+eindeutiges `capture_mode`-Feld im Poll (§8.1). Beide brauchen einen
+Watch-Build und einen Gerätetest; ein Simulatorlauf beweist sie nicht.
+
 ### Nicht im Umfang
 
 Trends-Tagesauswahl und Zeitraumnavigation · Verlauf-Aggregation auf
@@ -156,8 +161,25 @@ sich. Eine Dauer anzubieten, die die Uhr anschließend abschneidet, wäre die
 schlechtere Alternative gewesen.
 
 Die Konstante ist in `Shared/` definiert und wird an beiden Enden erzwungen; die
-Änderung betrifft daher iPhone **und** Watch und braucht einen Gerätetest, der
-eine Sitzung über 60 Minuten hinaus laufen sieht.
+Änderung betrifft daher iPhone **und** Watch.
+
+### Wie der Cap geprüft wird, ohne zwei Stunden zu kosten
+
+Ein echter 120-Minuten-Lauf vor jedem Release ist zu teuer. Verbindlich
+stattdessen:
+
+- **Automatisiert mit injiziertem Cap.** Die Cap-Logik wird gegen einen
+  eingespeisten Wert von wenigen Sekunden getestet, nicht gegen die
+  Produktionskonstante. Geprüft wird das Verhalten, nicht die Zahl.
+- **Ein verkürzter echter Gerätetest** genügt als Beweis, dass der Cap auf der
+  Uhr überhaupt greift — einmal mit herabgesetztem Wert, nicht in voller Länge.
+- **Zwei Lagen müssen ausdrücklich definiert und geprüft sein**, weil sie der
+  Grund für den Cap sind: Force-Quit des iPhones bei laufender Sitzung, und
+  Neustart der Uhr bei laufender Sitzung. In beiden Fällen muss festgelegt
+  sein, ob und wann die Messung endet — eine unbeantwortete Frage hier ist
+  genau das Risiko, das die Verdopplung des Fensters vergrößert.
+- Der volle 120-Minuten-Lauf wird **einmalig** gefahren, wenn der neue Cap
+  erstmals ausgeliefert wird, und danach nicht wiederholt.
 
 ## 6. Die Dauer ist ein Wort, kein Feld
 
@@ -197,8 +219,10 @@ case running(startedAt: Date, targetSeconds: Double?)
 ```
 
 - `nil` bedeutet: ohne Ziel.
-- **Der Hard-Cap gilt unverändert**, er hängt nicht am Ziel. Eine Sitzung ohne
-  Ziel endet durch die Nutzerin oder durch den Cap — nie durch einen Timer.
+- **Der Hard-Cap gilt unverändert**, er hängt nicht am Ziel. Präzise: eine
+  Sitzung ohne Ziel endet **nicht am gewählten Zielwert**, sondern nur durch
+  Nutzeraktion oder Hard-Cap. („Nie durch einen Timer" wäre falsch — der
+  Hard-Cap *ist* ein Timer, nur einer, der nicht am Ziel hängt.)
 - Unterzeile mit Ziel: „12:34 von 25 min". Ohne Ziel: „seit 12:34".
 - `finished` darf ohne Ziel keine Zielerreichung behaupten; die Fertig-Ansicht
   zeigt dann Schreibzeit und Striche, aber keinen Soll-Ist-Vergleich.
@@ -213,14 +237,25 @@ verstecken.
 Fertig-Zustand denselben Wert liefern. Verbindlich:
 
 ```
-verbleibend = Bestiary.secondsPerCreature − writingSeconds(aktuelles Tier)
+tier        = BestiaryStore.creatureInProgress()
+verbleibend = max(0, Bestiary.secondsPerCreature − tier.writingSeconds)
 ```
 
-- **Nur das aktuelle Tier.** Ein Tierwechsel wird nicht eingerechnet.
-- Überschreitet die gewählte Dauer den Rest, sagt der Satz das in Worten
-  („… und du beginnst ein neues"), **ohne die Zahl zu verändern**.
+- **`max(0, …)` ist Pflicht.** Ohne die Klammer liefert die Formel nach
+  Überschreiten der 30 Minuten einen negativen Wert und der Satz behauptet
+  eine Restzeit unter null.
+- **Der Wechsel ist eindeutig: ausgewertet wird *nach* ihm.**
+  `creatureInProgress()` ist im Store definiert als „die Kreatur, die die
+  nächste gutgeschriebene Sekunde wachsen lässt" — also die in Arbeit, oder,
+  wenn keine läuft, die, die der nächste Zuschlag beginnen würde
+  (`Stores/BestiaryStore.swift:137`). Damit zeigt der Satz nie die Restzeit
+  eines Tieres, das gerade fertig geworden ist.
+- **Nur dieses eine Tier.** Überschreitet die gewählte Dauer den Rest, sagt der
+  Satz das in Worten („… und du beginnst ein neues"), **ohne die Zahl zu
+  verändern**.
 - Eine Funktion, an einer Stelle, von allen drei Zuständen aufgerufen und
-  unit-getestet.
+  unit-getestet — einschließlich des Falls, dass ein Zuschlag ein Tier
+  vollendet und in das nächste überläuft.
 
 Wird zusätzlich eine erwartete Strichzahl gezeigt, ist sie ausdrücklich
 Erwartung. Die echte Zeichnung wächst nach gutgeschriebener Schreibzeit;
@@ -256,7 +291,55 @@ wird angezeigt (`FocusSessionView.swift:215`), ist aber nicht die ganze Matrix:
 |---|---|
 | Stopp ohne Antwort | „Beendet, aber die Uhr hat nicht bestätigt" — der Sensorstrom läuft womöglich weiter |
 | Uhr durch Study Mode übernommen | Die Sitzung endete, weil eine Aufnahme sie verdrängt hat; das wird benannt |
-| App beendet, Uhr läuft weiter | Beim nächsten Start findet die App eine laufende Sitzung vor und bietet an, sie zu übernehmen oder zu beenden — statt eine zweite zu öffnen |
+| App beendet, Uhr läuft weiter | Die App findet die laufende Sitzung wieder (§8.1) und bietet an, sie zu übernehmen oder zu beenden — statt eine zweite zu öffnen |
+
+### Der Grund gehört an den Zustand, nicht an den Text
+
+`Phase` kennt heute nur `.failed(String)` und `.finished(BestiaryEntry)`
+(`Stores/FocusSessionStore.swift:26-34`); *warum* eine Sitzung endete, existiert
+nur als Meldungstext. Damit lässt sich keine Ansicht zuverlässig verzweigen und
+kein Test auf die Ursache prüfen.
+
+Die Fertig-/Fehlerzustände tragen deshalb einen Grund:
+
+```swift
+enum FinishReason {
+    case user            // „Beenden" gedrückt
+    case hardCap         // die Obergrenze aus §5
+    case studyPreemption // eine Studien-Aufnahme hat die Uhr übernommen
+    case watchFailure    // Workout- oder Sensorfehler auf der Uhr
+    case stopUnconfirmed // beendet, aber ohne Bestätigung der Uhr
+}
+```
+
+Die Anzeige leitet sich aus dem Grund ab, nicht aus einem eingebetteten String.
+
+### 8.1 Eine laufende Sitzung nach App-Neustart wiederfinden
+
+`FocusSessionStore` hält alles absichtlich im Speicher
+(`Stores/FocusSessionStore.swift:5-11`): Live- und Recorder-Fenster teilen nie
+ein `startMs`, ein Persistieren beider würde den Tag doppelt zählen, und die
+Idempotenz könnte das nicht abfangen. Der passive Pfad ist die einzige Wahrheit
+über Schreibzeit.
+
+**Damit scheidet der naheliegende Weg aus:** die Sitzung telefonseitig zu
+persistieren, um sie nach einem Neustart wiederzufinden, hieße eine
+dokumentierte Invariante aufzugeben.
+
+**Der Zustand wird stattdessen dort erfragt, wo er entsteht.** Der 1-Hz-Poll der
+Uhr trägt heute `is_running` (`Shared/WatchCommand.swift:131`), das nicht
+zwischen Studien-Aufnahme und Fokus-Sitzung unterscheidet. Er bekommt ein
+eindeutiges Feld — `capture_mode` mit den Werten `idle`, `recording`, `focus`,
+plus `started_at_ms` bei `focus`.
+
+Warum die Uhr und nicht das Telefon: Die Uhr besitzt den Sensor. Sie weiß als
+Einzige, ob gerade gemessen wird, und sie überlebt einen Force-Quit des
+iPhones — genau der Fall, den diese Zeile abdecken soll. Eine telefonseitige
+Kopie wäre eine zweite Wahrheit über etwas, das die Uhr bereits kennt.
+
+Beim Start findet die App so eine laufende Sitzung vor, kennt ihren Beginn und
+kann übernehmen oder beenden. Ohne dieses Feld bliebe die Zeile in der Tabelle
+oben eine Absichtserklärung.
 
 **Der Start hängt nicht am Server.** `focus_start` und `focus_stop` sind lokale
 WatchConnectivity-Fälle. Eine getrennte WebSocket-Verbindung zum
@@ -286,6 +369,14 @@ danach verschiedene Dinge sagen — nicht dasselbe unterschiedlich.
 
 Der vollständige `WatchConnectionState` über Header, Profil und Offline-Banner
 bleibt außerhalb dieses Passes (§1).
+
+**Das ist eine Scope-Entscheidung, kein gelöstes Problem.** Nach diesem Pass
+bleiben Trends, Profil und ältere Offline-Banner bewusst inkonsistent. Der
+vollständige Statusvertrag ist damit **verpflichtender Bestandteil von Phase A
+vor einem echten Launch** und gehört als bekanntes Restproblem in die
+Launch-Checkliste — nicht in eine Liste optionaler Verbesserungen. Wer diesen
+Pass ausliefert, liefert eine App aus, die an anderer Stelle noch widersprüchlich
+über die Uhr spricht.
 
 ## 10. Die Ränder der Designsprache
 
@@ -327,9 +418,55 @@ Entscheidung, sie trotzdem in diesen Pass zu nehmen, gilt unter einer Auflage:
 - Ist eine dieser Bedingungen nicht erfüllbar, fällt die betreffende Stelle aus
   dem Pass — nicht die Bedingung.
 
+**Automatische Verschiebung.** Regressiert native Tab-Accessibility oder das
+Safe-Area-Verhalten, wird dieser Teil verschoben — unabhängig davon, ob die
+Shapes optisch fertig sind. Der Zustand „sieht gut aus, VoiceOver liest die
+Leiste aber schlechter" ist kein Abwägungsfall, sondern das Abbruchkriterium.
+Dies ist der riskanteste Teil des Passes und der einzige, der eine eigene
+Rückfallregel hat.
+
 Kein Redesign darüber hinaus: `Scrybe/ScrybeTheme.swift` dokumentiert gemessene
 WCAG-Kontraste pro Token und hat den Opacity-Wildwuchs bereits konsolidiert. Das
 Fundament ist nicht das Problem.
+
+### Visual-Quality-Gate
+
+„Grafisch richtig gut“ ist eine eigene Abnahmebedingung, nicht die Hoffnung,
+dass die Funktionalität automatisch gut aussieht. Der Fokus-Tab wird deshalb
+gegen diese Kriterien geprüft:
+
+- **Komposition:** Ein klarer visueller Schwerpunkt pro Zustand. Im Bereit-
+  Zustand ist die Kreatur der Hero, im Lauf-Zustand die Seite, im Fertig-
+  Zustand das Ergebnis. Keine gleichgewichteten Kartenstapel.
+- **Rhythmus:** Header, Hero, Statussatz, Dauer und Aktion folgen einer
+  festen vertikalen Hierarchie. Abstände kommen aus den Scrybe-Layouttokens;
+  kein zufälliges `padding` pro Unterview.
+- **Typografie:** Serifenschrift für die erzählerischen Werte und die
+  Kreatur, ruhige Sans für Status und Bedienung. Maximal drei visuelle
+  Ebenen gleichzeitig; keine konkurrierenden Großtitel.
+- **Farbe:** Gold für Ziel/Metadaten, Accent/Lavendel für Auswahl und Aktion,
+  Grün nur für bestätigten Gerätezustand oder Erfolg. Warnungen bleiben
+  sichtbar, aber dominieren nicht die Bühne.
+- **Tiefe:** Papierfläche, Linien und Schatten bleiben subtil. Keine
+  Standard-Card-Kaskade, kein Glass-Effekt auf jeder Komponente, kein
+  dekoratives Element ohne Informations- oder Motivationsfunktion.
+- **Animation:** Eine bedeutende Bewegung pro Übergang. Die Kreatur bewegt
+  sich beim Wechsel in den Lauf-Zustand nachvollziehbar in die Marge; Ring,
+  Seite und Statuspunkt dürfen nicht gleichzeitig um Aufmerksamkeit kämpfen.
+  Reduce Motion deaktiviert die Bewegung, nicht die Information.
+- **Bedienzustände:** Bereit, Verbindung, Läuft, Fehler und Fertig erhalten
+  jeweils eine eigene visuelle Silhouette. Disabled ist nicht nur „grau“;
+  Lade- und Fehlerzustände müssen als absichtliche Designs wirken.
+- **Gerätebreite:** iPhone 15 Pro als Referenz, kleines iPhone und große
+  Schrift als Pflichtprüfung. Kein Text darf umbrechen und dadurch die Hero-
+  Komposition unkontrolliert nach unten schieben.
+- **Screenshot-Abnahme:** Für jeden Hauptzustand wird ein Referenz-Screenshot
+  erstellt. Abweichungen bei Ringgröße, Zentrierung, Textumbruch, Buttonhöhe,
+  Safe Area und Tab-Bar werden vor dem Merge visuell geprüft.
+
+Der Fokus-Tab gilt erst als fertig, wenn alle Zustände dieselbe Scrybe-
+Formensprache tragen und nicht wie ein neuer, danebenstehender Subscreen
+wirken.
 
 ## 11. Dateiaufteilung
 
@@ -361,11 +498,17 @@ bekäme sonst mehrere Zustände dazu:
 - Dauer-Validierung: leer, 0, Dezimalwert, 4, 5, 120, 121.
 - Die vier Startausgänge einzeln, inklusive später Antwort nach einem
   unbestätigten Start.
-- Die drei Stopp-Lagen aus §8.
+- Die drei Stopp-Lagen aus §8, je über `FinishReason` geprüft — nicht über den
+  angezeigten Text.
 - Fortschrittsformel über einen Tierwechsel hinweg, in allen drei Zuständen
-  identisch.
-- Sitzung ohne Ziel: läuft, wird nicht vom Timer beendet, endet am Cap, zeigt
-  keinen Soll-Ist-Vergleich.
+  identisch; zusätzlich der Fall `writingSeconds > secondsPerCreature`, der
+  ohne `max(0, …)` negativ würde.
+- Sitzung ohne Ziel: läuft, endet nicht am Zielwert, endet am Cap, zeigt keinen
+  Soll-Ist-Vergleich.
+- Cap-Verhalten gegen einen **injizierten** Wert von wenigen Sekunden, nicht
+  gegen die Produktionskonstante.
+- `capture_mode` aus dem Poll: `focus` mit `started_at_ms` führt zur
+  Wiederaufnahme, `recording` und `idle` nicht.
 - Der `focusDurationKey` wird vom Zurücksetzen erfasst.
 - Der Bereit-Zustand stellt keine Frage: die geöffnete Seite trägt die
   gespeicherte Dauer.
@@ -376,7 +519,11 @@ bekäme sonst mehrere Zustände dazu:
   Uhr.
 - Watch-App im Vordergrund; Watch-App im Hintergrund.
 - Workout-Berechtigung verweigert — die Ablehnung wird als solche erklärt.
-- Eine Sitzung über 60 Minuten hinaus, gegen den neuen Cap von 120.
+- Der Cap greift auf der Uhr — **einmal verkürzt** als Regressionsnachweis,
+  der volle 120-Minuten-Lauf nur einmalig bei Erstauslieferung (§5).
+- Force-Quit des iPhones bei laufender Sitzung, und Neustart der Uhr bei
+  laufender Sitzung: das definierte Verhalten tritt ein, und die App findet die
+  Sitzung über `capture_mode` wieder.
 - Header und Tab-Bar verschwinden im Lauf-Zustand und kommen zurück.
 - Die Kreatur ist bei 120–160 Punkten lesbar, auch bei großer Schrift und auf
   einem kleinen iPhone.
