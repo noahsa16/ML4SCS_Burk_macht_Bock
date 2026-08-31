@@ -31,16 +31,16 @@ struct RootPagerView: View {
             }
             TabView(selection: $selection) {
                 TodayView(selection: $selection)
-                    .tabItem { Label("Heute", systemImage: "circle.dashed") }
+                    .tabItem { Label { Text("Heute") } icon: { ScrybeGlyph.today.image } }
                     .tag(Tab.today)
                 TrendsView()
-                    .tabItem { Label("Trends", systemImage: "chart.bar.fill") }
+                    .tabItem { Label { Text("Trends") } icon: { ScrybeGlyph.trends.image } }
                     .tag(Tab.trends)
                 FocusTabView()
-                    .tabItem { Label("Fokus", systemImage: "circle.dashed") }
+                    .tabItem { Label { Text("Fokus") } icon: { ScrybeGlyph.focus.image } }
                     .tag(Tab.focus)
                 ProfileView()
-                    .tabItem { Label("Profil", systemImage: "person.fill") }
+                    .tabItem { Label { Text("Profil") } icon: { ScrybeGlyph.profile.image } }
                     .tag(Tab.profile)
             }
         }
