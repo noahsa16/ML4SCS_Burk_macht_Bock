@@ -17,7 +17,10 @@ struct WatchStatusDot: View {
     // Why measuring and not recency: the dot sits beside a live connection
     // glyph, so it reads as a statement about now. Recency answers a different
     // question — one the daily ring asks, and keeps asking, in TodayView.
-    private var measuring: Bool { focus.isMeasuringNow }
+    // Why gated on `connected`: nothing clears the capture flag when the Watch
+    // simply stops polling, so an out-of-range Watch would keep the dot pulsing
+    // and have VoiceOver announce a connection that is gone.
+    private var measuring: Bool { connected && focus.isMeasuringNow }
     private var color: Color { connected ? theme.success : theme.mutedInk }
     private var a11y: String {
         if measuring { return String(localized: "Watch verbunden, Messung läuft") }

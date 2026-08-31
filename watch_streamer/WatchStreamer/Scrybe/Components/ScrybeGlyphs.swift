@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// The app's own tab and marker symbols.
 ///
@@ -66,9 +67,30 @@ struct ScrybeGlyphShape: Shape {
 
 extension ScrybeGlyph {
     /// A `Label`-compatible icon at tab-bar weight.
-    var image: some View {
-        ScrybeGlyphShape(glyph: self)
-            .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
-            .frame(width: 24, height: 24)
+    ///
+    /// Why rasterised and not the `Shape` itself: `tabItem` renders only `Text`
+    /// and `Image` and silently drops any other view, which leaves the bar with
+    /// labels and no icons at all. `.template` keeps the bar's own tint.
+    @MainActor
+    var image: Image {
+        let renderer = ImageRenderer(content:
+            ScrybeGlyphShape(glyph: self)
+                .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                .frame(width: 24, height: 24))
+        renderer.scale = UIScreen.main.scale
+        guard let rendered = renderer.uiImage else { return Image(systemName: "circle") }
+        return Image(uiImage: rendered.withRenderingMode(.alwaysTemplate))
+    }
+
+    /// The same drawing as pixels, so a test can prove it is not blank.
+    @MainActor
+    static func renderedPixels(_ glyph: ScrybeGlyph, side: CGFloat = 24) -> UIImage? {
+        let renderer = ImageRenderer(content:
+            ScrybeGlyphShape(glyph: glyph)
+                .stroke(style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+                .foregroundStyle(.black)
+                .frame(width: side, height: side))
+        renderer.scale = 1
+        return renderer.uiImage
     }
 }

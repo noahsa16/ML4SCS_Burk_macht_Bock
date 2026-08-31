@@ -31,6 +31,16 @@
         }
       }
     },
+    "Alle Kreaturen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "All creatures"
+          }
+        }
+      }
+    },
     "Beende sie zuerst, dann kann die Sitzung starten." : {
       "localizations" : {
         "en" : {
@@ -87,16 +97,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Duration: no goal"
-          }
-        }
-      }
-    },
-    "Deine Schreibzeit ist gutgeschrieben." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your writing time is credited."
           }
         }
       }
@@ -161,26 +161,6 @@
         }
       }
     },
-    "Die Uhr hat nicht geantwortet. Prüfe, ob sie in Reichweite ist." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The watch did not answer. Check that it is in range."
-          }
-        }
-      }
-    },
-    "Die Uhr hat nicht rechtzeitig geantwortet." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The watch did not answer in time."
-          }
-        }
-      }
-    },
     "Die Uhr ist nicht erreichbar" : {
       "localizations" : {
         "en" : {
@@ -197,16 +177,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "The Watch could not keep measuring"
-          }
-        }
-      }
-    },
-    "Die Uhr misst, das iPhone zeichnet mit. Deine Schreibzeit zählt weiterhin der Tagestracker." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "The watch measures, the iPhone draws along. Your writing time is still counted by the daily tracker."
           }
         }
       }
@@ -371,6 +341,16 @@
         }
       }
     },
+    "Nach zwei Stunden endet eine Sitzung von selbst." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "After two hours a session ends on its own."
+          }
+        }
+      }
+    },
     "Noch etwa %lld Minuten, bis er fertig gezeichnet ist — und du beginnst ein neues." : {
       "localizations" : {
         "en" : {
@@ -411,32 +391,12 @@
         }
       }
     },
-    "Schließen" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Close"
-          }
-        }
-      }
-    },
     "Schreibseite dieser Sitzung" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "This session's page of writing"
-          }
-        }
-      }
-    },
-    "Sitzung beendet" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Session ended"
           }
         }
       }
@@ -501,16 +461,6 @@
         }
       }
     },
-    "Wie lange willst du schreiben?" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "How long do you want to write?"
-          }
-        }
-      }
-    },
     "Wie lange?" : {
       "localizations" : {
         "en" : {
@@ -537,6 +487,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Back"
+          }
+        }
+      }
+    },
+    "Zwischen %lld und %lld Minuten." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Between %lld and %lld minutes."
           }
         }
       }
@@ -2008,16 +1968,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Reset"
-          }
-        }
-      }
-    },
-    "Zwischen 5 und 120 Minuten." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Between 5 and 120 minutes."
           }
         }
       }

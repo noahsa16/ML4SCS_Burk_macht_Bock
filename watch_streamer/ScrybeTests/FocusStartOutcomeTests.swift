@@ -23,7 +23,20 @@ struct FocusStartOutcomeTests {
         #expect(FocusStartOutcome.from(reply: [:]) == .unconfirmed)
     }
 
-    @Test func aTransportFailureIsUnreachable() {
-        #expect(FocusStartOutcome.unreachable != FocusStartOutcome.unconfirmed)
+    /// Why this and not `.unreachable != .unconfirmed`: two distinct enum
+    /// cases are trivially unequal, which proved nothing. What matters is that
+    /// decoding a reply can NEVER yield `.unreachable` — that verdict belongs
+    /// to the transport, and a reply that arrived is evidence against it, even
+    /// one carrying the transport-failure marker.
+    @Test func decodingNeverClaimsUnreachable() {
+        let replies: [[String: Any]] = [
+            [:],
+            [WatchPayloadKey.ok: false],
+            [WatchPayloadKey.ok: false, WatchPayloadKey.error: "something this build never heard of"],
+            [WatchPayloadKey.ok: false, WatchPayloadKey.transportFailure: true],
+        ]
+        for reply in replies {
+            #expect(FocusStartOutcome.from(reply: reply) != .unreachable)
+        }
     }
 }

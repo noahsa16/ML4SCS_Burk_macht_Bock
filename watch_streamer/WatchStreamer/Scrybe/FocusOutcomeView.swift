@@ -1,14 +1,17 @@
 import SwiftUI
 
-/// Why a session is not running: refused, unconfirmed, unreachable, or simply
-/// over. Each carries the next action that fits it — a retry helps a timeout
-/// and does nothing for a missing permission.
+/// Why a start did not become a session: refused, unconfirmed or unreachable.
+/// Each carries the next action that fits it — a retry helps a timeout and
+/// does nothing for a missing permission.
+///
+/// An ENDING is not shown here. The written page is the outcome of an ordinary
+/// ending, and an exceptional reason is a remark beside it — see
+/// `FocusSessionStore.FinishReason.note`.
 struct FocusOutcomeView: View {
     enum Outcome: Equatable {
         case refused(FocusStartRefusal)
         case unconfirmed
         case unreachable
-        case finished(FocusSessionStore.FinishReason)
     }
 
     let outcome: Outcome
@@ -44,7 +47,7 @@ struct FocusOutcomeView: View {
     private var showsRetry: Bool {
         switch outcome {
         case .unconfirmed, .unreachable: return true
-        case .refused, .finished: return false
+        case .refused: return false
         }
     }
 
@@ -63,9 +66,6 @@ struct FocusOutcomeView: View {
 }
 
 extension FocusOutcomeView.Outcome {
-    /// Why the wording lives on the outcome and not inside the view: the
-    /// finished page states the same thing as a banner beside the written page,
-    /// which it must not replace. One outcome, one sentence, two presentations.
     var title: String {
         switch self {
         case .refused(.recordingInProgress):
@@ -76,16 +76,6 @@ extension FocusOutcomeView.Outcome {
             return String(localized: "Start unbestätigt")
         case .unreachable:
             return String(localized: "Die Uhr ist nicht erreichbar")
-        case .finished(.user):
-            return String(localized: "Sitzung beendet")
-        case .finished(.hardCap):
-            return String(localized: "Zeitgrenze erreicht")
-        case .finished(.studyPreemption):
-            return String(localized: "Eine Aufnahme hat die Uhr übernommen")
-        case .finished(.watchFailure):
-            return String(localized: "Die Uhr konnte nicht weiter messen")
-        case .finished(.stopUnconfirmed):
-            return String(localized: "Beendet, ohne Bestätigung")
         }
     }
 
@@ -99,14 +89,32 @@ extension FocusOutcomeView.Outcome {
             return String(localized: "Binnen 8 Sekunden kam keine Antwort. Ob die Uhr misst, ist damit offen.")
         case .unreachable:
             return String(localized: "Die Anfrage kam nicht an. Prüfe, ob die Uhr in Reichweite ist.")
-        case .finished(.user), .finished(.hardCap):
-            return String(localized: "Deine Schreibzeit ist gutgeschrieben.")
-        case .finished(.studyPreemption):
-            return String(localized: "Die Sitzung endete, weil eine Studien-Aufnahme die Sensoren braucht.")
-        case .finished(.watchFailure):
-            return String(localized: "Prüfe die Workout-Freigabe in den Health-Einstellungen.")
-        case .finished(.stopUnconfirmed):
-            return String(localized: "Die Uhr hat den Stopp nicht bestätigt. Der Sensorstrom läuft womöglich weiter.")
+        }
+    }
+}
+
+extension FocusSessionStore.FinishReason {
+    /// What to remark beside the finished page, or `nil` when the page already
+    /// says it. Ending it yourself needs no note: the written page and its
+    /// credited time are the whole statement. The other four are things the
+    /// page cannot show — including the cap, which otherwise looks like the
+    /// session simply stopping on its own.
+    var note: (title: String, detail: String)? {
+        switch self {
+        case .user:
+            return nil
+        case .hardCap:
+            return (String(localized: "Zeitgrenze erreicht"),
+                    String(localized: "Nach zwei Stunden endet eine Sitzung von selbst."))
+        case .studyPreemption:
+            return (String(localized: "Eine Aufnahme hat die Uhr übernommen"),
+                    String(localized: "Die Sitzung endete, weil eine Studien-Aufnahme die Sensoren braucht."))
+        case .watchFailure:
+            return (String(localized: "Die Uhr konnte nicht weiter messen"),
+                    String(localized: "Prüfe die Workout-Freigabe in den Health-Einstellungen."))
+        case .stopUnconfirmed:
+            return (String(localized: "Beendet, ohne Bestätigung"),
+                    String(localized: "Die Uhr hat den Stopp nicht bestätigt. Der Sensorstrom läuft womöglich weiter."))
         }
     }
 }

@@ -6,7 +6,7 @@ enum FocusDurationInput {
     /// Below five minutes is not a session; the ceiling is the hard cap in
     /// `FocusCommandPolicy.sessionCapSeconds`, and offering more than the
     /// Watch will run would promise a length it then cuts.
-    static let range = 5...120
+    static let range = 5...Int(FocusCommandPolicy.sessionCapSeconds / 60)
 
     enum Failure: Error, Equatable {
         case empty
@@ -29,7 +29,7 @@ enum FocusDurationInput {
         case .notAWholeNumber:
             return String(localized: "Nur ganze Minuten.")
         case .outOfRange:
-            return String(localized: "Zwischen 5 und 120 Minuten.")
+            return String(localized: "Zwischen \(range.lowerBound) und \(range.upperBound) Minuten.")
         }
     }
 }

@@ -3,7 +3,7 @@ import Foundation
 extension FocusStartRefusal {
     /// The refusal in the user's language.
     ///
-    /// One source for two callers: `FocusSessionView`, which shows it when the
+    /// One source for two callers: `FocusOutcomeView`, which shows it when the
     /// Watch answers, and `FocusSessionStore`, which has to say the same thing
     /// when a study recording preempts a start still in flight.
     ///

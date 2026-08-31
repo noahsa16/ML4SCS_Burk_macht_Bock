@@ -50,6 +50,14 @@ struct FocusReadyView: View {
             .buttonStyle(.plain)
             .foregroundStyle(theme.paperTop)
             .background(theme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            // Why here and not in Verlauf: the gallery is the focus tab's own
+            // reward, and it lost its former home when Verlauf left the strip.
+            NavigationLink(value: BestiaryDestination()) {
+                Text("Alle Kreaturen")
+                    .font(.footnote)
+                    .foregroundStyle(theme.secondaryInk)
+            }
         }
         .padding(20)
         .sheet(isPresented: $sheetPresented) {

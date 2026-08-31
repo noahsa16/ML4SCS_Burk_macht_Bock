@@ -318,6 +318,18 @@ final class FocusSessionStore: ObservableObject {
         String(localized: "Die Uhr hat die Messung beendet, weil die Workout-Sitzung nicht läuft. Prüfe die Workout-Freigabe in den Health-Einstellungen.")
     }
 
+    /// Abandons a start that never became a session.
+    ///
+    /// Why not `returnToIdle()`: that one refuses while `isActive`, and
+    /// `.starting` counts as active — so a refused or unanswered start would
+    /// strand the screen on its spinner with the tab bar hidden.
+    func abandonStart() {
+        guard case .starting = phase else { return }
+        reset()
+        finishReason = nil
+        phase = .idle
+    }
+
     /// Leaves `failed` or `finished` for the picker again. A live session is
     /// never discarded this way — it has to be ended.
     func returnToIdle() {
@@ -351,6 +363,10 @@ final class FocusSessionStore: ObservableObject {
               let startedMs = CaptureMode.focusStartedAtMs(poll: poll) else { return }
         let startedAt = Date(timeIntervalSince1970: Double(startedMs) / 1000)
         guard now.timeIntervalSince(startedAt) < hardCapSeconds else { return }
+        // Why: `end()` sends `focus_stop` asynchronously, so a poll already in
+        // flight still reports the session we just closed. Without this the
+        // user is dropped straight back into the session they ended.
+        if let last = lastSessionStart, abs(last.timeIntervalSince(startedAt)) < 1 { return }
         begin(targetSeconds: nil, at: startedAt)
     }
 

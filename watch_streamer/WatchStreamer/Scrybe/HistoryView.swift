@@ -2,7 +2,6 @@ import SwiftUI
 
 struct HistoryView: View {
     @ObservedObject private var focus = FocusStore.shared
-    @ObservedObject private var bestiary = BestiaryStore.shared
     @AppStorage(ScrybeSettings.goalKey) private var goalSeconds: Double = ScrybeSettings.defaultGoalSeconds
     @Environment(\.scrybe) private var theme
 

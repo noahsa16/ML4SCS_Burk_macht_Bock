@@ -27,8 +27,8 @@ Gerät: _______________  iOS / watchOS: _______________  Datum: _______________
 | 1 | Fokusstart bei getrennter Server-WebSocket-Verbindung, Uhr erreichbar | Sitzung startet; der Start hängt nicht am Server | _(ausstehend)_ |
 | 2 | Watch-App im Vordergrund | Start wird bestätigt | _(ausstehend)_ |
 | 3 | Watch-App im Hintergrund | Start wird bestätigt oder ehrlich als unbestätigt gemeldet | _(ausstehend)_ |
-| 4 | Workout-Freigabe verweigert | Ablehnung wird als Ablehnung erklärt, **nicht** als Timeout; kein „Erneut versuchen" | _(ausstehend)_ |
-| 5 | Cap greift auf der Uhr, einmal mit herabgesetztem Wert | Sitzung endet mit „Zeitgrenze erreicht" | _(ausstehend)_ |
+| 4 | Workout-Freigabe verweigert | Ablehnung wird als Ablehnung erklärt, **nicht** als Timeout; kein „Erneut versuchen"; „Zurück" führt zur Bereit-Seite zurück | _(ausstehend)_ |
+| 5 | Cap greift auf der Uhr, einmal mit herabgesetztem Wert | Sitzung endet; die fertige Seite trägt den Hinweis „Zeitgrenze erreicht" | _(ausstehend)_ |
 | 6 | Force-Quit des iPhones bei laufender Sitzung, dann Neustart | Sitzung wird über `capture_mode` wiedergefunden, Laufzeit ab echtem Start | _(ausstehend)_ |
 | 7 | Neustart der Uhr bei laufender Sitzung | dokumentiertes Verhalten, kein stiller Zombie-Stream | _(ausstehend)_ |
 | 8 | Header und Tab-Bar im Lauf-Zustand | verschwinden beim Start, kommen beim Ende zurück | _(ausstehend)_ |

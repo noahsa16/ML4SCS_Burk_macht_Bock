@@ -154,12 +154,18 @@ struct FocusTabView: View {
 
             // Why a banner and not a screen of its own: the written page IS the
             // outcome of an ordinary ending, and an exceptional reason is a
-            // remark about that page, not a replacement for it.
-            if let reason = session.finishReason, reason != .user, reason != .hardCap {
-                Label(FocusOutcomeView.Outcome.finished(reason).detail,
-                      systemImage: "exclamationmark.triangle")
-                    .font(.footnote)
-                    .foregroundStyle(theme.warning)
+            // remark about that page, not a replacement for it. Both halves are
+            // shown — the detail alone is an instruction with no antecedent.
+            if let note = session.finishReason?.note {
+                Label {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(note.title).font(.footnote.weight(.semibold))
+                        Text(note.detail).font(.footnote)
+                    }
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle")
+                }
+                .foregroundStyle(theme.warning)
             }
 
             primaryButton("Fertig") { session.returnToIdle() }
@@ -226,13 +232,13 @@ struct FocusTabView: View {
                 session.begin(targetSeconds: seconds)
             case .refused(let refusal):
                 startOutcome = .refused(refusal)
-                session.returnToIdle()
+                session.abandonStart()
             case .unconfirmed:
                 startOutcome = .unconfirmed
-                session.returnToIdle()
+                session.abandonStart()
             case .unreachable:
                 startOutcome = .unreachable
-                session.returnToIdle()
+                session.abandonStart()
             }
         }
     }
