@@ -1,8 +1,8 @@
 import SwiftUI
 
 /// Shared top header: centered serif brand, a hairline, the current page caption
-/// in gold uppercase, and — pinned top-right — the Watch-connection indicator
-/// beside the profile circle that opens the profile sheet.
+/// in gold uppercase, and — pinned top-right — the profile circle that opens
+/// the profile sheet.
 ///
 /// It is content, not chrome: every page places it at the top of its own
 /// scroll view so it moves with the page instead of standing over it.
@@ -34,8 +34,7 @@ struct ScrybeHeader: View {
                 .foregroundStyle(theme.ink)
                 .frame(maxWidth: .infinity)
                 .overlay(alignment: .trailing) {
-                    HStack(spacing: 14) {
-                        WatchStatusDot()
+                    Group {
                         if let onClose {
                             Button(action: onClose) {
                                 Image(systemName: "xmark")

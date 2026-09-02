@@ -407,7 +407,6 @@ private struct WatchSection: View {
 
 private struct PreferencesSection: View {
     @AppStorage(ScrybeSettings.languageKey) private var language = ScrybeSettings.defaultLanguage
-    @AppStorage(ScrybeSettings.weekStartKey) private var weekStart = ScrybeSettings.defaultWeekStart
     @Environment(\.scrybe) private var theme
 
     var body: some View {
@@ -417,11 +416,6 @@ private struct PreferencesSection: View {
                 SerifSegmentedControl(
                     options: [("system", "System"), ("de", "Deutsch"), ("en", "English")],
                     selection: $language)
-            }
-            preference("Wochenstart") {
-                SerifSegmentedControl(
-                    options: [(2, "Montag"), (1, "Sonntag")],
-                    selection: $weekStart)
             }
         }
     }
@@ -486,7 +480,7 @@ private struct PrivacySection: View {
             Button("Zurücksetzen", role: .destructive, action: resetSettings)
             Button("Abbrechen", role: .cancel) {}
         } message: {
-            Text("Setzt Tagesziel, Erinnerung, Sprache und Wochenstart zurück. Aufgezeichnete Daten bleiben erhalten.")
+            Text("Setzt Tagesziel, Erinnerung und Sprache zurück. Aufgezeichnete Daten bleiben erhalten.")
         }
         .confirmationDialog("Alle lokalen Daten löschen?",
                             isPresented: $confirmDelete, titleVisibility: .visible) {

@@ -2,7 +2,8 @@ import SwiftUI
 
 /// Days as hatched bars on a baseline, one selectable. Seven days get their
 /// weekday under each bar; thirty get a day number every seventh bar so the
-/// axis stays legible without a label per bar.
+/// axis stays legible without a label per bar. A hairline scale on the
+/// leading edge names the top and the middle of the bars' range.
 struct HatchedBarChart: View {
     let days: [FocusDayDTO]
     let maxSeconds: Double
@@ -16,21 +17,51 @@ struct HatchedBarChart: View {
 
     private var dense: Bool { days.count > 10 }
     private var spacing: CGFloat { dense ? 3 : 10 }
+    /// Height of the label row under the baseline.
+    private let labelRow: CGFloat = 26
 
     var body: some View {
-        HStack(alignment: .bottom, spacing: spacing) {
-            ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
-                column(day, index: index)
+        HStack(alignment: .bottom, spacing: 8) {
+            scale
+            HStack(alignment: .bottom, spacing: spacing) {
+                ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
+                    column(day, index: index)
+                }
             }
         }
-        .frame(height: barHeight + 26, alignment: .bottom)
+        .frame(height: barHeight + labelRow, alignment: .bottom)
         .overlay(alignment: .bottom) {
             // The baseline the bars stand on, drawn under the labels' row so it
             // separates figures from their names the way a ruled page would.
             Rectangle().fill(theme.hairline).frame(height: 1)
-                .padding(.bottom, 24)
+                .padding(.bottom, labelRow - 2)
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: selectedDate)
+    }
+
+    /// The y-axis: a hairline as tall as the tallest possible bar, with the
+    /// range's top and middle written beside it in the label's own type.
+    private var scale: some View {
+        ZStack(alignment: .topTrailing) {
+            Rectangle().fill(theme.hairline).frame(width: 1, height: barHeight)
+            if maxSeconds > 0 {
+                tick(maxSeconds).offset(y: -6)
+                tick(maxSeconds / 2).offset(y: barHeight / 2 - 6)
+            }
+        }
+        .frame(height: barHeight, alignment: .top)
+        // Ends on the baseline so the two hairlines meet in a corner.
+        .padding(.bottom, labelRow - 1)
+        .accessibilityHidden(true)
+    }
+
+    private func tick(_ seconds: Double) -> some View {
+        Text(TimeFormatting.human(seconds: seconds))
+            .font(.caption2)
+            .foregroundStyle(theme.mutedInk)
+            .monospacedDigit()
+            .fixedSize()
+            .padding(.trailing, 5)
     }
 
     private func column(_ day: FocusDayDTO, index: Int) -> some View {
@@ -44,7 +75,7 @@ struct HatchedBarChart: View {
             label(day, index: index, selected: selected)
         }
         .frame(maxWidth: .infinity, alignment: .bottom)
-        .frame(height: barHeight + 26, alignment: .bottom)
+        .frame(height: barHeight + labelRow, alignment: .bottom)
         .contentShape(Rectangle())
         .onTapGesture { onSelect?(day.date) }
         .accessibilityElement(children: .ignore)
@@ -66,6 +97,10 @@ struct HatchedBarChart: View {
             .tracking(dense ? 0 : 1)
             .foregroundStyle(selected ? theme.ink : theme.secondaryInk)
             .lineLimit(1)
+            // Why fixedSize: a dense column is narrower than "19.", and the
+            // neighbours' label slots are blank, so the text may overhang them
+            // instead of being clipped to its own column.
+            .fixedSize()
             .frame(height: 14)
             // A dense chart hides most labels; keeping their slot blank rather
             // than absent keeps every column the same height.

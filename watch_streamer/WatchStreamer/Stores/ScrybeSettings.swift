@@ -36,10 +36,6 @@ enum ScrybeSettings {
     static let languageKey = "scrybe.language"
     static let defaultLanguage = "system"
 
-    // Calendar.firstWeekday: 1 = Sunday, 2 = Monday (default Monday).
-    static let weekStartKey = "scrybe.weekStart"
-    static let defaultWeekStart = 2
-
     // Length of a deliberately started focus session, in whole minutes.
     // Separate from `goalKey`: that one is the day's target, this one is the
     // last session length, and the ready screen opens with it so it never has
@@ -52,7 +48,7 @@ enum ScrybeSettings {
     /// that erases it.
     static let resettableKeys = [
         goalKey, reminderEnabledKey, reminderMinutesKey,
-        languageKey, weekStartKey, focusDurationKey,
+        languageKey, focusDurationKey,
     ]
 
     static var goalSeconds: Double {

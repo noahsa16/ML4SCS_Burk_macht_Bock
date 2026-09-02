@@ -109,8 +109,12 @@ Bildschirmfoto*.png
 Screenshot*.png
 
 # Probandendaten-Bundle (Drive-Download, Quelle fuer die Datenpublikation).
-# Niemals committen - origin ist PUBLIC.
-alldata/
+# Niemals committen - origin ist PUBLIC. Ohne abschliessenden Slash, damit
+# auch der lokale iCloud-Symlink ignoriert wird.
+/alldata
+
+# Lokaler Marker eines bereits vom Pod geholten Artefakts.
+/.pod_fetched
 
 # Arbeitsnotizen zum Data-in-Brief-Manuskript (Stichpunkte, Zahlen, offene
 # Fragen). Working docs, kein Repo-Inhalt — das Manuskript lebt in Overleaf.

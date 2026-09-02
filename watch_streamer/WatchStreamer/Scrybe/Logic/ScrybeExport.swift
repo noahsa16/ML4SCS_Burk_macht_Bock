@@ -35,7 +35,6 @@ enum ScrybeExport {
                 "daily_goal_seconds": ScrybeSettings.goalSeconds,
                 "language": UserDefaults.standard.string(forKey: ScrybeSettings.languageKey)
                     ?? ScrybeSettings.defaultLanguage,
-                "week_start": UserDefaults.standard.integer(forKey: ScrybeSettings.weekStartKey),
             ],
         ]
         return (try? JSONSerialization.data(withJSONObject: root,

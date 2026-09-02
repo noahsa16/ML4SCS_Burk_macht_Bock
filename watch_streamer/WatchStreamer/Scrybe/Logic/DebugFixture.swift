@@ -6,9 +6,10 @@ import Foundation
 ///
 /// Launch with `-scrybeFixture` to ingest twenty days of synthetic writing
 /// and a few creatures once; add `-scrybeInitialTab trends|focus` to land
-/// on a tab. Debug builds only — the release binary does not contain this.
+/// on a tab and `-scrybeInitialSpan month` to open Trends on the month view.
+/// Debug builds only — the release binary does not contain this.
 ///
-///     xcrun simctl launch booted ML4SCS.WatchStreamer -scrybeFixture -scrybeInitialTab trends
+///     xcrun simctl launch booted ML4SCS.WatchStreamer -scrybeFixture -scrybeInitialTab trends -scrybeInitialSpan month
 enum DebugFixture {
     private static let seededKey = "scrybe.debugFixtureSeeded"
 
@@ -26,6 +27,10 @@ enum DebugFixture {
         case "today": return .today
         default: return nil
         }
+    }
+
+    static var initialSpan: TrendPaging.Span? {
+        UserDefaults.standard.string(forKey: "scrybeInitialSpan") == "month" ? .month : nil
     }
 
     /// Minutes written per day, newest last. Zeros are rest days; the mix

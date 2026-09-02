@@ -11,7 +11,11 @@ struct TrendsView: View {
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+#if DEBUG
+    @State private var span: TrendPaging.Span = DebugFixture.initialSpan ?? .week
+#else
     @State private var span: TrendPaging.Span = .week
+#endif
     @State private var offset = 0
     /// The tapped bar. `nil` falls back to the window's newest day, so a
     /// fresh page always has one day in the accent.

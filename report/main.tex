@@ -1,0 +1,50 @@
+%% Working-paper template adapted for the ML4SCS semester project.
+\documentclass[11pt]{article}
+\usepackage{UF_FRED_paper_style}
+
+\onehalfspacing
+\setlength{\droptitle}{-5em} %% Required by the supplied template.
+
+\title{Writing Activity Detection from Wrist-Worn Inertial Sensors}
+
+\author{Noah Samel (4004067)\\
+    noah.samel@stud.leuphana.de
+\and
+    Tajuddin Snasni (TODO: Matrikelnummer)\\
+    tajuddin.snasni@stud.leuphana.de}
+
+\date{\today}
+
+\begin{document}
+
+{\setstretch{.8}
+\maketitle
+\begin{abstract}
+\noindent
+% TODO (Noah, final): Write this last. Cover the problem, Apple Watch IMU input,
+% pen-derived ground truth, participant-wise evaluation, best result, and conclusion.
+
+\medskip
+\noindent
+\textit{\textbf{Keywords: }human activity recognition; inertial measurement unit;
+wearable sensing; writing detection; machine learning.}
+\end{abstract}
+}
+
+% Taji's sections
+\input{sections/01_introduction}
+\input{sections/02_related_work}
+
+% Noah's sections
+\input{sections/03_data_collection}
+\input{sections/04_methodology}
+\input{sections/05_experimental_setup}
+\input{sections/06_results}
+\input{sections/07_discussion}
+\input{sections/08_limitations}
+\input{sections/09_conclusion}
+
+\medskip
+\bibliography{references.bib}
+
+\end{document}

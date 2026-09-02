@@ -11,8 +11,6 @@ struct FocusReadyView: View {
     let onStart: (Double?) -> Void
 
     @ObservedObject private var bestiary = BestiaryStore.shared
-    @ObservedObject private var server = ServerCommandListener.shared
-    @ObservedObject private var bridge = PhoneBridge.shared
     @Environment(\.scrybe) private var theme
     @AppStorage(ScrybeSettings.focusDurationKey) private var storedMinutes =
         ScrybeSettings.defaultFocusMinutes
@@ -24,8 +22,6 @@ struct FocusReadyView: View {
 
     private var chosenMinutes: Int? { goalless ? nil : storedMinutes }
     private var chosenSeconds: Double? { chosenMinutes.map { Double($0) * 60 } }
-    /// The same definition the header glyph uses, so the two never disagree.
-    private var watchConnected: Bool { server.watchPolling || bridge.isConnected }
 
     var body: some View {
         let creature = bestiary.creatureInProgress()
@@ -36,10 +32,7 @@ struct FocusReadyView: View {
             creatureSection(creature, remaining: remaining, fraction: fraction)
             ScrybeRule()
             durationSection
-            VStack(spacing: 14) {
-                ScrybePrimaryButton("Sitzung starten") { onStart(chosenSeconds) }
-                watchLine
-            }
+            ScrybePrimaryButton("Sitzung starten") { onStart(chosenSeconds) }
             bestiaryLink
         }
         .padding(.top, 8)
@@ -121,7 +114,7 @@ struct FocusReadyView: View {
                 .foregroundStyle(theme.ink)
             if FocusProgress.exceedsCreature(remainingSeconds: remaining,
                                              sessionSeconds: chosenSeconds) {
-                Text("Diese Sitzung vollendet die Kreatur — danach beginnt eine neue.")
+                Text("Diese Sitzung vollendet die Kreatur. Danach beginnt eine neue.")
                     .scrybeMarginNote(.footnote)
             }
         }
@@ -160,23 +153,7 @@ struct FocusReadyView: View {
         }
     }
 
-    // MARK: - Status and gallery
-
-    private var watchLine: some View {
-        HStack(spacing: 8) {
-            Circle()
-                .fill(watchConnected ? theme.success : theme.goalReached)
-                .frame(width: 7, height: 7)
-            Text(watchConnected
-                 ? "Watch verbunden — die Uhr erkennt dein Schreiben"
-                 : "Watch nicht verbunden — der Start braucht die Uhr in Reichweite")
-                .font(.footnote)
-                .foregroundStyle(theme.secondaryInk)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .accessibilityElement(children: .combine)
-    }
+    // MARK: - Gallery
 
     private var bestiaryLink: some View {
         NavigationLink(value: BestiaryDestination()) {
