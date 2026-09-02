@@ -22,14 +22,14 @@ Every finding below has been addressed across six commits on
 
 | § | Finding | Status | Commit |
 |---|---|---|---|
-| 3.1 | Observable connectivity owners have no enforced actor boundary | Partly — targeted race fixes, structural migration deferred | `9f4f9cb` |
+| 3.1 | Observable connectivity owners have no enforced actor boundary | Fixed — Swift 6 mode, delegates hop to main, framework closures `@Sendable` | `a11c01f` |
 | 3.2 | WebSocket generation state accessed across unsynchronized queues | Fixed | `9f4f9cb` |
 | 3.3 | Poll/ack state only partially locked | Fixed | `9f4f9cb` |
 | 3.4 | Background diagnostics pass through main-owned command state | Fixed | `9f4f9cb` |
 | 3.5 | Untyped dictionaries cross concurrency domains | Partly — keys and coercion centralized, payloads still `[String: Any]` | `9753561` |
-| 3.6 | Callback networking obscures cancellation | Deferred | — |
+| 3.6 | Callback networking obscures cancellation | Fixed — structured receive loop per generation, `await send`, async upload | `a11c01f` |
 | 4.1 | Deprecated watchOS `onChange` overloads | Fixed | `71c9847` |
-| 4.2 | Targets remain in Swift 5 language mode | Deferred by decision | — |
+| 4.2 | Targets remain in Swift 5 language mode | Fixed — `SWIFT_VERSION = 6.0` on all three targets, zero warnings | `a11c01f` |
 | 4.3 | Test target minimum does not match the app's iOS 16 | Fixed | `71c9847` |
 | 4.4 | Repeated `DateFormatter` allocation | Fixed | `9753561` |
 | 5.1 | **The autonomous passive tracker has no production pipeline** | Implemented, **not hardware-validated** | `53fe789` |
@@ -57,8 +57,8 @@ Every finding below has been addressed across six commits on
 | 8.6 | English localization incomplete | Fixed | `9c75051` |
 | 8.7 | Charts expose summaries but insufficient values | Fixed | `9c75051` |
 | 8.8 | Reduced-motion handling incomplete in delayed animations | Fixed | `9c75051` |
-| 9.1 | `MotionManager` is a six-responsibility monolith | Deferred by decision | — |
-| 9.2 | iPhone transport singletons oversized | Deferred by decision | — |
+| 9.1 | `MotionManager` is a six-responsibility monolith | Partly — spill persistence extracted to `SpillFile` (tested); workout and command routing still inside | `39d6c42` |
+| 9.2 | iPhone transport singletons oversized | Partly — all lock mirrors gone with the main-actor move; the split into services is still open | `a11c01f` |
 | 9.3 | Dictionary protocol and numeric coercion duplicated | Fixed | `9753561` |
 | 9.4 | `WatchView_v2.swift` misleadingly versioned | Fixed | `71c9847` |
 | 9.5 | `WTConnPill` is dead code | Fixed | `71c9847` |
@@ -76,13 +76,23 @@ that measurement exists, the connected pipeline remains the only
 evidence-backed path and a demo must be described as a connected prototype.
 `PassiveTrackerEngine`'s doc comment and the Watch settings screen both say so.
 
-**§3.1, §3.6, §4.2, §9.1, §9.2 — the structural refactor was declined.** Fixing
-them means splitting `MotionManager` (1 120 lines), `ServerCommandListener`
-(609) and `PhoneBridge` (565) into actors and raising `SWIFT_VERSION` to 6.
-That is a multi-day rewrite of the code carrying live delivery, verifiable here
-only by the compiler. The demonstrable races (§3.2, §3.3, §3.4) were fixed by
-serialization instead. §10.1 of this report remains the right target and is
-still open.
+**§3.1, §3.6, §4.2 were closed on 2026-09-02; §9.1 and §9.2 are partly done.**
+All three targets compile in Swift 6 language mode with default MainActor
+isolation and no warnings (`a11c01f`). The migration found two classes of
+latent crash the Swift 5 build had hidden: every WatchConnectivity and
+HealthKit delegate method was implicitly main-actor isolated while the
+frameworks call them on background queues, and closures handed to
+`sendMessage`, CoreMotion and HealthKit inherited main-actor isolation
+unless spelled `@Sendable`. Both trapped under Swift 6's executor check in
+the simulator and are fixed at every site. `ServerCommandListener` lost its
+three lock mirrors because nothing runs off the main actor any more; the
+WebSocket receive loop is one structured task per connection generation.
+`SpillFile` (`39d6c42`) takes the on-disk overflow out of `MotionManager`
+with its own tests. Still inside `MotionManager`: the HealthKit workout
+lifecycle and the command router. `ServerCommandListener` and `PhoneBridge`
+are smaller but not yet split into services (§10.1). Verified with
+`ScrybeTests` (438 passing) and both apps launching in the simulator; no
+hardware run.
 
 **§6.1 cannot be fully closed client-side.** HTTPS and WSS need a certificate on
 the FastAPI research server. What was in reach is done: `NSAllowsArbitraryLoads`

@@ -562,9 +562,19 @@ gehörte. Zwei Grenzen bändigen es:
    Mitternacht — die Uhr holt bis zu 12 h Recorder-Historie pro Zyklus,
    ein Mitternachts-Rollup würde regelmäßig Nachlieferungen wegwerfen.
 
-**Auf der Uhr ist dasselbe Volumenproblem offen** — bewusst nicht
-angefasst, damit die ausstehenden Hardware-Messungen gegen den
-aufgespielten Code laufen.
+**Auf der Uhr gelten seit 2026-09-02 dieselben zwei Grenzen** an der Quelle:
+`PassiveTrackerEngine` klassifiziert jedes Fenster, schreibt aber nur
+Schreib-Fenster (`CycleResult.windowsClassified` vs. `decisionsRecorded`),
+und `retentionDays` ist 3 statt 90 (ein Test hält es gleich mit
+`FocusArchive.rawRetentionDays`). `PassiveDecisionStore` dedupliziert gegen
+einen In-Memory-Satz der bekannten Fensterstarts statt bei jedem Append die
+Datei zu decodieren. Beide Apps kompilieren in **Swift 6** (`SWIFT_VERSION =
+6.0`, Default-Isolation MainActor, null Warnungen); WatchConnectivity- und
+HealthKit-Delegates sind `nonisolated` und hüpfen selbst auf den Main-Actor,
+Framework-Closures tragen ein explizites `@Sendable` — ohne beides trappt
+Swift 6 zur Laufzeit. Die Uhr spiegelt zusätzlich die Kreatur des Phones
+(`WatchCreatureSnapshot` im Poll-Payload, gezeichnet im Ring). Die drei
+Hardware-Messungen (`reports/sensor_probe.md`) stehen weiterhin aus.
 
 **Aggregations-Abweichung vom Server.** `focus.py` rechnet auf
 nicht-überlappenden 1-Hz-Ticks, wo eine Phase `Ende − Start` lang ist.
