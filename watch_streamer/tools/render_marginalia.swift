@@ -9,7 +9,7 @@ import SwiftUI
 //
 //   cd watch_streamer && swiftc -O -o /tmp/render \
 //       tools/render_marginalia.swift \
-//       WatchStreamer/Scrybe/Components/Marginalia.swift && /tmp/render
+//       Shared/Marginalia.swift && /tmp/render
 //
 // Pass a species index to render that one alone at a larger size:
 //   /tmp/render 3

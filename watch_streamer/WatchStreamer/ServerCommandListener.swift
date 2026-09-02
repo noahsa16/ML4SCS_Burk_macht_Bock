@@ -263,6 +263,9 @@ class ServerCommandListener: NSObject, ObservableObject {
         let batch = UserDefaults.standard.integer(forKey: CaptureSettings.batchSizeKey)
         if CaptureSettings.isValidBatchSize(batch) { payload[WatchPayloadKey.batchSize] = batch }
         payload[WatchPayloadKey.dailyGoalSeconds] = ScrybeSettings.goalSeconds
+        if let creature = BestiaryStore.shared.current {
+            payload.merge(WatchCreatureSnapshot(entry: creature).payloadFields) { _, new in new }
+        }
         return payload
     }
 

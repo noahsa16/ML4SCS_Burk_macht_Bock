@@ -109,7 +109,7 @@ Reihenfolge und verschwindet aus dem Namen.
 ```bash
 cd watch_streamer
 python3 tools/svg_to_marginalia.py drawings/*.svg \
-    --out WatchStreamer/Scrybe/Components/Marginalia.swift
+    --out Shared/Marginalia.swift
 ```
 
 Das Werkzeug skaliert jedes Wesen formattreu in ein 100×100-Feld mit 4 Einheiten
@@ -120,7 +120,7 @@ Es braucht keine Bibliotheken.
 
 ```bash
 swiftc -O -o /tmp/render tools/render_marginalia.swift \
-    WatchStreamer/Scrybe/Components/Marginalia.swift && /tmp/render
+    Shared/Marginalia.swift && /tmp/render
 ```
 
 Schreibt `/tmp/marginalia.png` — alle Wesen als beschriftetes Raster mit

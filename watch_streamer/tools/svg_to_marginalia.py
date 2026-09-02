@@ -10,7 +10,7 @@ directly.
 Usage:
 
     python3 tools/svg_to_marginalia.py drawings/*.svg \\
-        --out WatchStreamer/Scrybe/Components/Marginalia.swift
+        --out Shared/Marginalia.swift
 
 One SVG per creature. The file's stem becomes the species name, so name them
 in roster order:

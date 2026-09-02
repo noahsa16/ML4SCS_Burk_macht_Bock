@@ -1008,6 +1008,7 @@ extension MotionManager: WCSessionDelegate {
                                         message: [String: Any],
                                         raw: String) -> [String: Any] {
         applyDailyGoal(from: message)
+        WatchCreatureStore.shared.apply(from: message)
         let commandId = message[WatchPayloadKey.commandID] as? String ?? ""
         switch command {
         case .focusStart:
@@ -1062,6 +1063,7 @@ extension MotionManager: WCSessionDelegate {
         // H3: jede iPhone-Nachricht kann requested_hz / batch_size tragen.
         applyMotionConfig(from: message)
         applyDailyGoal(from: message)
+        WatchCreatureStore.shared.apply(from: message)
         guard let command = message["command"] as? String else {
             return ["ok": false, "error": "Missing command"]
         }
