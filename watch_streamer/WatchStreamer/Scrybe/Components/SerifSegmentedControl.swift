@@ -1,6 +1,7 @@
 import SwiftUI
 
-/// Two tinted serif switches where a stock segmented picker used to sit.
+/// A hairline-ruled pill holding two or three serif switches, where a stock
+/// segmented picker used to sit.
 ///
 /// Keeps what `Picker` gave for free: each option is a button, and the
 /// selected one announces itself as selected. Losing that would trade an
@@ -10,25 +11,49 @@ struct SerifSegmentedControl<Value: Hashable>: View {
     @Binding var selection: Value
 
     @Environment(\.scrybe) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 4) {
             ForEach(options, id: \.value) { option in
                 let selected = option.value == selection
-                Button { selection = option.value } label: {
+                Button {
+                    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.2)) {
+                        selection = option.value
+                    }
+                } label: {
                     Text(LocalizedStringKey(option.label))
-                        .font(.system(.subheadline, design: .serif))
+                        .font(.system(.body, design: .serif).weight(selected ? .semibold : .regular))
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                        .padding(.vertical, 10)
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(selected ? theme.ink : theme.secondaryInk)
-                .background(selected ? theme.wash(theme.accent) : Color.clear,
-                            in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .background {
+                    if selected {
+                        Capsule()
+                            .fill(theme.wash(theme.accent))
+                            .overlay(Capsule().stroke(theme.accent.opacity(0.35), lineWidth: 1))
+                    }
+                }
                 .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
             }
         }
         .padding(4)
-        .background(theme.track, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(Capsule().stroke(theme.hairline, lineWidth: 1))
     }
+}
+
+#Preview {
+    struct Demo: View {
+        @State private var pick = "week"
+        var body: some View {
+            SerifSegmentedControl(options: [("week", "Woche"), ("month", "Monat")],
+                                  selection: $pick)
+                .padding(24)
+                .background(ScrybeTheme.standard.paper)
+                .scrybeTheme()
+        }
+    }
+    return Demo()
 }
