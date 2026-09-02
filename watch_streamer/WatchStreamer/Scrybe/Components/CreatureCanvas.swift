@@ -11,12 +11,18 @@ import SwiftUI
 struct CreatureCanvas: View {
     let speciesId: Int
     let strokesDrawn: Int
+    /// Also trace the strokes not yet earned, faint and dashed — the pencil
+    /// underdrawing the ink has yet to follow. The focus page shows it so a
+    /// half-drawn creature reads as half-drawn rather than as a fragment;
+    /// the gallery leaves it off, where the finished ink is the point.
+    var showsUnderdrawing = false
+
     @Environment(\.scrybe) private var theme
 
     var body: some View {
         Canvas { context, size in
             let strokes = Marginalia.strokes(forSpecies: speciesId)
-            guard !strokes.isEmpty, strokesDrawn > 0 else { return }
+            guard !strokes.isEmpty else { return }
             let side = min(size.width, size.height)
             context.translateBy(x: (size.width - side) / 2, y: (size.height - side) / 2)
             // The line width below is defined in this 100-unit box; scaling
@@ -25,6 +31,13 @@ struct CreatureCanvas: View {
             context.scaleBy(x: side / 100, y: side / 100)
             let base = max(0.9, 2.6 - CGFloat(strokes.count) * 0.03)
             let lineWidth = base * (side < 100 ? 1.6 : 1)
+            if showsUnderdrawing {
+                let dash = StrokeStyle(lineWidth: max(0.6, lineWidth * 0.6),
+                                       lineCap: .round, dash: [2.2, 2.6])
+                for path in strokes.dropFirst(strokesDrawn) {
+                    context.stroke(path, with: .color(theme.mutedInk), style: dash)
+                }
+            }
             for path in strokes.prefix(strokesDrawn) {
                 context.stroke(path, with: .color(theme.secondaryInk), lineWidth: lineWidth)
             }
@@ -42,4 +55,15 @@ extension Marginalia {
     static func name(forSpecies id: Int) -> String {
         names.indices.contains(id) ? names[id] : ""
     }
+}
+
+#Preview {
+    HStack(spacing: 24) {
+        CreatureCanvas(speciesId: 0, strokesDrawn: 12)
+        CreatureCanvas(speciesId: 0, strokesDrawn: 12, showsUnderdrawing: true)
+    }
+    .frame(height: 140)
+    .padding(40)
+    .background(ScrybeTheme.standard.paper)
+    .scrybeTheme()
 }

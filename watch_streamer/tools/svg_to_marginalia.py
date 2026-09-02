@@ -316,19 +316,20 @@ def identifier(stem: str) -> str:
 
 
 # The names a reader sees, keyed by the file stem with its roster number
-# stripped. These are read aloud by VoiceOver ("Bücherwurm, im Entstehen"), so
-# they are spelled out here rather than derived: an ASCII file stem cannot say
-# whether "ue" is an umlaut or two letters, nor whether two words are a German
-# compound ("Trompetenhase") or an adjective and its noun ("Lesender Greif").
+# stripped. They are proper names in English — the collection reads like a
+# bestiary's roster, and the names are not translated — so they are spelled
+# out here rather than derived from the German file stems. VoiceOver reads
+# them aloud ("The Inkspine Bookworm, im Entstehen"). A short German epithet
+# under each name lives in the app's `CreatureLore`, which is localized.
 DISPLAY_NAMES = {
-    "trompeten-hase": "Trompetenhase",
-    "panzerschnecke": "Panzerschnecke",
-    "dreibein-vogel": "Dreibeinvogel",
-    "lesender-greif": "Lesender Greif",
-    "buecherwurm": "Bücherwurm",
-    "mondhund": "Mondhund",
-    "federfisch": "Federfisch",
-    "zwei-kopf-kranich": "Zweikopfkranich",
+    "trompeten-hase": "The Brass Harebugle",
+    "panzerschnecke": "Ironshell Dawdler",
+    "dreibein-vogel": "Threefoot Wren of Vellum",
+    "lesender-greif": "Gryphon of the Quiet Folio",
+    "buecherwurm": "The Inkspine Bookworm",
+    "mondhund": "Moonhound Sable",
+    "federfisch": "Quillfin Carp",
+    "zwei-kopf-kranich": "Twinbill Crane Solene",
 }
 
 
@@ -383,7 +384,7 @@ def emit(creatures: list[tuple[str, str, list[list[tuple]]]]) -> str:
 
     for ident, name, strokes in creatures:
         lines += ["", f"    // MARK: - {name}", "",
-                  f"    private static var {ident}: [Path] {{", "        ["]
+                  f"    private static let {ident}: [Path] = ["]
         for stroke in strokes:
             lines.append("            Path { p in")
             for seg in stroke:
@@ -399,7 +400,7 @@ def emit(creatures: list[tuple[str, str, list[list[tuple]]]]) -> str:
                     lines.append(
                         f"                           control2: CGPoint(x: {n(seg[3])}, y: {n(seg[4])}))")
             lines.append("            },")
-        lines += ["        ]", "    }"]
+        lines += ["    ]"]
 
     lines += ["}", ""]
     return "\n".join(lines)

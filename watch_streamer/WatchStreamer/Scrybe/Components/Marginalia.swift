@@ -10,14 +10,14 @@ import SwiftUI
 enum Marginalia {
 
     static let names = [
-        "Trompetenhase",
-        "Panzerschnecke",
-        "Dreibeinvogel",
-        "Lesender Greif",
-        "Bücherwurm",
-        "Mondhund",
-        "Federfisch",
-        "Zweikopfkranich",
+        "The Brass Harebugle",
+        "Ironshell Dawdler",
+        "Threefoot Wren of Vellum",
+        "Gryphon of the Quiet Folio",
+        "The Inkspine Bookworm",
+        "Moonhound Sable",
+        "Quillfin Carp",
+        "Twinbill Crane Solene",
     ]
 
     static func strokeCount(forSpecies id: Int) -> Int {
@@ -40,8 +40,7 @@ enum Marginalia {
 
     // MARK: - Trompetenhase
 
-    private static var trompetenHase: [Path] {
-        [
+    private static let trompetenHase: [Path] = [
             Path { p in
                 p.move(to: CGPoint(x: 16.0, y: 10.1))
                 p.addCurve(to: CGPoint(x: 16.6, y: 14.6),
@@ -1250,13 +1249,11 @@ enum Marginalia {
                            control1: CGPoint(x: 34.7, y: 35.3),
                            control2: CGPoint(x: 34.4, y: 34.9))
             },
-        ]
-    }
+    ]
 
     // MARK: - Panzerschnecke
 
-    private static var panzerschnecke: [Path] {
-        [
+    private static let panzerschnecke: [Path] = [
             Path { p in
                 p.move(to: CGPoint(x: 73.7, y: 78.8))
                 p.addCurve(to: CGPoint(x: 71.6, y: 81.6),
@@ -2574,13 +2571,11 @@ enum Marginalia {
                            control1: CGPoint(x: 62.0, y: 76.0),
                            control2: CGPoint(x: 60.0, y: 76.6))
             },
-        ]
-    }
+    ]
 
     // MARK: - Dreibeinvogel
 
-    private static var dreibeinVogel: [Path] {
-        [
+    private static let dreibeinVogel: [Path] = [
             Path { p in
                 p.move(to: CGPoint(x: 31.7, y: 67.0))
                 p.addCurve(to: CGPoint(x: 30.1, y: 69.2),
@@ -3715,13 +3710,11 @@ enum Marginalia {
                            control1: CGPoint(x: 67.4, y: 6.6),
                            control2: CGPoint(x: 65.2, y: 7.9))
             },
-        ]
-    }
+    ]
 
     // MARK: - Lesender Greif
 
-    private static var lesenderGreif: [Path] {
-        [
+    private static let lesenderGreif: [Path] = [
             Path { p in
                 p.move(to: CGPoint(x: 26.8, y: 58.7))
                 p.addCurve(to: CGPoint(x: 27.3, y: 74.2),
@@ -5705,13 +5698,11 @@ enum Marginalia {
                 p.move(to: CGPoint(x: 52.6, y: 33.7))
                 p.addLine(to: CGPoint(x: 53.0, y: 36.6))
             },
-        ]
-    }
+    ]
 
     // MARK: - Bücherwurm
 
-    private static var buecherwurm: [Path] {
-        [
+    private static let buecherwurm: [Path] = [
             Path { p in
                 p.move(to: CGPoint(x: 79.0, y: 58.7))
                 p.addCurve(to: CGPoint(x: 79.9, y: 58.0),
@@ -7566,13 +7557,11 @@ enum Marginalia {
                            control1: CGPoint(x: 58.1, y: 66.5),
                            control2: CGPoint(x: 57.2, y: 67.2))
             },
-        ]
-    }
+    ]
 
     // MARK: - Mondhund
 
-    private static var mondhund: [Path] {
-        [
+    private static let mondhund: [Path] = [
             Path { p in
                 p.move(to: CGPoint(x: 67.4, y: 5.6))
                 p.addCurve(to: CGPoint(x: 67.8, y: 5.1),
@@ -8964,13 +8953,11 @@ enum Marginalia {
                            control1: CGPoint(x: 54.7, y: 34.0),
                            control2: CGPoint(x: 54.1, y: 34.1))
             },
-        ]
-    }
+    ]
 
     // MARK: - Federfisch
 
-    private static var federfisch: [Path] {
-        [
+    private static let federfisch: [Path] = [
             Path { p in
                 p.move(to: CGPoint(x: 50.4, y: 31.0))
                 p.addCurve(to: CGPoint(x: 47.4, y: 31.4),
@@ -11287,13 +11274,11 @@ enum Marginalia {
                            control1: CGPoint(x: 69.0, y: 55.6),
                            control2: CGPoint(x: 69.7, y: 55.8))
             },
-        ]
-    }
+    ]
 
     // MARK: - Zweikopfkranich
 
-    private static var zweiKopfKranich: [Path] {
-        [
+    private static let zweiKopfKranich: [Path] = [
             Path { p in
                 p.move(to: CGPoint(x: 66.7, y: 19.4))
                 p.addCurve(to: CGPoint(x: 65.6, y: 20.1),
@@ -12798,6 +12783,5 @@ enum Marginalia {
                            control1: CGPoint(x: 69.9, y: 15.2),
                            control2: CGPoint(x: 69.8, y: 15.5))
             },
-        ]
-    }
+    ]
 }
