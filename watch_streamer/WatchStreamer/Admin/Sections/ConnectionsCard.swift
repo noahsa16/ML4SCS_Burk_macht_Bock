@@ -28,7 +28,7 @@ struct ConnectionsCard: View {
             Circle().fill(ok ? theme.success : theme.mutedInk).frame(width: 10, height: 10)
             Text(name).foregroundStyle(theme.ink)
             Spacer()
-            Text(detail).font(.caption).foregroundStyle(theme.sepia)
+            Text(detail).font(.caption).foregroundStyle(theme.secondaryInk)
         }
         .accessibilityElement(children: .combine)
     }

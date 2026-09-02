@@ -29,7 +29,10 @@ struct RepairCard: View {
                 Button("Verwerfen", role: .destructive) { ServerCommandListener.shared.clearWatchSpill() }
                 Button("Abbrechen", role: .cancel) {}
             } message: {
-                Text("Gepufferte, noch nicht gesendete Watch-Daten werden gelöscht.")
+                // Why spelled out: this is the one admin action that destroys
+                // data outright. The Watch refuses it during a recording, which
+                // the operator should know before deciding.
+                Text("Gepufferte, noch nicht gesendete Watch-Daten werden endgültig gelöscht und lassen sich nicht wiederherstellen. Während einer laufenden Aufnahme lehnt die Watch den Befehl ab.")
             }
         }
     }

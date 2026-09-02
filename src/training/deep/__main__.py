@@ -162,10 +162,11 @@ def main() -> None:
              "nicht im Nightly-Default).",
     )
     parser.add_argument(
-        "--pool", choices=["legacy", "modern"], default="legacy",
+        "--pool", choices=["legacy", "modern", "modern50"], default="legacy",
         help="legacy = N=14-Kohorte (50 Hz, inkl. Downsample-Views); "
-             "modern = native 100hz_grav-Sessions. Kein 'auto' -- rohe "
-             "Sequenzen koennen keine Sample-Raten mischen.",
+             "modern = native 100hz_grav-Sessions; modern50 = dieselben "
+             "Sessions auf 50 Hz MIT Gravity (raw50-Views, Passiv-Deployment). "
+             "Kein 'auto' -- rohe Sequenzen koennen keine Sample-Raten mischen.",
     )
     parser.add_argument(
         "--win", choices=["1", "5", "10", "both"], default="1",

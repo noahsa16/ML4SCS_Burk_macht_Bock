@@ -15,10 +15,11 @@ from pathlib import Path
 import pandas as pd
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from src.training.deep.data import CHANNEL_SETS
 from src.training.deep.history import epoch_history_sink, tee
 from src.training.deep.hp_search import grid_configs
 from src.training.deep.models import MODELS
-from src.training.deep.train_loso import train_deep_loso
+from src.training.deep.train_loso import POOL_FS, train_deep_loso
 
 ROOT = Path(__file__).parents[3]
 
@@ -71,6 +72,8 @@ class GridSpec(BaseModel):
     max_epochs: int = Field(gt=0)
     patience: int = Field(gt=0)
     gravity: bool = False  # 9 statt 6 Kanaele (gx/gy/gz); nur Modern-Pool
+    channels: str = "imu"   # "raw_accel"/"user_accel" = 3-Kanal-Passiv-Saetze
+    exclude: list[str] = []  # session_ids, die dieses Experiment auslaesst
     grid: GridDef
 
     @field_validator("model")
@@ -83,8 +86,15 @@ class GridSpec(BaseModel):
     @field_validator("pool")
     @classmethod
     def _pool_known(cls, v):
-        if v not in ("legacy", "modern"):
-            raise ValueError("pool muss 'legacy' oder 'modern' sein")
+        if v not in POOL_FS:
+            raise ValueError(f"pool muss eines von {sorted(POOL_FS)} sein")
+        return v
+
+    @field_validator("channels")
+    @classmethod
+    def _channels_known(cls, v):
+        if v not in CHANNEL_SETS:
+            raise ValueError(f"channels muss eines von {list(CHANNEL_SETS)} sein")
         return v
 
 
@@ -163,7 +173,10 @@ def run_grid(config_path: Path, on_event=None, after_trial=None) -> Path:
                     lr=cfg["lr"], dropout=cfg["dropout"],
                     batch_size=cfg["batch_size"], weight_decay=cfg["weight_decay"],
                     patience=spec.patience, max_epochs=spec.max_epochs,
-                    folds=spec.folds, gravity=spec.gravity, on_event=events,
+                    folds=spec.folds, gravity=spec.gravity,
+                    channels=spec.channels, exclude=spec.exclude,
+                    on_event=events,
+                    checkpoint_dir=outdir / f"models_{name}",
                 )
                 pd.DataFrame([{
                     "model": spec.model, "cfg_id": cfg_id, **cfg, "seed": seed,

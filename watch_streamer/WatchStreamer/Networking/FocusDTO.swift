@@ -1,6 +1,6 @@
 import Foundation
 
-struct FocusStretchDTO: Decodable, Identifiable, Sendable {
+struct FocusStretchDTO: Codable, Identifiable, Sendable {
     let startMs: Int
     let endMs: Int
     let durationS: Double
@@ -20,7 +20,7 @@ struct FocusStretchDTO: Decodable, Identifiable, Sendable {
     }
 }
 
-struct FocusTodayDTO: Decodable, Sendable {
+struct FocusTodayDTO: Codable, Sendable {
     let date: String
     let totalWritingSeconds: Double
     let stretches: [FocusStretchDTO]
@@ -39,7 +39,7 @@ struct FocusTodayDTO: Decodable, Sendable {
     }
 }
 
-struct FocusDayDTO: Decodable, Identifiable, Sendable {
+struct FocusDayDTO: Codable, Identifiable, Sendable {
     let date: String
     let weekday: String
     let writingSeconds: Double
@@ -53,7 +53,7 @@ struct FocusDayDTO: Decodable, Identifiable, Sendable {
     }
 }
 
-struct FocusRangeDTO: Decodable, Sendable {
+struct FocusRangeDTO: Codable, Sendable {
     let days: [FocusDayDTO]
     let today: String
     let maxSeconds: Double
@@ -64,13 +64,13 @@ struct FocusRangeDTO: Decodable, Sendable {
     }
 }
 
-struct FocusHourBucketDTO: Decodable, Identifiable, Sendable {
+struct FocusHourBucketDTO: Codable, Identifiable, Sendable {
     let hour: Int
     let seconds: Double
     var id: Int { hour }
 }
 
-struct FocusTimeOfDayDTO: Decodable, Sendable {
+struct FocusTimeOfDayDTO: Codable, Sendable {
     let buckets: [FocusHourBucketDTO]
     let days: Int
     let maxSeconds: Double

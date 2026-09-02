@@ -1,0 +1,29 @@
+# Core ML conversion environment (.venv-coreml). Frozen pip freeze output —
+# reproduces exactly the numpy/torch/coremltools versions the P1 parity
+# result was measured against. Do not add packages here; conversion needs
+# nothing beyond coremltools + torch + numpy and their own transitive deps.
+#
+# Running tests/test_deploy_golden.py::test_coreml_matches_pytorch in this
+# venv additionally needs requirements-coreml-test.txt (test-only deps, kept
+# separate so this file stays a minimal, auditable conversion environment):
+#   .venv-coreml/bin/pip install -r requirements-coreml.txt \
+#       -r requirements-coreml-test.txt
+attrs==26.1.0
+cattrs==26.1.0
+coremltools==9.0
+filelock==3.32.4
+fsspec==2026.7.0
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+mpmath==1.3.0
+networkx==3.6.1
+numpy==2.5.2
+packaging==26.3
+protobuf==7.36.0
+pyaml==26.7.0
+PyYAML==6.0.3
+setuptools==84.0.0
+sympy==1.14.0
+torch==2.9.1
+tqdm==4.70.0
+typing_extensions==4.16.0

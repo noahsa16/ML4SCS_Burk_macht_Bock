@@ -39,31 +39,20 @@ struct DataflowCard: View {
                 .font(.title3.weight(.semibold))
                 .monospacedDigit()
                 .foregroundStyle(color)
-            Text(title).font(.caption2).foregroundStyle(theme.sepia)
+            Text(title).font(.caption2).foregroundStyle(theme.secondaryInk)
         }
         .accessibilityElement(children: .combine)
     }
 }
 
 struct Sparkline: View {
+    /// Unbounded counts; normalised against the series maximum.
     let values: [Int]
     let color: Color
 
     var body: some View {
-        GeometryReader { geo in
-            let maxV = max(values.max() ?? 1, 1)
-            Path { p in
-                guard values.count > 1 else { return }
-                let stepX = geo.size.width / CGFloat(values.count - 1)
-                for (i, v) in values.enumerated() {
-                    let x = CGFloat(i) * stepX
-                    let y = geo.size.height * (1 - CGFloat(v) / CGFloat(maxV))
-                    if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
-                    else { p.addLine(to: CGPoint(x: x, y: y)) }
-                }
-            }
+        SparklineShape(normalised: SparklineShape.normalisedByMaximum(values))
             .stroke(color, style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
-        }
-        .accessibilityHidden(true)
+            .accessibilityHidden(true)
     }
 }

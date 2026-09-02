@@ -1,0 +1,6517 @@
+æ
+
+window*
+
+ú €R
+logit	*
+ €¢¶
+?tcn_bigru â€” imu, 6 Kanaele, 250 Samples @ 50 Hz, Schwelle 0.5tcn_bigru-s42-fbbee13¢+
+$com.github.apple.coremltools.version9.0¢:
+,com.github.apple.coremltools.conversion_date
+2026-08-28¢3
+#com.github.apple.coremltools.sourcetorch==2.9.1¢:
++com.github.apple.coremltools.source_dialectTorchScript²‘À£¾
+main™¾
+#
+window
+
+
+ú
+CoreML6ç½
+CoreML6Ú½logit
+const"
+trunk_0_net_0_bias
+
+
+*(
+name 
+
+"
+trunk_0_net_0_bias*9
+val2
+
+
+*"
+@model_path/weights/weight.bin@­
+const0
+trunk_0_net_0_weight
+
+
+
+**
+name"
+
+"
+trunk_0_net_0_weight*F
+val?
+
+
+
+*#
+@model_path/weights/weight.binÀŸ
+const)
+trunk_0_net_2_running_var
+
+
+*/
+name'
+
+"
+trunk_0_net_2_running_var*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€¡
+const*
+trunk_0_net_2_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_0_net_2_running_mean*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€‘
+const"
+trunk_0_net_2_bias
+
+
+*(
+name 
+
+"
+trunk_0_net_2_bias*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€•
+const$
+trunk_0_net_2_weight
+
+
+**
+name"
+
+"
+trunk_0_net_2_weight*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€‘
+const"
+trunk_0_net_5_bias
+
+
+*(
+name 
+
+"
+trunk_0_net_5_bias*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€­
+const0
+trunk_0_net_5_weight
+
+
+
+**
+name"
+
+"
+trunk_0_net_5_weight*F
+val?
+
+
+
+*#
+@model_path/weights/weight.bin€Ÿ
+const)
+trunk_0_net_7_running_var
+
+
+*/
+name'
+
+"
+trunk_0_net_7_running_var*:
+val3
+
+
+*#
+@model_path/weights/weight.binÀ(¡
+const*
+trunk_0_net_7_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_0_net_7_running_mean*:
+val3
+
+
+*#
+@model_path/weights/weight.binÀ)‘
+const"
+trunk_0_net_7_bias
+
+
+*(
+name 
+
+"
+trunk_0_net_7_bias*:
+val3
+
+
+*#
+@model_path/weights/weight.binÀ*•
+const$
+trunk_0_net_7_weight
+
+
+**
+name"
+
+"
+trunk_0_net_7_weight*:
+val3
+
+
+*#
+@model_path/weights/weight.binÀ+›
+const'
+trunk_0_downsample_bias
+
+
+*-
+name%
+
+"
+trunk_0_downsample_bias*:
+val3
+
+
+*#
+@model_path/weights/weight.binÀ,·
+const5
+trunk_0_downsample_weight
+
+
+
+*/
+name'
+
+"
+trunk_0_downsample_weight*F
+val?
+
+
+
+*#
+@model_path/weights/weight.binÀ-‘
+const"
+trunk_1_net_0_bias
+
+
+*(
+name 
+
+"
+trunk_1_net_0_bias*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€1­
+const0
+trunk_1_net_0_weight
+
+
+
+**
+name"
+
+"
+trunk_1_net_0_weight*F
+val?
+
+
+
+*#
+@model_path/weights/weight.bin€2Ÿ
+const)
+trunk_1_net_2_running_var
+
+
+*/
+name'
+
+"
+trunk_1_net_2_running_var*:
+val3
+
+
+*#
+@model_path/weights/weight.binÀJ¡
+const*
+trunk_1_net_2_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_1_net_2_running_mean*:
+val3
+
+
+*#
+@model_path/weights/weight.binÀK‘
+const"
+trunk_1_net_2_bias
+
+
+*(
+name 
+
+"
+trunk_1_net_2_bias*:
+val3
+
+
+*#
+@model_path/weights/weight.binÀL•
+const$
+trunk_1_net_2_weight
+
+
+**
+name"
+
+"
+trunk_1_net_2_weight*:
+val3
+
+
+*#
+@model_path/weights/weight.binÀM‘
+const"
+trunk_1_net_5_bias
+
+
+*(
+name 
+
+"
+trunk_1_net_5_bias*:
+val3
+
+
+*#
+@model_path/weights/weight.binÀN­
+const0
+trunk_1_net_5_weight
+
+
+
+**
+name"
+
+"
+trunk_1_net_5_weight*F
+val?
+
+
+
+*#
+@model_path/weights/weight.binÀOŸ
+const)
+trunk_1_net_7_running_var
+
+
+*/
+name'
+
+"
+trunk_1_net_7_running_var*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€h¡
+const*
+trunk_1_net_7_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_1_net_7_running_mean*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€i‘
+const"
+trunk_1_net_7_bias
+
+
+*(
+name 
+
+"
+trunk_1_net_7_bias*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€j•
+const$
+trunk_1_net_7_weight
+
+
+**
+name"
+
+"
+trunk_1_net_7_weight*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€k‘
+const"
+trunk_2_net_0_bias
+
+
+*(
+name 
+
+"
+trunk_2_net_0_bias*:
+val3
+
+
+*#
+@model_path/weights/weight.bin€l­
+const0
+trunk_2_net_0_weight
+
+
+
+**
+name"
+
+"
+trunk_2_net_0_weight*F
+val?
+
+
+
+*#
+@model_path/weights/weight.bin€m 
+const)
+trunk_2_net_2_running_var
+
+
+*/
+name'
+
+"
+trunk_2_net_2_running_var*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀ…¢
+const*
+trunk_2_net_2_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_2_net_2_running_mean*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀ†’
+const"
+trunk_2_net_2_bias
+
+
+*(
+name 
+
+"
+trunk_2_net_2_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀ‡–
+const$
+trunk_2_net_2_weight
+
+
+**
+name"
+
+"
+trunk_2_net_2_weight*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀˆ’
+const"
+trunk_2_net_5_bias
+
+
+*(
+name 
+
+"
+trunk_2_net_5_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀ‰®
+const0
+trunk_2_net_5_weight
+
+
+
+**
+name"
+
+"
+trunk_2_net_5_weight*G
+val@
+
+
+
+*$
+@model_path/weights/weight.binÀŠ 
+const)
+trunk_2_net_7_running_var
+
+
+*/
+name'
+
+"
+trunk_2_net_7_running_var*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€£¢
+const*
+trunk_2_net_7_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_2_net_7_running_mean*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€¤’
+const"
+trunk_2_net_7_bias
+
+
+*(
+name 
+
+"
+trunk_2_net_7_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€¥–
+const$
+trunk_2_net_7_weight
+
+
+**
+name"
+
+"
+trunk_2_net_7_weight*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€¦’
+const"
+trunk_3_net_0_bias
+
+
+*(
+name 
+
+"
+trunk_3_net_0_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€§®
+const0
+trunk_3_net_0_weight
+
+
+
+**
+name"
+
+"
+trunk_3_net_0_weight*G
+val@
+
+
+
+*$
+@model_path/weights/weight.bin€¨ 
+const)
+trunk_3_net_2_running_var
+
+
+*/
+name'
+
+"
+trunk_3_net_2_running_var*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀÀ¢
+const*
+trunk_3_net_2_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_3_net_2_running_mean*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀÁ’
+const"
+trunk_3_net_2_bias
+
+
+*(
+name 
+
+"
+trunk_3_net_2_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀÂ–
+const$
+trunk_3_net_2_weight
+
+
+**
+name"
+
+"
+trunk_3_net_2_weight*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀÃ’
+const"
+trunk_3_net_5_bias
+
+
+*(
+name 
+
+"
+trunk_3_net_5_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀÄ®
+const0
+trunk_3_net_5_weight
+
+
+
+**
+name"
+
+"
+trunk_3_net_5_weight*G
+val@
+
+
+
+*$
+@model_path/weights/weight.binÀÅ 
+const)
+trunk_3_net_7_running_var
+
+
+*/
+name'
+
+"
+trunk_3_net_7_running_var*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€Ş¢
+const*
+trunk_3_net_7_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_3_net_7_running_mean*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€ß’
+const"
+trunk_3_net_7_bias
+
+
+*(
+name 
+
+"
+trunk_3_net_7_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€à–
+const$
+trunk_3_net_7_weight
+
+
+**
+name"
+
+"
+trunk_3_net_7_weight*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€á’
+const"
+trunk_4_net_0_bias
+
+
+*(
+name 
+
+"
+trunk_4_net_0_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€â®
+const0
+trunk_4_net_0_weight
+
+
+
+**
+name"
+
+"
+trunk_4_net_0_weight*G
+val@
+
+
+
+*$
+@model_path/weights/weight.bin€ã 
+const)
+trunk_4_net_2_running_var
+
+
+*/
+name'
+
+"
+trunk_4_net_2_running_var*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀû¢
+const*
+trunk_4_net_2_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_4_net_2_running_mean*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀü’
+const"
+trunk_4_net_2_bias
+
+
+*(
+name 
+
+"
+trunk_4_net_2_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀı–
+const$
+trunk_4_net_2_weight
+
+
+**
+name"
+
+"
+trunk_4_net_2_weight*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀş’
+const"
+trunk_4_net_5_bias
+
+
+*(
+name 
+
+"
+trunk_4_net_5_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀÿ®
+const0
+trunk_4_net_5_weight
+
+
+
+**
+name"
+
+"
+trunk_4_net_5_weight*G
+val@
+
+
+
+*$
+@model_path/weights/weight.binÀ€ 
+const)
+trunk_4_net_7_running_var
+
+
+*/
+name'
+
+"
+trunk_4_net_7_running_var*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€™¢
+const*
+trunk_4_net_7_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_4_net_7_running_mean*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€š’
+const"
+trunk_4_net_7_bias
+
+
+*(
+name 
+
+"
+trunk_4_net_7_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€›–
+const$
+trunk_4_net_7_weight
+
+
+**
+name"
+
+"
+trunk_4_net_7_weight*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€œ’
+const"
+trunk_5_net_0_bias
+
+
+*(
+name 
+
+"
+trunk_5_net_0_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€®
+const0
+trunk_5_net_0_weight
+
+
+
+**
+name"
+
+"
+trunk_5_net_0_weight*G
+val@
+
+
+
+*$
+@model_path/weights/weight.bin€ 
+const)
+trunk_5_net_2_running_var
+
+
+*/
+name'
+
+"
+trunk_5_net_2_running_var*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀ¶¢
+const*
+trunk_5_net_2_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_5_net_2_running_mean*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀ·’
+const"
+trunk_5_net_2_bias
+
+
+*(
+name 
+
+"
+trunk_5_net_2_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀ¸–
+const$
+trunk_5_net_2_weight
+
+
+**
+name"
+
+"
+trunk_5_net_2_weight*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀ¹’
+const"
+trunk_5_net_5_bias
+
+
+*(
+name 
+
+"
+trunk_5_net_5_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.binÀº®
+const0
+trunk_5_net_5_weight
+
+
+
+**
+name"
+
+"
+trunk_5_net_5_weight*G
+val@
+
+
+
+*$
+@model_path/weights/weight.binÀ» 
+const)
+trunk_5_net_7_running_var
+
+
+*/
+name'
+
+"
+trunk_5_net_7_running_var*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€Ô¢
+const*
+trunk_5_net_7_running_mean
+
+
+*0
+name(
+ 
+"
+trunk_5_net_7_running_mean*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€Õ’
+const"
+trunk_5_net_7_bias
+
+
+*(
+name 
+
+"
+trunk_5_net_7_bias*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€Ö–
+const$
+trunk_5_net_7_weight
+
+
+**
+name"
+
+"
+trunk_5_net_7_weight*;
+val4
+
+
+*$
+@model_path/weights/weight.bin€×j
+const
+head_1_bias
+
+
+*!
+name
+
+"
+head_1_bias*!
+val
+
+
+
+
+
+
+ù¿=”
+const#
+head_1_weight
+
+
+@*#
+name
+
+"
+head_1_weight*A
+val:
+
+
+@*$
+@model_path/weights/weight.bin€Øo
+const
+input_1_perm_0
+
+
+*$
+name
+
+"
+input_1_perm_0* 
+val
+
+
+	
+
+ O
+const
+var_20
+*
+name
+
+	"
+op_20*
+val
+
+
+
+
+¬Å'7b
+const
+x_3_pad_type_0
+*$
+name
+
+"
+x_3_pad_type_0*
+val
+
+
+"
+customd
+const
+	x_3_pad_0
+
+
+*
+name
+
+"
+	x_3_pad_0*
+val
+
+
+
+
+k
+const
+x_3_strides_0
+
+
+*#
+name
+
+"
+x_3_strides_0*
+val
+
+
+
+
+o
+const
+x_3_dilations_0
+
+
+*%
+name
+
+"
+x_3_dilations_0*
+val
+
+
+
+
+Y
+const
+x_3_groups_0
+*"
+name
+
+"
+x_3_groups_0*
+val
+
+
+
+	transpose
+perm
+
+input_1_perm_0
+x
+
+
+window$
+input_1
+
+
+
+ú*!
+name
+
+"
+transpose_3«
+conv
+strides
+
+x_3_strides_0
+bias
+
+trunk_0_net_0_bias
+pad_type
+
+x_3_pad_type_0
+pad
+
+	x_3_pad_0
+groups
+
+x_3_groups_0 
+	dilations
+
+x_3_dilations_0"
+weight
+
+trunk_0_net_0_weight
+x
+	
+input_1 
+x_3
+
+
+
+ü*
+name
+	
+"
+x_3q
+const
+input_3_begin_0
+
+
+*%
+name
+
+"
+input_3_begin_0* 
+val
+
+
+	
+
+   n
+const
+input_3_end_0
+
+
+*#
+name
+
+"
+input_3_end_0*!
+val
+
+
+
+
+
+úw
+const"
+input_3_end_mask_0
+
+
+*(
+name 
+
+"
+input_3_end_mask_0* 
+val
+
+
+	
+
+ ¿
+slice_by_index"
+end_mask
+
+input_3_end_mask_0
+end
+
+input_3_end_0
+begin
+
+input_3_begin_0
+x
+
+x_3$
+input_3
+
+
+
+ú*
+name
+
+"	
+input_3
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_0_net_2_bias!
+gamma
+
+trunk_0_net_2_weight&
+mean
+
+trunk_0_net_2_running_mean)
+variance
+
+trunk_0_net_2_running_var
+x
+	
+input_3$
+input_5
+
+
+
+ú*
+name
+
+"	
+input_5]
+relu
+x
+	
+input_5$
+input_7
+
+
+
+ú*
+name
+
+"	
+input_7b
+const
+x_5_pad_type_0
+*$
+name
+
+"
+x_5_pad_type_0*
+val
+
+
+"
+customd
+const
+	x_5_pad_0
+
+
+*
+name
+
+"
+	x_5_pad_0*
+val
+
+
+
+
+k
+const
+x_5_strides_0
+
+
+*#
+name
+
+"
+x_5_strides_0*
+val
+
+
+
+
+o
+const
+x_5_dilations_0
+
+
+*%
+name
+
+"
+x_5_dilations_0*
+val
+
+
+
+
+Y
+const
+x_5_groups_0
+*"
+name
+
+"
+x_5_groups_0*
+val
+
+
+«
+conv
+strides
+
+x_5_strides_0
+bias
+
+trunk_0_net_5_bias
+pad_type
+
+x_5_pad_type_0
+pad
+
+	x_5_pad_0
+groups
+
+x_5_groups_0 
+	dilations
+
+x_5_dilations_0"
+weight
+
+trunk_0_net_5_weight
+x
+	
+input_7 
+x_5
+
+
+
+ü*
+name
+	
+"
+x_5s
+const 
+input_11_begin_0
+
+
+*&
+name
+
+"
+input_11_begin_0* 
+val
+
+
+	
+
+   p
+const
+input_11_end_0
+
+
+*$
+name
+
+"
+input_11_end_0*!
+val
+
+
+
+
+
+úy
+const#
+input_11_end_mask_0
+
+
+*)
+name!
+
+"
+input_11_end_mask_0* 
+val
+
+
+	
+
+ Ä
+slice_by_index#
+end_mask
+
+input_11_end_mask_0
+end
+
+input_11_end_0
+begin
+
+input_11_begin_0
+x
+
+x_5%
+input_11
+
+
+
+ú*
+name
+
+"
+
+input_11“
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_0_net_7_bias!
+gamma
+
+trunk_0_net_7_weight&
+mean
+
+trunk_0_net_7_running_mean)
+variance
+
+trunk_0_net_7_running_var
+x
+
+
+input_11%
+input_13
+
+
+
+ú*
+name
+
+"
+
+input_13`
+relu
+x
+
+
+input_13%
+input_15
+
+
+
+ú*
+name
+
+"
+
+input_15f
+const
+var_75_pad_type_0
+*&
+name
+
+"
+op_75_pad_type_0*
+val
+
+	"
+validp
+const 
+var_75_strides_0
+
+
+*%
+name
+
+"
+op_75_strides_0*
+val
+
+
+
+
+i
+const
+var_75_pad_0
+
+
+*!
+name
+
+"
+op_75_pad_0*
+val
+
+
+
+
+  t
+const"
+var_75_dilations_0
+
+
+*'
+name
+
+"
+op_75_dilations_0*
+val
+
+
+
+
+^
+const
+var_75_groups_0
+*$
+name
+
+"
+op_75_groups_0*
+val
+
+
+É
+conv
+strides
+
+var_75_strides_0#
+bias
+
+trunk_0_downsample_bias!
+pad_type
+
+var_75_pad_type_0
+pad
+
+var_75_pad_0
+groups
+
+var_75_groups_0#
+	dilations
+
+var_75_dilations_0'
+weight
+
+trunk_0_downsample_weight
+x
+	
+input_1#
+var_75
+
+
+
+ú*
+name
+
+	"
+op_75p
+add
+y
+
+
+var_75
+x
+
+
+input_15%
+input_17
+
+
+
+ú*
+name
+
+"
+
+input_17`
+relu
+x
+
+
+input_17%
+input_19
+
+
+
+ú*
+name
+
+"
+
+input_19b
+const
+x_7_pad_type_0
+*$
+name
+
+"
+x_7_pad_type_0*
+val
+
+
+"
+customd
+const
+	x_7_pad_0
+
+
+*
+name
+
+"
+	x_7_pad_0*
+val
+
+
+
+
+o
+const
+x_7_dilations_0
+
+
+*%
+name
+
+"
+x_7_dilations_0*
+val
+
+
+
+
+k
+const
+x_7_strides_0
+
+
+*#
+name
+
+"
+x_7_strides_0*
+val
+
+
+
+
+Y
+const
+x_7_groups_0
+*"
+name
+
+"
+x_7_groups_0*
+val
+
+
+¬
+conv
+strides
+
+x_7_strides_0
+bias
+
+trunk_1_net_0_bias
+pad_type
+
+x_7_pad_type_0
+pad
+
+	x_7_pad_0
+groups
+
+x_7_groups_0 
+	dilations
+
+x_7_dilations_0"
+weight
+
+trunk_1_net_0_weight
+x
+
+
+input_19 
+x_7
+
+
+
+ş*
+name
+	
+"
+x_7s
+const 
+input_21_begin_0
+
+
+*&
+name
+
+"
+input_21_begin_0* 
+val
+
+
+	
+
+   p
+const
+input_21_end_0
+
+
+*$
+name
+
+"
+input_21_end_0*!
+val
+
+
+
+
+
+úy
+const#
+input_21_end_mask_0
+
+
+*)
+name!
+
+"
+input_21_end_mask_0* 
+val
+
+
+	
+
+ Ä
+slice_by_index#
+end_mask
+
+input_21_end_mask_0
+end
+
+input_21_end_0
+begin
+
+input_21_begin_0
+x
+
+x_7%
+input_21
+
+
+
+ú*
+name
+
+"
+
+input_21“
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_1_net_2_bias!
+gamma
+
+trunk_1_net_2_weight&
+mean
+
+trunk_1_net_2_running_mean)
+variance
+
+trunk_1_net_2_running_var
+x
+
+
+input_21%
+input_23
+
+
+
+ú*
+name
+
+"
+
+input_23`
+relu
+x
+
+
+input_23%
+input_25
+
+
+
+ú*
+name
+
+"
+
+input_25b
+const
+x_9_pad_type_0
+*$
+name
+
+"
+x_9_pad_type_0*
+val
+
+
+"
+customd
+const
+	x_9_pad_0
+
+
+*
+name
+
+"
+	x_9_pad_0*
+val
+
+
+
+
+o
+const
+x_9_dilations_0
+
+
+*%
+name
+
+"
+x_9_dilations_0*
+val
+
+
+
+
+k
+const
+x_9_strides_0
+
+
+*#
+name
+
+"
+x_9_strides_0*
+val
+
+
+
+
+Y
+const
+x_9_groups_0
+*"
+name
+
+"
+x_9_groups_0*
+val
+
+
+¬
+conv
+strides
+
+x_9_strides_0
+bias
+
+trunk_1_net_5_bias
+pad_type
+
+x_9_pad_type_0
+pad
+
+	x_9_pad_0
+groups
+
+x_9_groups_0 
+	dilations
+
+x_9_dilations_0"
+weight
+
+trunk_1_net_5_weight
+x
+
+
+input_25 
+x_9
+
+
+
+ş*
+name
+	
+"
+x_9s
+const 
+input_29_begin_0
+
+
+*&
+name
+
+"
+input_29_begin_0* 
+val
+
+
+	
+
+   p
+const
+input_29_end_0
+
+
+*$
+name
+
+"
+input_29_end_0*!
+val
+
+
+
+
+
+úy
+const#
+input_29_end_mask_0
+
+
+*)
+name!
+
+"
+input_29_end_mask_0* 
+val
+
+
+	
+
+ Ä
+slice_by_index#
+end_mask
+
+input_29_end_mask_0
+end
+
+input_29_end_0
+begin
+
+input_29_begin_0
+x
+
+x_9%
+input_29
+
+
+
+ú*
+name
+
+"
+
+input_29“
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_1_net_7_bias!
+gamma
+
+trunk_1_net_7_weight&
+mean
+
+trunk_1_net_7_running_mean)
+variance
+
+trunk_1_net_7_running_var
+x
+
+
+input_29%
+input_31
+
+
+
+ú*
+name
+
+"
+
+input_31`
+relu
+x
+
+
+input_31%
+input_33
+
+
+
+ú*
+name
+
+"
+
+input_33r
+add
+y
+
+
+input_19
+x
+
+
+input_33%
+input_35
+
+
+
+ú*
+name
+
+"
+
+input_35`
+relu
+x
+
+
+input_35%
+input_37
+
+
+
+ú*
+name
+
+"
+
+input_37d
+const
+x_11_pad_type_0
+*%
+name
+
+"
+x_11_pad_type_0*
+val
+
+
+"
+customf
+const
+
+x_11_pad_0
+
+
+* 
+name
+
+"
+
+x_11_pad_0*
+val
+
+
+
+
+q
+const 
+x_11_dilations_0
+
+
+*&
+name
+
+"
+x_11_dilations_0*
+val
+
+
+
+
+m
+const
+x_11_strides_0
+
+
+*$
+name
+
+"
+x_11_strides_0*
+val
+
+
+
+
+[
+const
+x_11_groups_0
+*#
+name
+
+"
+x_11_groups_0*
+val
+
+
+³
+conv
+strides
+
+x_11_strides_0
+bias
+
+trunk_2_net_0_bias
+pad_type
+
+x_11_pad_type_0
+pad
+
+
+x_11_pad_0
+groups
+
+x_11_groups_0!
+	dilations
+
+x_11_dilations_0"
+weight
+
+trunk_2_net_0_weight
+x
+
+
+input_37!
+x_11
+
+
+
+‚*
+name
+
+
+"
+x_11s
+const 
+input_39_begin_0
+
+
+*&
+name
+
+"
+input_39_begin_0* 
+val
+
+
+	
+
+   p
+const
+input_39_end_0
+
+
+*$
+name
+
+"
+input_39_end_0*!
+val
+
+
+
+
+
+úy
+const#
+input_39_end_mask_0
+
+
+*)
+name!
+
+"
+input_39_end_mask_0* 
+val
+
+
+	
+
+ Å
+slice_by_index#
+end_mask
+
+input_39_end_mask_0
+end
+
+input_39_end_0
+begin
+
+input_39_begin_0
+x
+
+x_11%
+input_39
+
+
+
+ú*
+name
+
+"
+
+input_39“
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_2_net_2_bias!
+gamma
+
+trunk_2_net_2_weight&
+mean
+
+trunk_2_net_2_running_mean)
+variance
+
+trunk_2_net_2_running_var
+x
+
+
+input_39%
+input_41
+
+
+
+ú*
+name
+
+"
+
+input_41`
+relu
+x
+
+
+input_41%
+input_43
+
+
+
+ú*
+name
+
+"
+
+input_43d
+const
+x_13_pad_type_0
+*%
+name
+
+"
+x_13_pad_type_0*
+val
+
+
+"
+customf
+const
+
+x_13_pad_0
+
+
+* 
+name
+
+"
+
+x_13_pad_0*
+val
+
+
+
+
+q
+const 
+x_13_dilations_0
+
+
+*&
+name
+
+"
+x_13_dilations_0*
+val
+
+
+
+
+m
+const
+x_13_strides_0
+
+
+*$
+name
+
+"
+x_13_strides_0*
+val
+
+
+
+
+[
+const
+x_13_groups_0
+*#
+name
+
+"
+x_13_groups_0*
+val
+
+
+³
+conv
+strides
+
+x_13_strides_0
+bias
+
+trunk_2_net_5_bias
+pad_type
+
+x_13_pad_type_0
+pad
+
+
+x_13_pad_0
+groups
+
+x_13_groups_0!
+	dilations
+
+x_13_dilations_0"
+weight
+
+trunk_2_net_5_weight
+x
+
+
+input_43!
+x_13
+
+
+
+‚*
+name
+
+
+"
+x_13s
+const 
+input_47_begin_0
+
+
+*&
+name
+
+"
+input_47_begin_0* 
+val
+
+
+	
+
+   p
+const
+input_47_end_0
+
+
+*$
+name
+
+"
+input_47_end_0*!
+val
+
+
+
+
+
+úy
+const#
+input_47_end_mask_0
+
+
+*)
+name!
+
+"
+input_47_end_mask_0* 
+val
+
+
+	
+
+ Å
+slice_by_index#
+end_mask
+
+input_47_end_mask_0
+end
+
+input_47_end_0
+begin
+
+input_47_begin_0
+x
+
+x_13%
+input_47
+
+
+
+ú*
+name
+
+"
+
+input_47“
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_2_net_7_bias!
+gamma
+
+trunk_2_net_7_weight&
+mean
+
+trunk_2_net_7_running_mean)
+variance
+
+trunk_2_net_7_running_var
+x
+
+
+input_47%
+input_49
+
+
+
+ú*
+name
+
+"
+
+input_49`
+relu
+x
+
+
+input_49%
+input_51
+
+
+
+ú*
+name
+
+"
+
+input_51r
+add
+y
+
+
+input_37
+x
+
+
+input_51%
+input_53
+
+
+
+ú*
+name
+
+"
+
+input_53`
+relu
+x
+
+
+input_53%
+input_55
+
+
+
+ú*
+name
+
+"
+
+input_55d
+const
+x_15_pad_type_0
+*%
+name
+
+"
+x_15_pad_type_0*
+val
+
+
+"
+customf
+const
+
+x_15_pad_0
+
+
+* 
+name
+
+"
+
+x_15_pad_0*
+val
+
+
+
+
+q
+const 
+x_15_dilations_0
+
+
+*&
+name
+
+"
+x_15_dilations_0*
+val
+
+
+
+
+m
+const
+x_15_strides_0
+
+
+*$
+name
+
+"
+x_15_strides_0*
+val
+
+
+
+
+[
+const
+x_15_groups_0
+*#
+name
+
+"
+x_15_groups_0*
+val
+
+
+³
+conv
+strides
+
+x_15_strides_0
+bias
+
+trunk_3_net_0_bias
+pad_type
+
+x_15_pad_type_0
+pad
+
+
+x_15_pad_0
+groups
+
+x_15_groups_0!
+	dilations
+
+x_15_dilations_0"
+weight
+
+trunk_3_net_0_weight
+x
+
+
+input_55!
+x_15
+
+
+
+Š*
+name
+
+
+"
+x_15s
+const 
+input_57_begin_0
+
+
+*&
+name
+
+"
+input_57_begin_0* 
+val
+
+
+	
+
+   p
+const
+input_57_end_0
+
+
+*$
+name
+
+"
+input_57_end_0*!
+val
+
+
+
+
+
+úy
+const#
+input_57_end_mask_0
+
+
+*)
+name!
+
+"
+input_57_end_mask_0* 
+val
+
+
+	
+
+ Å
+slice_by_index#
+end_mask
+
+input_57_end_mask_0
+end
+
+input_57_end_0
+begin
+
+input_57_begin_0
+x
+
+x_15%
+input_57
+
+
+
+ú*
+name
+
+"
+
+input_57“
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_3_net_2_bias!
+gamma
+
+trunk_3_net_2_weight&
+mean
+
+trunk_3_net_2_running_mean)
+variance
+
+trunk_3_net_2_running_var
+x
+
+
+input_57%
+input_59
+
+
+
+ú*
+name
+
+"
+
+input_59`
+relu
+x
+
+
+input_59%
+input_61
+
+
+
+ú*
+name
+
+"
+
+input_61d
+const
+x_17_pad_type_0
+*%
+name
+
+"
+x_17_pad_type_0*
+val
+
+
+"
+customf
+const
+
+x_17_pad_0
+
+
+* 
+name
+
+"
+
+x_17_pad_0*
+val
+
+
+
+
+q
+const 
+x_17_dilations_0
+
+
+*&
+name
+
+"
+x_17_dilations_0*
+val
+
+
+
+
+m
+const
+x_17_strides_0
+
+
+*$
+name
+
+"
+x_17_strides_0*
+val
+
+
+
+
+[
+const
+x_17_groups_0
+*#
+name
+
+"
+x_17_groups_0*
+val
+
+
+³
+conv
+strides
+
+x_17_strides_0
+bias
+
+trunk_3_net_5_bias
+pad_type
+
+x_17_pad_type_0
+pad
+
+
+x_17_pad_0
+groups
+
+x_17_groups_0!
+	dilations
+
+x_17_dilations_0"
+weight
+
+trunk_3_net_5_weight
+x
+
+
+input_61!
+x_17
+
+
+
+Š*
+name
+
+
+"
+x_17s
+const 
+input_65_begin_0
+
+
+*&
+name
+
+"
+input_65_begin_0* 
+val
+
+
+	
+
+   p
+const
+input_65_end_0
+
+
+*$
+name
+
+"
+input_65_end_0*!
+val
+
+
+
+
+
+úy
+const#
+input_65_end_mask_0
+
+
+*)
+name!
+
+"
+input_65_end_mask_0* 
+val
+
+
+	
+
+ Å
+slice_by_index#
+end_mask
+
+input_65_end_mask_0
+end
+
+input_65_end_0
+begin
+
+input_65_begin_0
+x
+
+x_17%
+input_65
+
+
+
+ú*
+name
+
+"
+
+input_65“
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_3_net_7_bias!
+gamma
+
+trunk_3_net_7_weight&
+mean
+
+trunk_3_net_7_running_mean)
+variance
+
+trunk_3_net_7_running_var
+x
+
+
+input_65%
+input_67
+
+
+
+ú*
+name
+
+"
+
+input_67`
+relu
+x
+
+
+input_67%
+input_69
+
+
+
+ú*
+name
+
+"
+
+input_69r
+add
+y
+
+
+input_55
+x
+
+
+input_69%
+input_71
+
+
+
+ú*
+name
+
+"
+
+input_71`
+relu
+x
+
+
+input_71%
+input_73
+
+
+
+ú*
+name
+
+"
+
+input_73d
+const
+x_19_pad_type_0
+*%
+name
+
+"
+x_19_pad_type_0*
+val
+
+
+"
+customf
+const
+
+x_19_pad_0
+
+
+* 
+name
+
+"
+
+x_19_pad_0*
+val
+
+
+
+
+  q
+const 
+x_19_dilations_0
+
+
+*&
+name
+
+"
+x_19_dilations_0*
+val
+
+
+
+
+m
+const
+x_19_strides_0
+
+
+*$
+name
+
+"
+x_19_strides_0*
+val
+
+
+
+
+[
+const
+x_19_groups_0
+*#
+name
+
+"
+x_19_groups_0*
+val
+
+
+³
+conv
+strides
+
+x_19_strides_0
+bias
+
+trunk_4_net_0_bias
+pad_type
+
+x_19_pad_type_0
+pad
+
+
+x_19_pad_0
+groups
+
+x_19_groups_0!
+	dilations
+
+x_19_dilations_0"
+weight
+
+trunk_4_net_0_weight
+x
+
+
+input_73!
+x_19
+
+
+
+š*
+name
+
+
+"
+x_19s
+const 
+input_75_begin_0
+
+
+*&
+name
+
+"
+input_75_begin_0* 
+val
+
+
+	
+
+   p
+const
+input_75_end_0
+
+
+*$
+name
+
+"
+input_75_end_0*!
+val
+
+
+
+
+
+úy
+const#
+input_75_end_mask_0
+
+
+*)
+name!
+
+"
+input_75_end_mask_0* 
+val
+
+
+	
+
+ Å
+slice_by_index#
+end_mask
+
+input_75_end_mask_0
+end
+
+input_75_end_0
+begin
+
+input_75_begin_0
+x
+
+x_19%
+input_75
+
+
+
+ú*
+name
+
+"
+
+input_75“
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_4_net_2_bias!
+gamma
+
+trunk_4_net_2_weight&
+mean
+
+trunk_4_net_2_running_mean)
+variance
+
+trunk_4_net_2_running_var
+x
+
+
+input_75%
+input_77
+
+
+
+ú*
+name
+
+"
+
+input_77`
+relu
+x
+
+
+input_77%
+input_79
+
+
+
+ú*
+name
+
+"
+
+input_79d
+const
+x_21_pad_type_0
+*%
+name
+
+"
+x_21_pad_type_0*
+val
+
+
+"
+customf
+const
+
+x_21_pad_0
+
+
+* 
+name
+
+"
+
+x_21_pad_0*
+val
+
+
+
+
+  q
+const 
+x_21_dilations_0
+
+
+*&
+name
+
+"
+x_21_dilations_0*
+val
+
+
+
+
+m
+const
+x_21_strides_0
+
+
+*$
+name
+
+"
+x_21_strides_0*
+val
+
+
+
+
+[
+const
+x_21_groups_0
+*#
+name
+
+"
+x_21_groups_0*
+val
+
+
+³
+conv
+strides
+
+x_21_strides_0
+bias
+
+trunk_4_net_5_bias
+pad_type
+
+x_21_pad_type_0
+pad
+
+
+x_21_pad_0
+groups
+
+x_21_groups_0!
+	dilations
+
+x_21_dilations_0"
+weight
+
+trunk_4_net_5_weight
+x
+
+
+input_79!
+x_21
+
+
+
+š*
+name
+
+
+"
+x_21s
+const 
+input_83_begin_0
+
+
+*&
+name
+
+"
+input_83_begin_0* 
+val
+
+
+	
+
+   p
+const
+input_83_end_0
+
+
+*$
+name
+
+"
+input_83_end_0*!
+val
+
+
+
+
+
+úy
+const#
+input_83_end_mask_0
+
+
+*)
+name!
+
+"
+input_83_end_mask_0* 
+val
+
+
+	
+
+ Å
+slice_by_index#
+end_mask
+
+input_83_end_mask_0
+end
+
+input_83_end_0
+begin
+
+input_83_begin_0
+x
+
+x_21%
+input_83
+
+
+
+ú*
+name
+
+"
+
+input_83“
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_4_net_7_bias!
+gamma
+
+trunk_4_net_7_weight&
+mean
+
+trunk_4_net_7_running_mean)
+variance
+
+trunk_4_net_7_running_var
+x
+
+
+input_83%
+input_85
+
+
+
+ú*
+name
+
+"
+
+input_85`
+relu
+x
+
+
+input_85%
+input_87
+
+
+
+ú*
+name
+
+"
+
+input_87r
+add
+y
+
+
+input_73
+x
+
+
+input_87%
+input_89
+
+
+
+ú*
+name
+
+"
+
+input_89`
+relu
+x
+
+
+input_89%
+input_91
+
+
+
+ú*
+name
+
+"
+
+input_91d
+const
+x_23_pad_type_0
+*%
+name
+
+"
+x_23_pad_type_0*
+val
+
+
+"
+customf
+const
+
+x_23_pad_0
+
+
+* 
+name
+
+"
+
+x_23_pad_0*
+val
+
+
+
+
+@@q
+const 
+x_23_dilations_0
+
+
+*&
+name
+
+"
+x_23_dilations_0*
+val
+
+
+
+
+ m
+const
+x_23_strides_0
+
+
+*$
+name
+
+"
+x_23_strides_0*
+val
+
+
+
+
+[
+const
+x_23_groups_0
+*#
+name
+
+"
+x_23_groups_0*
+val
+
+
+³
+conv
+strides
+
+x_23_strides_0
+bias
+
+trunk_5_net_0_bias
+pad_type
+
+x_23_pad_type_0
+pad
+
+
+x_23_pad_0
+groups
+
+x_23_groups_0!
+	dilations
+
+x_23_dilations_0"
+weight
+
+trunk_5_net_0_weight
+x
+
+
+input_91!
+x_23
+
+
+
+º*
+name
+
+
+"
+x_23s
+const 
+input_93_begin_0
+
+
+*&
+name
+
+"
+input_93_begin_0* 
+val
+
+
+	
+
+   p
+const
+input_93_end_0
+
+
+*$
+name
+
+"
+input_93_end_0*!
+val
+
+
+
+
+
+úy
+const#
+input_93_end_mask_0
+
+
+*)
+name!
+
+"
+input_93_end_mask_0* 
+val
+
+
+	
+
+ Å
+slice_by_index#
+end_mask
+
+input_93_end_mask_0
+end
+
+input_93_end_0
+begin
+
+input_93_begin_0
+x
+
+x_23%
+input_93
+
+
+
+ú*
+name
+
+"
+
+input_93“
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_5_net_2_bias!
+gamma
+
+trunk_5_net_2_weight&
+mean
+
+trunk_5_net_2_running_mean)
+variance
+
+trunk_5_net_2_running_var
+x
+
+
+input_93%
+input_95
+
+
+
+ú*
+name
+
+"
+
+input_95`
+relu
+x
+
+
+input_95%
+input_97
+
+
+
+ú*
+name
+
+"
+
+input_97^
+const
+x_pad_type_0
+*"
+name
+
+"
+x_pad_type_0*
+val
+
+
+"
+custom`
+const
+x_pad_0
+
+
+*
+name
+
+"	
+x_pad_0*
+val
+
+
+
+
+@@k
+const
+x_dilations_0
+
+
+*#
+name
+
+"
+x_dilations_0*
+val
+
+
+
+
+ g
+const
+x_strides_0
+
+
+*!
+name
+
+"
+x_strides_0*
+val
+
+
+
+
+U
+const
+
+x_groups_0
+* 
+name
+
+"
+
+x_groups_0*
+val
+
+
+
+conv
+strides
+
+x_strides_0
+bias
+
+trunk_5_net_5_bias
+pad_type
+
+x_pad_type_0
+pad
+	
+x_pad_0
+groups
+
+
+x_groups_0
+	dilations
+
+x_dilations_0"
+weight
+
+trunk_5_net_5_weight
+x
+
+
+input_97
+x
+
+
+
+º*
+name
+
+"
+xu
+const!
+input_101_begin_0
+
+
+*'
+name
+
+"
+input_101_begin_0* 
+val
+
+
+	
+
+   r
+const
+input_101_end_0
+
+
+*%
+name
+
+"
+input_101_end_0*!
+val
+
+
+
+
+
+ú{
+const$
+input_101_end_mask_0
+
+
+**
+name"
+
+"
+input_101_end_mask_0* 
+val
+
+
+	
+
+ Ç
+slice_by_index$
+end_mask
+
+input_101_end_mask_0
+end
+
+input_101_end_0
+begin
+
+input_101_begin_0
+
+x
+
+x&
+	input_101
+
+
+
+ú*
+name
+
+"
+	input_101–
+
+batch_norm
+epsilon
+
+
+var_20
+beta
+
+trunk_5_net_7_bias!
+gamma
+
+trunk_5_net_7_weight&
+mean
+
+trunk_5_net_7_running_mean)
+variance
+
+trunk_5_net_7_running_var
+x
+
+	input_101&
+	input_103
+
+
+
+ú*
+name
+
+"
+	input_103c
+relu
+x
+
+	input_103&
+	input_105
+
+
+
+ú*
+name
+
+"
+	input_105u
+add
+y
+
+
+input_91
+x
+
+	input_105&
+	input_107
+
+
+
+ú*
+name
+
+"
+	input_107^
+relu
+x
+
+	input_107$
+var_262
+
+
+
+ú*
+name
+
+
+"
+op_262w
+const"
+transpose_1_perm_0
+
+
+*(
+name 
+
+"
+transpose_1_perm_0* 
+val
+
+
+	
+
+ r
+const 
+slice_by_index_1
+
+
+*&
+name
+
+"
+slice_by_index_1*
+val
+
+
+
+
+ú˜
+const%
+concat_1
+
+û
+
+ *
+name
+
+"
+
+concat_1*H
+valA
+
+û
+
+ *$
+@model_path/weights/weight.binÀÚƒ
+const)
+while_loop_0_loop_vars0_0
+
+
+*/
+name'
+
+"
+while_loop_0_loop_vars0_0*
+val
+
+
+
+
+ Š
+	transpose
+perm
+
+transpose_1_perm_0
+x
+	
+var_262(
+transpose_1
+
+ú
+
+*!
+name
+
+"
+transpose_2Û4
+
+while_loop6
+	loop_vars)
+
+while_loop_0_loop_vars0_0
+
+
+concat_1
+while_loop_0_0
+
+
++
+while_loop_0_1
+
+û
+
+ "ó
+2
+"while_loop_0_loop_vars0_0_x0_1_1_1
+
+
+
+.
+concat_1_x0_1_1_1
+
+û
+
+ less_1„
+less
+y
+
+slice_by_index_1+
+x&
+$
+"while_loop_0_loop_vars0_0_x0_1_1_1
+less_1
+
+
+*
+name
+
+
+"
+less_1"­1
+2
+"while_loop_0_loop_vars0_0_x0_1_1_1
+
+
+
+.
+concat_1_x0_1_1_1
+
+û
+
+ add_9	scatter_1_
+const
+gather_2_axis_0
+*%
+name
+
+"
+gather_2_axis_0*
+val
+
+
+ k
+const
+gather_2_batch_dims_0
+*+
+name#
+
+"
+gather_2_batch_dims_0*
+val
+
+
+ İ
+gather
+axis
+
+gather_2_axis_01
+indices&
+$
+"while_loop_0_loop_vars0_0_x0_1_1_1'
+
+batch_dims
+
+gather_2_batch_dims_0
+x
+
+transpose_1$
+gather_2
+
+
+
+*
+name
+
+"
+
+gather_2_
+const
+gather_3_axis_0
+*%
+name
+
+"
+gather_3_axis_0*
+val
+
+
+ k
+const
+gather_3_batch_dims_0
+*+
+name#
+
+"
+gather_3_batch_dims_0*
+val
+
+
+ ã
+gather
+axis
+
+gather_3_axis_01
+indices&
+$
+"while_loop_0_loop_vars0_0_x0_1_1_1'
+
+batch_dims
+
+gather_3_batch_dims_0
+x
+
+concat_1_x0_1_1_1$
+gather_3
+
+
+
+ *
+name
+
+"
+
+gather_3q
+const 
+squeeze_2_axes_0
+
+
+*&
+name
+
+"
+squeeze_2_axes_0*
+val
+
+
+
+
+ |
+squeeze
+axes
+
+squeeze_2_axes_0
+x
+
+
+gather_2
+	squeeze_2
+
+
+*
+name
+
+"
+	squeeze_2q
+const 
+squeeze_3_axes_0
+
+
+*&
+name
+
+"
+squeeze_3_axes_0*
+val
+
+
+
+
+ |
+squeeze
+axes
+
+squeeze_3_axes_0
+x
+
+
+gather_3
+	squeeze_3
+
+
+ *
+name
+
+"
+	squeeze_3œ
+const'
+linear_6_weight_0
+
+ 
+*'
+name
+
+"
+linear_6_weight_0*A
+val:
+
+ 
+*$
+@model_path/weights/weight.bin€ÖŒ
+const
+linear_6_bias_0
+
+
+ *%
+name
+
+"
+linear_6_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀæš
+linear
+bias
+
+linear_6_bias_0
+weight
+
+linear_6_weight_0
+x
+
+	squeeze_2
+linear_6
+
+
+ *
+name
+
+"
+
+linear_6œ
+const'
+linear_7_weight_0
+
+ 
+ *'
+name
+
+"
+linear_7_weight_0*A
+val:
+
+ 
+ *$
+@model_path/weights/weight.bin€èŒ
+const
+linear_7_bias_0
+
+
+ *%
+name
+
+"
+linear_7_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀˆš
+linear
+bias
+
+linear_7_bias_0
+weight
+
+linear_7_weight_0
+x
+
+	squeeze_3
+linear_7
+
+
+ *
+name
+
+"
+
+linear_7e
+add
+y
+
+
+linear_7
+x
+
+
+linear_6
+add_5
+
+
+ *
+name
+
+	"
+add_5[
+sigmoid
+x	
+
+add_5
+	sigmoid_2
+
+
+ *
+name
+
+"
+	sigmoid_2œ
+const'
+linear_8_weight_0
+
+ 
+*'
+name
+
+"
+linear_8_weight_0*A
+val:
+
+ 
+*$
+@model_path/weights/weight.bin€ŠŒ
+const
+linear_8_bias_0
+
+
+ *%
+name
+
+"
+linear_8_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀšš
+linear
+bias
+
+linear_8_bias_0
+weight
+
+linear_8_weight_0
+x
+
+	squeeze_2
+linear_8
+
+
+ *
+name
+
+"
+
+linear_8œ
+const'
+linear_9_weight_0
+
+ 
+ *'
+name
+
+"
+linear_9_weight_0*A
+val:
+
+ 
+ *$
+@model_path/weights/weight.bin€œŒ
+const
+linear_9_bias_0
+
+
+ *%
+name
+
+"
+linear_9_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀ¼š
+linear
+bias
+
+linear_9_bias_0
+weight
+
+linear_9_weight_0
+x
+
+	squeeze_3
+linear_9
+
+
+ *
+name
+
+"
+
+linear_9e
+add
+y
+
+
+linear_9
+x
+
+
+linear_8
+add_6
+
+
+ *
+name
+
+	"
+add_6[
+sigmoid
+x	
+
+add_6
+	sigmoid_3
+
+
+ *
+name
+
+"
+	sigmoid_3
+const(
+linear_10_weight_0
+
+ 
+*(
+name 
+
+"
+linear_10_weight_0*A
+val:
+
+ 
+*$
+@model_path/weights/weight.bin€¾
+const 
+linear_10_bias_0
+
+
+ *&
+name
+
+"
+linear_10_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀÎ
+linear
+bias
+
+linear_10_bias_0 
+weight
+
+linear_10_weight_0
+x
+
+	squeeze_2
+	linear_10
+
+
+ *
+name
+
+"
+	linear_10
+const(
+linear_11_weight_0
+
+ 
+ *(
+name 
+
+"
+linear_11_weight_0*A
+val:
+
+ 
+ *$
+@model_path/weights/weight.bin€Ğ
+const 
+linear_11_bias_0
+
+
+ *&
+name
+
+"
+linear_11_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀğ
+linear
+bias
+
+linear_11_bias_0 
+weight
+
+linear_11_weight_0
+x
+
+	squeeze_3
+	linear_11
+
+
+ *
+name
+
+"
+	linear_11g
+mul
+y
+
+	linear_11
+x
+
+	sigmoid_2
+mul_3
+
+
+ *
+name
+
+	"
+mul_3c
+add
+y	
+
+mul_3
+x
+
+	linear_10
+add_7
+
+
+ *
+name
+
+	"
+add_7R
+tanh
+x	
+
+add_7
+tanh_1
+
+
+ *
+name
+
+
+"
+tanh_1V
+const
+	sub_1_x_0
+*
+name
+
+"
+	sub_1_x_0*
+val
+
+
+
+
+  €?g
+sub
+y
+
+	sigmoid_3
+x
+
+	sub_1_x_0
+sub_1
+
+
+ *
+name
+
+	"
+sub_1`
+mul
+y
+
+
+tanh_1
+x	
+
+sub_1
+mul_4
+
+
+ *
+name
+
+	"
+mul_4g
+mul
+y
+
+	squeeze_3
+x
+
+	sigmoid_3
+mul_5
+
+
+ *
+name
+
+	"
+mul_5_
+add
+y	
+
+mul_5
+x	
+
+mul_4
+add_8
+
+
+ *
+name
+
+	"
+add_8S
+const
+	add_9_y_0
+*
+name
+
+"
+	add_9_y_0*
+val
+
+
+z
+add
+y
+
+	add_9_y_0+
+x&
+$
+"while_loop_0_loop_vars0_0_x0_1_1_1
+add_9
+
+
+*
+name
+
+	"
+add_9y
+const$
+expand_dims_1_axes_0
+
+
+**
+name"
+
+"
+expand_dims_1_axes_0*
+val
+
+
+
+
+ 
+expand_dims 
+axes
+
+expand_dims_1_axes_0
+x	
+
+add_8)
+expand_dims_1
+
+
+
+ *#
+name
+
+"
+expand_dims_1a
+const
+scatter_1_axis_0
+*&
+name
+
+"
+scatter_1_axis_0*
+val
+
+
+ c
+const
+scatter_1_mode_0
+*&
+name
+
+"
+scatter_1_mode_0*
+val
+	
+"
+addá
+scatter
+mode
+
+scatter_1_mode_0
+axis
+
+scatter_1_axis_0
+updates
+
+expand_dims_1
+indices	
+
+add_9
+data
+
+concat_1_x0_1_1_1&
+	scatter_1
+
+û
+
+ *
+name
+
+"
+	scatter_1*"
+name
+
+"
+while_loop_0ˆ
+const+
+var_288_tmp_forward_begin_0
+
+
+*0
+name(
+ 
+"
+op_288_tmp_forward_begin_0* 
+val
+
+
+	
+
+  „
+const)
+var_288_tmp_forward_end_0
+
+
+*.
+name&
+
+"
+op_288_tmp_forward_end_0* 
+val
+
+
+	
+
+   ’
+const0
+ var_288_tmp_forward_begin_mask_0
+
+
+*5
+name-
+%
+#"!
+op_288_tmp_forward_begin_mask_0* 
+val
+
+
+	
+
+ 
+const.
+var_288_tmp_forward_end_mask_0
+
+
+*3
+name+
+#
+!"
+op_288_tmp_forward_end_mask_0* 
+val
+
+
+	
+
+¹
+slice_by_index.
+end_mask"
+ 
+var_288_tmp_forward_end_mask_0$
+end
+
+var_288_tmp_forward_end_02
+
+begin_mask$
+"
+ var_288_tmp_forward_begin_mask_0(
+begin
+
+var_288_tmp_forward_begin_0
+x
+
+while_loop_0_10
+var_288_tmp_forward
+
+ú
+
+ *(
+name 
+
+"
+op_288_tmp_forward’
+const+
+h_n_layer_0_forward_begin_0
+
+
+*1
+name)
+!
+"
+h_n_layer_0_forward_begin_0*)
+val"
+
+
+
+
+ÿÿÿÿÿÿÿÿÿ  
+const)
+h_n_layer_0_forward_end_0
+
+
+*/
+name'
+
+"
+h_n_layer_0_forward_end_0*)
+val"
+
+
+
+
+şÿÿÿÿÿÿÿÿ  “
+const0
+ h_n_layer_0_forward_begin_mask_0
+
+
+*6
+name.
+&
+$""
+ h_n_layer_0_forward_begin_mask_0* 
+val
+
+
+	
+
+ 
+const.
+h_n_layer_0_forward_end_mask_0
+
+
+*4
+name,
+$
+"" 
+h_n_layer_0_forward_end_mask_0* 
+val
+
+
+	
+
+ ”
+const,
+h_n_layer_0_forward_stride_0
+
+
+*2
+name*
+"
+ "
+h_n_layer_0_forward_stride_0*)
+val"
+
+
+
+
+ÿÿÿÿÿÿÿÿÿê
+slice_by_index*
+stride 
+
+h_n_layer_0_forward_stride_0.
+end_mask"
+ 
+h_n_layer_0_forward_end_mask_02
+
+begin_mask$
+"
+ h_n_layer_0_forward_begin_mask_0$
+end
+
+h_n_layer_0_forward_end_0(
+begin
+
+h_n_layer_0_forward_begin_0
+x
+
+var_288_tmp_forward/
+h_n_layer_0_forward
+
+
+
+ *)
+name!
+
+"
+h_n_layer_0_forwardq
+const 
+reverse_0_axes_0
+
+
+*&
+name
+
+"
+reverse_0_axes_0*
+val
+
+
+
+
+ †
+reverse
+axes
+
+reverse_0_axes_0
+x
+
+transpose_1&
+	reverse_0
+
+ú
+
+*
+name
+
+"
+	reverse_0r
+const 
+slice_by_index_4
+
+
+*&
+name
+
+"
+slice_by_index_4*
+val
+
+
+
+
+úƒ
+const)
+while_loop_1_loop_vars0_0
+
+
+*/
+name'
+
+"
+while_loop_1_loop_vars0_0*
+val
+
+
+
+
+ –5
+
+while_loop6
+	loop_vars)
+
+while_loop_1_loop_vars0_0
+
+
+concat_1
+while_loop_1_0
+
+
++
+while_loop_1_1
+
+û
+
+ "ó
+2
+"while_loop_1_loop_vars0_0_x0_1_1_1
+
+
+
+.
+concat_3_x0_1_1_1
+
+û
+
+ less_3„
+less
+y
+
+slice_by_index_4+
+x&
+$
+"while_loop_1_loop_vars0_0_x0_1_1_1
+less_3
+
+
+*
+name
+
+
+"
+less_3"è1
+2
+"while_loop_1_loop_vars0_0_x0_1_1_1
+
+
+
+.
+concat_3_x0_1_1_1
+
+û
+
+ add_19	scatter_3_
+const
+gather_6_axis_0
+*%
+name
+
+"
+gather_6_axis_0*
+val
+
+
+ k
+const
+gather_6_batch_dims_0
+*+
+name#
+
+"
+gather_6_batch_dims_0*
+val
+
+
+ Û
+gather
+axis
+
+gather_6_axis_01
+indices&
+$
+"while_loop_1_loop_vars0_0_x0_1_1_1'
+
+batch_dims
+
+gather_6_batch_dims_0
+x
+
+	reverse_0$
+gather_6
+
+
+
+*
+name
+
+"
+
+gather_6_
+const
+gather_7_axis_0
+*%
+name
+
+"
+gather_7_axis_0*
+val
+
+
+ k
+const
+gather_7_batch_dims_0
+*+
+name#
+
+"
+gather_7_batch_dims_0*
+val
+
+
+ ã
+gather
+axis
+
+gather_7_axis_01
+indices&
+$
+"while_loop_1_loop_vars0_0_x0_1_1_1'
+
+batch_dims
+
+gather_7_batch_dims_0
+x
+
+concat_3_x0_1_1_1$
+gather_7
+
+
+
+ *
+name
+
+"
+
+gather_7q
+const 
+squeeze_6_axes_0
+
+
+*&
+name
+
+"
+squeeze_6_axes_0*
+val
+
+
+
+
+ |
+squeeze
+axes
+
+squeeze_6_axes_0
+x
+
+
+gather_6
+	squeeze_6
+
+
+*
+name
+
+"
+	squeeze_6q
+const 
+squeeze_7_axes_0
+
+
+*&
+name
+
+"
+squeeze_7_axes_0*
+val
+
+
+
+
+ |
+squeeze
+axes
+
+squeeze_7_axes_0
+x
+
+
+gather_7
+	squeeze_7
+
+
+ *
+name
+
+"
+	squeeze_7
+const(
+linear_18_weight_0
+
+ 
+*(
+name 
+
+"
+linear_18_weight_0*A
+val:
+
+ 
+*$
+@model_path/weights/weight.bin€ò
+const 
+linear_18_bias_0
+
+
+ *&
+name
+
+"
+linear_18_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀ‚
+linear
+bias
+
+linear_18_bias_0 
+weight
+
+linear_18_weight_0
+x
+
+	squeeze_6
+	linear_18
+
+
+ *
+name
+
+"
+	linear_18
+const(
+linear_19_weight_0
+
+ 
+ *(
+name 
+
+"
+linear_19_weight_0*A
+val:
+
+ 
+ *$
+@model_path/weights/weight.bin€„
+const 
+linear_19_bias_0
+
+
+ *&
+name
+
+"
+linear_19_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀ¤
+linear
+bias
+
+linear_19_bias_0 
+weight
+
+linear_19_weight_0
+x
+
+	squeeze_7
+	linear_19
+
+
+ *
+name
+
+"
+	linear_19i
+add
+y
+
+	linear_19
+x
+
+	linear_18
+add_15
+
+
+ *
+name
+
+
+"
+add_15\
+sigmoid
+x
+
+
+add_15
+	sigmoid_6
+
+
+ *
+name
+
+"
+	sigmoid_6
+const(
+linear_20_weight_0
+
+ 
+*(
+name 
+
+"
+linear_20_weight_0*A
+val:
+
+ 
+*$
+@model_path/weights/weight.bin€¦
+const 
+linear_20_bias_0
+
+
+ *&
+name
+
+"
+linear_20_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀ¶
+linear
+bias
+
+linear_20_bias_0 
+weight
+
+linear_20_weight_0
+x
+
+	squeeze_6
+	linear_20
+
+
+ *
+name
+
+"
+	linear_20
+const(
+linear_21_weight_0
+
+ 
+ *(
+name 
+
+"
+linear_21_weight_0*A
+val:
+
+ 
+ *$
+@model_path/weights/weight.bin€¸
+const 
+linear_21_bias_0
+
+
+ *&
+name
+
+"
+linear_21_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀØ
+linear
+bias
+
+linear_21_bias_0 
+weight
+
+linear_21_weight_0
+x
+
+	squeeze_7
+	linear_21
+
+
+ *
+name
+
+"
+	linear_21i
+add
+y
+
+	linear_21
+x
+
+	linear_20
+add_16
+
+
+ *
+name
+
+
+"
+add_16\
+sigmoid
+x
+
+
+add_16
+	sigmoid_7
+
+
+ *
+name
+
+"
+	sigmoid_7
+const(
+linear_22_weight_0
+
+ 
+*(
+name 
+
+"
+linear_22_weight_0*A
+val:
+
+ 
+*$
+@model_path/weights/weight.bin€Ú
+const 
+linear_22_bias_0
+
+
+ *&
+name
+
+"
+linear_22_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀê
+linear
+bias
+
+linear_22_bias_0 
+weight
+
+linear_22_weight_0
+x
+
+	squeeze_6
+	linear_22
+
+
+ *
+name
+
+"
+	linear_22
+const(
+linear_23_weight_0
+
+ 
+ *(
+name 
+
+"
+linear_23_weight_0*A
+val:
+
+ 
+ *$
+@model_path/weights/weight.bin€ì
+const 
+linear_23_bias_0
+
+
+ *&
+name
+
+"
+linear_23_bias_0*;
+val4
+
+
+ *$
+@model_path/weights/weight.binÀŒ
+linear
+bias
+
+linear_23_bias_0 
+weight
+
+linear_23_weight_0
+x
+
+	squeeze_7
+	linear_23
+
+
+ *
+name
+
+"
+	linear_23g
+mul
+y
+
+	linear_23
+x
+
+	sigmoid_6
+mul_9
+
+
+ *
+name
+
+	"
+mul_9e
+add
+y	
+
+mul_9
+x
+
+	linear_22
+add_17
+
+
+ *
+name
+
+
+"
+add_17S
+tanh
+x
+
+
+add_17
+tanh_3
+
+
+ *
+name
+
+
+"
+tanh_3V
+const
+	sub_3_x_0
+*
+name
+
+"
+	sub_3_x_0*
+val
+
+
+
+
+  €?g
+sub
+y
+
+	sigmoid_7
+x
+
+	sub_3_x_0
+sub_3
+
+
+ *
+name
+
+	"
+sub_3b
+mul
+y
+
+
+tanh_3
+x	
+
+sub_3
+mul_10
+
+
+ *
+name
+
+
+"
+mul_10i
+mul
+y
+
+	squeeze_7
+x
+
+	sigmoid_7
+mul_11
+
+
+ *
+name
+
+
+"
+mul_11c
+add
+y
+
+
+mul_11
+x
+
+
+mul_10
+add_18
+
+
+ *
+name
+
+
+"
+add_18U
+const
+
+add_19_y_0
+* 
+name
+
+"
+
+add_19_y_0*
+val
+
+
+}
+add
+y
+
+
+add_19_y_0+
+x&
+$
+"while_loop_1_loop_vars0_0_x0_1_1_1
+add_19
+
+
+*
+name
+
+
+"
+add_19y
+const$
+expand_dims_3_axes_0
+
+
+**
+name"
+
+"
+expand_dims_3_axes_0*
+val
+
+
+
+
+ 
+expand_dims 
+axes
+
+expand_dims_3_axes_0
+x
+
+
+add_18)
+expand_dims_3
+
+
+
+ *#
+name
+
+"
+expand_dims_3a
+const
+scatter_3_axis_0
+*&
+name
+
+"
+scatter_3_axis_0*
+val
+
+
+ c
+const
+scatter_3_mode_0
+*&
+name
+
+"
+scatter_3_mode_0*
+val
+	
+"
+addâ
+scatter
+mode
+
+scatter_3_mode_0
+axis
+
+scatter_3_axis_0
+updates
+
+expand_dims_3
+indices
+
+
+add_19
+data
+
+concat_3_x0_1_1_1&
+	scatter_3
+
+û
+
+ *
+name
+
+"
+	scatter_3*"
+name
+
+"
+while_loop_1š
+const4
+$var_288_tmp_backward_reverse_begin_0
+
+
+*9
+name1
+)
+'"%
+#op_288_tmp_backward_reverse_begin_0* 
+val
+
+
+	
+
+  –
+const2
+"var_288_tmp_backward_reverse_end_0
+
+
+*7
+name/
+'
+%"#
+!op_288_tmp_backward_reverse_end_0* 
+val
+
+
+	
+
+   ¤
+const9
+)var_288_tmp_backward_reverse_begin_mask_0
+
+
+*>
+name6
+.
+,"*
+(op_288_tmp_backward_reverse_begin_mask_0* 
+val
+
+
+	
+
+  
+const7
+'var_288_tmp_backward_reverse_end_mask_0
+
+
+*<
+name4
+,
+*"(
+&op_288_tmp_backward_reverse_end_mask_0* 
+val
+
+
+	
+
+ï
+slice_by_index7
+end_mask+
+)
+'var_288_tmp_backward_reverse_end_mask_0-
+end&
+$
+"var_288_tmp_backward_reverse_end_0;
+
+begin_mask-
++
+)var_288_tmp_backward_reverse_begin_mask_01
+begin(
+&
+$var_288_tmp_backward_reverse_begin_0
+x
+
+while_loop_1_19
+var_288_tmp_backward_reverse
+
+ú
+
+ *1
+name)
+!
+"
+op_288_tmp_backward_reverse”
+const,
+h_n_layer_0_backward_begin_0
+
+
+*2
+name*
+"
+ "
+h_n_layer_0_backward_begin_0*)
+val"
+
+
+
+
+ÿÿÿÿÿÿÿÿÿ  
+const*
+h_n_layer_0_backward_end_0
+
+
+*0
+name(
+ 
+"
+h_n_layer_0_backward_end_0*)
+val"
+
+
+
+
+şÿÿÿÿÿÿÿÿ  •
+const1
+!h_n_layer_0_backward_begin_mask_0
+
+
+*7
+name/
+'
+%"#
+!h_n_layer_0_backward_begin_mask_0* 
+val
+
+
+	
+
+ ‘
+const/
+h_n_layer_0_backward_end_mask_0
+
+
+*5
+name-
+%
+#"!
+h_n_layer_0_backward_end_mask_0* 
+val
+
+
+	
+
+ –
+const-
+h_n_layer_0_backward_stride_0
+
+
+*3
+name+
+#
+!"
+h_n_layer_0_backward_stride_0*)
+val"
+
+
+
+
+ÿÿÿÿÿÿÿÿÿú
+slice_by_index+
+stride!
+
+h_n_layer_0_backward_stride_0/
+end_mask#
+!
+h_n_layer_0_backward_end_mask_03
+
+begin_mask%
+#
+!h_n_layer_0_backward_begin_mask_0%
+end
+
+h_n_layer_0_backward_end_0)
+begin 
+
+h_n_layer_0_backward_begin_0%
+x 
+
+var_288_tmp_backward_reverse0
+h_n_layer_0_backward
+
+
+
+ **
+name"
+
+"
+h_n_layer_0_backwarde
+const
+h_n_layer_0_axis_0
+*(
+name 
+
+"
+h_n_layer_0_axis_0*
+val
+
+
+ q
+const 
+h_n_layer_0_interleave_0
+*.
+name&
+
+"
+h_n_layer_0_interleave_0*
+val
+
+
+ Û
+concat
+axis
+
+h_n_layer_0_axis_09
+values/
+
+h_n_layer_0_forward
+
+h_n_layer_0_backward*
+
+interleave
+
+h_n_layer_0_interleave_0'
+h_n_layer_0
+
+
+
+ *!
+name
+
+"
+h_n_layer_0p
+const
+var_292_begin_0
+
+
+*$
+name
+
+"
+op_292_begin_0* 
+val
+
+
+	
+
+   l
+const
+var_292_end_0
+
+
+*"
+name
+
+"
+op_292_end_0* 
+val
+
+
+	
+
+ v
+const"
+var_292_end_mask_0
+
+
+*'
+name
+
+"
+op_292_end_mask_0* 
+val
+
+
+	
+
+ ~
+const&
+var_292_squeeze_mask_0
+
+
+*+
+name#
+
+"
+op_292_squeeze_mask_0* 
+val
+
+
+	
+
+  ë
+slice_by_index"
+end_mask
+
+var_292_end_mask_0
+end
+
+var_292_end_0*
+squeeze_mask
+
+var_292_squeeze_mask_0
+begin
+
+var_292_begin_0
+x
+
+h_n_layer_0
+var_292
+
+
+ *
+name
+
+
+"
+op_292p
+const
+var_295_begin_0
+
+
+*$
+name
+
+"
+op_295_begin_0* 
+val
+
+
+	
+
+  l
+const
+var_295_end_0
+
+
+*"
+name
+
+"
+op_295_end_0* 
+val
+
+
+	
+
+ v
+const"
+var_295_end_mask_0
+
+
+*'
+name
+
+"
+op_295_end_mask_0* 
+val
+
+
+	
+
+ ~
+const&
+var_295_squeeze_mask_0
+
+
+*+
+name#
+
+"
+op_295_squeeze_mask_0* 
+val
+
+
+	
+
+  ë
+slice_by_index"
+end_mask
+
+var_295_end_mask_0
+end
+
+var_295_end_0*
+squeeze_mask
+
+var_295_squeeze_mask_0
+begin
+
+var_295_begin_0
+x
+
+h_n_layer_0
+var_295
+
+
+ *
+name
+
+
+"
+op_295N
+const
+var_297
+*
+name
+
+
+"
+op_297*
+val
+
+
+m
+const
+input_111_interleave_0
+*,
+name$
+
+"
+input_111_interleave_0*
+val
+
+
+ «
+concat
+axis
+	
+var_297 
+values
+	
+var_292
+	
+var_295(
+
+interleave
+
+input_111_interleave_0
+	input_111
+
+
+@*
+name
+
+"
+	input_111’
+linear
+bias
+
+head_1_bias
+weight
+
+head_1_weight
+x
+
+	input_111
+var_305
+
+
+*
+name
+
+"
+	linear_24u
+const
+var_307_axes_0
+
+
+*#
+name
+
+"
+op_307_axes_0*'
+val 
+
+
+
+
+
+ÿÿÿÿÿÿÿÿÿl
+squeeze
+axes
+
+var_307_axes_0
+x
+	
+var_305
+logit
+
+
+*
+name
+
+
+"
+op_307"å
+	buildInfo×"
+
+
+Ä"Á
+6
+!
+
+"
+coremltools-version
+	
+"
+9.0
+@
+)
+!
+"
+coremltools-component-torch
+
+	"
+2.9.1
+E
+(
+ 
+"
+coremltools-source-dialect
+
+"
+TorchScript

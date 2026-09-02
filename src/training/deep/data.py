@@ -13,13 +13,23 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.features.windows import IMU_COLS, smooth_labels
+from src.features.windows import ACC_COLS, IMU_COLS, smooth_labels
 
 ROOT = Path(__file__).parents[3]
 DATA_PROC = ROOT / "data" / "processed"
 
 # Modern-Pool-Schwerkraft-Kanaele (motion.gravity). Nur mit gravity=True gefuettert.
 GRAVITY_COLS = ("gx", "gy", "gz")
+
+# Waehlbare Kanalsaetze. "imu" ist der Trainings-Default (6 bzw. 9 mit gravity).
+# Die beiden 3-Kanal-Saetze bedienen das Passiv-Deployment: CMSensorRecorder
+# liefert ausschliesslich das Accelerometer, und zwar die ROHE Gesamt-
+# beschleunigung (userAcceleration + Schwerkraft) -- CoreMotion rechnet die
+# Schwerkraft nur im gyro-fusionierten CMDeviceMotion heraus. "raw_accel"
+# rekonstruiert genau dieses Deployment-Signal aus dem Modern-Pool, sodass
+# train == deploy gilt; "user_accel" ist der Kontrollarm, der die Variable
+# "accel-only" von der Variable "roh statt fusioniert" trennt.
+CHANNEL_SETS = ("imu", "raw_accel", "user_accel")
 
 
 def build_raw_windows(
@@ -30,6 +40,7 @@ def build_raw_windows(
     max_gap_ms: float = 2500.0,
     exclude_boundary: tuple[float, float] | None = None,
     gravity: bool = False,
+    channels: str = "imu",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Baue rohe Sequenz-Fenster aus einer watch-base gemergten CSV.
 
@@ -56,9 +67,25 @@ def build_raw_windows(
     """
     if seq_len < 2 or stride < 1:
         raise ValueError(f"seq_len/stride too small: seq_len={seq_len}, stride={stride}")
+    if channels not in CHANNEL_SETS:
+        raise ValueError(
+            f"channels must be one of {list(CHANNEL_SETS)}, got {channels!r}")
+    if channels != "imu" and gravity:
+        # Why: die 3-Kanal-Saetze definieren ihren Umgang mit der Schwerkraft
+        # bereits selbst (raw_accel addiert sie auf, user_accel laesst sie weg).
+        # gravity=True zusaetzlich waere widerspruechlich statt additiv.
+        raise ValueError(
+            f"gravity=True is only valid with channels='imu', got {channels!r}")
 
-    cols = list(IMU_COLS) + (list(GRAVITY_COLS) if gravity else [])
-    n_ch = len(cols)  # 6 (Default) oder 9 (mit Gravity gx/gy/gz)
+    if channels == "imu":
+        cols = list(IMU_COLS) + (list(GRAVITY_COLS) if gravity else [])
+        n_ch = len(cols)  # 6 (Default) oder 9 (mit Gravity gx/gy/gz)
+    elif channels == "user_accel":
+        cols = list(ACC_COLS)
+        n_ch = 3
+    else:  # raw_accel -- Schwerkraft wird auf die Accel-Achsen addiert
+        cols = list(ACC_COLS) + list(GRAVITY_COLS)
+        n_ch = 3
     needed = {*cols, "label_writing", "local_ts_ms"}
     missing = needed - set(merged.columns)
     if missing:
@@ -80,6 +107,8 @@ def build_raw_windows(
         return empty
 
     imu = df[cols].to_numpy(dtype=np.float32)
+    if channels == "raw_accel":
+        imu = imu[:, :3] + imu[:, 3:]
     times = df["local_ts_ms"].to_numpy(dtype=float)
     raw_labels = df["label_writing"].to_numpy(dtype=int)
     labels = smooth_labels(raw_labels, times, max_gap_ms=max_gap_ms).astype(float)

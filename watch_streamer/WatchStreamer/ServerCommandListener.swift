@@ -25,65 +25,71 @@ class ServerCommandListener: NSObject, ObservableObject {
     @Published var watchLastCommandId = ""
     @Published var watchUploadMode = "Offline"
     @Published var watchActualHz: Double = 0
+    // Why this exists: without it, a focus session whose HKWorkoutSession
+    // failed to start (e.g. a denied permission prompt) looks identical to a
+    // healthy one — isRunning stays true, but the stream dies the moment the
+    // wrist lowers. No retry or UI is built on this yet; it only makes the
+    // failure observable.
+    @Published var watchWorkoutFailed = false
     @Published var liveInference: LiveInferencePayload?
 
-    private var task: URLSessionWebSocketTask?
     private var reconnectWorkItem: DispatchWorkItem?
     private var pollAgeTimer: Timer?
-    private var sentHello = false
+    private var listenTask: Task<Void, Never>?
+
+    // MARK: – WebSocket generation state
+    //
+    // Everything in this class runs on the main actor: `connect()`, the
+    // structured listen and send tasks (which inherit it), and the poll path,
+    // which `PhoneBridge` hops onto main before calling in. That is what made
+    // the former lock mirrors of the epoch, the poll snapshot and the session
+    // state redundant — a callback can no longer observe a torn pair because
+    // there is no second thread to observe from.
+    private var task: URLSessionWebSocketTask?
     /// Identifies the current WebSocket "generation". Each connect() bumps this.
-    /// Stale receive/send callbacks check their captured epoch and bail out if
-    /// the current epoch has moved on — so a cancelled task's failure handler
-    /// can never schedule a reconnect against the live connection.
-    private var connectionEpoch: Int = 0
+    /// A listen or send task that outlives its generation sees the mismatch
+    /// and stops, so a cancelled task can never schedule a reconnect against
+    /// the live connection.
+    private var connectionEpoch = 0
+    private var sentHello = false
+
+    /// Installs a new generation. Returns the epoch the caller must carry.
+    private func beginConnection(_ newTask: URLSessionWebSocketTask?) -> Int {
+        connectionEpoch &+= 1
+        task = newTask
+        sentHello = false
+        return connectionEpoch
+    }
+
+    /// The live task, but only while `epoch` is still current.
+    private func liveTask(forEpoch epoch: Int) -> URLSessionWebSocketTask? {
+        epoch == connectionEpoch ? task : nil
+    }
+
+    /// Exactly one caller per generation sends the hello frame.
+    private func claimHello(epoch: Int) -> Bool {
+        guard epoch == connectionEpoch, !sentHello else { return false }
+        sentHello = true
+        return true
+    }
+
+    /// Two polls in a row carrying the same confirmation emit one `watch_ack`.
     private var lastPollAckKey: String?
-    // Protected by pollStateLock — written from WCSession bg thread, read from main-thread timer.
-    private let pollStateLock = NSLock()
-    private var _lastWatchPollAt: Date?
-    private var _lastWatchSnapshot: [String: Any] = [:]
-    private var lastWatchPollAt: Date? {
-        get { pollStateLock.withLock { _lastWatchPollAt } }
-        set { pollStateLock.withLock { _lastWatchPollAt = newValue } }
+    private func claimPollAck(_ key: String) -> Bool {
+        guard lastPollAckKey != key else { return false }
+        lastPollAckKey = key
+        return true
     }
-    private var lastWatchSnapshot: [String: Any] {
-        get { pollStateLock.withLock { _lastWatchSnapshot } }
-        set { pollStateLock.withLock { _lastWatchSnapshot = newValue } }
-    }
+
+    private var lastWatchPollAt: Date?
+    private var lastWatchSnapshot: [String: Any] = [:]
 
     // Why: poll-freshness threshold (ms). A Watch poll older than this counts as
     // "not polling". Was a bare 3000 literal at three call sites.
     private static let pollFreshMs = 3000
 
-    // Why: currentSessionId/currentPersonId/currentCommandId are @Published (main
-    // thread, for the UI) but are read on the WCSession bg thread in the poll path
-    // (handleWatchCommandPoll → currentWatchCommandPayload / confirmCommandFromWatchPoll,
-    // plus sendPhoneStatus via the listenLoop receive callback). Mirror them under a
-    // lock so the bg read gets a consistent snapshot instead of racing the setters.
-    private let sessionStateLock = NSLock()
-    private var _sessionSnapshot: (sessionId: String?, personId: String?, commandId: String?) = (nil, nil, nil)
-    private func syncSessionStateSnapshot() {
-        let snap: (sessionId: String?, personId: String?, commandId: String?) =
-            (currentSessionId, currentPersonId, currentCommandId)
-        sessionStateLock.withLock { _sessionSnapshot = snap }
-    }
-    private func sessionStateSnapshot() -> (sessionId: String?, personId: String?, commandId: String?) {
-        sessionStateLock.withLock { _sessionSnapshot }
-    }
-
-    private var serverIP: String { UserDefaults.standard.string(forKey: "serverIP") ?? ServerConfig.defaultIP }
-    private var serverWebSocketURL: URL? {
-        let trimmed = serverIP
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        if trimmed.hasPrefix("http://") {
-            return URL(string: "ws://" + String(trimmed.dropFirst("http://".count)) + "/ws")
-        }
-        if trimmed.hasPrefix("https://") {
-            return URL(string: "wss://" + String(trimmed.dropFirst("https://".count)) + "/ws")
-        }
-        let host = trimmed.contains(":") ? trimmed : "\(trimmed):8000"
-        return URL(string: "ws://\(host)/ws")
-    }
+    private var serverIP: String { ServerConfig.configuredIP }
+    private var serverWebSocketURL: URL? { ServerConfig.endpoint?.webSocket }
 
     private override init() {
         super.init()
@@ -104,34 +110,46 @@ class ServerCommandListener: NSObject, ObservableObject {
     func connect() {
         reconnectWorkItem?.cancel()
         reconnectWorkItem = nil
-        connectionEpoch &+= 1
         task?.cancel(with: .goingAway, reason: nil)
 
-        guard let url = serverWebSocketURL else { return }
-        let epoch = connectionEpoch
-        task = URLSession.shared.webSocketTask(with: url)
-        task?.resume()
+        guard let url = serverWebSocketURL else {
+            // Why: still bump the generation so callbacks from the cancelled
+            // task cannot mistake themselves for current.
+            _ = beginConnection(nil)
+            isConnected = false
+            return
+        }
+        let newTask = URLSession.shared.webSocketTask(with: url)
+        let epoch = beginConnection(newTask)
+        newTask.resume()
         isConnected = false
-        sentHello = false
         listenLoop(epoch: epoch)
     }
 
+    /// One structured task per connection generation. It ends on its own when
+    /// the epoch moves on, so `connect()` never has to hunt down a stale
+    /// callback — the epoch check that used to guard every completion handler
+    /// is now the loop condition.
     private func listenLoop(epoch: Int) {
-        task?.receive { [weak self] result in
-            guard let self, epoch == self.connectionEpoch else { return }
-            switch result {
-            case .failure:
-                DispatchQueue.main.async { self.isConnected = false }
-                self.scheduleReconnect()
-            case .success(let msg):
-                DispatchQueue.main.async { self.isConnected = true }
-                if !self.sentHello {
-                    self.sentHello = true
+        listenTask?.cancel()
+        listenTask = Task { [weak self] in
+            while let self, let task = self.liveTask(forEpoch: epoch) {
+                let message: URLSessionWebSocketTask.Message
+                do {
+                    message = try await task.receive()
+                } catch {
+                    guard self.liveTask(forEpoch: epoch) != nil else { return }
+                    self.isConnected = false
+                    self.scheduleReconnect()
+                    return
+                }
+                guard self.liveTask(forEpoch: epoch) != nil else { return }
+                self.isConnected = true
+                if self.claimHello(epoch: epoch) {
                     self.sendServerEvent(["type": "hello", "client": "iphone"])
                     self.sendPhoneStatus()
                 }
-                self.handle(msg)
-                self.listenLoop(epoch: epoch)
+                self.handle(message)
             }
         }
     }
@@ -145,7 +163,7 @@ class ServerCommandListener: NSObject, ObservableObject {
               let payload = try? JSONDecoder().decode(LiveInferencePayload.self, from: data) else {
             return
         }
-        DispatchQueue.main.async { self.liveInference = payload }
+        liveInference = payload
     }
 
     private func handle(_ message: URLSessionWebSocketTask.Message) {
@@ -164,59 +182,55 @@ class ServerCommandListener: NSObject, ObservableObject {
 
         updateLiveInference(from: json)
 
-        DispatchQueue.main.async {
-            if type == "start" {
-                let sid = json["session_id"] as? String
+        if type == "start" {
+            let sid = json["session_id"] as? String
+            let pid = json["person_id"] as? String
+            let commandId = self.extractCommandId(from: json)
+            self.currentSessionId = sid
+            self.currentPersonId  = pid
+            self.currentCommandId = commandId
+            self.forwardToWatch(self.watchPayload(command: "start",
+                                                  sessionId: sid,
+                                                  personId: pid,
+                                                  commandId: commandId))
+        } else if type == "stop" {
+            let commandId = self.extractCommandId(from: json)
+            self.currentCommandId = commandId
+            self.forwardToWatch(self.watchPayload(command: "stop",
+                                                  sessionId: json["session_id"] as? String,
+                                                  personId: nil,
+                                                  commandId: commandId))
+            self.currentSessionId = nil
+            self.currentPersonId  = nil
+        } else if type == "status" {
+            let active = json["session_active"] as? Bool ?? false
+            let commandId = self.extractCommandId(from: json)
+            if let hz = json["watch_rate_hz"] as? Double, hz > 0 {
+                self.watchActualHz = hz
+            }
+            if active, let sid = json["session_id"] as? String {
                 let pid = json["person_id"] as? String
-                let commandId = self.extractCommandId(from: json)
+                let shouldForward = self.currentSessionId != sid ||
+                    (commandId != nil && commandId != self.currentCommandId)
+                if shouldForward {
+                    self.currentCommandId = commandId
+                    self.forwardToWatch(self.watchPayload(command: "start",
+                                                          sessionId: sid,
+                                                          personId: pid,
+                                                          commandId: commandId))
+                }
                 self.currentSessionId = sid
-                self.currentPersonId  = pid
-                self.currentCommandId = commandId
-                self.forwardToWatch(self.watchPayload(command: "start",
-                                                      sessionId: sid,
-                                                      personId: pid,
-                                                      commandId: commandId))
-            } else if type == "stop" {
-                let commandId = self.extractCommandId(from: json)
+                self.currentPersonId = pid
+            } else if self.currentSessionId != nil {
                 self.currentCommandId = commandId
                 self.forwardToWatch(self.watchPayload(command: "stop",
-                                                      sessionId: json["session_id"] as? String,
+                                                      sessionId: self.currentSessionId,
                                                       personId: nil,
                                                       commandId: commandId))
                 self.currentSessionId = nil
-                self.currentPersonId  = nil
-            } else if type == "status" {
-                let active = json["session_active"] as? Bool ?? false
-                let commandId = self.extractCommandId(from: json)
-                if let hz = json["watch_rate_hz"] as? Double, hz > 0 {
-                    self.watchActualHz = hz
-                }
-                if active, let sid = json["session_id"] as? String {
-                    let pid = json["person_id"] as? String
-                    let shouldForward = self.currentSessionId != sid ||
-                        (commandId != nil && commandId != self.currentCommandId)
-                    if shouldForward {
-                        self.currentCommandId = commandId
-                        self.forwardToWatch(self.watchPayload(command: "start",
-                                                              sessionId: sid,
-                                                              personId: pid,
-                                                              commandId: commandId))
-                    }
-                    self.currentSessionId = sid
-                    self.currentPersonId = pid
-                } else if self.currentSessionId != nil {
-                    self.currentCommandId = commandId
-                    self.forwardToWatch(self.watchPayload(command: "stop",
-                                                          sessionId: self.currentSessionId,
-                                                          personId: nil,
-                                                          commandId: commandId))
-                    self.currentSessionId = nil
-                    self.currentPersonId = nil
-                }
-                self.sendPhoneStatus()
+                self.currentPersonId = nil
             }
-            // Why: mirror the just-applied session/command state for the bg poll path.
-            self.syncSessionStateSnapshot()
+            self.sendPhoneStatus()
         }
     }
 
@@ -236,36 +250,41 @@ class ServerCommandListener: NSObject, ObservableObject {
                               sessionId: String?,
                               personId: String?,
                               commandId: String?) -> [String: Any] {
-        var payload: [String: Any] = ["command": command, "server_ip": serverIP]
+        var payload: [String: Any] = [WatchPayloadKey.command: command,
+                                      WatchPayloadKey.serverIP: serverIP]
         if let sessionId, !sessionId.isEmpty { payload["session_id"] = sessionId }
         if let personId, !personId.isEmpty { payload["person_id"] = personId }
         if let commandId, !commandId.isEmpty { payload["command_id"] = commandId }
         // H3: Motion-Config aus den Phone-App-Settings mitgeben. Die Watch
         // liest sie in handleCommand() — auch via 1-s-Poll-Reply, also ohne
         // dass ein expliziter Push nötig wäre.
-        let hz = UserDefaults.standard.double(forKey: "requestedHz")
-        if hz >= 10 { payload["requested_hz"] = hz }
-        let batch = UserDefaults.standard.integer(forKey: "batchSize")
-        if batch >= 1 { payload["batch_size"] = batch }
+        let hz = UserDefaults.standard.double(forKey: CaptureSettings.requestedHzKey)
+        if CaptureSettings.isValidHz(hz) { payload[WatchPayloadKey.requestedHz] = hz }
+        let batch = UserDefaults.standard.integer(forKey: CaptureSettings.batchSizeKey)
+        if CaptureSettings.isValidBatchSize(batch) { payload[WatchPayloadKey.batchSize] = batch }
+        payload[WatchPayloadKey.dailyGoalSeconds] = ScrybeSettings.goalSeconds
+        if let creature = BestiaryStore.shared.current {
+            payload.merge(WatchCreatureSnapshot(entry: creature).payloadFields) { _, new in new }
+        }
         return payload
     }
 
     func currentWatchCommandPayload() -> [String: Any] {
-        // Why: read the lock-protected snapshot — this also runs on the WCSession
-        // bg thread via handleWatchCommandPoll.
-        let snap = sessionStateSnapshot()
-        if let sid = snap.sessionId {
+        if let sid = currentSessionId {
             return watchPayload(command: "start",
                                 sessionId: sid,
-                                personId: snap.personId,
-                                commandId: snap.commandId)
+                                personId: currentPersonId,
+                                commandId: currentCommandId)
         }
         return watchPayload(command: "stop",
                             sessionId: nil,
                             personId: nil,
-                            commandId: snap.commandId)
+                            commandId: currentCommandId)
     }
 
+    /// Answers the Watch's once-a-second poll. `PhoneBridge` hops the
+    /// WatchConnectivity callback onto the main actor before calling this, so
+    /// the reply reads the same state the UI shows.
     func handleWatchCommandPoll(_ message: [String: Any]) -> [String: Any] {
         lastWatchPollAt = Date()
         lastWatchSnapshot = message
@@ -275,13 +294,28 @@ class ServerCommandListener: NSObject, ObservableObject {
         let watchSessionId = message["session_id"] as? String ?? ""
         let watchLastCommandId = message["last_command_id"] as? String ?? ""
         payload["ok"] = true
-        payload["source"] = "iphone_command_poll"
+        payload[WatchPayloadKey.source] = WatchCommandSource.commandPoll
         payload["server_connected"] = isConnected
         let pollStatus = "poll \(command)"
-        DispatchQueue.main.async {
-            self.lastWatchPollStatus = pollStatus
-        }
+        lastWatchPollStatus = pollStatus
         updatePublishedWatchStatus(from: message, pollAgeMs: 0)
+        // Why here: this is the only place the phone hears from the Watch on
+        // its own initiative, and a workout failure ends a focus session on
+        // the Watch alone. Announcing it is the mirror of the preemption
+        // notice forwardToWatch sends in the other direction.
+        if FocusCommandPolicy.workoutFailureEndedFocusSession(
+            workoutFailed: message[WatchPayloadKey.Status.workoutFailed] as? Bool ?? false,
+            watchIsRunning: watchRunning,
+            deliveredAsFallback: WatchCommandSource.isFallbackDelivery(message)) {
+            FocusSessionStore.shared.watchWorkoutFailed()
+        }
+        // Why here, unconditionally: this poll is the only way back after a
+        // force-quit — the store holds no copy of a running session, and the
+        // Watch is the side that survived. A no-op unless the store is idle
+        // and the Watch reports `focus`, so this costs nothing on every other
+        // poll.
+        FocusSessionStore.shared.adoptIfWatchIsInFocus(poll: message)
+        FocusStore.shared.applyCaptureMode(CaptureMode.from(poll: message))
         confirmCommandFromWatchPoll(command: command,
                                     watchRunning: watchRunning,
                                     watchSessionId: watchSessionId,
@@ -310,37 +344,218 @@ class ServerCommandListener: NSObject, ObservableObject {
     /// „Spill jetzt senden": die Watch drained ihren persistenten Buffer im
     /// Burst statt 1 Zeile/3 s. Nicht-destruktiv.
     func drainWatchSpill() {
-        forwardToWatch(["command": "drain_spill", "server_ip": serverIP])
+        forwardToWatch([WatchPayloadKey.command: WatchCommandName.drainSpill.rawValue,
+                        WatchPayloadKey.serverIP: serverIP])
     }
 
     /// „Spill verwerfen": die Watch löscht ihren persistenten Buffer. Die Watch
     /// verweigert das während einer laufenden Aufnahme (Schutz des Live-Staus).
     func clearWatchSpill() {
-        forwardToWatch(["command": "clear_spill", "server_ip": serverIP])
+        forwardToWatch([WatchPayloadKey.command: WatchCommandName.clearSpill.rawValue,
+                        WatchPayloadKey.serverIP: serverIP])
+    }
+
+    /// Asks the Watch to begin a focus session.
+    ///
+    /// Why a deadline: `sendMessage` does not guarantee that either handler
+    /// runs. Without it the caller waits forever and the screen sits in
+    /// `starting` with no way back — the failure this project already shipped
+    /// once on pull-to-refresh.
+    ///
+    /// - Returns: the Watch's answer, refusal included. A refusal names which
+    ///   of the two preconditions failed, because "a recording is running" and
+    ///   "the workout permission is missing" ask opposite things of the user.
+    func startFocusSession(timeout: TimeInterval = 8) async -> FocusStartOutcome {
+        await withCheckedContinuation { continuation in
+            var resumed = false
+            let deadline = DispatchWorkItem {
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: .unconfirmed)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)
+            forwardToWatch([WatchPayloadKey.command: WatchCommandName.focusStart.rawValue,
+                            WatchPayloadKey.commandID: UUID().uuidString]) { reply in
+                guard !resumed else { return }
+                resumed = true
+                deadline.cancel()
+                // Why checked here rather than in `FocusStartOutcome.from`: a
+                // transport failure never produced a reply to decode — this
+                // is `forwardToWatch` reporting its own error handler firing,
+                // not the Watch answering with something unrecognised.
+                if WatchPayloadValue.bool(reply[WatchPayloadKey.transportFailure]) ?? false {
+                    continuation.resume(returning: .unreachable)
+                } else {
+                    continuation.resume(returning: FocusStartOutcome.from(reply: reply))
+                }
+            }
+        }
+    }
+
+    /// Asks the Watch to end a focus session and restore its previous rate.
+    ///
+    /// Bounded for the same reason as the start, and the answer matters more:
+    /// the Watch streams raw sensors until it hears this, so a caller that
+    /// waited forever would have no way to report that the stream may still
+    /// be running.
+    ///
+    /// - Returns: the Watch's answer. A refusal is not a failure here — the
+    ///   Watch only refuses when no focus session is running, which is what
+    ///   the stop was asking it to bring about.
+    func stopFocusSession(timeout: TimeInterval = 8) async -> FocusStopOutcome {
+        await withCheckedContinuation { continuation in
+            var resumed = false
+            let deadline = DispatchWorkItem {
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(returning: .noAnswer)
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + timeout, execute: deadline)
+            forwardToWatch([WatchPayloadKey.command: WatchCommandName.focusStop.rawValue,
+                            WatchPayloadKey.commandID: UUID().uuidString]) { reply in
+                guard !resumed else { return }
+                resumed = true
+                deadline.cancel()
+                continuation.resume(returning: FocusStopOutcome.from(reply: reply))
+            }
+        }
+    }
+
+    @Published var sensorProbeVerdict: SensorProbeVerdict?
+    @Published var sensorProbeRaw: String?
+    /// Wall-Zeit, die `SensorProbe.report()` fuer den CMSensorRecorder-Read
+    /// gebraucht hat — Diagnose-Gold fuer einen Schritt, der nur wenige Male
+    /// laufen kann: unterscheidet einen langsamen, aber funktionierenden Read
+    /// von einem, der in den sendMessage-Timeout gelaufen ist.
+    @Published var sensorProbeReadDuration: Double?
+    @Published var parityResult: String?
+    @Published var parityRaw: String?
+
+    /// Status of the most recent probe-start attempt, in the operator's words.
+    @Published var sensorProbeStartStatus: String?
+
+    func startSensorProbe(durationSeconds: Double) {
+        // Why: a stale verdict/raw from a previous probe left standing while
+        // this one runs is the worst outcome for a step the operator can
+        // only repeat a few times — reset before the new run, not after.
+        sensorProbeVerdict = nil
+        sensorProbeRaw = nil
+        sensorProbeReadDuration = nil
+        sensorProbeStartStatus = nil
+        // Why: a stable per-attempt identity makes the start idempotent on the
+        // Watch. Without it a duplicate delivery restarted the recorder and
+        // discarded a run already in progress — for the 12-hour probe that is
+        // half a day of hardware time.
+        let operationID = UUID().uuidString
+        forwardToWatch([WatchPayloadKey.command: WatchCommandName.sensorProbeStart.rawValue,
+                        WatchPayloadKey.durationSeconds: durationSeconds,
+                        WatchPayloadKey.operationID: operationID]) { [weak self] reply in
+            self?.sensorProbeRaw = String(describing: reply)
+            self?.sensorProbeStartStatus = Self.probeStartStatus(from: reply)
+        }
+    }
+
+    /// Translates a probe-start reply into a line the operator can act on.
+    static func probeStartStatus(from reply: [String: Any]) -> String {
+        let ok = WatchPayloadValue.bool(reply[WatchPayloadKey.ok]) ?? false
+        guard ok else {
+            let error = reply[WatchPayloadKey.error] as? String ?? "Unbekannter Fehler"
+            if let remaining = WatchPayloadValue.double(reply["remainingSeconds"]) {
+                return "\(error) — noch \(Int(remaining.rounded())) s"
+            }
+            return error
+        }
+        if WatchPayloadValue.bool(reply["alreadyStarted"]) == true {
+            return "Läuft bereits (dieselbe Anforderung, nicht neu gestartet)"
+        }
+        let requested = WatchPayloadValue.double(reply["requestedSeconds"]) ?? 0
+        return "Gestartet für \(Int(requested.rounded())) s"
+    }
+
+    func fetchSensorProbeReport() {
+        sensorProbeVerdict = nil
+        sensorProbeRaw = nil
+        sensorProbeReadDuration = nil
+        forwardToWatch([WatchPayloadKey.command: WatchCommandName.sensorProbeReport.rawValue]) { [weak self] reply in
+            self?.sensorProbeRaw = String(describing: reply)
+            self?.sensorProbeReadDuration = reply["readDurationSeconds"] as? Double
+            self?.sensorProbeVerdict = Self.verdict(from: reply)
+        }
+    }
+
+    /// P3 — stösst die Golden-Vektor-Paritätsprüfung des Passiv-Modells auf
+    /// der Watch an (WatchParityCheck.run()) und übersetzt die Antwort in
+    /// einen lesbaren Status für das Admin-Panel.
+    func runWatchParityCheck() {
+        parityResult = nil
+        parityRaw = nil
+        forwardToWatch([WatchPayloadKey.command: WatchCommandName.parityCheck.rawValue]) { [weak self] reply in
+            self?.parityRaw = String(describing: reply)
+            let ok = (reply["ok"] as? Bool) ?? true
+            guard ok else {
+                self?.parityResult = "Fehler: " + ((reply["error"] as? String) ?? "unbekannt")
+                return
+            }
+            let total = (reply["total"] as? Int) ?? 0
+            let passed = (reply["passed"] as? Int) ?? 0
+            let maxDiff = (reply["maxAbsDiff"] as? Double) ?? .nan
+            let mismatch = (reply["classMismatches"] as? Int) ?? -1
+            var text = String(
+                format: "%d/%d bestanden, max |Δ| = %.2e, Klassenwechsel: %d",
+                passed, total, maxDiff, mismatch)
+            if passed < total, let failedIds = reply["failedIds"] as? [String], !failedIds.isEmpty {
+                text += " — fehlgeschlagen: " + failedIds.joined(separator: ", ")
+            }
+            self?.parityResult = text
+        }
+    }
+
+    /// Uebersetzt die Watch-Antwort in SensorProbeStats und bewertet sie.
+    /// Why: WCSession erlaubt keine Int-Schluessel, das Histogramm kommt als
+    /// [String: Int] und wird hier zurueckgemappt.
+    static func verdict(from reply: [String: Any]) -> SensorProbeVerdict? {
+        guard let count = reply["sampleCount"] as? Int else { return nil }
+        let rawBuckets = (reply["intervalBucketsMs"] as? [String: Int]) ?? [:]
+        var buckets: [Int: Int] = [:]
+        for (k, v) in rawBuckets { if let key = Int(k) { buckets[key] = v } }
+        let requestedSeconds = (reply["requestedSeconds"] as? Double) ?? 0
+        let stats = SensorProbeStats(
+            sampleCount: count,
+            firstTimestamp: (reply["firstTimestamp"] as? Double) ?? 0,
+            lastTimestamp: (reply["lastTimestamp"] as? Double) ?? 0,
+            requestedSeconds: requestedSeconds,
+            // Why: older replies without the field default to "fully
+            // elapsed" so coverage falls back to the pre-fix behaviour
+            // rather than silently reading 0.
+            actualSpanSeconds: (reply["actualSpanSeconds"] as? Double) ?? requestedSeconds,
+            intervalBucketsMs: buckets,
+            maxGapSeconds: (reply["maxGapSeconds"] as? Double) ?? 0,
+            nonMonotonicCount: (reply["nonMonotonicCount"] as? Int) ?? 0,
+            fetchReturnedNil: (reply["fetchReturnedNil"] as? Bool) ?? false
+        )
+        return SensorProbeEvaluator.evaluate(stats)
     }
 
     private func updatePublishedWatchStatus(from message: [String: Any], pollAgeMs: Int?) {
-        DispatchQueue.main.async {
-            self.watchPolling = (pollAgeMs ?? 0) < Self.pollFreshMs
-            self.watchPollAgeMs = pollAgeMs
-            self.watchRunning = message["is_running"] as? Bool ?? false
-            self.watchSessionId = message["session_id"] as? String ?? ""
-            self.watchSampleCount = message["sample_count"] as? Int ?? 0
-            self.watchQueuedSamples = message["queued_samples"] as? Int ?? 0
-            self.watchDeliveredSamples = message["delivered_samples"] as? Int ?? 0
-            self.watchFailedBatches = message["failed_batches"] as? Int ?? 0
-            self.watchLastCommandId = message["last_command_id"] as? String ?? ""
-            self.watchUploadMode = message["upload_mode"] as? String ?? "Offline"
-        }
+        watchPolling = (pollAgeMs ?? 0) < Self.pollFreshMs
+        watchPollAgeMs = pollAgeMs
+        watchRunning = message["is_running"] as? Bool ?? false
+        watchSessionId = message["session_id"] as? String ?? ""
+        watchSampleCount = message["sample_count"] as? Int ?? 0
+        watchQueuedSamples = message["queued_samples"] as? Int ?? 0
+        watchDeliveredSamples = message["delivered_samples"] as? Int ?? 0
+        watchFailedBatches = message["failed_batches"] as? Int ?? 0
+        watchLastCommandId = message["last_command_id"] as? String ?? ""
+        watchUploadMode = message["upload_mode"] as? String ?? "Offline"
+        watchWorkoutFailed = message[WatchPayloadKey.Status.workoutFailed] as? Bool ?? false
     }
 
     private func confirmCommandFromWatchPoll(command: String,
                                              watchRunning: Bool,
                                              watchSessionId: String,
                                              watchLastCommandId: String) {
-        let snap = sessionStateSnapshot()
-        let expectedSessionId = snap.sessionId ?? ""
-        let expectedCommandId = snap.commandId ?? ""
+        let expectedSessionId = currentSessionId ?? ""
+        let expectedCommandId = currentCommandId ?? ""
         let commandIdMatches = expectedCommandId.isEmpty || watchLastCommandId == expectedCommandId
         let commandApplied = commandIdMatches && (
             (command == "start" && watchRunning && watchSessionId == expectedSessionId) ||
@@ -349,12 +564,8 @@ class ServerCommandListener: NSObject, ObservableObject {
         guard commandApplied else { return }
 
         let ackKey = "\(command)|\(expectedSessionId)|\(watchRunning)|\(expectedCommandId)"
-        guard ackKey != lastPollAckKey else { return }
-        lastPollAckKey = ackKey
-        let status = "\(command): confirmed by Watch poll"
-        DispatchQueue.main.async {
-            self.lastWatchCommandStatus = status
-        }
+        guard claimPollAck(ackKey) else { return }
+        lastWatchCommandStatus = "\(command): confirmed by Watch poll"
         sendServerEvent([
             "type": "watch_ack",
             "ok": true,
@@ -370,30 +581,66 @@ class ServerCommandListener: NSObject, ObservableObject {
         ])
     }
 
-    func forwardToWatch(_ payload: [String: Any]) {
-        let command = payload["command"] as? String ?? "unknown"
-        let sessionId = payload["session_id"] as? String
-        let commandId = payload["command_id"] as? String
+    func forwardToWatch(_ payload: [String: Any],
+                        onReply: (@MainActor ([String: Any]) -> Void)? = nil) {
+        let command = payload[WatchPayloadKey.command] as? String ?? "unknown"
+        let sessionId = payload[WatchPayloadKey.sessionID] as? String
+        let commandId = payload[WatchPayloadKey.commandID] as? String
 
-        // Why: ein neuer Befehl macht alle gequeueten älteren obsolet. Ohne
-        // Cancel stellt die transferUserInfo-FIFO Minuten-alte stop/start-
-        // Paare mitten in eine laufende Session zu (S044, 2026-06-12).
-        // Spiegelbild von cancelStaleUserInfoTransfers() auf der Watch-Seite;
-        // phone-seitig laufen über transferUserInfo ausschließlich Commands.
-        for transfer in WCSession.default.outstandingUserInfoTransfers {
-            transfer.cancel()
+        // Why: the transport class decides which delivery paths may be used.
+        // An unrecognised command is treated as non-durable — the destructive
+        // steps below must be opt-in, never a default for something we cannot
+        // classify.
+        let route = WatchCommandName(rawValue: command)
+        let mayReplaceDurableState = route?.mayReplaceDurableState ?? false
+        let mayFallBackToUserInfo = route?.mayFallBackToUserInfo ?? false
+
+        // Why here: the Watch answers a study "start" by preempting a running
+        // focus session (`MotionManager.handleCommand`) with no way to say so,
+        // and this is the earliest point on the phone that knows one is going
+        // out. Not the only path a "start" reaches the Watch by — the Watch's
+        // own poll is answered straight from `currentWatchCommandPayload()`,
+        // which never passes through here — but that snapshot can only read
+        // "start" once a WebSocket `start` or `status` has already set
+        // `currentSessionId`, and both of those forward through this function
+        // first. So every "start" the poll can repeat was announced here, and
+        // announcing it before the send means the session closes on the
+        // writing time it earned rather than running on against a stream it
+        // no longer owns.
+        if route == .start {
+            FocusSessionStore.shared.watchPreemptedByRecording()
         }
 
-        // Push when possible, but the MVP does not depend on this path:
-        // the Watch also pulls the latest command via command_poll.
-        do {
-            try WCSession.default.updateApplicationContext(payload)
-        } catch {
-            lastWatchCommandStatus = "\(command): context failed"
+        if mayReplaceDurableState {
+            // Why: ein neuer Befehl macht alle gequeueten älteren obsolet. Ohne
+            // Cancel stellt die transferUserInfo-FIFO Minuten-alte stop/start-
+            // Paare mitten in eine laufende Session zu (S044, 2026-06-12).
+            // Spiegelbild von cancelStaleUserInfoTransfers() auf der Watch-Seite;
+            // phone-seitig laufen über transferUserInfo ausschließlich Commands.
+            //
+            // Gated on the transport class since 2026-08-29: this ran for every
+            // command, so a read-only probe report or parity check erased
+            // pending start/stop recovery state on its way out.
+            for transfer in WCSession.default.outstandingUserInfoTransfers {
+                transfer.cancel()
+            }
+
+            // Push when possible, but the MVP does not depend on this path:
+            // the Watch also pulls the latest command via command_poll.
+            do {
+                try WCSession.default.updateApplicationContext(payload)
+            } catch {
+                lastWatchCommandStatus = "\(command): context failed"
+            }
         }
 
-        WCSession.default.sendMessage(payload, replyHandler: { [weak self] reply in
+        // WatchConnectivity runs both handlers on its own queue; without the
+        // explicit `@Sendable` they would inherit the main actor and trap there.
+        let payloadBox = UncheckedSendable(payload)
+        WCSession.default.sendMessage(payload, replyHandler: { @Sendable [weak self] reply in
+            let replyBox = UncheckedSendable(reply)
             DispatchQueue.main.async {
+                let reply = replyBox.value
                 let replyOk = reply["ok"] as? Bool ?? true
                 self?.lastWatchCommandStatus = replyOk ? "\(command): acknowledged" : "\(command): failed"
                 self?.sendServerEvent([
@@ -406,11 +653,41 @@ class ServerCommandListener: NSObject, ObservableObject {
                     "reply": reply
                 ])
                 self?.sendPhoneStatus()
+                onReply?(reply)
             }
-        }, errorHandler: { [weak self] error in
+        }, errorHandler: { @Sendable [weak self] error in
             DispatchQueue.main.async {
-                self?.transferUserInfoToWatch(payload,
-                                              command: command)
+                // Why: only durable state may be re-sent through the queue. The
+                // Watch discards context and user-info copies of a diagnostic,
+                // so queueing one produced a delivery guaranteed to be ignored
+                // while telling the caller it was on its way.
+                if mayFallBackToUserInfo {
+                    self?.transferUserInfoToWatch(payloadBox.value, command: command)
+                    onReply?([
+                        WatchPayloadKey.ok: false,
+                        WatchPayloadKey.command: command,
+                        WatchPayloadKey.error:
+                            "sendMessage failed (\(error.localizedDescription)); "
+                            + "queued via transferUserInfo, no reply will follow"
+                    ])
+                    return
+                }
+                // Why: transferUserInfo has no reply channel back to the
+                // iPhone, so a diagnostic caller (sensor probe / parity
+                // check) would otherwise wait forever with no feedback at
+                // all — exactly the "Watch unreachable" state the spike
+                // protocol's app-kill step produces. Report the transport
+                // failure as the terminal result it is.
+                self?.lastWatchCommandStatus = "\(command): Watch unreachable"
+                self?.sendPhoneStatus()
+                onReply?([
+                    WatchPayloadKey.ok: false,
+                    WatchPayloadKey.command: command,
+                    WatchPayloadKey.transportFailure: true,
+                    WatchPayloadKey.error:
+                        "Watch unreachable (\(error.localizedDescription)); "
+                        + "the query did not run"
+                ])
             }
         })
     }
@@ -427,11 +704,16 @@ class ServerCommandListener: NSObject, ObservableObject {
               let text = String(data: data, encoding: .utf8)
         else { return }
 
+        guard let task else { return }
         let epoch = connectionEpoch
-        task?.send(.string(text)) { [weak self] error in
-            guard let self, error != nil, epoch == self.connectionEpoch else { return }
-            DispatchQueue.main.async { self.isConnected = false }
-            self.scheduleReconnect()
+        Task { [weak self] in
+            do {
+                try await task.send(.string(text))
+            } catch {
+                guard let self, self.liveTask(forEpoch: epoch) != nil else { return }
+                self.isConnected = false
+                self.scheduleReconnect()
+            }
         }
     }
 
@@ -442,7 +724,6 @@ class ServerCommandListener: NSObject, ObservableObject {
                                  polling: Bool,
                                  pollAgeMs: Int?,
                                  pollStatus: String) -> [String: Any] {
-        let snap = sessionStateSnapshot()
         return [
             "type": "phone_status",
             "watch_reachable": reachable,
@@ -455,8 +736,8 @@ class ServerCommandListener: NSObject, ObservableObject {
             "watch_delivered_samples": watchInfo["delivered_samples"] as? Int ?? 0,
             "watch_failed_batches": watchInfo["failed_batches"] as? Int ?? 0,
             "watch_upload_mode": watchInfo["upload_mode"] as? String ?? "",
-            "current_session_id": snap.sessionId ?? "",
-            "current_command_id": snap.commandId ?? "",
+            "current_session_id": currentSessionId ?? "",
+            "current_command_id": currentCommandId ?? "",
             "watch_last_command_id": watchInfo["last_command_id"] as? String ?? "",
             "last_watch_command_status": lastWatchCommandStatus,
             "last_watch_poll_status": pollStatus,
@@ -480,28 +761,25 @@ class ServerCommandListener: NSObject, ObservableObject {
         // after it was armed, so it never survived the 3 s to fire — the WS stayed
         // dead (isConnected=false / bridge offline) while HTTP /watch kept flowing.
         // Guarding on a pending item lets the already-armed reconnect run instead
-        // of being perpetually deferred. Hop to main so reconnectWorkItem is only
-        // ever touched there (connect() runs on main too).
-        DispatchQueue.main.async { [weak self] in
-            guard let self, self.reconnectWorkItem == nil else { return }
-            let item = DispatchWorkItem { [weak self] in
-                self?.reconnectWorkItem = nil
-                self?.connect()
-            }
-            self.reconnectWorkItem = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: item)
+        // of being perpetually deferred.
+        guard reconnectWorkItem == nil else { return }
+        let item = DispatchWorkItem { [weak self] in
+            self?.reconnectWorkItem = nil
+            self?.connect()
         }
+        reconnectWorkItem = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: item)
     }
 
     private func startPollAgeTimer() {
         pollAgeTimer?.invalidate()
         pollAgeTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            let age = self.lastWatchPollAt.map { Int(Date().timeIntervalSince($0) * 1000) }
-            let isFresh = age.map { $0 < Self.pollFreshMs } ?? false
-            DispatchQueue.main.async {
+            // `scheduledTimer` from main lands on the main run loop.
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                let age = self.lastWatchPollAt.map { Int(Date().timeIntervalSince($0) * 1000) }
                 self.watchPollAgeMs = age
-                self.watchPolling = isFresh
+                self.watchPolling = age.map { $0 < Self.pollFreshMs } ?? false
             }
         }
     }

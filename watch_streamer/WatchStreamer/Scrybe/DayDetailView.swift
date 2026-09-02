@@ -37,7 +37,7 @@ struct DayDetailView: View {
                     sessionsCard
                 } else {
                     Text("Keine Schreibphasen an diesem Tag.")
-                        .font(.footnote).foregroundStyle(theme.sepia)
+                        .font(.footnote).foregroundStyle(theme.secondaryInk)
                 }
             }
             .padding()
@@ -57,7 +57,7 @@ struct DayDetailView: View {
                 .contentTransition(.numericText())
             if isMet {
                 Label("Tagesziel erreicht", systemImage: "checkmark.seal")
-                    .font(.subheadline).foregroundStyle(theme.success)
+                    .font(.subheadline).foregroundStyle(theme.successInk)
             }
         }
     }
@@ -67,7 +67,7 @@ struct DayDetailView: View {
             Text("Schreibintensität").font(.headline).foregroundStyle(theme.ink)
             IntensityCurve(samples: daySamples)
             Text("\(stretches.count) Schreibphasen")
-                .font(.caption).foregroundStyle(theme.sepia)
+                .font(.caption).foregroundStyle(theme.secondaryInk)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -106,7 +106,7 @@ private struct StretchRow: View {
             Text(end).monospacedDigit()
             Spacer()
             MiniSparkline(samples: stretch.intensitySamples)
-            Text(duration).foregroundStyle(theme.sepia)
+            Text(duration).foregroundStyle(theme.secondaryInk)
         }
         .font(.callout)
         .foregroundStyle(theme.ink)
@@ -117,10 +117,26 @@ private struct StretchRow: View {
 
 /// Wall-clock HH:mm for an inference-log millisecond timestamp.
 enum StretchClock {
-    static func hhmm(_ ms: Int) -> String {
+    // Why: called once per session row per body pass; a fresh DateFormatter
+    // each time is the most expensive part of rendering the History list.
+    private static let lock = NSLock()
+    private static var cached: (identifier: String, formatter: DateFormatter)?
+
+    private static func formatter() -> DateFormatter {
+        let locale = ScrybeSettings.localeOverride ?? .current
+        lock.lock()
+        defer { lock.unlock() }
+        if let cached, cached.identifier == locale.identifier { return cached.formatter }
         let f = DateFormatter()
+        f.locale = locale
+        f.timeZone = .current
         f.dateFormat = "HH:mm"
-        return f.string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
+        cached = (locale.identifier, f)
+        return f
+    }
+
+    static func hhmm(_ ms: Int) -> String {
+        formatter().string(from: Date(timeIntervalSince1970: Double(ms) / 1000))
     }
 }
 

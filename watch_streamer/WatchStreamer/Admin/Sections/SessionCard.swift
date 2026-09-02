@@ -16,7 +16,7 @@ struct SessionCard: View {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(sid).font(.headline).foregroundStyle(theme.ink)
                         Text(server.currentPersonId ?? "Anonym")
-                            .font(.caption).foregroundStyle(theme.sepia)
+                            .font(.caption).foregroundStyle(theme.secondaryInk)
                     }
                     Spacer()
                     Text(String(format: "%02d:%02d", elapsed / 60, elapsed % 60))
@@ -35,7 +35,7 @@ struct SessionCard: View {
                 }
             } else {
                 Text("Keine aktive Session")
-                    .font(.subheadline).foregroundStyle(theme.sepia)
+                    .font(.subheadline).foregroundStyle(theme.secondaryInk)
             }
         }
         .onReceive(timer) { _ in if hasSession { elapsed += 1 } }

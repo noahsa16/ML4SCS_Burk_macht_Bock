@@ -10,7 +10,7 @@ cd "$(dirname "$0")/../.."
 # Default: interactive prompt (oder via $ML4SCS_TUNNEL=0/1 im Environment).
 PORT="8000"
 TUNNEL_MODE=""        # "", "on", "off"
-TUNNEL_PROVIDER="auto"  # "auto" (cf→ngrok→lan), "ngrok" (ngrok→lan), "cloudflare" (cf→lan)
+TUNNEL_PROVIDER="ngrok"  # "auto" (cf→ngrok→lan), "ngrok" (ngrok→lan), "cloudflare" (cf→lan)
 NGROK_DOMAIN="${ML4SCS_NGROK_DOMAIN:-}"
 for arg in "$@"; do
   case "$arg" in

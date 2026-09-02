@@ -2,12 +2,27 @@ import Foundation
 
 enum ScrybeSettings {
     // Daily writing goal in seconds; default 2 h.
-    static let goalKey = "scrybe.dailyGoalSeconds"
-    static let defaultGoalSeconds: Double = 2 * 3600
+    static let goalKey = ScrybeGoal.defaultsKey
+    static let defaultGoalSeconds = ScrybeGoal.defaultSeconds
 
-    // Local admin PIN — a lock against accidental opens, not a security feature.
+    // Local admin PIN — a lock against accidental opens, not a security
+    // feature. The gate is a hidden gesture plus this code; anyone who
+    // discovers the gesture and the code reaches the repair controls, so it
+    // gates operator tooling in a prototype, never sensitive access.
     static let pinKey = "scrybe.adminPIN"
+    /// Only in effect until the operator sets their own. `hasCustomPIN` is
+    /// false while it stands, and the gate forces a change on first entry —
+    /// a shipped default must not remain the live credential.
     static let defaultPIN = "0000"
+
+    static var hasCustomPIN: Bool {
+        let stored = UserDefaults.standard.string(forKey: pinKey) ?? ""
+        return !stored.isEmpty && stored != defaultPIN
+    }
+
+    static func setAdminPIN(_ pin: String) {
+        UserDefaults.standard.set(pin, forKey: pinKey)
+    }
 
     // First-run onboarding completion flag.
     static let onboardingDoneKey = "scrybe.onboardingDone"
@@ -21,9 +36,20 @@ enum ScrybeSettings {
     static let languageKey = "scrybe.language"
     static let defaultLanguage = "system"
 
-    // Calendar.firstWeekday: 1 = Sunday, 2 = Monday (default Monday).
-    static let weekStartKey = "scrybe.weekStart"
-    static let defaultWeekStart = 2
+    // Length of a deliberately started focus session, in whole minutes.
+    // Separate from `goalKey`: that one is the day's target, this one is the
+    // last session length, and the ready screen opens with it so it never has
+    // to ask.
+    static let focusDurationKey = "scrybe.focusDurationMinutes"
+    static let defaultFocusMinutes = 25
+
+    /// Every key "delete all local data" must remove. Kept here rather than
+    /// inline in the view so a new setting cannot be added without a place
+    /// that erases it.
+    static let resettableKeys = [
+        goalKey, reminderEnabledKey, reminderMinutesKey,
+        languageKey, focusDurationKey,
+    ]
 
     static var goalSeconds: Double {
         let v = UserDefaults.standard.double(forKey: goalKey)

@@ -19,9 +19,13 @@
     <string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key>
     <string>$(CURRENT_PROJECT_VERSION)</string>
+    <!-- Why: the research server is a plaintext FastAPI process on the local
+         network, so some exception is unavoidable. NSAllowsLocalNetworking
+         permits exactly that while leaving arbitrary public plaintext blocked;
+         NSAllowsArbitraryLoads permitted any host on any network. -->
     <key>NSAppTransportSecurity</key>
     <dict>
-        <key>NSAllowsArbitraryLoads</key>
+        <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
     <key>NSHealthShareUsageDescription</key>

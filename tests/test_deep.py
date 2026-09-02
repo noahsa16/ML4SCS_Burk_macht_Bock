@@ -108,6 +108,74 @@ def test_build_raw_windows_empty_respects_gravity_channels():
     assert X.shape == (0, 50, 9)
 
 
+# ---------------------------------------------------------------- channels
+# Passiv-Deployment: CMSensorRecorder liefert nur das Accelerometer, und zwar
+# die ROHE Gesamtbeschleunigung (userAccel + Schwerkraft). Die drei Kanalsaetze
+# trennen die beiden Variablen "accel-only" und "roh vs. gyro-fusioniert".
+
+
+def test_channels_raw_accel_reconstructs_user_plus_gravity():
+    merged = _synthetic_merged_grav()
+    X6, _, _ = build_raw_windows(merged, seq_len=50, stride=25)
+    X3, y3, t3 = build_raw_windows(merged, seq_len=50, stride=25,
+                                   channels="raw_accel")
+    assert X3.shape == (23, 50, 3)
+    assert y3.shape == (23,) and t3.shape == (23,)
+    # roh = userAcceleration + gravity, kanalweise
+    expected = X6[..., :3] + np.array([0.1, 0.2, 0.9], dtype=np.float32)
+    np.testing.assert_allclose(X3, expected, rtol=1e-6)
+
+
+def test_channels_user_accel_is_the_first_three_imu_channels():
+    merged = _synthetic_merged_grav()
+    X6, _, _ = build_raw_windows(merged, seq_len=50, stride=25)
+    X3, _, _ = build_raw_windows(merged, seq_len=50, stride=25,
+                                 channels="user_accel")
+    assert X3.shape == (23, 50, 3)
+    np.testing.assert_array_equal(X3, X6[..., :3])
+
+
+def test_channels_user_accel_needs_no_gravity_columns():
+    merged = _synthetic_merged()  # ohne gx/gy/gz
+    X3, _, _ = build_raw_windows(merged, seq_len=50, stride=25,
+                                 channels="user_accel")
+    assert X3.shape == (23, 50, 3)
+
+
+def test_channels_default_is_bit_identical_to_imu():
+    merged = _synthetic_merged_grav()
+    a, ya, ta = build_raw_windows(merged, seq_len=50, stride=25)
+    b, yb, tb = build_raw_windows(merged, seq_len=50, stride=25, channels="imu")
+    np.testing.assert_array_equal(a, b)
+    np.testing.assert_array_equal(ya, yb)
+    np.testing.assert_array_equal(ta, tb)
+
+
+def test_channels_raw_accel_without_gravity_columns_raises():
+    merged = _synthetic_merged()  # ohne gx/gy/gz -> roh nicht rekonstruierbar
+    with pytest.raises(ValueError, match="missing columns"):
+        build_raw_windows(merged, seq_len=50, channels="raw_accel")
+
+
+def test_channels_and_gravity_flag_are_mutually_exclusive():
+    merged = _synthetic_merged_grav()
+    with pytest.raises(ValueError, match="gravity"):
+        build_raw_windows(merged, seq_len=50, channels="raw_accel", gravity=True)
+
+
+def test_channels_unknown_value_raises():
+    merged = _synthetic_merged_grav()
+    with pytest.raises(ValueError, match="channels"):
+        build_raw_windows(merged, seq_len=50, channels="magnetometer")
+
+
+def test_channels_empty_result_respects_channel_count():
+    merged = _synthetic_merged_grav(n_samples=10)  # zu kurz -> leer
+    X, _, _ = build_raw_windows(merged, seq_len=50, stride=25,
+                                channels="raw_accel")
+    assert X.shape == (0, 50, 3)
+
+
 @pytest.mark.parametrize("seq_len,stride", [(1, 25), (0, 25), (50, 0)])
 def test_build_raw_windows_bad_bounds_raise(seq_len, stride):
     merged = _synthetic_merged()
@@ -665,7 +733,57 @@ def test_pool_plan_requires_watch_profile():
 
 
 def test_pool_fs_values():
-    assert POOL_FS == {"legacy": 50, "modern": 100}
+    assert POOL_FS == {"legacy": 50, "modern": 100, "modern50": 50}
+
+
+def test_pool_plan_modern50_uses_raw50_view():
+    """modern50: 50 Hz MIT Gravity -> immer die raw50-View.
+
+    Die native 100-Hz-merged hat die falsche Rate, die legacy-View hat keine
+    Gravity (downsample droppt gx/gy/gz per Default) -- also kann keine der
+    beiden das Roh-Signal liefern.
+    """
+    sessions = _sessions([("S038", "P12", "100hz_grav"), ("S039", "P13", "100hz_grav")])
+    assert _pool_plan(sessions, "modern50") == {"S038": "raw50", "S039": "raw50"}
+
+
+def test_pool_plan_modern50_seq_len_is_50hz_based():
+    """Der Pool muss 50 Hz melden, sonst baut train_deep_loso 500er-Fenster."""
+    assert POOL_FS["modern50"] == 50
+
+
+def test_drop_excluded_removes_named_sessions():
+    """Ausschluss-Liste: eine Session raus, Rest unveraendert."""
+    from src.training.deep.train_loso import _drop_excluded
+    s = _sessions([("S038", "P12", "100hz_grav"), ("S095", "P62", "100hz_grav")])
+    out = _drop_excluded(s, ["S095"])
+    assert list(out.session_id) == ["S038"]
+
+
+def test_drop_excluded_empty_list_is_identity():
+    from src.training.deep.train_loso import _drop_excluded
+    s = _sessions([("S038", "P12", "100hz_grav"), ("S095", "P62", "100hz_grav")])
+    for excl in (None, []):
+        assert list(_drop_excluded(s, excl).session_id) == ["S038", "S095"]
+
+
+def test_drop_excluded_unknown_id_raises():
+    """Tippfehler in der Config duerfen nicht still durchgehen -- sonst laeuft
+    ein Experiment mit der falschen Kohorte und niemand merkt es."""
+    from src.training.deep.train_loso import _drop_excluded
+    s = _sessions([("S038", "P12", "100hz_grav")])
+    with pytest.raises(ValueError, match="S999"):
+        _drop_excluded(s, ["S999"])
+
+
+def test_grid_spec_exclude_defaults_empty():
+    import json
+    from pathlib import Path as _P
+
+    from src.training.deep.grid import GridSpec
+    cfg = _P(__file__).parents[1] / "configs" / "hp" / "tcn6_raw50.json"
+    spec = GridSpec(**json.loads(cfg.read_text()))
+    assert spec.exclude == ["S095"]
 
 
 def test_train_deep_loso_emits_events_and_writes_artifacts(monkeypatch, tmp_path):
@@ -684,7 +802,7 @@ def test_train_deep_loso_emits_events_and_writes_artifacts(monkeypatch, tmp_path
     monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
 
     def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
-                      exclude_boundary=None, zscore=False, gravity=False):
+                      exclude_boundary=None, zscore=False, gravity=False, channels="imu"):
         out = {}
         for sid, pid in zip(sessions.session_id, sessions.person_id):
             n = 40
@@ -776,7 +894,7 @@ def test_train_deep_loso_passes_augmenter_per_flag(monkeypatch):
     monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
 
     def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
-                      exclude_boundary=None, zscore=False, gravity=False):
+                      exclude_boundary=None, zscore=False, gravity=False, channels="imu"):
         out = {}
         for sid, pid in zip(sessions.session_id, sessions.person_id):
             n = 40
@@ -884,7 +1002,7 @@ def test_train_deep_loso_threads_hp(monkeypatch):
     sessions = pd.DataFrame({"session_id": ["S1","S2","S3"], "person_id": ["P1","P2","P3"],
                              "watch_profile": ["50hz","50hz","50hz"]})
     monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
-    def fake_load(sess, seq_len, stride, plan, max_gap_ms, exclude_boundary=None, zscore=False, gravity=False):
+    def fake_load(sess, seq_len, stride, plan, max_gap_ms, exclude_boundary=None, zscore=False, gravity=False, channels="imu"):
         return {s: {"X": np.zeros((40, seq_len, 6), np.float32),
                     "y": np.tile([0,1],20).astype(np.int64),
                     "t": (np.arange(40)*500.).astype(float), "person_id": p}
@@ -1020,3 +1138,87 @@ def test_tcn_transformer_patches_reduce_tokens():
     out = m(torch.randn(4, 250, 6))
     assert out.shape == (4,)
     assert seen["tokens"] == 50
+
+
+def _deep_loso_stub(monkeypatch):
+    """Gemeinsames Stub-Setup: 3 Personen, torch-Training weggepatcht."""
+    from src.training.deep import train_loso as DL
+
+    sessions = pd.DataFrame({
+        "session_id": ["S1", "S2", "S3"],
+        "person_id": ["P1", "P2", "P3"],
+        "watch_profile": ["50hz", "50hz", "50hz"],
+    })
+    monkeypatch.setattr(DL, "_select_sessions", lambda **k: sessions)
+
+    def fake_load_all(sess, seq_len, stride, plan, max_gap_ms,
+                      exclude_boundary=None, zscore=False, gravity=False, channels="imu"):
+        return {
+            sid: {
+                # (N, seq, channels) -- so erwarten es die Modelle (forward
+                # transponiert selbst nach Conv1d-Layout).
+                "X": np.zeros((40, seq_len, 6), dtype=np.float32),
+                "y": np.tile([0, 1], 20).astype(np.int64),
+                "t": (np.arange(40) * 500).astype(float),
+                "person_id": pid,
+            }
+            for sid, pid in zip(sessions.session_id, sessions.person_id)
+        }
+
+    rng = np.random.default_rng(0)
+    monkeypatch.setattr(DL, "_load_all_sessions", fake_load_all)
+    monkeypatch.setattr(DL, "train_one_model", lambda m, *a, **k: (m, 3))
+    monkeypatch.setattr(DL, "predict_proba", lambda m, X: rng.random(len(X)))
+    return DL
+
+
+def test_train_deep_loso_saves_checkpoints_with_meta(monkeypatch, tmp_path):
+    """checkpoint_dir schreibt pro Fold ein .pt plus ein final.pt mit Metadaten.
+
+    Fixiert das Deployment-Artefakt: ohne eingebettete Kanalzahl/Fensterlaenge
+    waere ein state_dict spaeter nicht rekonstruierbar.
+    """
+    import torch
+
+    DL = _deep_loso_stub(monkeypatch)
+    ckpt = tmp_path / "ckpt"
+    DL.train_deep_loso("cnn", 1, pool="legacy", include_all=True,
+                       checkpoint_dir=ckpt)
+
+    folds = sorted(ckpt.glob("fold*.pt"))
+    assert [f.name for f in folds] == ["fold00.pt", "fold01.pt", "fold02.pt"]
+    assert (ckpt / "final.pt").exists()
+
+    blob = torch.load(ckpt / "final.pt", weights_only=False)
+    assert set(blob) == {"state_dict", "meta"}
+    meta = blob["meta"]
+    # Ohne diese Felder ist das Artefakt nicht wieder aufzubauen.
+    for key in ("model", "window_sec", "pool", "fs_hz", "n_channels",
+                "seed", "lr", "batch_size", "persons", "git_sha"):
+        assert key in meta, key
+    assert meta["model"] == "cnn"
+    assert meta["n_channels"] == 6
+    assert meta["kind"] == "final"
+    # Final-Fit haelt genau eine Person als Val-Set zurueck.
+    assert meta["val_person"] not in meta["trained_on_persons"]
+    assert meta["n_train_persons"] == 2
+    assert meta["persons"] == ["P1", "P2", "P3"]
+
+    fold = torch.load(folds[0], weights_only=False)
+    assert fold["meta"]["kind"] == "fold"
+    assert fold["meta"]["held_out"] == "P1"
+    assert "test_accuracy" in fold["meta"]
+    # Gewichte sind echt und passen zur Architektur.
+    model = DL.MODELS["cnn"](n_channels=6)
+    model.load_state_dict(fold["state_dict"])
+
+
+def test_train_deep_loso_writes_no_checkpoints_by_default(monkeypatch, tmp_path):
+    """Ohne checkpoint_dir entsteht kein .pt -- Default bleibt unveraendert."""
+    DL = _deep_loso_stub(monkeypatch)
+    run_dir = tmp_path / "run"
+    DL.train_deep_loso("cnn", 1, pool="legacy", include_all=True,
+                       run_dir=run_dir)
+
+    assert (run_dir / "cv.csv").exists()
+    assert list(tmp_path.rglob("*.pt")) == []

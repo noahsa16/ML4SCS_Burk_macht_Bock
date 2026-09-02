@@ -5,8 +5,18 @@ struct ScrybeTheme {
     let paperBottom: Color
     let ink: Color
     let accent: Color
+    /// Decorative gold — icon fills, rules, bar tints. **Not for text.** In the
+    /// light palette it measures 2.80:1 on `paperTop` and 2.49:1 on
+    /// `paperBottom`, well under the 4.5:1 WCAG AA floor for normal text. Use
+    /// `secondaryInk` for anything a reader has to read.
     let sepia: Color
+    /// Contrast-safe secondary text. Same warm family as `sepia`, darkened
+    /// until it clears 4.5:1 on both paper stops (light: 5.08 and 4.52).
+    let secondaryInk: Color
     let success: Color
+    /// Contrast-safe success text (light: 5.12 and 4.55). `success` itself is
+    /// 3.95:1 and stays a fill colour.
+    let successInk: Color
     let warning: Color
     let danger: Color
     /// Warm terracotta shown only at the goal-met moment (ring fill + badge).
@@ -19,7 +29,9 @@ struct ScrybeTheme {
         ink: Color(hex: 0x2A2733),
         accent: Color(hex: 0x3B3A6B),
         sepia: Color(hex: 0xA8893F),
+        secondaryInk: Color(hex: 0x76602C),
         success: Color(hex: 0x5A7D4E),
+        successInk: Color(hex: 0x4D6A42),
         warning: Color(hex: 0xB8862F),
         danger: Color(hex: 0xA23B46),
         goalReached: Color(hex: 0xC25B3A)
@@ -27,13 +39,17 @@ struct ScrybeTheme {
 
     /// Dark palette — mirror of `standard`: warm brown-black paper, off-white
     /// ink, brighter accent/gold/goal tones tuned to read on the dark ground.
+    /// Its gold and green already clear 4.5:1 (7.29 and 6.20 on `paperTop`), so
+    /// the text tokens reuse them rather than inventing a second dark ramp.
     static let dark = ScrybeTheme(
         paperTop: Color(hex: 0x221E18),
         paperBottom: Color(hex: 0x14110C),
         ink: Color(hex: 0xF2ECE0),
         accent: Color(hex: 0x8C8FD6),
         sepia: Color(hex: 0xC9A85A),
+        secondaryInk: Color(hex: 0xC9A85A),
         success: Color(hex: 0x84A877),
+        successInk: Color(hex: 0x84A877),
         warning: Color(hex: 0xD4A84A),
         danger: Color(hex: 0xD06B74),
         goalReached: Color(hex: 0xE07A50)
@@ -54,6 +70,13 @@ struct ScrybeTheme {
     var hairline: Color { ink.opacity(0.06) }   // card strokes, dividers
     var cardFill: Color { paperTop }            // card surface
     var mutedInk: Color { ink.opacity(0.15) }   // inactive dots/bars
+
+    /// Diluted ink for a tinted surface — chips, banners, filled chart areas.
+    ///
+    /// Exists so call sites stop inventing their own strength. Four of them had
+    /// drifted to 0.12/0.14/0.15/0.22: differences no eye resolves, while the
+    /// inconsistency itself is what reads as unconsidered.
+    func wash(_ color: Color) -> Color { color.opacity(0.12) }
 }
 
 extension Color {

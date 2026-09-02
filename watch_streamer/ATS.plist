@@ -3,9 +3,13 @@
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!-- Why: the research server is a plaintext FastAPI process on the local
+         network, so some exception is unavoidable. NSAllowsLocalNetworking
+         permits exactly that while leaving arbitrary public plaintext blocked;
+         NSAllowsArbitraryLoads permitted any host on any network. -->
     <key>NSAppTransportSecurity</key>
     <dict>
-        <key>NSAllowsArbitraryLoads</key>
+        <key>NSAllowsLocalNetworking</key>
         <true/>
     </dict>
 </dict>

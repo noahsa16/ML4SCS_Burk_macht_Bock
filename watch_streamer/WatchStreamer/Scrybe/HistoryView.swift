@@ -5,64 +5,86 @@ struct HistoryView: View {
     @AppStorage(ScrybeSettings.goalKey) private var goalSeconds: Double = ScrybeSettings.defaultGoalSeconds
     @Environment(\.scrybe) private var theme
 
-    // Days with activity, newest first — one section per day.
-    private var activeDays: [FocusDayDTO] {
-        Array((focus.history?.days ?? []).filter { $0.writingSeconds > 0 }.reversed())
-    }
+    // Days with activity, newest first — derived once in the store when the
+    // network state changes rather than filtered and reversed on every body
+    // pass (see FocusStore.activeDays).
+    private var activeDays: [FocusDayDTO] { focus.activeDays }
 
     private func stretches(for date: String) -> [FocusStretchDTO]? {
         if date == focus.today?.date { return focus.today?.stretches }
         return focus.dayCache[date]?.stretches
     }
+    
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if activeDays.isEmpty {
-                    emptyState
-                } else {
-                    list
-                }
+        // One container for both states, so an empty Verlauf can be pulled
+        // to refresh — it is exactly the screen a new user waits on.
+        InkRefreshScroll(action: { await focus.refreshForPull() }) {
+            VStack(spacing: 0) {
+                // The "your sessions will appear here" hint would sit
+                // directly above an already-populated collection
+                // otherwise — show it only when there is truly nothing
+                // on the screen yet.
+                if activeDays.isEmpty { emptyState } else { days }
             }
-            .background { theme.paper.ignoresSafeArea() }
-            .navigationDestination(for: String.self) { DayDetailView(date: $0) }
         }
+        .background { theme.paper.ignoresSafeArea() }
     }
 
-    private var list: some View {
-        List {
-            if focus.isOffline {
+    // Why a LazyVStack and not a List: the ink pull-to-refresh has to measure
+    // the scroll offset of its own container, which a List does not expose.
+    // `pinnedViews` keeps the sticky day headers the List gave us for free.
+    private var days: some View {
+        LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+            if focus.watchUnreachable {
                 OfflineBanner(lastUpdated: focus.lastUpdated)
-                    .listRowBackground(Color.clear)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
             }
             ForEach(activeDays) { day in
                 Section {
                     sessionRows(for: day)
                 } header: {
                     HistoryDayHeader(day: day, goalSeconds: goalSeconds)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(theme.paperTop)
                 }
             }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
+        .padding(.bottom, 24)
     }
 
     @ViewBuilder private func sessionRows(for day: FocusDayDTO) -> some View {
         if let sts = stretches(for: day.date) {
             if sts.isEmpty {
                 Text("Keine Schreibphasen.")
-                    .font(.caption).foregroundStyle(theme.sepia)
-                    .listRowBackground(theme.paperTop)
+                    .font(.caption).foregroundStyle(theme.secondaryInk)
+                    .historyRow()
             } else {
                 ForEach(sts) { s in
                     NavigationLink(value: day.date) { SessionRow(stretch: s) }
-                        .listRowBackground(theme.paperTop)
+                        .buttonStyle(.plain)
+                        .historyRow()
                 }
             }
+        } else if case .failed = focus.dayState[day.date] {
+            // Why a retry and not just a message: the load is the only path to
+            // this day's detail, and it previously failed silently forever.
+            Button { Task { await focus.loadDay(day.date, force: true) } } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.clockwise")
+                    Text("Nicht geladen — erneut versuchen")
+                }
+                .font(.caption)
+                .foregroundStyle(theme.danger)
+            }
+            .historyRow()
         } else {
             Text("Laden …")
-                .font(.caption).foregroundStyle(theme.sepia)
-                .listRowBackground(theme.paperTop)
+                .font(.caption).foregroundStyle(theme.secondaryInk)
+                .historyRow()
                 .task { await focus.loadDay(day.date) }
         }
     }
@@ -70,17 +92,39 @@ struct HistoryView: View {
     private var emptyState: some View {
         VStack(spacing: 12) {
             Spacer()
-            Image(systemName: "list.bullet.rectangle")
-                .font(.largeTitle).foregroundStyle(theme.mutedInk)
+            EmptyPageVignette()
             Text("Deine Sessions erscheinen hier, sobald die erste Aufnahme läuft.")
-                .font(.subheadline).foregroundStyle(theme.sepia)
+                .font(.subheadline).foregroundStyle(theme.secondaryInk)
                 .multilineTextAlignment(.center).padding(.horizontal, 40)
             Spacer()
             Spacer()
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 440)
         .accessibilityElement(children: .combine)
     }
+}
+
+/// The row chrome `List` supplied before the ink pull-to-refresh required a
+/// plain scroll container: surface, insets and a leading-inset separator.
+private struct HistoryRowStyle: ViewModifier {
+    @Environment(\.scrybe) private var theme
+
+    func body(content: Content) -> some View {
+        content
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .background(theme.paperTop)
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(theme.hairline)
+                    .frame(height: 1)
+                    .padding(.leading, 16)
+            }
+    }
+}
+
+private extension View {
+    func historyRow() -> some View { modifier(HistoryRowStyle()) }
 }
 
 private struct HistoryDayHeader: View {
@@ -98,12 +142,12 @@ private struct HistoryDayHeader: View {
                 .font(.subheadline.weight(.semibold)).foregroundStyle(theme.ink)
             if day.isToday {
                 Text("HEUTE").font(.caption2.weight(.medium)).tracking(1)
-                    .foregroundStyle(theme.sepia)
+                    .foregroundStyle(theme.secondaryInk)
             }
             Spacer()
             Text(TimeFormatting.human(seconds: day.writingSeconds))
                 .font(.subheadline.weight(.medium))
-                .foregroundStyle(isMet ? theme.success : theme.sepia)
+                .foregroundStyle(isMet ? theme.successInk : theme.secondaryInk)
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
@@ -122,9 +166,9 @@ private struct SessionRow: View {
             Text(start).monospacedDigit().font(.callout).foregroundStyle(theme.ink)
             Spacer()
             MiniSparkline(samples: stretch.intensitySamples)
-            Text(duration).font(.callout).foregroundStyle(theme.sepia)
+            Text(duration).font(.callout).foregroundStyle(theme.secondaryInk)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(start), \(duration)")
     }

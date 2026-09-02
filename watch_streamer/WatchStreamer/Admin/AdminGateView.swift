@@ -8,17 +8,37 @@ struct AdminGateView: View {
     @ScaledMetric(relativeTo: .largeTitle) private var lockSize: CGFloat = 40
     @State private var entry = ""
     @State private var error = false
+    /// Set once the default PIN has been accepted and a replacement is due.
+    @State private var settingNewPIN = false
+    @State private var firstNewPIN: String?
+    @State private var errorResetTask: Task<Void, Never>?
     private let pinLength = 4
+
+    private var title: String {
+        guard settingNewPIN else { return "Admin" }
+        return firstNewPIN == nil ? "Neue PIN wählen" : "Neue PIN bestätigen"
+    }
 
     var body: some View {
         VStack(spacing: 24) {
-            Image(systemName: "lock")
+            Image(systemName: settingNewPIN ? "lock.rotation" : "lock")
                 .font(.system(size: lockSize))
                 .foregroundStyle(theme.accent)
                 .accessibilityHidden(true)
-            Text("Admin")
+            Text(title)
                 .font(.system(.title2, design: .serif))
                 .foregroundStyle(theme.ink)
+                .multilineTextAlignment(.center)
+
+            // Why stated here: the source comment already said this is not a
+            // security feature. The operator standing in front of it should
+            // know that too, rather than inferring protection from a keypad.
+            Text(settingNewPIN
+                 ? "Die Standard-PIN darf nicht bestehen bleiben."
+                 : "Bedienzugang, kein Sicherheitsmerkmal.")
+                .font(.caption)
+                .foregroundStyle(theme.secondaryInk)
+                .multilineTextAlignment(.center)
 
             HStack(spacing: 16) {
                 ForEach(0..<pinLength, id: \.self) { i in
@@ -37,22 +57,65 @@ struct AdminGateView: View {
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background { theme.paper.ignoresSafeArea() }
+        .onDisappear { errorResetTask?.cancel() }
     }
 
     private func append(_ d: String) {
         guard entry.count < pinLength else { return }
         entry += d
-        if entry.count == pinLength { verify() }
+        guard entry.count == pinLength else { return }
+        settingNewPIN ? captureNewPIN() : verify()
     }
 
     private func verify() {
-        if entry == ScrybeSettings.adminPIN {
+        guard entry == ScrybeSettings.adminPIN else {
+            reject("Falsche PIN")
+            return
+        }
+        entry = ""
+        // Why: a build that ships with 0000 and never asks for a change leaves
+        // the published default as the live credential. Accepting it once is
+        // the moment to replace it.
+        if ScrybeSettings.hasCustomPIN {
             onUnlock()
         } else {
-            withAnimation(reduceMotion ? nil : .default) { error = true }
+            settingNewPIN = true
+        }
+    }
+
+    private func captureNewPIN() {
+        guard let first = firstNewPIN else {
+            guard entry != ScrybeSettings.defaultPIN else {
+                reject("Bitte eine andere PIN wählen")
+                return
+            }
+            firstNewPIN = entry
             entry = ""
-            UIAccessibility.post(notification: .announcement, argument: "Falsche PIN")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { error = false }
+            return
+        }
+        guard entry == first else {
+            firstNewPIN = nil
+            reject("PINs stimmen nicht überein")
+            return
+        }
+        ScrybeSettings.setAdminPIN(entry)
+        entry = ""
+        settingNewPIN = false
+        firstNewPIN = nil
+        onUnlock()
+    }
+
+    private func reject(_ message: String) {
+        withAnimation(reduceMotion ? nil : .default) { error = true }
+        entry = ""
+        UIAccessibility.post(notification: .announcement, argument: message)
+        // Why a cancellable task: the previous asyncAfter could land after the
+        // view was gone and re-apply a stale animation state.
+        errorResetTask?.cancel()
+        errorResetTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard !Task.isCancelled else { return }
+            error = false
         }
     }
 }

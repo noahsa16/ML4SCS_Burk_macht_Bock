@@ -20,22 +20,19 @@ struct StatTriple: View {
             divider
             stat(value: "\(streak)", label: "Streak", a11y: "Streak \(streak) Tage")
         }
-        .padding(.vertical, 12)
+        .padding(.vertical, 20)
         .frame(maxWidth: .infinity)
-        .scrybeSurface(cornerRadius: 16)
+        .scrybeSurface(cornerRadius: 20)
     }
 
     private func stat(value: String, label: String, a11y: String) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: 8) {
             Text(value)
-                .font(.system(.title3, design: .serif))
+                .font(.system(.title, design: .serif))
                 .foregroundStyle(theme.ink)
                 .contentTransition(.numericText())
             Text(LocalizedStringKey(label))
-                .textCase(.uppercase)
-                .font(.caption2.weight(.medium))
-                .tracking(1)
-                .foregroundStyle(theme.sepia)
+                .scrybeCaption()
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
@@ -43,7 +40,7 @@ struct StatTriple: View {
     }
 
     private var divider: some View {
-        Rectangle().fill(theme.hairline).frame(width: 1, height: 28)
+        Rectangle().fill(theme.hairline).frame(width: 1, height: 40)
     }
 }
 

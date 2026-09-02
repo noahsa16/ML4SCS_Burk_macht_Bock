@@ -9,13 +9,13 @@ struct LogCard: View {
         AdminCard(title: "Protokoll") {
             if store.entries.isEmpty {
                 Text("Noch keine Ereignisse.")
-                    .font(.caption).foregroundStyle(theme.sepia)
+                    .font(.caption).foregroundStyle(theme.secondaryInk)
             } else {
                 ForEach(store.entries.prefix(maxEntries)) { entry in
                     HStack(alignment: .top, spacing: 8) {
                         Text(entry.timeString)
                             .font(.caption2).monospacedDigit()
-                            .foregroundStyle(theme.sepia)
+                            .foregroundStyle(theme.secondaryInk)
                             .frame(width: 56, alignment: .leading)
                         Text(entry.tag)
                             .font(.caption2.weight(.bold))

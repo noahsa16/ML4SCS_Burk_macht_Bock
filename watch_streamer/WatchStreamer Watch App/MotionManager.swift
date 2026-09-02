@@ -6,7 +6,7 @@ import WatchConnectivity
 import WatchKit
 
 class MotionManager: NSObject, ObservableObject {
-    private enum Config {
+    private nonisolated enum Config {
         static let requestedHz = 50.0
         static let batchSize = 10
         static let maxBufferedSamples = 500
@@ -27,13 +27,38 @@ class MotionManager: NSObject, ObservableObject {
     // überschreibbar, in UserDefaults persistiert. Wirkt ab dem nächsten
     // start() — die Rate mitten in einer Aufnahme zu ändern wäre unsauber.
     private lazy var effectiveHz: Double = {
-        let stored = UserDefaults.standard.double(forKey: "effectiveHz")
-        return (10...200).contains(stored) ? stored : Config.requestedHz
+        let stored = UserDefaults.standard.double(forKey: CaptureSettings.effectiveHzKey)
+        return CaptureSettings.isValidHz(stored) ? stored : Config.requestedHz
     }()
     private lazy var effectiveBatchSize: Int = {
-        let stored = UserDefaults.standard.integer(forKey: "effectiveBatchSize")
-        return (1...200).contains(stored) ? stored : Config.batchSize
+        let stored = UserDefaults.standard.integer(forKey: CaptureSettings.effectiveBatchSizeKey)
+        return CaptureSettings.isValidBatchSize(stored) ? stored : Config.batchSize
     }()
+    // Set by a successful focus_start, consumed by focus_stop. Deliberately
+    // in-memory only (not persisted like effectiveHz) — a focus rate override
+    // must not survive past its own session.
+    private var preFocusHz: Double?
+    // When the running focus session began, or nil for anything else. Separate
+    // from `runStartedAt` because that one covers every run, and a study
+    // recording must never be cut short by the focus cap.
+    // Why uptime and not `Date()`: the same reason the capture clock rejects it
+    // above — an NTP step moves wall clock but not elapsed time, and a step
+    // forward larger than the session's remaining budget would end a live focus
+    // session on the spot. `systemUptime` is monotonic.
+    private var focusSessionStartedUptime: TimeInterval?
+    // Wall-clock companion to `focusSessionStartedUptime`, kept in lockstep
+    // with it (set/cleared at the same points). Uptime cannot cross a
+    // force-quit meaningfully — a fresh process has a fresh uptime origin —
+    // so the poll needs this Unix-ms value for the phone to recover the
+    // session's actual start.
+    private var focusSessionStartedAtMs: Int64?
+
+    /// Why derived rather than stored: `isRunning` plus focus ownership is
+    /// already the truth; a second stored flag could disagree with it.
+    private var currentCaptureMode: CaptureMode {
+        if focusSessionStartedAtMs != nil { return .focus }
+        return isRunning ? .recording : .idle
+    }
 
     private var buffer: [[String: Any]] = []
     private var nextSequence = 0
@@ -57,8 +82,8 @@ class MotionManager: NSObject, ObservableObject {
     // Source of Truth: eine Zeile verlässt sie erst nach bestätigtem
     // replyHandler. Übersteht App-Kill/Crash. Serielle Queue → keine Races
     // zwischen Append und Rewrite.
-    private let spillQueue = DispatchQueue(label: "com.watchstreamer.motion.spill",
-                                           qos: .utility)
+    private let spill = SpillFile(url: SpillFile.defaultURL(),
+                                  maxBytes: Config.spillMaxBytes)
     private var spillTimer: Timer?
     private var spillDrainInFlight = false
     // Wenn gesetzt, kettet der Drain-Erfolgs-Handler sofort den nächsten Drain
@@ -71,11 +96,6 @@ class MotionManager: NSObject, ObservableObject {
     // and discardForeignSpill. Was a full-file rewrite per line (O(n²) on a burst).
     private var spillReadOffset: UInt64 = 0
     private var pendingSpillAdvance: UInt64 = 0
-    private static let spillReadChunk = 256 * 1024
-    private lazy var spillFileURL: URL = {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return docs.appendingPathComponent("watch_spill.jsonl")
-    }()
 
     // H4 — Motion-Callbacks laufen auf einer Background-Queue statt auf Main.
     // Der Callback macht nur: Sample bauen + unter stagingLock anhängen +
@@ -89,9 +109,11 @@ class MotionManager: NSObject, ObservableObject {
         q.name = "com.watchstreamer.motion.intake"
         return q
     }()
+    // `nonisolated(unsafe)`: the motion callback runs on `motionOpQueue` and
+    // is the only writer; `stagingLock` is the guard the compiler cannot see.
     private let stagingLock = NSLock()
-    private var stagedSamples: [[String: Any]] = []
-    private var drainScheduled = false
+    nonisolated(unsafe) private var stagedSamples: [[String: Any]] = []
+    nonisolated(unsafe) private var drainScheduled = false
 
     // Backing counters — updated per sample on main; published to SwiftUI at batch rate only.
     private var rawSampleCount = 0
@@ -104,8 +126,8 @@ class MotionManager: NSObject, ObservableObject {
     // background callback is non-monotonic (an NTP step shifts all labels) and stamps
     // callback-execution time, not the sampling instant. Guarded by stagingLock (same
     // cross-thread surface as stagedSamples); sentinel < 0 means "not yet anchored".
-    private var anchorUptime: TimeInterval = -1
-    private var anchorWallMs: Int64 = 0
+    nonisolated(unsafe) private var anchorUptime: TimeInterval = -1
+    nonisolated(unsafe) private var anchorWallMs: Int64 = 0
 
     @Published private(set) var sampleCount = 0
     @Published private(set) var deliveredSampleCount = 0
@@ -113,6 +135,11 @@ class MotionManager: NSObject, ObservableObject {
     @Published private(set) var failedBatchCount = 0
     @Published private(set) var spilledSampleCount = 0
     @Published private(set) var spillDroppedSampleCount = 0
+    /// False once any spill write failed. The spill file is the last guarantee
+    /// against data loss, so a silent write failure must be visible rather than
+    /// leaving the counter claiming samples are safe on disk.
+    @Published private(set) var spillHealthy = true
+    @Published private(set) var spillHealthDetail = ""
     // Recent |acc| magnitudes (batch rate, capped) for the on-watch sparkline.
     @Published private(set) var accMagHistory: [Double] = []
     @Published private(set) var queuedSampleCount = 0
@@ -122,6 +149,11 @@ class MotionManager: NSObject, ObservableObject {
     @Published private(set) var serverSessionId: String?
     @Published private(set) var uploadMode = "Offline"
     @Published private(set) var workoutStatus = "Workout idle"
+    // Distinct from workoutStatus (a free-text string nothing outside this
+    // file reads): this is the one bit the phone needs, carried in the poll
+    // payload, because without it a failed workout session looks like a
+    // healthy focus recording that just never produces samples.
+    @Published private(set) var workoutAuthorizationFailed = false
     @Published private(set) var lastCommandPollStatus = "No poll yet"
     @Published private(set) var lastCommandId: String?
     @Published private(set) var actualSampleRateHz = 0.0
@@ -150,10 +182,10 @@ class MotionManager: NSObject, ObservableObject {
         }
     }
 
-    deinit {
-        commandPollTimer?.invalidate()
-        spillTimer?.invalidate()
-    }
+    // No deinit: this object lives as long as the app (WatchView's root
+    // @StateObject), and both timers hold it weakly, so a stray timer could at
+    // worst fire into nil. Invalidating from a nonisolated deinit would need
+    // main-actor state, which Swift 6 refuses.
 
     func start(sessionId newServerSessionId: String? = nil) {
         guard !isRunning else { return }
@@ -180,7 +212,9 @@ class MotionManager: NSObject, ObservableObject {
         // H4: Callbacks auf motionOpQueue (Background). Der Callback baut nur
         // den Sample und staged ihn — die Verarbeitung passiert in
         // drainStaging() auf Main.
-        cm.startDeviceMotionUpdates(to: motionOpQueue) { [weak self] motion, _ in
+        // `@Sendable` spelled out: a closure formed here would otherwise inherit
+        // the main actor and trap when CoreMotion runs it on `motionOpQueue`.
+        cm.startDeviceMotionUpdates(to: motionOpQueue) { @Sendable [weak self] motion, _ in
             guard let self, let motion else { return }
             self.stagingLock.lock()
             // Why: anchor the monotonic sensor clock to wall-clock on the first
@@ -231,6 +265,9 @@ class MotionManager: NSObject, ObservableObject {
     /// in die bestehende Main-Pipeline. Coalesced — ein Drain verarbeitet
     /// alles, was seit dem letzten aufgelaufen ist. Läuft auf Main.
     private func drainStaging() {
+        // The sample path is where the cap is enforced. Gated on isRunning so
+        // the drain that stop() performs on its way out cannot re-enter it.
+        if isRunning, enforceFocusSessionCapIfNeeded() { return }
         stagingLock.lock()
         let batch = stagedSamples
         stagedSamples.removeAll(keepingCapacity: true)
@@ -266,9 +303,21 @@ class MotionManager: NSObject, ObservableObject {
             status = "Stopped"
         }
         endWorkoutSessionIfNeeded()
+        // Why unconditional here rather than at each call site: stop() has
+        // several callers (a plain "stop", a stale-recovery poll stop, a
+        // recording "start" preempting a focus session, focus_stop itself),
+        // and a caller that forgets this leaves effectiveHz stuck at 50 with
+        // preFocusHz still holding the real rate — silently corrupting
+        // whatever runs next. Putting it here means no future call site can
+        // forget it.
+        restorePreFocusRateIfNeeded()
     }
 
     private func resetRunCounters() {
+        // A new run is never the old focus session, whichever caller starts
+        // it — focus_start sets this again straight after start() returns.
+        focusSessionStartedUptime = nil
+        focusSessionStartedAtMs = nil
         buffer.removeAll()
         stagingLock.lock()
         stagedSamples.removeAll()
@@ -348,21 +397,29 @@ class MotionManager: NSObject, ObservableObject {
         let seq = nextSequence
         inFlightSequences.insert(seq)
         backgroundQueuedSampleCount += samples.count
+        let sampleCount = samples.count
+        // Hand-overs for the fallback path; neither is read again here.
+        let messageBox = UncheckedSendable(message)
+        let envelopeBox = UncheckedSendable(envelope)
 
-        WCSession.default.sendMessage(message, replyHandler: { [weak self] _ in
+        WCSession.default.sendMessage(message, replyHandler: { @Sendable [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
-                // Why: wenn errorHandler bereits gefeuert hat (Reply-Timeout-Race),
-                // ist seq weg und der Fallback wurde schon angestoßen. Dann nur
-                // den UI-Counter aktualisieren, nicht doppelt zählen.
-                let stillInFlight = self.inFlightSequences.remove(seq) != nil
-                self.deliveredSampleCount += samples.count
-                self.backgroundQueuedSampleCount = max(0, self.backgroundQueuedSampleCount - samples.count)
+                // Why: live reply and background completion are mutually
+                // exclusive terminal outcomes for one batch. If errorHandler
+                // already fired (reply-timeout race), seq is gone and the
+                // fallback owns this batch — its completion will count the
+                // delivery. Counting here too reported the same samples twice.
+                guard self.inFlightSequences.remove(seq) != nil else {
+                    self.uploadMode = "Bridge"
+                    return
+                }
+                self.deliveredSampleCount += sampleCount
+                self.backgroundQueuedSampleCount = max(0, self.backgroundQueuedSampleCount - sampleCount)
                 self.status = self.isRunning ? "Recording" : "Stopped"
                 self.uploadMode = "Bridge"
-                _ = stillInFlight
             }
-        }, errorHandler: { [weak self] error in
+        }, errorHandler: { @Sendable [weak self] error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 // Why: nur fallback'n, wenn replyHandler noch nicht gewonnen hat.
@@ -371,7 +428,7 @@ class MotionManager: NSObject, ObservableObject {
                 guard self.inFlightSequences.remove(seq) != nil else {
                     return
                 }
-                self.queueBridgeTransfer(message, envelope: envelope,
+                self.queueBridgeTransfer(messageBox.value, envelope: envelopeBox.value,
                                          reason: error.localizedDescription)
             }
         })
@@ -398,7 +455,8 @@ class MotionManager: NSObject, ObservableObject {
     private func startCommandPolling() {
         commandPollTimer?.invalidate()
         let timer = Timer(timeInterval: Config.commandPollInterval, repeats: true) { [weak self] _ in
-            self?.pollPhoneForCommand()
+            // Scheduled on the main run loop below, so this already runs on main.
+            MainActor.assumeIsolated { self?.pollPhoneForCommand() }
         }
         commandPollTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -406,6 +464,10 @@ class MotionManager: NSObject, ObservableObject {
     }
 
     private func pollPhoneForCommand() {
+        // Second path to the cap: motion callbacks could stop while the
+        // workout session — the actual battery cost — keeps running. This
+        // timer runs from init onwards, so it needs no session of its own.
+        enforceFocusSessionCapIfNeeded()
         // Watchdog: if a poll has been in-flight for >3 s without a reply, force-clear the flag.
         if commandPollInFlight, let sentAt = commandPollSentAt,
            Date().timeIntervalSince(sentAt) > Config.commandPollWatchdog {
@@ -414,7 +476,7 @@ class MotionManager: NSObject, ObservableObject {
         guard WCSession.default.activationState == .activated, !commandPollInFlight else { return }
         commandPollInFlight = true
         commandPollSentAt = Date()
-        let message: [String: Any] = [
+        var message: [String: Any] = [
             "type": "command_poll",
             "is_running": isRunning,
             "session_id": serverSessionId ?? "",
@@ -424,21 +486,28 @@ class MotionManager: NSObject, ObservableObject {
             "spilled_samples": spilledSampleCount,
             "failed_batches": failedBatchCount,
             "last_command_id": lastCommandId ?? "",
-            "upload_mode": uploadMode
+            "upload_mode": uploadMode,
+            WatchPayloadKey.Status.workoutFailed: workoutAuthorizationFailed,
+            WatchPayloadKey.Status.captureMode: currentCaptureMode.rawValue
         ]
+        if let focusSessionStartedAtMs {
+            message[WatchPayloadKey.Status.focusStartedAtMs] = focusSessionStartedAtMs
+        }
 
-        WCSession.default.sendMessage(message, replyHandler: { [weak self] reply in
+        let messageBox = UncheckedSendable(message)
+        WCSession.default.sendMessage(message, replyHandler: { @Sendable [weak self] reply in
+            let replyBox = UncheckedSendable(reply)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.commandPollInFlight = false
                 self.isReachable = true
                 self.lastCommandPollStatus = "Phone replied"
-                _ = self.handleCommand(reply)
+                _ = self.handleCommand(replyBox.value)
                 if self.isRunning && self.status.hasPrefix("Phone bridge") {
                     self.status = "Recording"
                 }
             }
-        }, errorHandler: { [weak self] error in
+        }, errorHandler: { @Sendable [weak self] error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.commandPollInFlight = false
@@ -447,8 +516,8 @@ class MotionManager: NSObject, ObservableObject {
                 // Fallback: push status via transferUserInfo (background-safe, doesn't need isReachable).
                 // Throttled by queue size to prevent buildup if iPhone is unreachable for a while.
                 if WCSession.default.outstandingUserInfoTransfers.count < 4 {
-                    var pollUserInfo = message
-                    pollUserInfo["fallback"] = true
+                    var pollUserInfo = messageBox.value
+                    pollUserInfo[WatchPayloadKey.Status.fallback] = true
                     WCSession.default.transferUserInfo(pollUserInfo)
                 }
                 if !self.isRunning {
@@ -495,53 +564,74 @@ class MotionManager: NSObject, ObservableObject {
     /// Hängt ein Envelope als JSON-Zeile an die Spill-Datei. Aufruf, wenn der
     /// Live-/Queue-Pfad gesättigt ist — verworfen wird dadurch nichts mehr.
     private func spillEnvelope(_ envelope: [String: Any]) {
-        guard let line = try? JSONSerialization.data(withJSONObject: envelope) else { return }
         let n = (envelope["samples"] as? [[String: Any]])?.count ?? 0
+        guard let line = try? JSONSerialization.data(withJSONObject: envelope) else {
+            // Why: the counter must never claim samples are safely on disk when
+            // serialization failed before a single byte was written.
+            noteSpillFailure(samples: n, reason: "serialization failed")
+            return
+        }
         spilledSampleCount += n
-        let url = spillFileURL
-        spillQueue.async { [weak self] in
-            // Fix 4: hard size cap. Past it, drop the newest envelope to protect the
-            // device disk (the existing backlog stays intact) and undo the optimistic
-            // counter. When unreachable — the only time the cap bites — the read
-            // cursor is 0, so file size ≈ live bytes and the cap is accurate.
-            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-            if size >= Config.spillMaxBytes {
-                DispatchQueue.main.async {
+        spill.append(line) { [weak self] outcome in
+            switch outcome {
+            case .appended:
+                self?.noteSpillSuccessOffMain()
+            case .capReached:
+                // Past the cap the newest envelope is dropped to protect the device
+                // disk (the existing backlog stays intact); undo the optimistic
+                // counter. When unreachable — the only time the cap bites — the
+                // read cursor is 0, so file size ≈ live bytes and the cap is accurate.
+                Task { @MainActor in
                     guard let self else { return }
                     self.spilledSampleCount = max(0, self.spilledSampleCount - n)
                     self.spillDroppedSampleCount += n
                 }
-                return
+            case .failed(let reason):
+                // Why: every persistence result is handled. The counter was already
+                // incremented, so an unreported failure would let the UI claim
+                // samples were safely spilled when nothing reached disk — the one
+                // claim the spill mechanism exists to make.
+                self?.noteSpillFailureOffMain(samples: n, reason: reason)
             }
-            if !FileManager.default.fileExists(atPath: url.path) {
-                FileManager.default.createFile(atPath: url.path, contents: nil)
-            }
-            guard let handle = try? FileHandle(forWritingTo: url) else { return }
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            var blob = line
-            blob.append(0x0A)
-            try? handle.write(contentsOf: blob)
+        }
+    }
+
+    /// Rolls back the optimistic spill counter and records why. Main-thread call.
+    private func noteSpillFailure(samples: Int, reason: String) {
+        spillDroppedSampleCount += samples
+        spillHealthy = false
+        spillHealthDetail = reason
+    }
+
+    nonisolated private func noteSpillFailureOffMain(samples: Int, reason: String) {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.spilledSampleCount = max(0, self.spilledSampleCount - samples)
+            self.noteSpillFailure(samples: samples, reason: reason)
+        }
+    }
+
+    nonisolated private func noteSpillSuccessOffMain() {
+        Task { @MainActor [weak self] in
+            guard let self, !self.spillHealthy else { return }
+            self.spillHealthy = true
+            self.spillHealthDetail = ""
         }
     }
 
     /// Zählt die Samples in der Spill-Datei — beim Launch, für den UI-Counter.
     private func countSpilledSamples() -> Int {
-        guard let data = try? Data(contentsOf: spillFileURL), !data.isEmpty else { return 0 }
-        var total = 0
-        for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
-            if let env = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
-               let samples = env["samples"] as? [[String: Any]] {
-                total += samples.count
-            }
+        spill.lines().reduce(0) { total, line in
+            guard let env = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  let samples = env["samples"] as? [[String: Any]] else { return total }
+            return total + samples.count
         }
-        return total
     }
 
     private func startSpillDrain() {
         spillTimer?.invalidate()
         let timer = Timer(timeInterval: Config.spillDrainInterval, repeats: true) { [weak self] _ in
-            self?.autoDrainSpillIfBacklog()
+            MainActor.assumeIsolated { self?.autoDrainSpillIfBacklog() }
         }
         spillTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -572,37 +662,26 @@ class MotionManager: NSObject, ObservableObject {
             return
         }
         spillDrainInFlight = true
-        let url = spillFileURL
-        let offset = spillReadOffset
-        spillQueue.async { [weak self] in
-            guard let self else { return }
-            // Read just the next line at the cursor — one bounded chunk, not the
-            // whole file. Appends only touch the file end, so the bytes at `offset`
-            // are stable while we read them.
-            let next: (env: [String: Any]?, advance: UInt64)? = {
-                guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-                defer { try? handle.close() }
-                try? handle.seek(toOffset: offset)
-                guard let chunk = try? handle.read(upToCount: Self.spillReadChunk),
-                      !chunk.isEmpty,
-                      let nl = chunk.firstIndex(of: 0x0A) else { return nil }
-                let lineLen = chunk.distance(from: chunk.startIndex, to: nl)
-                let lineData = Data(chunk.prefix(lineLen))
-                let env = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any]
-                return (env: env, advance: UInt64(lineLen) + 1)
-            }()
-            DispatchQueue.main.async {
-                guard let next else {
+        spill.readNextLine(at: spillReadOffset) { [weak self] next in
+            // Parse on the spill queue, hand the envelope to main as a box.
+            let envelope = next.flatMap {
+                (try? JSONSerialization.jsonObject(with: $0.data)) as? [String: Any]
+            }
+            let boxed = UncheckedSendable(envelope)
+            let advance = next?.advance
+            Task { @MainActor in
+                guard let self else { return }
+                guard let advance else {
                     // Cursor at/after EOF (or unreadable tail) → backlog drained.
                     self.compactSpill()
                     return
                 }
-                self.pendingSpillAdvance = next.advance
-                if let env = next.env {
+                self.pendingSpillAdvance = advance
+                if let env = boxed.value {
                     self.sendSpilled(env)
                 } else {
                     // Corrupt line: skip it (advance the cursor) and continue.
-                    self.spillReadOffset += next.advance
+                    self.spillReadOffset += advance
                     self.pendingSpillAdvance = 0
                     self.spillDrainInFlight = false
                     if self.forceDraining { self.drainSpill() }
@@ -611,8 +690,7 @@ class MotionManager: NSObject, ObservableObject {
         }
     }
 
-    /// Sendet ein gespilltes Envelope via sendMessage. Erfolg → Cursor über die
-    /// Zeile vorrücken (kein Rewrite). Fehler → Cursor bleibt, nächster Tick retryt.
+    /// Schickt eine Spill-Zeile über den Live-Pfad neu.
     private func sendSpilled(_ envelope: [String: Any]) {
         guard WCSession.default.activationState == .activated,
               let payloadData = try? JSONSerialization.data(withJSONObject: envelope) else {
@@ -621,7 +699,7 @@ class MotionManager: NSObject, ObservableObject {
             return
         }
         let n = (envelope["samples"] as? [[String: Any]])?.count ?? 0
-        WCSession.default.sendMessage(["payload": payloadData], replyHandler: { [weak self] _ in
+        WCSession.default.sendMessage(["payload": payloadData], replyHandler: { @Sendable [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.deliveredSampleCount += n
@@ -638,7 +716,7 @@ class MotionManager: NSObject, ObservableObject {
                     self.compactSpill()
                 }
             }
-        }, errorHandler: { [weak self] _ in
+        }, errorHandler: { @Sendable [weak self] _ in
             // Error → pause the burst and reclaim what was sent so far; the next
             // timer tick retries the remainder from a clean byte-0 cursor.
             DispatchQueue.main.async {
@@ -656,7 +734,6 @@ class MotionManager: NSObject, ObservableObject {
     /// spillDrainInFlight across the rewrite so no drain reads a stale cursor; the
     /// "byte 0 = oldest live line" rest invariant is restored on completion.
     private func compactSpill() {
-        let url = spillFileURL
         let consumed = spillReadOffset
         spillReadOffset = 0
         guard consumed > 0 else {
@@ -664,21 +741,12 @@ class MotionManager: NSObject, ObservableObject {
             spillDrainInFlight = false
             return
         }
-        spillQueue.async { [weak self] in
-            var deletedEmpty = false
-            if let data = try? Data(contentsOf: url), !data.isEmpty,
-               consumed < UInt64(data.count) {
-                let remainder = data.subdata(in: Int(consumed)..<data.count)
-                try? remainder.write(to: url, options: [.atomic])
-            } else {
-                try? FileManager.default.removeItem(at: url)
-                deletedEmpty = true
-            }
-            DispatchQueue.main.async {
+        spill.compact(consuming: consumed) { [weak self] deletedAll in
+            Task { @MainActor in
                 guard let self else { return }
                 self.forceDraining = false
                 self.spillDrainInFlight = false
-                if deletedEmpty { self.spilledSampleCount = 0 }
+                if deletedAll { self.spilledSampleCount = 0 }
             }
         }
     }
@@ -689,8 +757,7 @@ class MotionManager: NSObject, ObservableObject {
     /// Baustein für clearSpill() (manuell, mit Guard) und discardForeignSpill()
     /// (Auto bei Session-Start).
     private func purgeSpillFile() {
-        let url = spillFileURL
-        spillQueue.async { try? FileManager.default.removeItem(at: url) }
+        spill.remove()
         spilledSampleCount = 0
         spillReadOffset = 0
         forceDraining = false
@@ -720,22 +787,15 @@ class MotionManager: NSObject, ObservableObject {
     /// die `sessionId` der ältesten Spill-Zeile mit der neuen Session.
     private func discardForeignSpill(newSessionId: String?) {
         guard let newSessionId, !newSessionId.isEmpty else { return }
-        let url = spillFileURL
-        let firstSid: String? = spillQueue.sync {
-            guard let data = try? Data(contentsOf: url), !data.isEmpty,
-                  let first = data.split(separator: 0x0A,
-                                         omittingEmptySubsequences: true).first,
-                  let env = try? JSONSerialization.jsonObject(with: Data(first))
-                            as? [String: Any]
-            else { return nil }
-            return env["sessionId"] as? String
-        }
+        let firstSid = spill.firstLine()
+            .flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+            .flatMap { $0["sessionId"] as? String }
         if let firstSid, firstSid != newSessionId {
             purgeSpillFile()
         }
     }
 
-    private static func currentTimestampMillis() -> Int64 {
+    nonisolated private static func currentTimestampMillis() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)
     }
 
@@ -745,62 +805,201 @@ class MotionManager: NSObject, ObservableObject {
     /// (Command / Context / Poll-Reply — alle laufen durch handleCommand).
     /// Schreibt nur bei Aenderung. Wirkt ab dem naechsten start().
     private func applyMotionConfig(from message: [String: Any]) {
-        if let hz = Self.doubleValue(message["requested_hz"]),
-           (10.0...200.0).contains(hz), hz != effectiveHz {
+        if let hz = FocusCommandPolicy.rateToApply(
+            requestedHz: WatchPayloadValue.double(message[WatchPayloadKey.requestedHz]),
+            currentHz: effectiveHz,
+            hasFocusSession: focusSessionStartedUptime != nil) {
             effectiveHz = hz
-            UserDefaults.standard.set(hz, forKey: "effectiveHz")
+            UserDefaults.standard.set(hz, forKey: CaptureSettings.effectiveHzKey)
         }
-        if let batch = Self.intValue(message["batch_size"]),
-           (1...200).contains(batch), batch != effectiveBatchSize {
+        if let batch = WatchPayloadValue.int(message[WatchPayloadKey.batchSize]),
+           CaptureSettings.isValidBatchSize(batch), batch != effectiveBatchSize {
             effectiveBatchSize = batch
-            UserDefaults.standard.set(batch, forKey: "effectiveBatchSize")
+            UserDefaults.standard.set(batch, forKey: CaptureSettings.effectiveBatchSizeKey)
         }
-    }
-
-    private static func doubleValue(_ any: Any?) -> Double? {
-        if let d = any as? Double { return d }
-        if let i = any as? Int { return Double(i) }
-        return nil
-    }
-
-    private static func intValue(_ any: Any?) -> Int? {
-        if let i = any as? Int { return i }
-        if let d = any as? Double { return Int(d) }
-        return nil
     }
 }
 
+// WatchConnectivity calls the delegate on its own queue. Every entry point is
+// `nonisolated` and hops to the main actor before touching state; a
+// main-actor method here would trap at runtime when the framework called it.
 extension MotionManager: WCSessionDelegate {
-    func session(_ session: WCSession,
-                 activationDidCompleteWith state: WCSessionActivationState,
-                 error: Error?) {
-        DispatchQueue.main.async {
-            self.isReachable = session.isReachable
+    nonisolated func session(_ session: WCSession,
+                             activationDidCompleteWith state: WCSessionActivationState,
+                             error: Error?) {
+        Task { @MainActor in
+            self.isReachable = WCSession.default.isReachable
             if let error {
                 self.status = error.localizedDescription
             }
         }
     }
 
-    func sessionReachabilityDidChange(_ session: WCSession) {
-        DispatchQueue.main.async {
-            self.isReachable = session.isReachable
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        Task { @MainActor in
+            self.isReachable = WCSession.default.isReachable
         }
     }
 
-    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        DispatchQueue.main.async {
-            if applicationContext["command"] != nil {
-                _ = self.handleCommand(applicationContext)
-            }
-        }
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        guard Self.isDurableStateDelivery(applicationContext) else { return }
+        let context = UncheckedSendable(applicationContext)
+        Task { @MainActor in _ = self.handleCommand(context.value) }
     }
 
-    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
-        DispatchQueue.main.async {
-            if userInfo["command"] != nil {
-                _ = self.handleCommand(userInfo)
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        guard Self.isDurableStateDelivery(userInfo) else { return }
+        let info = UncheckedSendable(userInfo)
+        Task { @MainActor in _ = self.handleCommand(info.value) }
+    }
+
+    /// Only durable recording state may be applied from a context or user-info
+    /// copy. Everything else is either a request/response query whose whole
+    /// value is the live reply, or a one-shot operation that a late duplicate
+    /// must not re-trigger — running a queued copy of `sensor_probe_start`
+    /// would restart a measurement already in progress.
+    nonisolated private static func isDurableStateDelivery(_ message: [String: Any]) -> Bool {
+        guard let raw = message[WatchPayloadKey.command] as? String,
+              let command = WatchCommandName(rawValue: raw) else { return false }
+        return command.transport == .durableState
+    }
+
+    /// Answers a diagnostic without entering the recording command dispatcher.
+    ///
+    /// Why separate: these run on a background queue (a 12-hour recorder read
+    /// or a Core ML pass would block main past the iPhone's sendMessage
+    /// timeout), but `handleCommand` starts by applying capture configuration
+    /// and then reads recording state — so routing them through it raced
+    /// start/stop/poll work on main. The cases themselves never touched
+    /// recording state; the dispatcher around them did.
+    nonisolated fileprivate func handleDiagnosticCommand(_ message: [String: Any]) -> [String: Any] {
+        guard let raw = message[WatchPayloadKey.command] as? String,
+              let command = WatchCommandName(rawValue: raw), command.isDiagnostic else {
+            return [WatchPayloadKey.ok: false,
+                    WatchPayloadKey.error: "Kein Diagnose-Befehl"]
+        }
+        let commandId = message[WatchPayloadKey.commandID] as? String ?? ""
+
+        var reply: [String: Any]
+        switch command {
+        case .sensorProbeStart:
+            let duration = WatchPayloadValue.double(message[WatchPayloadKey.durationSeconds]) ?? 3600
+            let operationID = message[WatchPayloadKey.operationID] as? String ?? ""
+            reply = SensorProbe.start(durationSeconds: duration, operationID: operationID)
+        case .sensorProbeReport:
+            reply = SensorProbe.report()
+        case .parityCheck:
+            reply = WatchParityCheck.run()
+        default:
+            return [WatchPayloadKey.ok: false,
+                    WatchPayloadKey.error: "Kein Diagnose-Befehl"]
+        }
+        reply[WatchPayloadKey.command] = raw
+        reply[WatchPayloadKey.commandID] = commandId
+        return reply
+    }
+
+    /// Restores `effectiveHz` from a focus session's saved pre-focus rate, if
+    /// one is pending, and clears it.
+    ///
+    /// Called from `stop()` itself, not from each of its callers — `stop()`
+    /// has several (a plain "stop", a poll-driven recovery stop, a study
+    /// recording's "start" preempting a focus session, `focus_stop`), and any
+    /// one of them forgetting this would leave `effectiveHz` stuck at 50 with
+    /// `preFocusHz` still holding the real rate. A no-op when no focus
+    /// session set `preFocusHz` — the common case, an ordinary stop.
+    private func restorePreFocusRateIfNeeded() {
+        focusSessionStartedUptime = nil
+        focusSessionStartedAtMs = nil
+        guard let previous = preFocusHz else { return }
+        effectiveHz = previous
+        preFocusHz = nil
+    }
+
+    /// Ends a focus session that has run past `FocusCommandPolicy.sessionCapSeconds`.
+    ///
+    /// The phone enforces the same cap, but a force-quit takes every
+    /// phone-side path with it while this workout session keeps the sensors
+    /// running — so the floor under it has to be here, where the sensor is.
+    ///
+    /// Checked against elapsed time on the sample path rather than from a
+    /// scheduled timer alone: a timer is the one thing the system may decline
+    /// to fire, whereas a session still costing battery is by definition still
+    /// producing samples. `focusSessionStartedUptime` is cleared before `stop()`
+    /// rather than by it, so the `drainStaging()` inside `stop()` cannot
+    /// re-enter this.
+    ///
+    /// - Returns: whether it stopped the run.
+    @discardableResult
+    private func enforceFocusSessionCapIfNeeded() -> Bool {
+        guard let startedUptime = focusSessionStartedUptime,
+              ProcessInfo.processInfo.systemUptime - startedUptime
+                >= FocusCommandPolicy.sessionCapSeconds
+        else { return false }
+        focusSessionStartedUptime = nil
+        focusSessionStartedAtMs = nil
+        stop()
+        status = "Focus session capped"
+        return true
+    }
+
+    /// Answers focus_start / focus_stop off the recording dispatcher.
+    ///
+    /// Unlike the diagnostics above, these two do mutate capture
+    /// configuration and recording state — that's the whole point of a focus
+    /// session — so they must run on main rather than the utility queue, to
+    /// stay ordered with start()/stop() driven by the recording dispatcher.
+    fileprivate func handleFocusCommand(_ command: WatchCommandName,
+                                        message: [String: Any],
+                                        raw: String) -> [String: Any] {
+        applyDailyGoal(from: message)
+        WatchCreatureStore.shared.apply(from: message)
+        let commandId = message[WatchPayloadKey.commandID] as? String ?? ""
+        switch command {
+        case .focusStart:
+            let reply = FocusCommandPolicy.replyForStart(isRecording: isRunning,
+                                                          healthKitAuthorized: isHealthKitAuthorized)
+            if reply.ok {
+                preFocusHz = effectiveHz
+                effectiveHz = Double(reply.requestedHz)
+                // Clear a previous attempt's failure — this is a fresh one.
+                workoutAuthorizationFailed = false
+                start()
+                // After start(), which resets it — and only if start() got
+                // anywhere, since it bails out when motion is unavailable.
+                if isRunning {
+                    focusSessionStartedUptime = ProcessInfo.processInfo.systemUptime
+                    focusSessionStartedAtMs = Self.currentTimestampMillis()
+                }
             }
+            return [
+                WatchPayloadKey.ok: reply.ok,
+                WatchPayloadKey.error: reply.error ?? "",
+                WatchPayloadKey.requestedHz: reply.requestedHz,
+                WatchPayloadKey.command: raw,
+                WatchPayloadKey.commandID: commandId
+            ]
+        case .focusStop:
+            // `focusSessionStartedUptime` is the discriminator: set only by an
+            // accepted focus_start, cleared by stop() itself — including the
+            // stop() that a study recording's "start" performs to preempt a
+            // focus session. So a nil here means the Watch is not running a
+            // focus session, whatever else it may be running.
+            let reply = FocusCommandPolicy.replyForStop(
+                hasFocusSession: focusSessionStartedUptime != nil,
+                isRecording: isRunning)
+            // stop() itself restores effectiveHz from preFocusHz — no need to
+            // repeat that here.
+            if reply.ok { stop() }
+            return [
+                WatchPayloadKey.ok: reply.ok,
+                WatchPayloadKey.error: reply.error ?? "",
+                WatchPayloadKey.command: raw,
+                WatchPayloadKey.commandID: commandId
+            ]
+        default:
+            return [WatchPayloadKey.ok: false,
+                    WatchPayloadKey.error: "Kein Fokus-Befehl"]
         }
     }
 
@@ -808,6 +1007,8 @@ extension MotionManager: WCSessionDelegate {
     fileprivate func handleCommand(_ message: [String: Any]) -> [String: Any] {
         // H3: jede iPhone-Nachricht kann requested_hz / batch_size tragen.
         applyMotionConfig(from: message)
+        applyDailyGoal(from: message)
+        WatchCreatureStore.shared.apply(from: message)
         guard let command = message["command"] as? String else {
             return ["ok": false, "error": "Missing command"]
         }
@@ -840,15 +1041,36 @@ extension MotionManager: WCSessionDelegate {
         // selbst neu"-Bug); nur ein expliziter Push (sendMessage /
         // applicationContext) darf die Session einer laufenden Aufnahme
         // wechseln. Ein Poll darf weiterhin eine *gestoppte* Watch starten
-        // (Recovery, falls ein Push verloren ging) und jederzeit stoppen.
-        let fromPoll = (message["source"] as? String) == "iphone_command_poll"
+        // (Recovery, falls ein Push verloren ging), eine laufende Aufnahme
+        // jederzeit stoppen und eine Fokus-Sitzung verdrängen — die trägt
+        // keine serverSessionId, über die etwas stale sein könnte.
+        let fromPoll = WatchCommandSource.isCommandPoll(message)
+        let hasFocusSession = focusSessionStartedUptime != nil
 
         switch command {
         case "start":
-            if isRunning, let sid, !sid.isEmpty, sid != serverSessionId, !fromPoll {
+            if FocusCommandPolicy.startMayPreempt(fromPoll: fromPoll,
+                                                  hasFocusSession: hasFocusSession,
+                                                  isRunning: isRunning,
+                                                  commandSessionID: sid,
+                                                  runningSessionID: serverSessionId) {
                 stop()
             }
             if !isRunning {
+                // Why: a study recording ends any active focus session and
+                // proceeds rather than losing to it — the opposite of
+                // focus_start, which refuses while a recording runs. The
+                // preemption stop() just above (if it ran) already restored
+                // effectiveHz from preFocusHz; resolveRateForStart's job here
+                // is precedence — this message's own explicit rate, sent with
+                // every study "start" (ServerCommandListener.watchPayload),
+                // must win over that restore rather than be clobbered by it.
+                let resolved = FocusCommandPolicy.resolveRateForStart(
+                    explicitHz: WatchPayloadValue.double(message[WatchPayloadKey.requestedHz]),
+                    preFocusHz: preFocusHz,
+                    currentHz: effectiveHz)
+                effectiveHz = resolved.hz
+                preFocusHz = resolved.preFocusHz
                 start(sessionId: sid)
             } else if let sid, !sid.isEmpty, !fromPoll {
                 serverSessionId = sid
@@ -859,8 +1081,17 @@ extension MotionManager: WCSessionDelegate {
             // WC-Jam → ~3 min Datenverlust). Ein Push-Stop darf eine laufende
             // Aufnahme nur beenden, wenn er deren session_id trägt. Der
             // Poll-Pfad (synchrone Reply, kann nicht stale sein) bleibt der
-            // Recovery-Weg und darf weiterhin jederzeit stoppen.
-            if isRunning, !fromPoll, sid != serverSessionId {
+            // Recovery-Weg und darf eine laufende Aufnahme weiterhin jederzeit
+            // stoppen — aber keine Fokus-Sitzung, und ein Stop ohne session_id
+            // ebenso wenig, egal auf welchem Weg er ankam: siehe
+            // FocusCommandPolicy.admitStop.
+            switch FocusCommandPolicy.admitStop(
+                fromPoll: fromPoll,
+                hasFocusSession: hasFocusSession,
+                isRunning: isRunning,
+                commandSessionID: sid,
+                runningSessionID: serverSessionId) {
+            case .ignoreStaleSession:
                 return [
                     "ok": false,
                     "command": command,
@@ -870,9 +1101,20 @@ extension MotionManager: WCSessionDelegate {
                     "session_id": serverSessionId ?? "",
                     "error": "stale stop ignored (session mismatch)"
                 ]
+            case .ignoreFocusSession:
+                return [
+                    "ok": false,
+                    "command": command,
+                    "command_id": commandId ?? "",
+                    "focus_session": true,
+                    "isRunning": isRunning,
+                    "session_id": serverSessionId ?? "",
+                    "error": "unnamed stop ignored (focus session in progress)"
+                ]
+            case .obey:
+                stop()
+                serverSessionId = nil
             }
-            stop()
-            serverSessionId = nil
         case "drain_spill":
             // Nicht-destruktiv: gesamten Spill jetzt im Burst senden.
             forceDrainSpill()
@@ -882,6 +1124,15 @@ extension MotionManager: WCSessionDelegate {
                 "command_id": commandId ?? "",
                 "isRunning": isRunning,
                 "spilled_samples": spilledSampleCount,
+            ]
+        case "sensor_probe_start", "sensor_probe_report", "parity_check":
+            // Why: diagnostics are answered by handleDiagnosticCommand, which
+            // runs off main and never applies capture configuration. Reaching
+            // them here means a delivery path that should not carry them.
+            return [
+                WatchPayloadKey.ok: false,
+                WatchPayloadKey.command: command,
+                WatchPayloadKey.error: "Diagnose-Befehl braucht eine direkte Antwort",
             ]
         case "clear_spill":
             // Destruktiv: Spill verwerfen. clearSpill() weigert sich, wenn
@@ -930,46 +1181,143 @@ extension MotionManager: WCSessionDelegate {
         ]
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        DispatchQueue.main.async { _ = self.handleCommand(message) }
+    /// The iPhone owns this setting. Every live command and poll response
+    /// carries its latest value, so the Watch persists the same target rather
+    /// than maintaining an unrelated local copy under a coincidentally equal
+    /// defaults key.
+    private func applyDailyGoal(from message: [String: Any]) {
+        guard let seconds = WatchPayloadValue.double(message[WatchPayloadKey.dailyGoalSeconds]),
+              seconds > 0 else { return }
+        UserDefaults.standard.set(seconds, forKey: ScrybeGoal.defaultsKey)
     }
 
-    func session(_ session: WCSession,
-                 didReceiveMessage message: [String: Any],
-                 replyHandler: @escaping ([String: Any]) -> Void) {
-        DispatchQueue.main.async {
-            let reply = self.handleCommand(message)
-            replyHandler(reply)
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        let boxed = UncheckedSendable(message)
+        Task { @MainActor in _ = self.handleCommand(boxed.value) }
+    }
+
+    nonisolated func session(_ session: WCSession,
+                             didReceiveMessage message: [String: Any],
+                             replyHandler: @escaping ([String: Any]) -> Void) {
+        // Both boxes are hand-overs: the dictionary and the reply closure
+        // are not touched again on this thread.
+        let request = UncheckedSendable(message)
+        let reply = UncheckedSendable(replyHandler)
+        // Why: sensor_probe_report iterates up to 12h @ 50Hz of
+        // CMSensorRecorder data (~2.16M records) and parity_check runs Core ML
+        // inference; both would block the main thread long enough for the
+        // iPhone's sendMessage to time out, at which point replyHandler is
+        // never invoked. They go to handleDiagnosticCommand, which does not
+        // enter the recording dispatcher at all — previously they ran off main
+        // but still passed through handleCommand, which applies capture
+        // configuration and reads recording state, so they raced start/stop.
+        // start/stop/drain_spill/clear_spill stay on main: they are
+        // latency-sensitive and mutate recording state.
+        if let raw = message[WatchPayloadKey.command] as? String,
+           let command = WatchCommandName(rawValue: raw),
+           command.bypassesRecordingDispatcher {
+            if command == .syncDecisions {
+                // Owned by the passive tracker, which is main-actor isolated.
+                Task { @MainActor in
+                    let handed = PassiveTracker.shared.syncNow()
+                    reply.value([
+                        WatchPayloadKey.ok: true,
+                        WatchPayloadKey.pendingCount: handed,
+                        WatchPayloadKey.command: raw,
+                        WatchPayloadKey.commandID: request.value[WatchPayloadKey.commandID] as? String ?? ""
+                    ])
+                }
+                return
+            }
+            if command == .focusStart || command == .focusStop {
+                // Touches effectiveHz/isRunning/start()/stop() — everything
+                // else in this class only ever mutates those from main, and a
+                // focus session must not race the dispatcher's own start/stop.
+                Task { @MainActor in
+                    reply.value(self.handleFocusCommand(command, message: request.value, raw: raw))
+                }
+                return
+            }
+            DispatchQueue.global(qos: .utility).async {
+                reply.value(self.handleDiagnosticCommand(request.value))
+            }
+            return
+        }
+        Task { @MainActor in
+            reply.value(self.handleCommand(request.value))
         }
     }
 
-    func session(_ session: WCSession,
-                 didFinish userInfoTransfer: WCSessionUserInfoTransfer,
-                 error: Error?) {
-        DispatchQueue.main.async {
-            self.noteFinishedBackgroundTransfer(userInfoTransfer.userInfo, error: error)
+    nonisolated func session(_ session: WCSession,
+                             didFinish userInfoTransfer: WCSessionUserInfoTransfer,
+                             error: Error?) {
+        let info = UncheckedSendable(userInfoTransfer.userInfo)
+        Task { @MainActor in
+            self.noteFinishedBackgroundTransfer(info.value, error: error)
         }
     }
 }
 
 extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate {
+    // Why this API and not a stored flag: `requestAuthorization` only ever
+    // reports back through a callback, but a focus_start reply must answer
+    // synchronously. `authorizationStatus(for:)` is HealthKit's own synchronous
+    // read of a share-authorization decision already made, for the same
+    // `workoutType()` requested below — it reports "already granted", not
+    // "grant it now".
+    //
+    // Three statuses, three meanings:
+    // - `.sharingAuthorized` — already granted. Proceed.
+    // - `.notDetermined` — never asked. NOT a refusal: the user hasn't said
+    //   anything yet, and starting is what triggers `requestAuthorization`'s
+    //   prompt (via `startWorkoutSessionIfNeeded()` inside `start()`). Blocking
+    //   here would mean a first-ever focus session could never start, since
+    //   asking only happens once a session is already underway. Proceed and
+    //   let that request prompt or fail on its own.
+    // - `.sharingDenied` — explicit refusal. The one case that must actually
+    //   block: without a workout session the stream dies on wrist-lower, and
+    //   a denied prompt will never grant itself on a later attempt.
+    private var isHealthKitAuthorized: Bool {
+        healthStore.authorizationStatus(for: HKObjectType.workoutType()) != .sharingDenied
+    }
+
+    /// Marks the workout session as unable to start, and — only when a focus
+    /// session was waiting on it, not an ordinary recording — ends capture
+    /// immediately.
+    ///
+    /// Why the asymmetry: `.notDetermined` deliberately lets `start()`
+    /// proceed and this very prompt decide the outcome (see
+    /// `isHealthKitAuthorized`). If it comes back denied, a focus session
+    /// must not sit there reporting `isRunning: true` while producing nothing
+    /// once the wrist lowers — that is the silent-death shape this codebase
+    /// has already fixed twice. An ordinary recording's existing retry
+    /// behaviour (`restartWorkoutIfNeeded`) is untouched.
+    private func handleWorkoutSessionFailure() {
+        workoutAuthorizationFailed = true
+        guard preFocusHz != nil else { return }
+        stop()
+    }
+
     private func startWorkoutSessionIfNeeded() {
         guard workoutSession == nil else { return }
         guard HKHealthStore.isHealthDataAvailable() else {
             workoutStatus = "HealthKit unavailable"
+            handleWorkoutSessionFailure()
             return
         }
 
         let shareTypes: Set<HKSampleType> = [HKObjectType.workoutType()]
-        healthStore.requestAuthorization(toShare: shareTypes, read: []) { [weak self] success, error in
+        healthStore.requestAuthorization(toShare: shareTypes, read: []) { @Sendable [weak self] success, error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 if let error {
                     self.workoutStatus = error.localizedDescription
+                    self.handleWorkoutSessionFailure()
                     return
                 }
                 guard success else {
                     self.workoutStatus = "Workout permission denied"
+                    self.handleWorkoutSessionFailure()
                     return
                 }
                 self.beginWorkoutSession()
@@ -994,13 +1342,22 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
             builder.delegate = self
             workoutSession = session
             workoutBuilder = builder
+            // Why here: this is the one point every path that ends in a
+            // working session passes through — a fresh focus_start, an
+            // ordinary recording's start(), and restartWorkoutIfNeeded()'s
+            // recovery after an auto-pause/stop all call beginWorkoutSession().
+            // A stale failure from an earlier attempt must not keep reporting
+            // "failed" once a session actually comes up, on any of those paths
+            // — not only the focus one, which is all the earlier fix cleared.
+            workoutAuthorizationFailed = false
             let now = Date()
             session.startActivity(with: now)
-            builder.beginCollection(withStart: now) { [weak self] _, _ in
+            builder.beginCollection(withStart: now) { @Sendable [weak self] _, _ in
                 DispatchQueue.main.async { self?.workoutStatus = "Workout background active" }
             }
         } catch {
             workoutStatus = error.localizedDescription
+            handleWorkoutSessionFailure()
         }
     }
 
@@ -1033,11 +1390,14 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
         beginWorkoutSession()
     }
 
-    func workoutSession(_ workoutSession: HKWorkoutSession,
-                        didChangeTo toState: HKWorkoutSessionState,
-                        from fromState: HKWorkoutSessionState,
-                        date: Date) {
-        DispatchQueue.main.async {
+    // HealthKit calls these on an arbitrary queue; hop before touching state.
+    nonisolated func workoutSession(_ workoutSession: HKWorkoutSession,
+                                    didChangeTo toState: HKWorkoutSessionState,
+                                    from fromState: HKWorkoutSessionState,
+                                    date: Date) {
+        let boxed = UncheckedSendable(workoutSession)
+        Task { @MainActor in
+            let workoutSession = boxed.value
             switch toState {
             case .running:
                 self.workoutStatus = "Workout background active"
@@ -1064,13 +1424,13 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
         }
     }
 
-    func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
-        DispatchQueue.main.async {
+    nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
+        Task { @MainActor in
             self.workoutStatus = "Workout error: \(error.localizedDescription)"
             self.restartWorkoutIfNeeded()
         }
     }
 
-    func workoutBuilder(_ workoutBuilder: HKLiveWorkoutBuilder, didCollectDataOf collectedTypes: Set<HKSampleType>) {}
-    func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {}
+    nonisolated func workoutBuilder(_ workoutBuilder: HKLiveWorkoutBuilder, didCollectDataOf collectedTypes: Set<HKSampleType>) {}
+    nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {}
 }

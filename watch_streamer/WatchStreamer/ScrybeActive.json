@@ -1,0 +1,17 @@
+{
+ "artifact": "ScrybeActive.mlpackage",
+ "sha256": "bdbe7516805d7289ac9789b0cf1bb82f4f707c98dc80c1717e60bea7319ee4e2",
+ "model": "tcn_bigru",
+ "channels": "imu",
+ "n_channels": 6,
+ "seq_len": 250,
+ "fs_hz": 50,
+ "threshold": 0.5,
+ "compute_precision": "FLOAT32",
+ "input_name": "window",
+ "output_name": "logit",
+ "source_checkpoint": "models/runs/pod_20260825/results/hp_grid/legacy/tcn_bigru_confirm/models_tcn_bigru-g00-s42/final.pt",
+ "source_checkpoint_sha256": "c9deb7d46f573bb7cbebcab4e5ee06244a2da619e93f70681d8c727c5ad98d71",
+ "coremltools": "9.0",
+ "torch": "2.9.1"
+}

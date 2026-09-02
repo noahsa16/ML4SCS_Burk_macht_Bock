@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsCard: View {
-    @AppStorage("serverIP") private var serverIP = ServerConfig.defaultIP
+    @AppStorage(CaptureSettings.serverIPKey) private var serverIP = ServerConfig.defaultIP
     @AppStorage("requestedHz") private var requestedHz = 50.0
     @AppStorage("batchSize") private var batchSize = 10
     @AppStorage(ScrybeSettings.pinKey) private var adminPIN = ScrybeSettings.defaultPIN
@@ -28,7 +28,7 @@ struct SettingsCard: View {
 
     @ViewBuilder private func field(_ label: String, text: Binding<String>, onCommit: @escaping () -> Void) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.caption).foregroundStyle(theme.sepia)
+            Text(label).font(.caption).foregroundStyle(theme.secondaryInk)
             TextField(label, text: text, onCommit: onCommit)
                 .textFieldStyle(.roundedBorder)
                 .autocorrectionDisabled()

@@ -18,7 +18,7 @@ struct ScrybeSplashView: View {
                 .ignoresSafeArea()
 
             Text("scrybe")
-                .font(.custom("AvenirNext-Heavy", size: 56, relativeTo: .largeTitle))
+                .font(.system(size: 56, weight: .regular, design: .serif))
                 .tracking(2)
                 .foregroundStyle(cream)
                 .opacity(appeared ? 1 : 0)
