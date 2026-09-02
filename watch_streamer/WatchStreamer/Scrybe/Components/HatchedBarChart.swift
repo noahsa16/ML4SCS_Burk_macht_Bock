@@ -1,0 +1,100 @@
+import SwiftUI
+
+/// Days as hatched bars on a baseline, one selectable. Seven days get their
+/// weekday under each bar; thirty get a day number every seventh bar so the
+/// axis stays legible without a label per bar.
+struct HatchedBarChart: View {
+    let days: [FocusDayDTO]
+    let maxSeconds: Double
+    /// The bar drawn in the accent. `nil` highlights none.
+    var selectedDate: String?
+    var barHeight: CGFloat = 150
+    var onSelect: ((String) -> Void)? = nil
+
+    @Environment(\.scrybe) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var dense: Bool { days.count > 10 }
+    private var spacing: CGFloat { dense ? 3 : 10 }
+
+    var body: some View {
+        HStack(alignment: .bottom, spacing: spacing) {
+            ForEach(Array(days.enumerated()), id: \.element.id) { index, day in
+                column(day, index: index)
+            }
+        }
+        .frame(height: barHeight + 26, alignment: .bottom)
+        .overlay(alignment: .bottom) {
+            // The baseline the bars stand on, drawn under the labels' row so it
+            // separates figures from their names the way a ruled page would.
+            Rectangle().fill(theme.hairline).frame(height: 1)
+                .padding(.bottom, 24)
+        }
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.25), value: selectedDate)
+    }
+
+    private func column(_ day: FocusDayDTO, index: Int) -> some View {
+        let selected = day.date == selectedDate
+        let height = barHeight(for: day)
+        return VStack(spacing: 8) {
+            HatchedBar(height: height, highlighted: selected,
+                       isEmpty: day.writingSeconds <= 0,
+                       cornerRadius: dense ? 3 : 7)
+                .frame(maxWidth: .infinity)
+            label(day, index: index, selected: selected)
+        }
+        .frame(maxWidth: .infinity, alignment: .bottom)
+        .frame(height: barHeight + 26, alignment: .bottom)
+        .contentShape(Rectangle())
+        .onTapGesture { onSelect?(day.date) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(day.isToday
+            ? "\(DateFormatting.weekday(iso: day.date)), heute"
+            : DateFormatting.dayMonth(iso: day.date)))
+        .accessibilityValue(Text(TimeFormatting.abbreviated(seconds: day.writingSeconds)))
+        .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
+    }
+
+    @ViewBuilder
+    private func label(_ day: FocusDayDTO, index: Int, selected: Bool) -> some View {
+        let text: String = dense
+            ? ((days.count - 1 - index) % 7 == 0 ? DateFormatting.dayNumber(iso: day.date) : "")
+            : DateFormatting.shortWeekday(iso: day.date)
+        Text(text)
+            .font(.caption2.weight(selected ? .semibold : .regular))
+            .textCase(.uppercase)
+            .tracking(dense ? 0 : 1)
+            .foregroundStyle(selected ? theme.ink : theme.secondaryInk)
+            .lineLimit(1)
+            .frame(height: 14)
+            // A dense chart hides most labels; keeping their slot blank rather
+            // than absent keeps every column the same height.
+            .opacity(text.isEmpty ? 0 : 1)
+    }
+
+    private func barHeight(for day: FocusDayDTO) -> CGFloat {
+        guard maxSeconds > 0, day.writingSeconds > 0 else { return 4 }
+        return max(6, CGFloat(day.writingSeconds / maxSeconds) * barHeight)
+    }
+}
+
+#Preview {
+    let weekdays = ["Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon"]
+    let seconds: [Double] = [60, 90, 120, 60, 1080, 60, 300]
+    let week: [FocusDayDTO] = (0..<7).map { i in
+        FocusDayDTO(date: "2026-08-\(24 + i)", weekday: weekdays[i],
+                    writingSeconds: seconds[i], isToday: i == 6)
+    }
+    let month: [FocusDayDTO] = (0..<30).map { i in
+        let iso = String(format: "2026-07-%02d", i + 1)
+        let value = Double((i * 137) % 900)
+        return FocusDayDTO(date: iso, weekday: "", writingSeconds: value, isToday: i == 29)
+    }
+    return VStack(spacing: 40) {
+        HatchedBarChart(days: week, maxSeconds: 1080, selectedDate: "2026-08-30")
+        HatchedBarChart(days: month, maxSeconds: 900, selectedDate: "2026-07-30", barHeight: 100)
+    }
+    .padding(24)
+    .background(ScrybeTheme.standard.paper)
+    .scrybeTheme()
+}
