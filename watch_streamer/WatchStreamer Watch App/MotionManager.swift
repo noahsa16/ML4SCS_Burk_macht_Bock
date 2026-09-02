@@ -82,8 +82,8 @@ class MotionManager: NSObject, ObservableObject {
     // Source of Truth: eine Zeile verlässt sie erst nach bestätigtem
     // replyHandler. Übersteht App-Kill/Crash. Serielle Queue → keine Races
     // zwischen Append und Rewrite.
-    private let spillQueue = DispatchQueue(label: "com.watchstreamer.motion.spill",
-                                           qos: .utility)
+    private let spill = SpillFile(url: SpillFile.defaultURL(),
+                                  maxBytes: Config.spillMaxBytes)
     private var spillTimer: Timer?
     private var spillDrainInFlight = false
     // Wenn gesetzt, kettet der Drain-Erfolgs-Handler sofort den nächsten Drain
@@ -96,11 +96,6 @@ class MotionManager: NSObject, ObservableObject {
     // and discardForeignSpill. Was a full-file rewrite per line (O(n²) on a burst).
     private var spillReadOffset: UInt64 = 0
     private var pendingSpillAdvance: UInt64 = 0
-    nonisolated private static let spillReadChunk = 256 * 1024
-    private lazy var spillFileURL: URL = {
-        let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return docs.appendingPathComponent("watch_spill.jsonl")
-    }()
 
     // H4 — Motion-Callbacks laufen auf einer Background-Queue statt auf Main.
     // Der Callback macht nur: Sample bauen + unter stagingLock anhängen +
@@ -577,42 +572,26 @@ class MotionManager: NSObject, ObservableObject {
             return
         }
         spilledSampleCount += n
-        let url = spillFileURL
-        spillQueue.async { [weak self] in
-            // Fix 4: hard size cap. Past it, drop the newest envelope to protect the
-            // device disk (the existing backlog stays intact) and undo the optimistic
-            // counter. When unreachable — the only time the cap bites — the read
-            // cursor is 0, so file size ≈ live bytes and the cap is accurate.
-            let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-            if size >= Config.spillMaxBytes {
+        spill.append(line) { [weak self] outcome in
+            switch outcome {
+            case .appended:
+                self?.noteSpillSuccessOffMain()
+            case .capReached:
+                // Past the cap the newest envelope is dropped to protect the device
+                // disk (the existing backlog stays intact); undo the optimistic
+                // counter. When unreachable — the only time the cap bites — the
+                // read cursor is 0, so file size ≈ live bytes and the cap is accurate.
                 Task { @MainActor in
                     guard let self else { return }
                     self.spilledSampleCount = max(0, self.spilledSampleCount - n)
                     self.spillDroppedSampleCount += n
                 }
-                return
-            }
-            if !FileManager.default.fileExists(atPath: url.path) {
-                FileManager.default.createFile(atPath: url.path, contents: nil)
-            }
-            guard let handle = try? FileHandle(forWritingTo: url) else {
-                self?.noteSpillFailureOffMain(samples: n, reason: "cannot open spill file")
-                return
-            }
-            defer { try? handle.close() }
-            // Why: every persistence result is handled. These were `try?` with
-            // the counter already incremented, so the UI could report samples
-            // as safely spilled when nothing reached disk — the one claim the
-            // spill mechanism exists to make.
-            do {
-                _ = try handle.seekToEnd()
-                var blob = line
-                blob.append(0x0A)
-                try handle.write(contentsOf: blob)
-                self?.noteSpillSuccessOffMain()
-            } catch {
-                self?.noteSpillFailureOffMain(samples: n,
-                                              reason: error.localizedDescription)
+            case .failed(let reason):
+                // Why: every persistence result is handled. The counter was already
+                // incremented, so an unreported failure would let the UI claim
+                // samples were safely spilled when nothing reached disk — the one
+                // claim the spill mechanism exists to make.
+                self?.noteSpillFailureOffMain(samples: n, reason: reason)
             }
         }
     }
@@ -642,15 +621,11 @@ class MotionManager: NSObject, ObservableObject {
 
     /// Zählt die Samples in der Spill-Datei — beim Launch, für den UI-Counter.
     private func countSpilledSamples() -> Int {
-        guard let data = try? Data(contentsOf: spillFileURL), !data.isEmpty else { return 0 }
-        var total = 0
-        for line in data.split(separator: 0x0A, omittingEmptySubsequences: true) {
-            if let env = try? JSONSerialization.jsonObject(with: Data(line)) as? [String: Any],
-               let samples = env["samples"] as? [[String: Any]] {
-                total += samples.count
-            }
+        spill.lines().reduce(0) { total, line in
+            guard let env = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  let samples = env["samples"] as? [[String: Any]] else { return total }
+            return total + samples.count
         }
-        return total
     }
 
     private func startSpillDrain() {
@@ -687,37 +662,26 @@ class MotionManager: NSObject, ObservableObject {
             return
         }
         spillDrainInFlight = true
-        let url = spillFileURL
-        let offset = spillReadOffset
-        spillQueue.async { [weak self] in
-            guard let self else { return }
-            // Read just the next line at the cursor — one bounded chunk, not the
-            // whole file. Appends only touch the file end, so the bytes at `offset`
-            // are stable while we read them.
-            let next: (env: [String: Any]?, advance: UInt64)? = {
-                guard let handle = try? FileHandle(forReadingFrom: url) else { return nil }
-                defer { try? handle.close() }
-                try? handle.seek(toOffset: offset)
-                guard let chunk = try? handle.read(upToCount: Self.spillReadChunk),
-                      !chunk.isEmpty,
-                      let nl = chunk.firstIndex(of: 0x0A) else { return nil }
-                let lineLen = chunk.distance(from: chunk.startIndex, to: nl)
-                let lineData = Data(chunk.prefix(lineLen))
-                let env = (try? JSONSerialization.jsonObject(with: lineData)) as? [String: Any]
-                return (env: env, advance: UInt64(lineLen) + 1)
-            }()
-            DispatchQueue.main.async {
-                guard let next else {
+        spill.readNextLine(at: spillReadOffset) { [weak self] next in
+            // Parse on the spill queue, hand the envelope to main as a box.
+            let envelope = next.flatMap {
+                (try? JSONSerialization.jsonObject(with: $0.data)) as? [String: Any]
+            }
+            let boxed = UncheckedSendable(envelope)
+            let advance = next?.advance
+            Task { @MainActor in
+                guard let self else { return }
+                guard let advance else {
                     // Cursor at/after EOF (or unreadable tail) → backlog drained.
                     self.compactSpill()
                     return
                 }
-                self.pendingSpillAdvance = next.advance
-                if let env = next.env {
+                self.pendingSpillAdvance = advance
+                if let env = boxed.value {
                     self.sendSpilled(env)
                 } else {
                     // Corrupt line: skip it (advance the cursor) and continue.
-                    self.spillReadOffset += next.advance
+                    self.spillReadOffset += advance
                     self.pendingSpillAdvance = 0
                     self.spillDrainInFlight = false
                     if self.forceDraining { self.drainSpill() }
@@ -726,8 +690,7 @@ class MotionManager: NSObject, ObservableObject {
         }
     }
 
-    /// Sendet ein gespilltes Envelope via sendMessage. Erfolg → Cursor über die
-    /// Zeile vorrücken (kein Rewrite). Fehler → Cursor bleibt, nächster Tick retryt.
+    /// Schickt eine Spill-Zeile über den Live-Pfad neu.
     private func sendSpilled(_ envelope: [String: Any]) {
         guard WCSession.default.activationState == .activated,
               let payloadData = try? JSONSerialization.data(withJSONObject: envelope) else {
@@ -771,7 +734,6 @@ class MotionManager: NSObject, ObservableObject {
     /// spillDrainInFlight across the rewrite so no drain reads a stale cursor; the
     /// "byte 0 = oldest live line" rest invariant is restored on completion.
     private func compactSpill() {
-        let url = spillFileURL
         let consumed = spillReadOffset
         spillReadOffset = 0
         guard consumed > 0 else {
@@ -779,21 +741,12 @@ class MotionManager: NSObject, ObservableObject {
             spillDrainInFlight = false
             return
         }
-        spillQueue.async { [weak self] in
-            var deletedEmpty = false
-            if let data = try? Data(contentsOf: url), !data.isEmpty,
-               consumed < UInt64(data.count) {
-                let remainder = data.subdata(in: Int(consumed)..<data.count)
-                try? remainder.write(to: url, options: [.atomic])
-            } else {
-                try? FileManager.default.removeItem(at: url)
-                deletedEmpty = true
-            }
-            DispatchQueue.main.async {
+        spill.compact(consuming: consumed) { [weak self] deletedAll in
+            Task { @MainActor in
                 guard let self else { return }
                 self.forceDraining = false
                 self.spillDrainInFlight = false
-                if deletedEmpty { self.spilledSampleCount = 0 }
+                if deletedAll { self.spilledSampleCount = 0 }
             }
         }
     }
@@ -804,8 +757,7 @@ class MotionManager: NSObject, ObservableObject {
     /// Baustein für clearSpill() (manuell, mit Guard) und discardForeignSpill()
     /// (Auto bei Session-Start).
     private func purgeSpillFile() {
-        let url = spillFileURL
-        spillQueue.async { try? FileManager.default.removeItem(at: url) }
+        spill.remove()
         spilledSampleCount = 0
         spillReadOffset = 0
         forceDraining = false
@@ -835,16 +787,9 @@ class MotionManager: NSObject, ObservableObject {
     /// die `sessionId` der ältesten Spill-Zeile mit der neuen Session.
     private func discardForeignSpill(newSessionId: String?) {
         guard let newSessionId, !newSessionId.isEmpty else { return }
-        let url = spillFileURL
-        let firstSid: String? = spillQueue.sync {
-            guard let data = try? Data(contentsOf: url), !data.isEmpty,
-                  let first = data.split(separator: 0x0A,
-                                         omittingEmptySubsequences: true).first,
-                  let env = try? JSONSerialization.jsonObject(with: Data(first))
-                            as? [String: Any]
-            else { return nil }
-            return env["sessionId"] as? String
-        }
+        let firstSid = spill.firstLine()
+            .flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+            .flatMap { $0["sessionId"] as? String }
         if let firstSid, firstSid != newSessionId {
             purgeSpillFile()
         }
