@@ -177,7 +177,9 @@ struct PassiveTrackerEngineTests {
         #expect(allWriting)
     }
 
-    @Test("a negative logit is recorded as not writing")
+    // Idle windows are twenty times the volume of writing ones and nothing
+    // reads them, so a classified idle window must never reach the log.
+    @Test("a negative logit is classified but not persisted")
     func negativeLogitIsIdle() throws {
         let (store, url) = makeStore()
         defer { try? FileManager.default.removeItem(at: url) }
@@ -188,10 +190,23 @@ struct PassiveTrackerEngineTests {
                                           makeClassifier: { FixedClassifier(value: -2.0) },
                                           defaults: makeDefaults())
         engine.enable()
-        _ = engine.runRetrievalCycle(now: now)
-        let noneWriting = store.allDecisions().allSatisfy { !$0.writing }
-        #expect(noneWriting)
+        let r = engine.runRetrievalCycle(now: now)
+        #expect(r.windowsClassified == 1)
+        #expect(r.decisionsRecorded == 0)
+        #expect(store.allDecisions().isEmpty)
         #expect(store.writingSeconds(onDayContaining: now) == 0)
+        #expect(engine.cursor != nil)
+        if case .idle(_, let count) = engine.state { #expect(count == 1) } else {
+            Issue.record("expected idle after an all-idle cycle, got \(engine.state)")
+        }
+    }
+
+    @Test("writing windows outlive the phone's raw retention, not the quarter")
+    func retentionIsThreeDays() {
+        // The phone keeps raw windows for three days before rolling them up
+        // (`FocusArchive.rawRetentionDays`); the watch has no reason to keep
+        // more, and 90 days of all windows was ~310 MB on the wrist.
+        #expect(PassiveTrackerEngine.retentionDays == FocusArchive.rawRetentionDays)
     }
 
     // The cursor is the guarantee against re-reading — and against re-counting

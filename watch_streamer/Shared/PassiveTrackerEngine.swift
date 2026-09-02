@@ -61,16 +61,39 @@ public nonisolated final class PassiveTrackerEngine {
     }
 
     public struct CycleResult: Equatable {
+        /// Windows the model classified in this cycle, writing or not.
+        public let windowsClassified: Int
+        /// Writing windows appended to the log. Idle windows are classified
+        /// but never stored — see `retentionDays`.
         public let decisionsRecorded: Int
         public let cursorAdvancedTo: Date?
         public let state: State
+
+        public init(windowsClassified: Int = 0, decisionsRecorded: Int,
+                    cursorAdvancedTo: Date?, state: State) {
+            self.windowsClassified = windowsClassified
+            self.decisionsRecorded = decisionsRecorded
+            self.cursorAdvancedTo = cursorAdvancedTo
+            self.state = state
+        }
     }
 
     /// Defaults mirror the Apple-documented recorder behaviour: samples are
     /// readable only after a delay, and one fetch spans at most 12 hours.
     public static let defaultHeadroomSeconds: TimeInterval = 300
     public static let defaultMaxFetchSpanSeconds: TimeInterval = 12 * 3600
-    public static let retentionDays = 90
+    /// How long a writing window stays in the watch's log.
+    ///
+    /// The log used to keep every window for 90 days: at a 2.5 s stride that
+    /// is 34 560 windows a day, about 3.5 MB of JSONL, and some 310 MB on the
+    /// wrist — with every append re-reading the whole file to deduplicate.
+    /// Two bounds hold it now, the same two the phone applies on receipt
+    /// (`FocusStore.ingest`, `FocusArchive.rawRetentionDays`): idle windows
+    /// are never written, and writing windows are dropped after three local
+    /// days. Three because the phone reconciles by `startMs` high-water mark
+    /// and can be out of range for a weekend; nothing on the watch reads
+    /// further back than today.
+    public static let retentionDays = 3
 
     public private(set) var state: State = .disabled
 
@@ -247,23 +270,29 @@ public nonisolated final class PassiveTrackerEngine {
         }
 
         let windows = builder.append(samples)
-        var decisions: [PassiveDecision] = []
-        decisions.reserveCapacity(windows.count)
+        var writingDecisions: [PassiveDecision] = []
+        var classified = 0
         var inferenceFailures = 0
         for w in windows {
             guard let logit = try? model.logit(window: w.values) else {
                 inferenceFailures += 1
                 continue
             }
-            decisions.append(PassiveDecision(
+            classified += 1
+            // Why idle windows are dropped here and not merely at the phone:
+            // no reader on the watch or the phone uses them — a gap between
+            // two writing windows already ends a phase — and they are twenty
+            // times the volume of the writing ones (see `retentionDays`).
+            guard logit >= threshold else { continue }
+            writingDecisions.append(PassiveDecision(
                 startMs: Self.epochMs(fromReferenceDate: w.startTimestamp),
                 endMs: Self.epochMs(fromReferenceDate: w.endTimestamp),
                 logit: logit,
-                writing: logit >= threshold,
+                writing: true,
                 creditSeconds: builder.secondsPerWindow))
         }
 
-        if !decisions.isEmpty, !store.record(decisions) {
+        if !writingDecisions.isEmpty, !store.record(writingDecisions) {
             state = .failed("could not persist decisions")
             return CycleResult(decisionsRecorded: 0, cursorAdvancedTo: nil, state: state)
         }
@@ -271,12 +300,13 @@ public nonisolated final class PassiveTrackerEngine {
         cursor = until
         store.pruneOlderThan(days: Self.retentionDays, now: now)
 
-        if inferenceFailures > 0, decisions.isEmpty {
+        if inferenceFailures > 0, classified == 0 {
             state = .failed("inference failed for every window")
         } else {
-            state = .idle(lastRun: now, decisionsLastRun: decisions.count)
+            state = .idle(lastRun: now, decisionsLastRun: classified)
         }
-        return CycleResult(decisionsRecorded: decisions.count,
+        return CycleResult(windowsClassified: classified,
+                           decisionsRecorded: writingDecisions.count,
                            cursorAdvancedTo: until,
                            state: state)
     }

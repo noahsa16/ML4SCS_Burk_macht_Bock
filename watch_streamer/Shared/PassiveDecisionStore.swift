@@ -32,6 +32,11 @@ public nonisolated final class PassiveDecisionStore {
     private let queue = DispatchQueue(label: "com.watchstreamer.passive.decisions",
                                       qos: .utility)
     private let calendar: Calendar
+    /// Window starts already on disk, so an append deduplicates against
+    /// memory instead of decoding the whole file on every cycle. Loaded from
+    /// the file on first use and kept in step by every mutating call; only
+    /// ever touched on `queue`.
+    private var knownStarts: Set<Int64>?
 
     public init(fileURL: URL, calendar: Calendar = .current) {
         self.fileURL = fileURL
@@ -49,8 +54,7 @@ public nonisolated final class PassiveDecisionStore {
         guard !decisions.isEmpty else { return true }
         let url = fileURL
         return queue.sync {
-            let existing = Self.decodeFile(at: url)
-            var seen = Set(existing.map(\.startMs))
+            var seen = loadKnownStarts()
             let unique = decisions.filter { seen.insert($0.startMs).inserted }
             guard !unique.isEmpty else { return true }
             guard let blob = Self.encodeLines(unique) else { return false }
@@ -63,8 +67,12 @@ public nonisolated final class PassiveDecisionStore {
             do {
                 _ = try handle.seekToEnd()
                 try handle.write(contentsOf: blob)
+                knownStarts = seen
                 return true
             } catch {
+                // Why: a failed or partial append leaves the file authoritative
+                // and the cache unknown; the next call re-reads once.
+                knownStarts = nil
                 return false
             }
         }
@@ -114,8 +122,10 @@ public nonisolated final class PassiveDecisionStore {
         return queue.sync {
             do {
                 try blob.write(to: url, options: [.atomic])
+                knownStarts = Set(decisions.map(\.startMs))
                 return true
             } catch {
+                knownStarts = nil
                 return false
             }
         }
@@ -123,7 +133,18 @@ public nonisolated final class PassiveDecisionStore {
 
     public func removeAll() {
         let url = fileURL
-        queue.sync { try? FileManager.default.removeItem(at: url) }
+        queue.sync {
+            try? FileManager.default.removeItem(at: url)
+            knownStarts = []
+        }
+    }
+
+    /// Must run on `queue`.
+    private func loadKnownStarts() -> Set<Int64> {
+        if let knownStarts { return knownStarts }
+        let loaded = Set(Self.decodeFile(at: fileURL).map(\.startMs))
+        knownStarts = loaded
+        return loaded
     }
 
     private static func decodeFile(at url: URL) -> [PassiveDecision] {

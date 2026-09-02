@@ -99,6 +99,31 @@ struct PassiveDecisionStoreTests {
         #expect(left[0].startMs > Int64(old.timeIntervalSince1970 * 1000))
     }
 
+    // The dedupe set lives in memory once loaded; it must agree with the file
+    // across a fresh instance, a prune, and a wipe — otherwise a rewrite could
+    // let a re-delivered window back in, or block a genuinely new one.
+    @Test("deduplication stays correct across a second instance, prune and wipe")
+    func dedupeCacheFollowsTheFile() {
+        let (store, url) = makeStore()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let now = Date()
+        let first = decision(at: now, writing: true)
+        let second = decision(at: now.addingTimeInterval(2.5), writing: true)
+        #expect(store.record([first]))
+
+        let reopened = PassiveDecisionStore(fileURL: url)
+        #expect(reopened.record([first, second]))
+        #expect(reopened.allDecisions().count == 2)
+
+        #expect(reopened.replaceAll(with: [second]))
+        #expect(reopened.record([first]))
+        #expect(reopened.allDecisions().count == 2)
+
+        reopened.removeAll()
+        #expect(reopened.record([first]))
+        #expect(reopened.allDecisions().count == 1)
+    }
+
     @Test("an absent file reads as empty rather than throwing")
     func missingFile() {
         let (store, _) = makeStore()
