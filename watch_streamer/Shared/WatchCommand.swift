@@ -36,7 +36,7 @@ public nonisolated enum ScrybeGoal {
 /// transfer and overwrote the application context on its way out, so a probe
 /// report could erase pending start/stop recovery state. `transport` makes the
 /// permitted delivery paths a property of the command itself.
-public enum WatchCommandName: String, CaseIterable, Sendable {
+public nonisolated enum WatchCommandName: String, CaseIterable, Sendable {
     case start
     case stop
     case drainSpill = "drain_spill"
@@ -53,7 +53,7 @@ public enum WatchCommandName: String, CaseIterable, Sendable {
 }
 
 /// How a command may be delivered.
-public enum WatchCommandTransport: Sendable {
+public nonisolated enum WatchCommandTransport: Sendable {
     /// Durable recording state. Mirrored through every transport so a missed
     /// push is recovered from application context or the Watch's poll.
     case durableState
@@ -66,7 +66,7 @@ public enum WatchCommandTransport: Sendable {
     case directQuery
 }
 
-extension WatchCommandName {
+nonisolated extension WatchCommandName {
     public var transport: WatchCommandTransport {
         switch self {
         case .start, .stop:
@@ -121,7 +121,7 @@ extension WatchCommandName {
 /// Previously spelled as literals on both sides, which had already produced
 /// drift: the Watch's poll payload says `is_running` while its command reply
 /// says `isRunning` for the same concept.
-public enum WatchPayloadKey {
+public nonisolated enum WatchPayloadKey {
     public static let command = "command"
     public static let commandID = "command_id"
     public static let operationID = "operation_id"

@@ -6,7 +6,7 @@ import Foundation
 /// `SettingsCard` and `MotionManager`. A configuration migration had no
 /// compiler protection, and the requested/effective distinction was only
 /// documented in comments.
-public enum CaptureSettings {
+public nonisolated enum CaptureSettings {
     /// The server address the phone uploads to, as typed by the operator.
     public static let serverIPKey = "serverIP"
     /// The rate the phone *asks* the Watch to sample at.
@@ -29,10 +29,6 @@ public enum CaptureSettings {
     public static let hzRange: ClosedRange<Double> = 10.0...200.0
     public static let batchSizeRange: ClosedRange<Int> = 1...200
 
-    // Why nonisolated: pure range checks over immutable bounds, called from the
-    // nonisolated decision helpers in FocusCommandPolicy. Under the project's
-    // default MainActor isolation they would otherwise be actor-isolated, and
-    // every such call site warns.
-    public nonisolated static func isValidHz(_ hz: Double) -> Bool { hzRange.contains(hz) }
-    public nonisolated static func isValidBatchSize(_ n: Int) -> Bool { batchSizeRange.contains(n) }
+    public static func isValidHz(_ hz: Double) -> Bool { hzRange.contains(hz) }
+    public static func isValidBatchSize(_ n: Int) -> Bool { batchSizeRange.contains(n) }
 }

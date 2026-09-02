@@ -7,7 +7,10 @@ import CoreMotion
 /// `nonisolated`: the passive tracker reads the recorder from a background
 /// context, and a 12-hour fetch must never run on the main actor.
 nonisolated enum SensorProbe {
-    private static let recorder = CMSensorRecorder()
+    /// A fresh recorder per call. `CMSensorRecorder` is a stateless handle on
+    /// one system-wide facility, so sharing an instance buys nothing and a
+    /// shared non-Sendable global is exactly what Swift 6 refuses.
+    private static var recorder: CMSensorRecorder { CMSensorRecorder() }
     /// Bucket-Untergrenzen in Millisekunden.
     private static let buckets = [0, 20, 40, 100, 1000]
     /// Why: Apple dokumentiert bis zu drei Minuten Verzoegerung, bevor neue

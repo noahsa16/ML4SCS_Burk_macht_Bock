@@ -6,7 +6,7 @@ import WatchConnectivity
 import WatchKit
 
 class MotionManager: NSObject, ObservableObject {
-    private enum Config {
+    private nonisolated enum Config {
         static let requestedHz = 50.0
         static let batchSize = 10
         static let maxBufferedSamples = 500
@@ -96,7 +96,7 @@ class MotionManager: NSObject, ObservableObject {
     // and discardForeignSpill. Was a full-file rewrite per line (O(n²) on a burst).
     private var spillReadOffset: UInt64 = 0
     private var pendingSpillAdvance: UInt64 = 0
-    private static let spillReadChunk = 256 * 1024
+    nonisolated private static let spillReadChunk = 256 * 1024
     private lazy var spillFileURL: URL = {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
         return docs.appendingPathComponent("watch_spill.jsonl")
@@ -114,9 +114,11 @@ class MotionManager: NSObject, ObservableObject {
         q.name = "com.watchstreamer.motion.intake"
         return q
     }()
+    // `nonisolated(unsafe)`: the motion callback runs on `motionOpQueue` and
+    // is the only writer; `stagingLock` is the guard the compiler cannot see.
     private let stagingLock = NSLock()
-    private var stagedSamples: [[String: Any]] = []
-    private var drainScheduled = false
+    nonisolated(unsafe) private var stagedSamples: [[String: Any]] = []
+    nonisolated(unsafe) private var drainScheduled = false
 
     // Backing counters — updated per sample on main; published to SwiftUI at batch rate only.
     private var rawSampleCount = 0
@@ -129,8 +131,8 @@ class MotionManager: NSObject, ObservableObject {
     // background callback is non-monotonic (an NTP step shifts all labels) and stamps
     // callback-execution time, not the sampling instant. Guarded by stagingLock (same
     // cross-thread surface as stagedSamples); sentinel < 0 means "not yet anchored".
-    private var anchorUptime: TimeInterval = -1
-    private var anchorWallMs: Int64 = 0
+    nonisolated(unsafe) private var anchorUptime: TimeInterval = -1
+    nonisolated(unsafe) private var anchorWallMs: Int64 = 0
 
     @Published private(set) var sampleCount = 0
     @Published private(set) var deliveredSampleCount = 0
@@ -185,10 +187,10 @@ class MotionManager: NSObject, ObservableObject {
         }
     }
 
-    deinit {
-        commandPollTimer?.invalidate()
-        spillTimer?.invalidate()
-    }
+    // No deinit: this object lives as long as the app (WatchView's root
+    // @StateObject), and both timers hold it weakly, so a stray timer could at
+    // worst fire into nil. Invalidating from a nonisolated deinit would need
+    // main-actor state, which Swift 6 refuses.
 
     func start(sessionId newServerSessionId: String? = nil) {
         guard !isRunning else { return }
@@ -215,7 +217,9 @@ class MotionManager: NSObject, ObservableObject {
         // H4: Callbacks auf motionOpQueue (Background). Der Callback baut nur
         // den Sample und staged ihn — die Verarbeitung passiert in
         // drainStaging() auf Main.
-        cm.startDeviceMotionUpdates(to: motionOpQueue) { [weak self] motion, _ in
+        // `@Sendable` spelled out: a closure formed here would otherwise inherit
+        // the main actor and trap when CoreMotion runs it on `motionOpQueue`.
+        cm.startDeviceMotionUpdates(to: motionOpQueue) { @Sendable [weak self] motion, _ in
             guard let self, let motion else { return }
             self.stagingLock.lock()
             // Why: anchor the monotonic sensor clock to wall-clock on the first
@@ -398,8 +402,12 @@ class MotionManager: NSObject, ObservableObject {
         let seq = nextSequence
         inFlightSequences.insert(seq)
         backgroundQueuedSampleCount += samples.count
+        let sampleCount = samples.count
+        // Hand-overs for the fallback path; neither is read again here.
+        let messageBox = UncheckedSendable(message)
+        let envelopeBox = UncheckedSendable(envelope)
 
-        WCSession.default.sendMessage(message, replyHandler: { [weak self] _ in
+        WCSession.default.sendMessage(message, replyHandler: { @Sendable [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
                 // Why: live reply and background completion are mutually
@@ -411,12 +419,12 @@ class MotionManager: NSObject, ObservableObject {
                     self.uploadMode = "Bridge"
                     return
                 }
-                self.deliveredSampleCount += samples.count
-                self.backgroundQueuedSampleCount = max(0, self.backgroundQueuedSampleCount - samples.count)
+                self.deliveredSampleCount += sampleCount
+                self.backgroundQueuedSampleCount = max(0, self.backgroundQueuedSampleCount - sampleCount)
                 self.status = self.isRunning ? "Recording" : "Stopped"
                 self.uploadMode = "Bridge"
             }
-        }, errorHandler: { [weak self] error in
+        }, errorHandler: { @Sendable [weak self] error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 // Why: nur fallback'n, wenn replyHandler noch nicht gewonnen hat.
@@ -425,7 +433,7 @@ class MotionManager: NSObject, ObservableObject {
                 guard self.inFlightSequences.remove(seq) != nil else {
                     return
                 }
-                self.queueBridgeTransfer(message, envelope: envelope,
+                self.queueBridgeTransfer(messageBox.value, envelope: envelopeBox.value,
                                          reason: error.localizedDescription)
             }
         })
@@ -452,7 +460,8 @@ class MotionManager: NSObject, ObservableObject {
     private func startCommandPolling() {
         commandPollTimer?.invalidate()
         let timer = Timer(timeInterval: Config.commandPollInterval, repeats: true) { [weak self] _ in
-            self?.pollPhoneForCommand()
+            // Scheduled on the main run loop below, so this already runs on main.
+            MainActor.assumeIsolated { self?.pollPhoneForCommand() }
         }
         commandPollTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -490,18 +499,20 @@ class MotionManager: NSObject, ObservableObject {
             message[WatchPayloadKey.Status.focusStartedAtMs] = focusSessionStartedAtMs
         }
 
-        WCSession.default.sendMessage(message, replyHandler: { [weak self] reply in
+        let messageBox = UncheckedSendable(message)
+        WCSession.default.sendMessage(message, replyHandler: { @Sendable [weak self] reply in
+            let replyBox = UncheckedSendable(reply)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.commandPollInFlight = false
                 self.isReachable = true
                 self.lastCommandPollStatus = "Phone replied"
-                _ = self.handleCommand(reply)
+                _ = self.handleCommand(replyBox.value)
                 if self.isRunning && self.status.hasPrefix("Phone bridge") {
                     self.status = "Recording"
                 }
             }
-        }, errorHandler: { [weak self] error in
+        }, errorHandler: { @Sendable [weak self] error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.commandPollInFlight = false
@@ -510,7 +521,7 @@ class MotionManager: NSObject, ObservableObject {
                 // Fallback: push status via transferUserInfo (background-safe, doesn't need isReachable).
                 // Throttled by queue size to prevent buildup if iPhone is unreachable for a while.
                 if WCSession.default.outstandingUserInfoTransfers.count < 4 {
-                    var pollUserInfo = message
+                    var pollUserInfo = messageBox.value
                     pollUserInfo[WatchPayloadKey.Status.fallback] = true
                     WCSession.default.transferUserInfo(pollUserInfo)
                 }
@@ -574,7 +585,7 @@ class MotionManager: NSObject, ObservableObject {
             // cursor is 0, so file size ≈ live bytes and the cap is accurate.
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
             if size >= Config.spillMaxBytes {
-                DispatchQueue.main.async {
+                Task { @MainActor in
                     guard let self else { return }
                     self.spilledSampleCount = max(0, self.spilledSampleCount - n)
                     self.spillDroppedSampleCount += n
@@ -613,16 +624,16 @@ class MotionManager: NSObject, ObservableObject {
         spillHealthDetail = reason
     }
 
-    private func noteSpillFailureOffMain(samples: Int, reason: String) {
-        DispatchQueue.main.async { [weak self] in
+    nonisolated private func noteSpillFailureOffMain(samples: Int, reason: String) {
+        Task { @MainActor [weak self] in
             guard let self else { return }
             self.spilledSampleCount = max(0, self.spilledSampleCount - samples)
             self.noteSpillFailure(samples: samples, reason: reason)
         }
     }
 
-    private func noteSpillSuccessOffMain() {
-        DispatchQueue.main.async { [weak self] in
+    nonisolated private func noteSpillSuccessOffMain() {
+        Task { @MainActor [weak self] in
             guard let self, !self.spillHealthy else { return }
             self.spillHealthy = true
             self.spillHealthDetail = ""
@@ -645,7 +656,7 @@ class MotionManager: NSObject, ObservableObject {
     private func startSpillDrain() {
         spillTimer?.invalidate()
         let timer = Timer(timeInterval: Config.spillDrainInterval, repeats: true) { [weak self] _ in
-            self?.autoDrainSpillIfBacklog()
+            MainActor.assumeIsolated { self?.autoDrainSpillIfBacklog() }
         }
         spillTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -725,7 +736,7 @@ class MotionManager: NSObject, ObservableObject {
             return
         }
         let n = (envelope["samples"] as? [[String: Any]])?.count ?? 0
-        WCSession.default.sendMessage(["payload": payloadData], replyHandler: { [weak self] _ in
+        WCSession.default.sendMessage(["payload": payloadData], replyHandler: { @Sendable [weak self] _ in
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.deliveredSampleCount += n
@@ -742,7 +753,7 @@ class MotionManager: NSObject, ObservableObject {
                     self.compactSpill()
                 }
             }
-        }, errorHandler: { [weak self] _ in
+        }, errorHandler: { @Sendable [weak self] _ in
             // Error → pause the burst and reclaim what was sent so far; the next
             // timer tick retries the remainder from a clean byte-0 cursor.
             DispatchQueue.main.async {
@@ -839,7 +850,7 @@ class MotionManager: NSObject, ObservableObject {
         }
     }
 
-    private static func currentTimestampMillis() -> Int64 {
+    nonisolated private static func currentTimestampMillis() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)
     }
 
@@ -864,36 +875,37 @@ class MotionManager: NSObject, ObservableObject {
     }
 }
 
+// WatchConnectivity calls the delegate on its own queue. Every entry point is
+// `nonisolated` and hops to the main actor before touching state; a
+// main-actor method here would trap at runtime when the framework called it.
 extension MotionManager: WCSessionDelegate {
-    func session(_ session: WCSession,
-                 activationDidCompleteWith state: WCSessionActivationState,
-                 error: Error?) {
-        DispatchQueue.main.async {
-            self.isReachable = session.isReachable
+    nonisolated func session(_ session: WCSession,
+                             activationDidCompleteWith state: WCSessionActivationState,
+                             error: Error?) {
+        Task { @MainActor in
+            self.isReachable = WCSession.default.isReachable
             if let error {
                 self.status = error.localizedDescription
             }
         }
     }
 
-    func sessionReachabilityDidChange(_ session: WCSession) {
-        DispatchQueue.main.async {
-            self.isReachable = session.isReachable
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        Task { @MainActor in
+            self.isReachable = WCSession.default.isReachable
         }
     }
 
-    func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
-        DispatchQueue.main.async {
-            guard Self.isDurableStateDelivery(applicationContext) else { return }
-            _ = self.handleCommand(applicationContext)
-        }
+    nonisolated func session(_ session: WCSession, didReceiveApplicationContext applicationContext: [String: Any]) {
+        guard Self.isDurableStateDelivery(applicationContext) else { return }
+        let context = UncheckedSendable(applicationContext)
+        Task { @MainActor in _ = self.handleCommand(context.value) }
     }
 
-    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
-        DispatchQueue.main.async {
-            guard Self.isDurableStateDelivery(userInfo) else { return }
-            _ = self.handleCommand(userInfo)
-        }
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+        guard Self.isDurableStateDelivery(userInfo) else { return }
+        let info = UncheckedSendable(userInfo)
+        Task { @MainActor in _ = self.handleCommand(info.value) }
     }
 
     /// Only durable recording state may be applied from a context or user-info
@@ -901,7 +913,7 @@ extension MotionManager: WCSessionDelegate {
     /// value is the live reply, or a one-shot operation that a late duplicate
     /// must not re-trigger — running a queued copy of `sensor_probe_start`
     /// would restart a measurement already in progress.
-    private static func isDurableStateDelivery(_ message: [String: Any]) -> Bool {
+    nonisolated private static func isDurableStateDelivery(_ message: [String: Any]) -> Bool {
         guard let raw = message[WatchPayloadKey.command] as? String,
               let command = WatchCommandName(rawValue: raw) else { return false }
         return command.transport == .durableState
@@ -915,7 +927,7 @@ extension MotionManager: WCSessionDelegate {
     /// and then reads recording state — so routing them through it raced
     /// start/stop/poll work on main. The cases themselves never touched
     /// recording state; the dispatcher around them did.
-    fileprivate func handleDiagnosticCommand(_ message: [String: Any]) -> [String: Any] {
+    nonisolated fileprivate func handleDiagnosticCommand(_ message: [String: Any]) -> [String: Any] {
         guard let raw = message[WatchPayloadKey.command] as? String,
               let command = WatchCommandName(rawValue: raw), command.isDiagnostic else {
             return [WatchPayloadKey.ok: false,
@@ -1232,13 +1244,18 @@ extension MotionManager: WCSessionDelegate {
         UserDefaults.standard.set(seconds, forKey: ScrybeGoal.defaultsKey)
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
-        DispatchQueue.main.async { _ = self.handleCommand(message) }
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+        let boxed = UncheckedSendable(message)
+        Task { @MainActor in _ = self.handleCommand(boxed.value) }
     }
 
-    func session(_ session: WCSession,
-                 didReceiveMessage message: [String: Any],
-                 replyHandler: @escaping ([String: Any]) -> Void) {
+    nonisolated func session(_ session: WCSession,
+                             didReceiveMessage message: [String: Any],
+                             replyHandler: @escaping ([String: Any]) -> Void) {
+        // Both boxes are hand-overs: the dictionary and the reply closure
+        // are not touched again on this thread.
+        let request = UncheckedSendable(message)
+        let reply = UncheckedSendable(replyHandler)
         // Why: sensor_probe_report iterates up to 12h @ 50Hz of
         // CMSensorRecorder data (~2.16M records) and parity_check runs Core ML
         // inference; both would block the main thread long enough for the
@@ -1256,11 +1273,11 @@ extension MotionManager: WCSessionDelegate {
                 // Owned by the passive tracker, which is main-actor isolated.
                 Task { @MainActor in
                     let handed = PassiveTracker.shared.syncNow()
-                    replyHandler([
+                    reply.value([
                         WatchPayloadKey.ok: true,
                         WatchPayloadKey.pendingCount: handed,
                         WatchPayloadKey.command: raw,
-                        WatchPayloadKey.commandID: message[WatchPayloadKey.commandID] as? String ?? ""
+                        WatchPayloadKey.commandID: request.value[WatchPayloadKey.commandID] as? String ?? ""
                     ])
                 }
                 return
@@ -1269,27 +1286,27 @@ extension MotionManager: WCSessionDelegate {
                 // Touches effectiveHz/isRunning/start()/stop() — everything
                 // else in this class only ever mutates those from main, and a
                 // focus session must not race the dispatcher's own start/stop.
-                DispatchQueue.main.async {
-                    replyHandler(self.handleFocusCommand(command, message: message, raw: raw))
+                Task { @MainActor in
+                    reply.value(self.handleFocusCommand(command, message: request.value, raw: raw))
                 }
                 return
             }
             DispatchQueue.global(qos: .utility).async {
-                replyHandler(self.handleDiagnosticCommand(message))
+                reply.value(self.handleDiagnosticCommand(request.value))
             }
             return
         }
-        DispatchQueue.main.async {
-            let reply = self.handleCommand(message)
-            replyHandler(reply)
+        Task { @MainActor in
+            reply.value(self.handleCommand(request.value))
         }
     }
 
-    func session(_ session: WCSession,
-                 didFinish userInfoTransfer: WCSessionUserInfoTransfer,
-                 error: Error?) {
-        DispatchQueue.main.async {
-            self.noteFinishedBackgroundTransfer(userInfoTransfer.userInfo, error: error)
+    nonisolated func session(_ session: WCSession,
+                             didFinish userInfoTransfer: WCSessionUserInfoTransfer,
+                             error: Error?) {
+        let info = UncheckedSendable(userInfoTransfer.userInfo)
+        Task { @MainActor in
+            self.noteFinishedBackgroundTransfer(info.value, error: error)
         }
     }
 }
@@ -1343,7 +1360,7 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
         }
 
         let shareTypes: Set<HKSampleType> = [HKObjectType.workoutType()]
-        healthStore.requestAuthorization(toShare: shareTypes, read: []) { [weak self] success, error in
+        healthStore.requestAuthorization(toShare: shareTypes, read: []) { @Sendable [weak self] success, error in
             DispatchQueue.main.async {
                 guard let self else { return }
                 if let error {
@@ -1388,7 +1405,7 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
             workoutAuthorizationFailed = false
             let now = Date()
             session.startActivity(with: now)
-            builder.beginCollection(withStart: now) { [weak self] _, _ in
+            builder.beginCollection(withStart: now) { @Sendable [weak self] _, _ in
                 DispatchQueue.main.async { self?.workoutStatus = "Workout background active" }
             }
         } catch {
@@ -1426,11 +1443,14 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
         beginWorkoutSession()
     }
 
-    func workoutSession(_ workoutSession: HKWorkoutSession,
-                        didChangeTo toState: HKWorkoutSessionState,
-                        from fromState: HKWorkoutSessionState,
-                        date: Date) {
-        DispatchQueue.main.async {
+    // HealthKit calls these on an arbitrary queue; hop before touching state.
+    nonisolated func workoutSession(_ workoutSession: HKWorkoutSession,
+                                    didChangeTo toState: HKWorkoutSessionState,
+                                    from fromState: HKWorkoutSessionState,
+                                    date: Date) {
+        let boxed = UncheckedSendable(workoutSession)
+        Task { @MainActor in
+            let workoutSession = boxed.value
             switch toState {
             case .running:
                 self.workoutStatus = "Workout background active"
@@ -1457,13 +1477,13 @@ extension MotionManager: HKWorkoutSessionDelegate, HKLiveWorkoutBuilderDelegate 
         }
     }
 
-    func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
-        DispatchQueue.main.async {
+    nonisolated func workoutSession(_ workoutSession: HKWorkoutSession, didFailWithError error: Error) {
+        Task { @MainActor in
             self.workoutStatus = "Workout error: \(error.localizedDescription)"
             self.restartWorkoutIfNeeded()
         }
     }
 
-    func workoutBuilder(_ workoutBuilder: HKLiveWorkoutBuilder, didCollectDataOf collectedTypes: Set<HKSampleType>) {}
-    func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {}
+    nonisolated func workoutBuilder(_ workoutBuilder: HKLiveWorkoutBuilder, didCollectDataOf collectedTypes: Set<HKSampleType>) {}
+    nonisolated func workoutBuilderDidCollectEvent(_ workoutBuilder: HKLiveWorkoutBuilder) {}
 }

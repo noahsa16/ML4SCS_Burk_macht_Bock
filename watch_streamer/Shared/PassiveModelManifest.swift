@@ -1,6 +1,6 @@
 import Foundation
 
-public enum PassiveModelManifestError: Error, Equatable {
+public nonisolated enum PassiveModelManifestError: Error, Equatable {
     case missingSidecar(String)
     case malformedSidecar(String)
     case shapeMismatch(field: String, expected: String, got: String)
@@ -15,7 +15,7 @@ public enum PassiveModelManifestError: Error, Equatable {
 /// stays internally consistent — every window matches — while being the wrong
 /// deployment artifact. Comparing the checkpoint hash the two files claim
 /// closes that, because they can only agree if they came from one export.
-public struct PassiveModelManifest: Decodable, Equatable {
+public nonisolated struct PassiveModelManifest: Decodable, Equatable, Sendable {
     public let artifact: String
     public let sha256: String
     public let model: String

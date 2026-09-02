@@ -51,16 +51,23 @@ public nonisolated struct WritingPhase: Equatable, Sendable {
 /// `nonisolated` on purpose: a twelve-hour backlog is roughly 17 000
 /// windows, and running that many Core ML passes on the main actor would
 /// freeze the Watch UI. The facade hops results back to main.
-public nonisolated final class PassiveTrackerEngine {
+///
+/// `@unchecked Sendable` because the compiler cannot see the discipline the
+/// facade enforces: the mutable members (`state`, `classifier`, `builder`,
+/// the cursor) are written only by `enable()`, `disable()` and
+/// `runRetrievalCycle`, and `PassiveTracker` never lets a cycle overlap
+/// another call to those. Everything else reads the store, which serializes
+/// itself.
+public nonisolated final class PassiveTrackerEngine: @unchecked Sendable {
 
-    public enum State: Equatable {
+    public enum State: Equatable, Sendable {
         case disabled
         case idle(lastRun: Date?, decisionsLastRun: Int)
         case running
         case failed(String)
     }
 
-    public struct CycleResult: Equatable {
+    public struct CycleResult: Equatable, Sendable {
         /// Windows the model classified in this cycle, writing or not.
         public let windowsClassified: Int
         /// Writing windows appended to the log. Idle windows are classified

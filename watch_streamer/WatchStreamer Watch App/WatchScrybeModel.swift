@@ -1,7 +1,7 @@
 import CoreML
 import Foundation
 
-enum WatchScrybeModelError: Error {
+nonisolated enum WatchScrybeModelError: Error {
     case missingResource(String)
     case badWindowLength(expected: Int, got: Int)
     case missingOutput
@@ -10,7 +10,9 @@ enum WatchScrybeModelError: Error {
 /// Core-ML-Wrapper der Watch. Bewusst identisch aufgebaut zu ScrybeModel im
 /// iPhone-Target; getrennte Datei, weil die Ordnersynchronisation des
 /// Xcode-Projekts Target-Zugehörigkeit über die Lage bestimmt.
-final class WatchScrybeModel {
+/// `nonisolated` und `Sendable`: die Inferenz läuft im Passiv-Tracker
+/// abseits des Main-Actors, und `MLModel` ist laut Apple thread-sicher.
+nonisolated final class WatchScrybeModel: @unchecked Sendable {
     let seqLen: Int
     let channels: Int
     /// The artifact's own provenance record, verified against the requested
@@ -65,14 +67,14 @@ final class WatchScrybeModel {
     }
 }
 
-private struct WatchGoldenWindow: Decodable {
+nonisolated private struct WatchGoldenWindow: Decodable {
     let id: String
     let logit: Double
     let proba: Double
     let data_b64: String
 }
 
-private struct WatchGoldenFixture: Decodable {
+nonisolated private struct WatchGoldenFixture: Decodable {
     let seq_len: Int
     let n_channels: Int
     /// Which training checkpoint produced these vectors. Compared against the
@@ -82,7 +84,7 @@ private struct WatchGoldenFixture: Decodable {
     let windows: [WatchGoldenWindow]
 }
 
-enum WatchParityCheck {
+nonisolated enum WatchParityCheck {
     static let tolerance = 1e-4
 
     static func run() -> [String: Any] {

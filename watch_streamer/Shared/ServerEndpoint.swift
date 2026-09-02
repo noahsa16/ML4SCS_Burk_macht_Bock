@@ -6,7 +6,7 @@ import Foundation
 /// HTTP upload and WebSocket control previously implemented their own trimming,
 /// scheme and default-port logic, so an IPv6 literal, an explicit port or a TLS
 /// address could be interpreted differently by the two paths.
-public enum ServerEndpoint {
+public nonisolated enum ServerEndpoint {
     public struct Resolved: Equatable, Sendable {
         public let httpBase: URL
         public let watchUpload: URL

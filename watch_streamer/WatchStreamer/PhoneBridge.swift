@@ -9,7 +9,7 @@ import UIKit
 /// user-overridable via UserDefaults("serverIP"); this is the fallback when none
 /// is set. Was duplicated as a bare "192.168.178.147" literal across PhoneBridge
 /// and ServerCommandListener.
-enum ServerConfig {
+nonisolated enum ServerConfig {
     /// Why: a release build must not silently target the development LAN. Debug
     /// keeps the convenience default; release starts unconfigured so the UI can
     /// say "no server configured" instead of probing a developer machine.
@@ -56,7 +56,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     /// so a phone backup carried the proband's motion data off the device.
     /// Application Support survives app updates the same way, is excluded from
     /// backup here, and is file-protected until first unlock.
-    private static let queueFileName = "upload_queue.json"
+    nonisolated private static let queueFileName = "upload_queue.json"
 
     /// Coalesce-Delay für Disk-Writes. 500 ms Debounce → wir schreiben nicht
     /// nach jedem einzelnen Batch (50 Hz wäre Overkill), aber bei Crash gehen
@@ -127,9 +127,14 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
 
     /// Watch acknowledgements waiting for the write that makes their batch
     /// durable. Main-thread only.
-    private var pendingDurabilityAcks: [(Bool) -> Void] = []
+    private var pendingDurabilityAcks: [@Sendable (Bool) -> Void] = []
 
-    private lazy var queueFileURL: URL = {
+    // A stored `let` rather than `lazy var`: the nonisolated disk writer reads
+    // it from the persist queue, which a lazily initialised main-actor
+    // property cannot allow.
+    private let queueFileURL: URL = PhoneBridge.makeQueueFileURL()
+
+    nonisolated private static func makeQueueFileURL() -> URL {
         let fm = FileManager.default
         let support = (try? fm.url(for: .applicationSupportDirectory,
                                    in: .userDomainMask,
@@ -140,11 +145,11 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         Self.migrateLegacyQueue(to: url)
         Self.protect(url)
         return url
-    }()
+    }
 
     /// Moves a queue left in Documents by an older build, then removes the
     /// original — otherwise the backup-eligible copy would linger untouched.
-    private static func migrateLegacyQueue(to destination: URL) {
+    nonisolated private static func migrateLegacyQueue(to destination: URL) {
         let fm = FileManager.default
         let legacy = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(queueFileName)
@@ -157,7 +162,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     }
 
     /// Excludes the queue from backups and requires a first unlock to read it.
-    private static func protect(_ url: URL) {
+    nonisolated private static func protect(_ url: URL) {
         var target = url
         var values = URLResourceValues()
         values.isExcludedFromBackup = true
@@ -242,11 +247,17 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         isBridgeCapable = false
     }
 
-    func session(_ session: WCSession,
-                 activationDidCompleteWith state: WCSessionActivationState,
-                 error: Error?) {
-        DispatchQueue.main.async {
-            self.applyReachability(session)
+    // MARK: – WCSessionDelegate
+    //
+    // WatchConnectivity calls these on its own queue. Each one is `nonisolated`
+    // and hops to the main actor before touching state; a main-actor method
+    // here would trap at runtime the moment the framework called it.
+
+    nonisolated func session(_ session: WCSession,
+                             activationDidCompleteWith state: WCSessionActivationState,
+                             error: Error?) {
+        Task { @MainActor in
+            self.applyReachability(WCSession.default)
             if let error {
                 self.lastError = error.localizedDescription
             }
@@ -254,42 +265,46 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             ServerCommandListener.shared.sendPhoneStatus()
         }
     }
-    func sessionDidBecomeInactive(_ session: WCSession) {
-        DispatchQueue.main.async { self.forceDisconnect() }
+    nonisolated func sessionDidBecomeInactive(_ session: WCSession) {
+        Task { @MainActor in self.forceDisconnect() }
     }
-    func sessionDidDeactivate(_ session: WCSession) {
-        DispatchQueue.main.async { self.forceDisconnect() }
+    nonisolated func sessionDidDeactivate(_ session: WCSession) {
+        Task { @MainActor in self.forceDisconnect() }
         session.activate()
     }
 
-    func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {
         guard message["type"] as? String != "command_poll" else { return }
         receivePayload(message, source: "message")
     }
 
-    func session(_ session: WCSession,
-                 didReceiveMessage message: [String: Any],
-                 replyHandler: @escaping ([String: Any]) -> Void) {
+    nonisolated func session(_ session: WCSession,
+                             didReceiveMessage message: [String: Any],
+                             replyHandler: @escaping ([String: Any]) -> Void) {
         if message["type"] as? String == "command_poll" {
-            let reply = ServerCommandListener.shared.handleWatchCommandPoll(message)
-            replyHandler(reply)
+            let poll = UncheckedSendable(message)
+            let reply = ReplyOnce(replyHandler)
+            Task { @MainActor in
+                reply.send(ServerCommandListener.shared.handleWatchCommandPoll(poll.value))
+            }
             return
         }
         // Why: the reply is the Watch's permission to release its copy of this
         // batch, so it must not be sent until the batch is durable here. A
         // malformed payload still answers immediately with ok=false via the
         // same callback.
-        var replied = false
+        let reply = ReplyOnce(replyHandler)
         receivePayload(message, source: "message") { durable in
-            guard !replied else { return }
-            replied = true
-            replyHandler([WatchPayloadKey.ok: durable])
+            reply.send([WatchPayloadKey.ok: durable])
         }
     }
 
-    func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
+    nonisolated func session(_ session: WCSession, didReceiveUserInfo userInfo: [String: Any]) {
         if userInfo[WatchPayloadKey.type] as? String == "command_poll" {
-            _ = ServerCommandListener.shared.handleWatchCommandPoll(userInfo)
+            let poll = UncheckedSendable(userInfo)
+            Task { @MainActor in
+                _ = ServerCommandListener.shared.handleWatchCommandPoll(poll.value)
+            }
             return
         }
         if userInfo[WatchPayloadKey.type] as? String == WatchPayloadKey.passiveDecisionsType {
@@ -307,7 +322,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     /// twice. Kept off the raw-IMU upload queue — these are small, derived and
     /// independently retryable, and mixing them into the sample backlog would
     /// let an IMU stall block them.
-    private func receivePassiveDecisions(_ userInfo: [String: Any]) {
+    nonisolated private func receivePassiveDecisions(_ userInfo: [String: Any]) {
         guard let data = userInfo[WatchPayloadKey.decisions] as? Data,
               let decisions = try? JSONDecoder().decode([PassiveDecision].self, from: data),
               !decisions.isEmpty else {
@@ -339,7 +354,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         }
         req.httpBody = payload
         req.timeoutInterval = 12
-        URLSession.shared.dataTask(with: req) { [weak self] _, response, error in
+        URLSession.shared.dataTask(with: req) { @Sendable [weak self] _, response, error in
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
             guard error != nil || !(200..<300).contains(code) else { return }
             DispatchQueue.main.async {
@@ -349,9 +364,9 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         }.resume()
     }
 
-    func sessionReachabilityDidChange(_ session: WCSession) {
-        DispatchQueue.main.async {
-            self.applyReachability(session)
+    nonisolated func sessionReachabilityDidChange(_ session: WCSession) {
+        Task { @MainActor in
+            self.applyReachability(WCSession.default)
             self.syncServerIP(ServerConfig.configuredIP)
             ServerCommandListener.shared.sendPhoneStatus()
         }
@@ -412,9 +427,9 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     /// the batch reached the queue, let alone disk — meant a suspension or
     /// crash in that window lost data the Watch had already let go.
     @discardableResult
-    private func receivePayload(_ payload: [String: Any],
+    nonisolated private func receivePayload(_ payload: [String: Any],
                                 source: String,
-                                onDurable: ((Bool) -> Void)? = nil) -> Bool {
+                                onDurable: (@Sendable (Bool) -> Void)? = nil) -> Bool {
         // Why: validate synchronously so the WatchConnectivity replyHandler can
         // honestly report whether the batch was accepted — a malformed payload
         // must not be acked as ok=true. normalizePayload is pure (no shared
@@ -427,8 +442,13 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             return false
         }
 
+        // Hand-overs: neither dictionary is read again on the delegate thread.
+        let normalizedBox = UncheckedSendable(normalized)
+        let samplesBox = UncheckedSendable(samples)
         workQueue.async { [weak self] in
             guard let self else { onDurable?(false); return }
+            let normalized = normalizedBox.value
+            let samples = samplesBox.value
 
             // Magnituden für Live-Chart vorberechnen — vermeidet O(N) Arbeit
             // auf dem Main-Thread bei jedem Batch.
@@ -547,7 +567,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         return false
     }
 
-    private func normalizePayload(_ payload: [String: Any], source: String) -> [String: Any]? {
+    nonisolated private func normalizePayload(_ payload: [String: Any], source: String) -> [String: Any]? {
         var decodedPayload = payload
         if let payloadData = payload["payload"] as? Data,
            let decoded = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any] {
@@ -581,8 +601,11 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         isUploading = true
 
         // JSON-Encoding off-main — bei großen Backlogs sonst spürbarer Hitch.
+        // The queue head stays in `uploadQueue`; this copy only travels.
+        let payloadBox = UncheckedSendable(payload)
         workQueue.async { [weak self] in
             guard let self else { return }
+            let payload = payloadBox.value
 
             let bodyResult: Result<Data, Error>
             do {
@@ -610,9 +633,10 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         }
     }
 
-    /// Muss auf main aufgerufen werden. Setzt URLSessionDataTask ab und
-    /// verarbeitet das Ergebnis auf main.
+    /// Muss auf main aufgerufen werden. Setzt den Upload als strukturierten
+    /// Task ab und verarbeitet das Ergebnis auf main.
     private func dispatchUpload(url: URL, body: Data, payload: [String: Any]) {
+        let sampleCount = (payload["samples"] as? [[String: Any]])?.count ?? 0
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -627,36 +651,36 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         // isUploading (and stall the whole queue) for the 60 s URLSession default.
         req.timeoutInterval = 12
 
-        URLSession.shared.dataTask(with: req) { [weak self] _, response, error in
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.isUploading = false
-
-                if let error {
-                    self.failedUploadCount += 1
-                    self.lastError = error.localizedDescription
-                    self.scheduleRetry()
-                    return
-                }
-
-                let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
-                guard (200..<300).contains(statusCode) else {
-                    self.failedUploadCount += 1
-                    self.lastError = "Server HTTP \(statusCode)"
-                    self.scheduleRetry()
-                    return
-                }
-
-                let samples = payload["samples"] as? [[String: Any]]
-                self.uploadedSampleCount += samples?.count ?? 0
-                if !self.uploadQueue.isEmpty { self.uploadQueue.removeFirst() }
-                self.queuedBatchCount = self.uploadQueue.count
-                self.lastError = ""
-                self.uploadRetryDelay = Self.uploadRetryBaseDelay
-                self.schedulePersist()
-                self.uploadNextIfNeeded()
+        // The task inherits the main actor, so the bookkeeping after the
+        // await needs no hop and no `[weak self]` dance across queues.
+        Task {
+            let statusCode: Int
+            do {
+                let (_, response) = try await URLSession.shared.data(for: req)
+                statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
+            } catch {
+                isUploading = false
+                failedUploadCount += 1
+                lastError = error.localizedDescription
+                scheduleRetry()
+                return
             }
-        }.resume()
+            isUploading = false
+            guard (200..<300).contains(statusCode) else {
+                failedUploadCount += 1
+                lastError = "Server HTTP \(statusCode)"
+                scheduleRetry()
+                return
+            }
+
+            uploadedSampleCount += sampleCount
+            if !uploadQueue.isEmpty { uploadQueue.removeFirst() }
+            queuedBatchCount = uploadQueue.count
+            lastError = ""
+            uploadRetryDelay = Self.uploadRetryBaseDelay
+            schedulePersist()
+            uploadNextIfNeeded()
+        }
     }
 
     private func scheduleRetry() {
@@ -668,7 +692,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         }
     }
 
-    private static func currentTimestampMillis() -> Int64 {
+    nonisolated private static func currentTimestampMillis() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)
     }
 
@@ -677,16 +701,16 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     /// Auf main thread aufrufen — pausiert vorhandenen pending write und
     /// schedult einen neuen mit `persistDebounce` Verzögerung. Mehrere Aufrufe
     /// in kurzer Folge → nur ein Write am Ende.
-    private func schedulePersist(ack: ((Bool) -> Void)? = nil) {
+    private func schedulePersist(ack: (@Sendable (Bool) -> Void)? = nil) {
         // Why: an ack waits for the write that includes its batch. Cancelling
         // the previous work item never strands one — the queue only grows, so
         // the next write covers every batch the cancelled one would have.
         if let ack { pendingDurabilityAcks.append(ack) }
         persistTask?.cancel()
-        let snapshot = uploadQueue
-        let work = DispatchWorkItem { [weak self] in
-            let ok = self?.writeQueueToDisk(snapshot) ?? false
-            DispatchQueue.main.async { self?.flushDurabilityAcks(ok) }
+        let snapshot = UncheckedSendable(uploadQueue)
+        let work = DispatchWorkItem { @Sendable [weak self] in
+            let ok = self?.writeQueueToDisk(snapshot.value) ?? false
+            Task { @MainActor in self?.flushDurabilityAcks(ok) }
         }
         persistTask = work
         persistQueue.asyncAfter(deadline: .now() + Self.persistDebounce, execute: work)
@@ -695,10 +719,10 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     /// Sofort persistieren — bei Backgrounding / Termination, kein Debounce.
     @objc private func persistImmediately() {
         persistTask?.cancel()
-        let snapshot = uploadQueue
+        let snapshot = UncheckedSendable(uploadQueue)
         persistQueue.async { [weak self] in
-            let ok = self?.writeQueueToDisk(snapshot) ?? false
-            DispatchQueue.main.async { self?.flushDurabilityAcks(ok) }
+            let ok = self?.writeQueueToDisk(snapshot.value) ?? false
+            Task { @MainActor in self?.flushDurabilityAcks(ok) }
         }
     }
 
@@ -714,7 +738,7 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
     /// alt oder vollständig neu, nie korrupt. Returns whether the snapshot is
     /// now durable, which is what the Watch's acknowledgement rides on.
     @discardableResult
-    private func writeQueueToDisk(_ snapshot: [[String: Any]]) -> Bool {
+    nonisolated private func writeQueueToDisk(_ snapshot: [[String: Any]]) -> Bool {
         let url = queueFileURL
         do {
             if snapshot.isEmpty {
@@ -733,9 +757,8 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
         } catch {
             // Persistenz-Fehler sollen den Datenfluss nicht stören. Wir loggen
             // sie nur, blockieren aber nicht den Upload.
-            DispatchQueue.main.async {
-                self.lastError = "Persist failed: \(error.localizedDescription)"
-            }
+            let detail = error.localizedDescription
+            Task { @MainActor in self.lastError = "Persist failed: \(detail)" }
             return false
         }
     }
@@ -760,5 +783,32 @@ class PhoneBridge: NSObject, ObservableObject, WCSessionDelegate {
             // Korruption → Datei wegwerfen, nicht crashen.
             try? FileManager.default.removeItem(at: url)
         }
+    }
+}
+
+/// Delivers a WatchConnectivity reply at most once, from whichever thread
+/// settles the batch first.
+///
+/// The durability callback can fire on the delegate thread (malformed
+/// payload), the work queue (bridge gone) or main (persisted), and
+/// `replyHandler` traps on a second call. The handler itself is not
+/// `Sendable`, but WatchConnectivity documents it as callable from any thread.
+nonisolated private final class ReplyOnce: Sendable {
+    private let handler: UncheckedSendable<([String: Any]) -> Void>
+    private let lock = NSLock()
+    nonisolated(unsafe) private var sent = false
+
+    init(_ handler: @escaping ([String: Any]) -> Void) {
+        self.handler = UncheckedSendable(handler)
+    }
+
+    func send(_ reply: [String: Any]) {
+        let first: Bool = lock.withLock {
+            guard !sent else { return false }
+            sent = true
+            return true
+        }
+        guard first else { return }
+        handler.value(reply)
     }
 }

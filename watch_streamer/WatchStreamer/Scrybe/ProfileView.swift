@@ -108,10 +108,15 @@ private struct IdentitySection: View {
     @ObservedObject private var avatar = ProfileAvatarStore.shared
     @Environment(\.scrybe) private var theme
     @State private var picked: PhotosPickerItem?
+    @State private var pickerShown = false
 
     var body: some View {
         VStack(spacing: 14) {
-            PhotosPicker(selection: $picked, matching: .images, photoLibrary: .shared()) {
+            // A Button plus the `.photosPicker` modifier rather than the
+            // `PhotosPicker` view: its label closure is not main-actor
+            // isolated, so the theme lookups inside it do not compile in
+            // Swift 6.
+            Button { pickerShown = true } label: {
                 ProfileAvatar(side: 84)
                     .overlay(alignment: .bottomTrailing) {
                         Image(systemName: "camera.fill")
@@ -125,6 +130,8 @@ private struct IdentitySection: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Profilbild ändern")
+            .photosPicker(isPresented: $pickerShown, selection: $picked,
+                          matching: .images, photoLibrary: .shared())
 
             HStack(spacing: 16) {
                 Text("Profilbild").scrybeCaption()

@@ -1,6 +1,6 @@
 import Foundation
 
-struct DailyGoalProgress {
+nonisolated struct DailyGoalProgress {
     let fraction: Double
     let percent: Int
     let isMet: Bool

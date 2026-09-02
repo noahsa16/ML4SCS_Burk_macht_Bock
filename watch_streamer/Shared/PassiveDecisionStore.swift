@@ -26,8 +26,10 @@ public nonisolated struct PassiveDecision: Codable, Equatable, Sendable {
 /// inventing a second persistence style, so its failure modes are ones this
 /// codebase already handles: a torn last line costs one decision, not the file.
 /// `nonisolated` so the tracker can read and append from a background
-/// context; the type serializes its own file access on a private queue.
-public nonisolated final class PassiveDecisionStore {
+/// context; the type serializes its own file access on a private queue, which
+/// is also what makes it `Sendable`: every stored property is either immutable
+/// or touched only on `queue`.
+public nonisolated final class PassiveDecisionStore: @unchecked Sendable {
     private let fileURL: URL
     private let queue = DispatchQueue(label: "com.watchstreamer.passive.decisions",
                                       qos: .utility)
