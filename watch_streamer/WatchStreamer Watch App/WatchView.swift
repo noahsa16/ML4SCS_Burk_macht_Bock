@@ -2,8 +2,8 @@ import SwiftUI
 import WatchKit
 
 private enum WatchScrybeStyle {
-    static let goalKey = "scrybe.dailyGoalSeconds"
-    static let defaultGoalSeconds: Double = 2 * 60 * 60
+    static let goalKey = ScrybeGoal.defaultsKey
+    static let defaultGoalSeconds = ScrybeGoal.defaultSeconds
 
     // Mirrors the iPhone dark theme on the Watch's always-dark canvas.
     static let accent = Color(red: 0.55, green: 0.56, blue: 0.84)

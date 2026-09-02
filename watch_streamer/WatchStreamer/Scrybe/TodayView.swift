@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct TodayView: View {
     @Binding var selection: RootPagerView.Tab
@@ -22,6 +23,13 @@ struct TodayView: View {
     @State private var harvestSweep: Animation?
     @State private var harvestSweepResetTask: Task<Void, Never>?
 
+    /// Days back from today the page is turned to. The page itself is the
+    /// only thing that moves; the stores keep serving today.
+    @State private var dayOffset = 0
+    /// Which way the last turn went, so the new day slides in from the side
+    /// it was reached from.
+    @State private var turnedBack = true
+
     /// Fast attack, long settle — the reward reads as "arriving", not as a
     /// routine progress update.
     private static let harvestSweepDuration: TimeInterval = 1.4
@@ -29,21 +37,53 @@ struct TodayView: View {
         0.2, 0.9, 0.3, 1.0, duration: harvestSweepDuration)
 
     private var liveSeconds: Double { focus.todayWritingSeconds }
-    private var progress: DailyGoalProgress {
+    private var todayProgress: DailyGoalProgress {
         DailyGoalProgress(writingSeconds: liveSeconds, goalSeconds: goalSeconds)
     }
     /// Whether the ring should still breathe. Shares `FocusStore`'s definition
     /// with the header glyph so the two cannot contradict each other.
-    private var isWriting: Bool { focus.isRecentlyWriting() }
-    private var goalMet: Bool { progress.isMet }
+    private var isWriting: Bool { focus.isRecentlyWriting() && paging.isToday }
+    private var goalMet: Bool { todayProgress.isMet }
     private var isEmpty: Bool {
         liveSeconds == 0 && focus.streak == 0 && (focus.week?.maxSeconds ?? 0) == 0
     }
-    private var ringSubtitle: String {
-        "\(progress.percent) % · Ziel \(TimeFormatting.human(seconds: goalSeconds))"
+
+    // MARK: - The shown day
+
+    private var paging: DayPaging {
+        DayPaging(offset: dayOffset, days: focus.history?.days ?? [])
     }
-    private var sessionsToday: Int { focus.today?.stretches.count ?? 0 }
-    private var longestToday: Double { focus.today?.stretches.map(\.durationS).max() ?? 0 }
+    private var shownSeconds: Double {
+        paging.isToday ? liveSeconds : (paging.day?.writingSeconds ?? 0)
+    }
+    private var shownProgress: DailyGoalProgress {
+        DailyGoalProgress(writingSeconds: shownSeconds, goalSeconds: goalSeconds)
+    }
+    private var shownStretches: [FocusStretchDTO] {
+        if paging.isToday { return focus.today?.stretches ?? [] }
+        guard let iso = paging.day?.date else { return [] }
+        return focus.dayCache[iso]?.stretches ?? []
+    }
+    private var captionText: String {
+        switch paging.caption {
+        case .today: return String(localized: "Heute")
+        case .yesterday: return String(localized: "Gestern")
+        case .weekday(let name): return name
+        case .date(let text): return text
+        }
+    }
+    /// "16 % von 25 Min." — percent and goal both locale-formatted, so the
+    /// English override gets "16% of 25 min" from the same line.
+    private var ringSubtitle: String {
+        let locale = ScrybeSettings.localeOverride ?? .current
+        let percent = shownProgress.percent.formatted(.percent.locale(locale))
+        return String(localized: "\(percent) von \(TimeFormatting.abbreviated(seconds: goalSeconds))")
+    }
+    /// Past days reload after every refresh: the store drops its day cache
+    /// then, and the same ISO date must not keep showing stale stretches.
+    private var dayLoadKey: String {
+        "\(paging.day?.date ?? "")#\(focus.lastUpdated?.timeIntervalSince1970 ?? 0)"
+    }
 
     var body: some View {
         // Why one scroll container for both states: connection and live
@@ -64,6 +104,9 @@ struct TodayView: View {
             return outcome
         }, lastWritingAt: focus.lastWritingAt) {
             VStack(spacing: 24) {
+                ScrybeHeader(label: captionText,
+                             onPrevious: !isEmpty && paging.canGoBack ? { turn(by: 1) } : nil,
+                             onNext: !isEmpty && paging.canGoForward ? { turn(by: -1) } : nil)
                 if isEmpty { emptyState } else { populated }
                 focusSessionEntry
             }
@@ -71,6 +114,7 @@ struct TodayView: View {
             .frame(maxWidth: .infinity)
         }
         .background { theme.paper.ignoresSafeArea() }
+        .simultaneousGesture(dayTurnGesture)
         .onChange(of: isWriting) { _ in updatePulse() }
         .onChange(of: goalMet) { met in handleGoal(met) }
         .onAppear { updatePulse(); celebrated = goalMet }
@@ -78,6 +122,10 @@ struct TodayView: View {
             celebrationTask?.cancel()
             harvestSweepResetTask?.cancel()
             harvestSweep = nil
+        }
+        .task(id: dayLoadKey) {
+            guard !paging.isToday, let iso = paging.day?.date else { return }
+            await focus.loadDay(iso)
         }
         .goalReachedFeedback(trigger: celebrated)
     }
@@ -98,13 +146,43 @@ struct TodayView: View {
     private var populated: some View {
         VStack(spacing: 24) {
             ring
-            StatTriple(sessions: sessionsToday,
-                       longestSeconds: longestToday,
+            StatTriple(sessions: shownStretches.count,
+                       longestSeconds: shownStretches.map(\.durationS).max() ?? 0,
                        streak: focus.streak)
-            if let week = focus.week {
-                WeekStrip(days: week.days, maxSeconds: week.maxSeconds)
-                    .padding(.horizontal)
+            if !paging.window.isEmpty {
+                WeekCard(days: paging.window, maxSeconds: paging.windowMax,
+                         highlightedDate: paging.day?.date)
             }
+        }
+        // Why keyed by the offset: a turned page is a different page, and a
+        // slide says so where a number morphing in place would not.
+        .id(dayOffset)
+        .transition(reduceMotion ? .opacity : .asymmetric(
+            insertion: .move(edge: turnedBack ? .leading : .trailing).combined(with: .opacity),
+            removal: .move(edge: turnedBack ? .trailing : .leading).combined(with: .opacity)))
+    }
+
+    // MARK: - Turning days
+
+    /// A sideways swipe turns the page; the scroll view keeps every vertical
+    /// drag, so the gesture only acts when it ended clearly horizontal.
+    private var dayTurnGesture: some Gesture {
+        DragGesture(minimumDistance: 24)
+            .onEnded { value in
+                let t = value.translation
+                guard !isEmpty, abs(t.width) > 50, abs(t.width) > abs(t.height) * 1.5 else { return }
+                turn(by: t.width > 0 ? 1 : -1)
+            }
+    }
+
+    /// Earlier days lie to the left, like pages already written.
+    private func turn(by delta: Int) {
+        let target = dayOffset + delta
+        guard target >= 0, target <= paging.maxOffset else { return }
+        turnedBack = delta > 0
+        UISelectionFeedbackGenerator().selectionChanged()
+        withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.3)) {
+            dayOffset = target
         }
     }
 
@@ -145,16 +223,16 @@ struct TodayView: View {
         GeometryReader { geo in
             let side = min(240, max(140, geo.size.width - 80))
             InkRing(
-                fraction: isEmpty ? 0 : progress.fraction,
-                centerText: isEmpty ? nil : TimeFormatting.clock(seconds: liveSeconds),
+                fraction: isEmpty ? 0 : shownProgress.fraction,
+                centerText: isEmpty ? nil : TimeFormatting.clock(seconds: shownSeconds),
                 subtitle: isEmpty ? nil : ringSubtitle,
-                tint: goalMet ? theme.goalReached : nil,
-                sweepAnimation: harvestSweep
+                tint: shownProgress.isMet ? theme.goalReached : nil,
+                sweepAnimation: paging.isToday ? harvestSweep : nil
             )
             .frame(width: side, height: side)
             .scaleEffect(pulse ? 1.03 : 1.0)
             .overlay {
-                if celebrating {
+                if celebrating && paging.isToday {
                     Circle()
                         .stroke(theme.goalReached, lineWidth: 8)
                         .scaleEffect(shineOn ? 1.18 : 0.96)

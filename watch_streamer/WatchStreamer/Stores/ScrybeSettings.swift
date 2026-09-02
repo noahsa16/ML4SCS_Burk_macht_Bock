@@ -2,8 +2,8 @@ import Foundation
 
 enum ScrybeSettings {
     // Daily writing goal in seconds; default 2 h.
-    static let goalKey = "scrybe.dailyGoalSeconds"
-    static let defaultGoalSeconds: Double = 2 * 3600
+    static let goalKey = ScrybeGoal.defaultsKey
+    static let defaultGoalSeconds = ScrybeGoal.defaultSeconds
 
     // Local admin PIN — a lock against accidental opens, not a security
     // feature. The gate is a hidden gesture plus this code; anyone who

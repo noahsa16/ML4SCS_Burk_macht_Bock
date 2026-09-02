@@ -9,7 +9,7 @@ import Foundation
 /// every 2.5 s — so wall-clock extent double-counts. Writing time is therefore
 /// summed from `creditSeconds` (the stride), and only the timeline extent uses
 /// start/end. See `PassiveWindowBuilder` for where that stride comes from.
-enum PassiveFocusAggregator {
+nonisolated enum PassiveFocusAggregator {
     /// Silence that does not break a writing stretch. Matches the server's
     /// 2.5 s, which is `max_gap_ms` from the training-time label closing.
     static let stretchGapMs: Int64 = 2_500
@@ -188,11 +188,11 @@ enum PassiveFocusAggregator {
         return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
     }
 
-    private static func weekday(_ date: Date, calendar: Calendar) -> String {
-        let f = DateFormatter()
-        f.calendar = calendar
-        f.locale = Locale.current
-        f.setLocalizedDateFormatFromTemplate("EEE")
-        return f.string(from: date)
+    static func weekday(_ date: Date, calendar: Calendar) -> String {
+        var localized = calendar
+        localized.locale = .current
+        let index = localized.component(.weekday, from: date) - 1
+        guard localized.shortWeekdaySymbols.indices.contains(index) else { return "" }
+        return localized.shortWeekdaySymbols[index]
     }
 }

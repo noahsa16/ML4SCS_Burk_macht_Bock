@@ -41,27 +41,19 @@ public nonisolated final class PassiveDecisionStore {
     /// Default location: Application Support, excluded from backups. Motion
     /// data is sensitive, and a decision log is derived motion data.
     public static func defaultFileURL() -> URL {
-        let fm = FileManager.default
-        let base = (try? fm.url(for: .applicationSupportDirectory,
-                                in: .userDomainMask,
-                                appropriateFor: nil, create: true))
-            ?? fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        try? fm.createDirectory(at: base, withIntermediateDirectories: true)
-        return base.appendingPathComponent("passive_decisions.jsonl")
+        AppSupportURL.file(named: "passive_decisions.jsonl")
     }
 
     @discardableResult
     public func record(_ decisions: [PassiveDecision]) -> Bool {
         guard !decisions.isEmpty else { return true }
-        let encoder = JSONEncoder()
-        var blob = Data()
-        for d in decisions {
-            guard let line = try? encoder.encode(d) else { return false }
-            blob.append(line)
-            blob.append(0x0A)
-        }
         let url = fileURL
         return queue.sync {
+            let existing = Self.decodeFile(at: url)
+            var seen = Set(existing.map(\.startMs))
+            let unique = decisions.filter { seen.insert($0.startMs).inserted }
+            guard !unique.isEmpty else { return true }
+            guard let blob = Self.encodeLines(unique) else { return false }
             let fm = FileManager.default
             if !fm.fileExists(atPath: url.path) {
                 fm.createFile(atPath: url.path, contents: nil)
@@ -81,13 +73,7 @@ public nonisolated final class PassiveDecisionStore {
     /// Every decision on disk, skipping lines that failed to decode.
     public func allDecisions() -> [PassiveDecision] {
         let url = fileURL
-        return queue.sync {
-            guard let data = try? Data(contentsOf: url) else { return [] }
-            let decoder = JSONDecoder()
-            return data.split(separator: 0x0A).compactMap {
-                try? decoder.decode(PassiveDecision.self, from: Data($0))
-            }
-        }
+        return queue.sync { Self.decodeFile(at: url) }
     }
 
     public func decisions(onDayContaining date: Date) -> [PassiveDecision] {
@@ -115,13 +101,15 @@ public nonisolated final class PassiveDecisionStore {
         }
         let cutoffMs = Int64(cutoff.timeIntervalSince1970 * 1000)
         let kept = allDecisions().filter { $0.startMs >= cutoffMs }
-        let encoder = JSONEncoder()
-        var blob = Data()
-        for d in kept {
-            guard let line = try? encoder.encode(d) else { return false }
-            blob.append(line)
-            blob.append(0x0A)
-        }
+        return replaceAll(with: kept)
+    }
+
+    /// Replaces the log with an already-loaded compacted snapshot. This is
+    /// used by the archive pass so it never has to read and decode the same
+    /// JSONL file a second time merely to prune it.
+    @discardableResult
+    public func replaceAll(with decisions: [PassiveDecision]) -> Bool {
+        guard let blob = Self.encodeLines(decisions) else { return false }
         let url = fileURL
         return queue.sync {
             do {
@@ -136,5 +124,24 @@ public nonisolated final class PassiveDecisionStore {
     public func removeAll() {
         let url = fileURL
         queue.sync { try? FileManager.default.removeItem(at: url) }
+    }
+
+    private static func decodeFile(at url: URL) -> [PassiveDecision] {
+        guard let data = try? Data(contentsOf: url) else { return [] }
+        let decoder = JSONDecoder()
+        return data.split(separator: 0x0A).compactMap {
+            try? decoder.decode(PassiveDecision.self, from: Data($0))
+        }
+    }
+
+    private static func encodeLines(_ decisions: [PassiveDecision]) -> Data? {
+        let encoder = JSONEncoder()
+        var blob = Data()
+        for decision in decisions {
+            guard let line = try? encoder.encode(decision) else { return nil }
+            blob.append(line)
+            blob.append(0x0A)
+        }
+        return blob
     }
 }

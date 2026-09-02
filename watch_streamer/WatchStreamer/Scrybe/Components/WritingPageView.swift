@@ -195,9 +195,8 @@ struct WritingPageView: View {
                 // Why: only the wet head moves in real time -- the ruled
                 // lines, every ink/resting run, every paragraph mark, and up
                 // to 200+ creature strokes are static between decisions and
-                // must not be redrawn 60 times a second for a tip that is
-                // the only thing actually animating.
-                TimelineView(.animation(minimumInterval: 1.0 / 60, paused: reduceMotion)) { timeline in
+                // must not be redrawn on every tip-animation tick.
+                TimelineView(.animation(minimumInterval: 1.0 / 12, paused: reduceMotion)) { timeline in
                     Canvas { context, size in
                         let geo = renderGeometry(page: page, size: size)
                         drawWetHead(page: page, geo: geo, now: timeline.date, in: &context)
@@ -218,6 +217,7 @@ struct WritingPageView: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text("Schreibseite dieser Sitzung"))
+        .accessibilityValue(Text(accessibilitySummary))
     }
 
     /// Rules, ink, resting hairlines, paragraph marks and the creature — the
@@ -419,8 +419,17 @@ struct WritingPageView: View {
     }
 
     private func durationLabel(ms: Int64) -> String {
-        let totalSeconds = max(0, Int(ms / 1000))
-        return String(format: "%d:%02d", totalSeconds / 60, totalSeconds % 60)
+        TimeFormatting.minuteSecondClock(seconds: Double(ms) / 1_000)
+    }
+
+    private var accessibilitySummary: String {
+        let writtenSeconds = segments
+            .filter { $0.kind == .ink }
+            .reduce(0.0) { $0 + Double(max(0, $1.endMs - $1.startMs)) / 1_000 }
+        let pauses = segments.filter { $0.kind != .ink }.count
+        let creature = Marginalia.name(forSpecies: species)
+        return String(localized:
+            "\(TimeFormatting.human(seconds: writtenSeconds)) geschrieben, \(pauses) Pausen, \(strokesDrawn) Striche für \(creature)")
     }
 
     /// The pen tip runs ahead of the last decision in real time, with a faint

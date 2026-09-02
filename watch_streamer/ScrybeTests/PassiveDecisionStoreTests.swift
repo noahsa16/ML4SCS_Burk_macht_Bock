@@ -25,18 +25,18 @@ struct PassiveDecisionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
         let now = Date()
         #expect(store.record([decision(at: now, writing: true),
-                              decision(at: now, writing: false)]))
+                              decision(at: now.addingTimeInterval(2.5), writing: false)]))
         #expect(store.allDecisions().count == 2)
     }
 
-    @Test("appending twice keeps both batches")
-    func appends() {
+    @Test("re-delivery is idempotent by window start")
+    func redeliveryIsIdempotent() {
         let (store, url) = makeStore()
         defer { try? FileManager.default.removeItem(at: url) }
         let now = Date()
         _ = store.record([decision(at: now, writing: true)])
         _ = store.record([decision(at: now, writing: true)])
-        #expect(store.allDecisions().count == 2)
+        #expect(store.allDecisions().count == 1)
     }
 
     // The overlap trap: two windows covering 5 s each but striding 2.5 s
@@ -57,7 +57,7 @@ struct PassiveDecisionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
         let now = Date()
         _ = store.record([decision(at: now, writing: false),
-                          decision(at: now, writing: true)])
+                          decision(at: now.addingTimeInterval(2.5), writing: true)])
         #expect(store.writingSeconds(onDayContaining: now) == 2.5)
     }
 

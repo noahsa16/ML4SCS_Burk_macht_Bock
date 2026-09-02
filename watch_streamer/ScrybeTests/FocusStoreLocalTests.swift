@@ -182,7 +182,7 @@ struct FocusStoreLocalTests {
         await store.ingest(windows(0, count: 4) + windows(-10, count: 4))
         await store.refresh()
         store.markHarvested()
-        store.deleteAllLocalData()
+        await store.deleteAllLocalData()
         #expect(raw.allDecisions().isEmpty)
         #expect(archive.all().isEmpty)
         #expect(store.today == nil)

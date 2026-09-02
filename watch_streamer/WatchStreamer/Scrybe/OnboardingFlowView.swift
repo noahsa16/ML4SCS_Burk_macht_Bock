@@ -31,19 +31,13 @@ struct OnboardingFlowView: View {
     }
 
     private var primaryButton: some View {
-        Button {
+        let title: LocalizedStringKey = page < lastPage ? "Weiter" : "Los geht's"
+        return ScrybePrimaryButton(title, verticalPadding: 16) {
             if page < lastPage {
                 withAnimation(reduceMotion ? nil : .easeInOut) { page += 1 }
             } else {
                 finish()
             }
-        } label: {
-            Text(page < lastPage ? "Weiter" : "Los geht's")
-                .font(.headline)
-                .foregroundStyle(theme.paperTop)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 16)
-                .background(theme.accent, in: RoundedRectangle(cornerRadius: 16))
         }
     }
 
@@ -79,6 +73,7 @@ struct OnboardingFlowView: View {
         page(content: {
             Image(systemName: "target")
                 .font(.system(size: 44)).foregroundStyle(theme.accent)
+                .accessibilityHidden(true)
             Text("Dein Tagesziel")
                 .font(.system(.title2, design: .serif)).foregroundStyle(theme.ink)
             HStack(spacing: 16) {
@@ -100,6 +95,7 @@ struct OnboardingFlowView: View {
         page(content: {
             Image(systemName: "bell")
                 .font(.system(size: 44)).foregroundStyle(theme.accent)
+                .accessibilityHidden(true)
             Text("Erinnerung")
                 .font(.system(.title2, design: .serif)).foregroundStyle(theme.ink)
             Text("Ein täglicher Anstoß, falls dein Ziel noch offen ist.")
@@ -115,6 +111,7 @@ struct OnboardingFlowView: View {
         page {
             Image(systemName: icon)
                 .font(.system(size: 44)).foregroundStyle(theme.accent)
+                .accessibilityHidden(true)
             Text(title)
                 .font(.system(.title2, design: .serif)).foregroundStyle(theme.ink)
             Text(body)

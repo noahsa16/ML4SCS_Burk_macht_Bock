@@ -66,6 +66,7 @@ final class FocusStore: ObservableObject {
 
     private let decisions: PassiveDecisionStore
     private let archive: FocusArchive
+    private let persistence: FocusPersistence
     private let defaults: UserDefaults
     private let historyDays = 90
     private let calendar = Calendar.current
@@ -84,7 +85,9 @@ final class FocusStore: ObservableObject {
         // Default-argument expressions are evaluated outside the actor even
         // though this initializer is MainActor-isolated. Construct the archive
         // in the body so Xcode 26.6 does not flag a false cross-actor call.
-        self.archive = archive ?? FocusArchive()
+        let resolvedArchive = archive ?? FocusArchive()
+        self.archive = resolvedArchive
+        self.persistence = FocusPersistence(decisions: decisions, archive: resolvedArchive)
         self.defaults = defaults
     }
 
@@ -111,16 +114,11 @@ final class FocusStore: ObservableObject {
             applyDemo(now: now)
             return true
         }
-        var raw = decisions.allDecisions()
-
-        // Seal days that can no longer receive late deliveries, then drop the
-        // windows behind them. This is what keeps the store bounded.
-        let sealed = archive.rollUp(raw, calendar: calendar, now: now)
-        if !sealed.isEmpty {
-            decisions.pruneOlderThan(days: FocusArchive.rawRetentionDays, now: now)
-            raw = decisions.allDecisions()
-        }
-        archive.prune(olderThan: historyDays, calendar: calendar, now: now)
+        // File decode, archive persistence and compaction are serialized off
+        // the main actor. The returned snapshot is already compacted, so the
+        // JSONL is never decoded twice in one refresh.
+        let raw = await persistence.refresh(now: now, historyDays: historyDays,
+                                            calendar: calendar)
 
         apply(raw: raw, now: now)
         lastUpdated = now
@@ -228,7 +226,7 @@ final class FocusStore: ObservableObject {
         watchUnreachable = false
         let writing = batch.filter(\.writing)
         guard !writing.isEmpty else { return }
-        guard decisions.record(writing) else { return }
+        guard await persistence.record(writing) else { return }
         ingestRevision &+= 1
         guard !demoModeEnabled else { return }
         await refresh()
@@ -349,7 +347,8 @@ final class FocusStore: ObservableObject {
             let p = payload(for: dayStart, liveByDay: liveByDay, now: now)
             maxSeconds = max(maxSeconds, p.totalWritingSeconds)
             out.append(FocusDayDTO(date: p.date,
-                                   weekday: Self.weekday(dayStart, calendar: calendar),
+                                   weekday: PassiveFocusAggregator.weekday(dayStart,
+                                                                            calendar: calendar),
                                    writingSeconds: p.totalWritingSeconds,
                                    isToday: dayStart == todayStart))
         }
@@ -384,14 +383,6 @@ final class FocusStore: ObservableObject {
         return Date(timeIntervalSince1970: Double(ms) / 1000)
     }
 
-    private static func weekday(_ date: Date, calendar: Calendar) -> String {
-        let f = DateFormatter()
-        f.calendar = calendar
-        f.locale = Locale.current
-        f.setLocalizedDateFormatFromTemplate("EEE")
-        return f.string(from: date)
-    }
-
     // MARK: - Verlauf detail
 
     /// Kept for the Verlauf detail's call sites. Local reads cannot fail, so a
@@ -410,7 +401,7 @@ final class FocusStore: ObservableObject {
             dayState[date] = .failed("Ungültiges Datum")
             return
         }
-        let raw = decisions.allDecisions()
+        let raw = await persistence.allDecisions()
         var liveByDay: [String: [PassiveDecision]] = [:]
         for d in raw {
             let at = Date(timeIntervalSince1970: Double(d.startMs) / 1000)
@@ -430,14 +421,13 @@ final class FocusStore: ObservableObject {
     }
 
     /// Erases every writing record on this phone.
-    func deleteAllLocalData() {
+    func deleteAllLocalData() async {
         demoTask?.cancel()
         demoTask = nil
         demoPlayback = nil
         demoModeEnabled = false
         demoIsWriting = false
-        decisions.removeAll()
-        archive.removeAll()
+        await persistence.removeAll()
         today = nil; week = nil; history = nil; timeOfDay = nil
         dayCache = [:]; dayState = [:]
         lastWritingAt = nil; lastUpdated = nil
@@ -503,4 +493,46 @@ final class FocusStore: ObservableObject {
     }
 
     var hasAnyHistory: Bool { !activeDays.isEmpty }
+}
+
+/// Serializes all disk mutations away from the UI actor. Keeping record,
+/// compaction and deletion behind one actor also prevents a batch arriving
+/// during compaction from being overwritten by the compacted snapshot.
+private actor FocusPersistence {
+    private let decisions: PassiveDecisionStore
+    private let archive: FocusArchive
+
+    init(decisions: PassiveDecisionStore, archive: FocusArchive) {
+        self.decisions = decisions
+        self.archive = archive
+    }
+
+    func record(_ batch: [PassiveDecision]) -> Bool {
+        decisions.record(batch)
+    }
+
+    func allDecisions() -> [PassiveDecision] {
+        decisions.allDecisions()
+    }
+
+    func refresh(now: Date, historyDays: Int, calendar: Calendar) -> [PassiveDecision] {
+        let loaded = decisions.allDecisions()
+        let sealed = archive.rollUp(loaded, calendar: calendar, now: now)
+        var compacted = loaded
+        if !sealed.isEmpty,
+           let cutoff = calendar.date(byAdding: .day,
+                                      value: -FocusArchive.rawRetentionDays,
+                                      to: calendar.startOfDay(for: now)) {
+            let cutoffMs = Int64(cutoff.timeIntervalSince1970 * 1_000)
+            compacted = loaded.filter { $0.startMs >= cutoffMs }
+            _ = decisions.replaceAll(with: compacted)
+        }
+        archive.prune(olderThan: historyDays, calendar: calendar, now: now)
+        return compacted
+    }
+
+    func removeAll() {
+        decisions.removeAll()
+        archive.removeAll()
+    }
 }

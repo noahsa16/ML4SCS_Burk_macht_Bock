@@ -17,6 +17,9 @@ struct InkRing: View {
 
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// Larger than `.largeTitle`: the figure is the page's one headline and
+    /// the ring gives it room. Scaled so Dynamic Type still moves it.
+    @ScaledMetric(relativeTo: .largeTitle) private var centerSize: CGFloat = 52
 
     private var clamped: Double { max(0, min(1, fraction)) }
 
@@ -31,7 +34,7 @@ struct InkRing: View {
                 .animation(sweepAnimation ?? (reduceMotion ? nil : .easeOut(duration: 0.6)),
                           value: fraction)
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: tint)
-            VStack(spacing: 4) {
+            VStack(spacing: 8) {
                 if let centerText {
                     Text(centerText)
                         // Why `.regular` and not a heavier weight: a serif
@@ -39,11 +42,18 @@ struct InkRing: View {
                         // already the largest thing on the screen. Bold, round
                         // and centred is the fitness-app reflex this design is
                         // avoiding.
-                        .font(.system(.largeTitle, design: .serif))
+                        .font(.system(size: centerSize, weight: .regular, design: .serif))
                         .foregroundStyle(theme.ink)
                         .monospacedDigit()
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
                         .contentTransition(.numericText())
                         .animation(reduceMotion ? nil : .easeOut(duration: 0.4), value: centerText)
+                }
+                if centerText != nil, subtitle != nil {
+                    // The same short rule the header draws under the brand,
+                    // so the ring's centre reads as a small title block.
+                    Rectangle().fill(theme.hairline).frame(width: 40, height: 1)
                 }
                 if let subtitle {
                     Text(subtitle)
@@ -61,7 +71,7 @@ struct InkRing: View {
 }
 
 #Preview {
-    InkRing(fraction: 0.73, centerText: "1:47", subtitle: "73 % · Ziel 2 h")
+    InkRing(fraction: 0.73, centerText: "1:47", subtitle: "73 % von 2 Std.")
         .frame(width: 240, height: 240)
         .padding(40)
         .background(ScrybeTheme.standard.paper)

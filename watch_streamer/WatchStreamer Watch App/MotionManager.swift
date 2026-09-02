@@ -995,6 +995,7 @@ extension MotionManager: WCSessionDelegate {
     fileprivate func handleFocusCommand(_ command: WatchCommandName,
                                         message: [String: Any],
                                         raw: String) -> [String: Any] {
+        applyDailyGoal(from: message)
         let commandId = message[WatchPayloadKey.commandID] as? String ?? ""
         switch command {
         case .focusStart:
@@ -1048,6 +1049,7 @@ extension MotionManager: WCSessionDelegate {
     fileprivate func handleCommand(_ message: [String: Any]) -> [String: Any] {
         // H3: jede iPhone-Nachricht kann requested_hz / batch_size tragen.
         applyMotionConfig(from: message)
+        applyDailyGoal(from: message)
         guard let command = message["command"] as? String else {
             return ["ok": false, "error": "Missing command"]
         }
@@ -1218,6 +1220,16 @@ extension MotionManager: WCSessionDelegate {
             "sampleCount": sampleCount,
             "uploadMode": uploadMode
         ]
+    }
+
+    /// The iPhone owns this setting. Every live command and poll response
+    /// carries its latest value, so the Watch persists the same target rather
+    /// than maintaining an unrelated local copy under a coincidentally equal
+    /// defaults key.
+    private func applyDailyGoal(from message: [String: Any]) {
+        guard let seconds = WatchPayloadValue.double(message[WatchPayloadKey.dailyGoalSeconds]),
+              seconds > 0 else { return }
+        UserDefaults.standard.set(seconds, forKey: ScrybeGoal.defaultsKey)
     }
 
     func session(_ session: WCSession, didReceiveMessage message: [String: Any]) {

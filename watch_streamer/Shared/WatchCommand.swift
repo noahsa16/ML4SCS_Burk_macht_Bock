@@ -1,5 +1,24 @@
 import Foundation
 
+/// Shared persistence location for files used by both app targets.
+public nonisolated enum AppSupportURL {
+    public static func file(named filename: String) -> URL {
+        let fm = FileManager.default
+        let base = (try? fm.url(for: .applicationSupportDirectory,
+                                in: .userDomainMask,
+                                appropriateFor: nil, create: true))
+            ?? fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        try? fm.createDirectory(at: base, withIntermediateDirectories: true)
+        return base.appendingPathComponent(filename)
+    }
+}
+
+/// Daily-goal contract shared by the iPhone and Watch stores.
+public nonisolated enum ScrybeGoal {
+    public static let defaultsKey = "scrybe.dailyGoalSeconds"
+    public static let defaultSeconds: Double = 2 * 60 * 60
+}
+
 /// The command vocabulary shared by the iPhone and the Watch.
 ///
 /// This type exists because WatchConnectivity offers three transports with
@@ -120,6 +139,9 @@ public enum WatchPayloadKey {
     public static let requestedHz = "requested_hz"
     public static let batchSize = "batch_size"
     public static let durationSeconds = "duration_seconds"
+    /// Latest iPhone-owned daily writing goal, mirrored through every durable
+    /// command/poll payload so the Watch ring cannot drift to a local default.
+    public static let dailyGoalSeconds = "daily_goal_seconds"
 
     /// Envelope type for a batch of passive writing decisions travelling from
     /// the Watch to the phone. Sent over `transferUserInfo` because it is

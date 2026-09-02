@@ -935,4 +935,50 @@ struct FocusSessionStoreTests {
         #expect(!store.isActive)
         #expect(store.finishReason == .hardCap)
     }
+
+    @Test func duplicateStartRequestsLaunchOnlyOneWatchCommand() async {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        var calls = 0
+        let store = FocusSessionStore(
+            bestiary: bestiary,
+            startOnWatch: {
+                calls += 1
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                return .started
+            })
+
+        async let first = store.requestStart(targetSeconds: 1_500)
+        await Task.yield()
+        let duplicate = await store.requestStart(targetSeconds: 1_500)
+        let accepted = await first
+
+        #expect(calls == 1)
+        #expect(duplicate == nil)
+        #expect(accepted == .started)
+        guard case .running = store.phase else {
+            Issue.record("expected one running session"); return
+        }
+    }
+
+    @Test func preemptionInvalidatesAnInFlightStartReply() async {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(
+            bestiary: bestiary,
+            startOnWatch: {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+                return .started
+            })
+
+        async let outcome = store.requestStart(targetSeconds: 1_500)
+        await Task.yield()
+        store.watchPreemptedByRecording()
+        let staleOutcome = await outcome
+
+        #expect(staleOutcome == nil)
+        guard case .failed = store.phase else {
+            Issue.record("preemption must keep the session failed"); return
+        }
+    }
 }

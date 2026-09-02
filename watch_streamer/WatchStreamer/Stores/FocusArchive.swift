@@ -25,7 +25,7 @@ struct FocusDaySummary: Codable, Sendable {
 /// a day at a 2.5 s stride. Kept for the 90-day retention that would be roughly
 /// 310 MB on the device. A summary is a few KB, and it is all any screen reads
 /// once the day is over.
-final class FocusArchive: @unchecked Sendable {
+nonisolated final class FocusArchive: @unchecked Sendable {
     /// Days whose raw windows are kept so late deliveries still land.
     ///
     /// The watch fetches up to 12 h of recorder history per cycle and delivers
@@ -44,12 +44,7 @@ final class FocusArchive: @unchecked Sendable {
     }
 
     static func defaultFileURL() -> URL {
-        let fm = FileManager.default
-        let base = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                appropriateFor: nil, create: true))
-            ?? fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        try? fm.createDirectory(at: base, withIntermediateDirectories: true)
-        return base.appendingPathComponent("focus_archive.json")
+        AppSupportURL.file(named: "focus_archive.json")
     }
 
     // MARK: - Reading
@@ -68,8 +63,10 @@ final class FocusArchive: @unchecked Sendable {
     /// windows, and reports which dates were sealed so the caller can prune
     /// exactly those.
     ///
-    /// Idempotent: a day already in the archive is rewritten from the same
-    /// windows, not added to, so a repeated roll-up cannot double a total.
+    /// Archived days are immutable. The retention horizon is longer than the
+    /// Watch recorder's delivery horizon, so a later fragment is necessarily
+    /// a durable transport re-delivery. Replacing a complete archived day with
+    /// that fragment would lose history; adding it would double-count it.
     @discardableResult
     func rollUp(_ decisions: [PassiveDecision],
                 calendar: Calendar = .current, now: Date = Date()) -> [String] {
@@ -98,7 +95,10 @@ final class FocusArchive: @unchecked Sendable {
                 hourlySeconds: PassiveFocusAggregator.hourlySeconds(
                     from: dayDecisions, on: at, calendar: calendar),
                 windowCount: dayDecisions.count)
-            queue.sync { days[date] = summary }
+            queue.sync {
+                guard days[date] == nil else { return }
+                days[date] = summary
+            }
             sealed.append(date)
         }
         persist()

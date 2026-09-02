@@ -60,6 +60,16 @@ struct FocusArchiveTests {
         #expect(archive.all().count == 1)
     }
 
+    @Test("a late fragment cannot replace a sealed day")
+    func lateFragmentDoesNotReplaceSealedDay() throws {
+        let archive = FocusArchive(fileURL: tempURL())
+        archive.rollUp(day(-10, count: 4))
+        archive.rollUp(day(-10, count: 1))
+        let summary = try #require(archive.all().first)
+        #expect(summary.writingSeconds == 10.0)
+        #expect(summary.windowCount == 4)
+    }
+
     @Test("only the old part of a mixed batch is sealed")
     func mixedBatchSealsOnlyOldDays() {
         let archive = FocusArchive(fileURL: tempURL())

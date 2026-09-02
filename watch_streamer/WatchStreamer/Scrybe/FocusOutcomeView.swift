@@ -19,6 +19,7 @@ struct FocusOutcomeView: View {
     let onDismiss: () -> Void
 
     @Environment(\.scrybe) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 16) {
@@ -41,7 +42,7 @@ struct FocusOutcomeView: View {
         // Why animate: a stop the Watch never confirms rewrites this screen
         // after it is already up. The correction is honest and must land, but
         // it should read as the same screen changing its mind, not as a flash.
-        .animation(.easeInOut(duration: 0.25), value: outcome)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25), value: outcome)
     }
 
     private var showsRetry: Bool {
@@ -53,15 +54,7 @@ struct FocusOutcomeView: View {
 
     private func button(_ label: LocalizedStringKey,
                         action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label)
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(theme.paperTop)
-        .background(theme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        ScrybePrimaryButton(label, action: action)
     }
 }
 

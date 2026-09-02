@@ -61,6 +61,7 @@ final class FocusSessionStore: ObservableObject {
     private let makeClassifier: () throws -> PassiveClassifier
     private let injectedBestiary: BestiaryStore?
     private let hardCapSeconds: TimeInterval
+    private let startOnWatch: @MainActor () async -> FocusStartOutcome
     private let stopOnWatch: @MainActor () async -> FocusStopOutcome
     private var classifier: PassiveClassifier?
     private var hardStopTask: Task<Void, Never>?
@@ -75,6 +76,10 @@ final class FocusSessionStore: ObservableObject {
     // outlive the phase is "a recording took the Watch after we asked", and it
     // is cleared only by the next ask.
     private var startPreemptedByRecording = false
+    /// Identity of the one Watch request allowed to complete the current
+    /// `.starting` phase. A second tap or a late reply from an invalidated
+    /// attempt cannot begin a session merely because the phase moved again.
+    private var activeStartID: UUID?
     // Why a stored message and not a bool: a missing or malformed bundle
     // resource will not fix itself while the process is alive, so one failed
     // attempt is final for the store's lifetime — not just for this session —
@@ -100,6 +105,9 @@ final class FocusSessionStore: ObservableObject {
          },
          bestiary: BestiaryStore? = nil,
          hardCapSeconds: TimeInterval = FocusSessionStore.hardCapSeconds,
+         startOnWatch: @escaping @MainActor () async -> FocusStartOutcome = {
+             await ServerCommandListener.shared.startFocusSession()
+         },
          stopOnWatch: @escaping @MainActor () async -> FocusStopOutcome = {
              await ServerCommandListener.shared.stopFocusSession()
          },
@@ -109,6 +117,7 @@ final class FocusSessionStore: ObservableObject {
         self.makeClassifier = makeClassifier
         self.injectedBestiary = bestiary
         self.hardCapSeconds = hardCapSeconds
+        self.startOnWatch = startOnWatch
         self.stopOnWatch = stopOnWatch
         self.builder = windowBuilder
     }
@@ -175,9 +184,32 @@ final class FocusSessionStore: ObservableObject {
         phase = .starting
     }
 
+    /// Owns the complete Watch start transaction. The returned outcome belongs
+    /// to this attempt; `nil` means the request was rejected as a duplicate or
+    /// invalidated by a recording/workout event while its reply was in flight.
+    func requestStart(targetSeconds: Double?) async -> FocusStartOutcome? {
+        guard case .idle = phase else { return nil }
+        let attemptID = UUID()
+        activeStartID = attemptID
+        markStarting()
+
+        let outcome = await startOnWatch()
+        guard activeStartID == attemptID else { return nil }
+        activeStartID = nil
+
+        switch outcome {
+        case .started:
+            begin(targetSeconds: targetSeconds)
+        case .refused, .unconfirmed, .unreachable:
+            abandonStart()
+        }
+        return outcome
+    }
+
     /// The Watch refused the start or never answered. No session was started,
     /// so nothing is asked to stop.
     func failToStart(_ reason: String) {
+        activeStartID = nil
         watchIsStreaming = false
         hardStopTask?.cancel()
         hardStopTask = nil
@@ -216,6 +248,7 @@ final class FocusSessionStore: ObservableObject {
             return
         }
         reset()
+        activeStartID = nil
         finishReason = nil
         firstOrdinalThisSession = bestiary.creatureInProgress(now: date).ordinal
         watchIsStreaming = true
@@ -325,6 +358,7 @@ final class FocusSessionStore: ObservableObject {
     /// strand the screen on its spinner with the tab bar hidden.
     func abandonStart() {
         guard case .starting = phase else { return }
+        activeStartID = nil
         reset()
         finishReason = nil
         phase = .idle

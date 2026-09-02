@@ -313,6 +313,7 @@ class ServerCommandListener: NSObject, ObservableObject {
         if CaptureSettings.isValidHz(hz) { payload[WatchPayloadKey.requestedHz] = hz }
         let batch = UserDefaults.standard.integer(forKey: CaptureSettings.batchSizeKey)
         if CaptureSettings.isValidBatchSize(batch) { payload[WatchPayloadKey.batchSize] = batch }
+        payload[WatchPayloadKey.dailyGoalSeconds] = ScrybeSettings.goalSeconds
         return payload
     }
 

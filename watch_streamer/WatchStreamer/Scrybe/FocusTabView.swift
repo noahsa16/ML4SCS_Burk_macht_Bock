@@ -7,6 +7,7 @@ import UIKit
 struct FocusTabView: View {
     @ObservedObject private var session = FocusSessionStore.shared
     @Environment(\.scrybe) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// The running session's clock. Scaled: it is the largest thing on the
     /// screen and the one a reader at arm's length actually reads.
@@ -20,9 +21,14 @@ struct FocusTabView: View {
         let segments = session.segments
         NavigationStack {
             ScrollView {
-                content(segments: segments)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 24)
+                VStack(spacing: 12) {
+                    if !session.isActive {
+                        ScrybeHeader(label: "Fokus")
+                    }
+                    content(segments: segments)
+                        .padding(.horizontal, 16)
+                }
+                .padding(.bottom, 24)
             }
             .background { theme.paper.ignoresSafeArea() }
             .navigationDestination(for: BestiaryDestination.self) { _ in
@@ -115,7 +121,7 @@ struct FocusTabView: View {
                             headMs: Int64(now.timeIntervalSince1970 * 1000))
                 .scrybeSurface(cornerRadius: 16)
 
-            primaryButton("Beenden") { session.end() }
+            ScrybePrimaryButton("Beenden") { session.end() }
         }
     }
 
@@ -123,7 +129,7 @@ struct FocusTabView: View {
     /// 25-minute session reading "0:24".
     private func sessionClock(_ seconds: Double) -> String {
         let total = Int(max(0, seconds))
-        return String(format: "%d:%02d", total / 60, total % 60)
+        return TimeFormatting.minuteSecondClock(seconds: Double(total))
     }
 
     // MARK: - Finished
@@ -168,10 +174,11 @@ struct FocusTabView: View {
                 .foregroundStyle(theme.warning)
             }
 
-            primaryButton("Fertig") { session.returnToIdle() }
+            ScrybePrimaryButton("Fertig") { session.returnToIdle() }
         }
         .padding(.top, 16)
-        .animation(.easeInOut(duration: 0.25), value: session.finishReason)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.25),
+                   value: session.finishReason)
     }
 
     /// `29. August · 14:31–15:06` — what makes the page a document (Spec §6).
@@ -197,7 +204,7 @@ struct FocusTabView: View {
                 .font(.subheadline)
                 .foregroundStyle(theme.ink)
                 .multilineTextAlignment(.center)
-            primaryButton("Zurück") { session.returnToIdle() }
+            ScrybePrimaryButton("Zurück") { session.returnToIdle() }
         }
         .padding(20)
         .frame(maxWidth: .infinity)
@@ -207,38 +214,22 @@ struct FocusTabView: View {
 
     // MARK: - Shared pieces
 
-    private func primaryButton(_ title: LocalizedStringKey,
-                               action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(theme.paperTop)
-        .background(theme.accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
     private func start(seconds: Double?) {
         lastRequested = seconds
-        session.markStarting()
-        // Why an unstructured task: leaving this screen must not abandon a
-        // start the Watch may already have accepted. The store owns the
-        // session; this view only asks for it.
+        startOutcome = nil
+        // The store owns request identity and the full transition. This task
+        // only maps its user-facing failure back onto the current screen.
         Task {
-            switch await ServerCommandListener.shared.startFocusSession() {
+            guard let outcome = await session.requestStart(targetSeconds: seconds) else { return }
+            switch outcome {
             case .started:
-                session.begin(targetSeconds: seconds)
+                break
             case .refused(let refusal):
                 startOutcome = .refused(refusal)
-                session.abandonStart()
             case .unconfirmed:
                 startOutcome = .unconfirmed
-                session.abandonStart()
             case .unreachable:
                 startOutcome = .unreachable
-                session.abandonStart()
             }
         }
     }

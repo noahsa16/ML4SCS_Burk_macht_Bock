@@ -79,12 +79,7 @@ final class BestiaryStore: ObservableObject {
     /// arguments outside the actor, so a MainActor-isolated version of this
     /// could not be called from `init`'s own signature.
     nonisolated static func defaultFileURL() -> URL {
-        let fm = FileManager.default
-        let base = (try? fm.url(for: .applicationSupportDirectory, in: .userDomainMask,
-                                appropriateFor: nil, create: true))
-            ?? fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        try? fm.createDirectory(at: base, withIntermediateDirectories: true)
-        return base.appendingPathComponent("bestiary.json")
+        AppSupportURL.file(named: "bestiary.json")
     }
 
     // MARK: - Growing the creature in progress

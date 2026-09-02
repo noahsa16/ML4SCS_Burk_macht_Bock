@@ -3,6 +3,7 @@ import Foundation
 /// Ephemeral decisions used only to stage the product UI in the admin demo.
 /// Nothing here is written to `PassiveDecisionStore` or uploaded.
 struct FocusDemoPlayback {
+    private static let maximumDecisionCount = 3_600
     private(set) var decisions: [PassiveDecision]
     private(set) var isWriting = true
     private(set) var tickIndex = 0
@@ -29,6 +30,9 @@ struct FocusDemoPlayback {
             writing: true,
             creditSeconds: secondsPerTick
         ))
+        if decisions.count > Self.maximumDecisionCount {
+            decisions.removeFirst(decisions.count - Self.maximumDecisionCount)
+        }
     }
 
     private static func seed(seconds: Double, endingAt now: Date) -> [PassiveDecision] {
