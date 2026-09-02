@@ -6,10 +6,8 @@ struct RootPagerView: View {
         case today = "Heute"
         case trends = "Trends"
         case focus = "Fokus"
-        case profile = "Profil"
     }
 
-    @ObservedObject private var session = FocusSessionStore.shared
     @State private var selection: Tab = .today
     @State private var showSplash = true
     /// Why view-owned rather than `.constant(!onboardingDone)`: a constant
@@ -21,36 +19,45 @@ struct RootPagerView: View {
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var splashTask: Task<Void, Never>?
+    #if DEBUG
+    @State private var debugProfilePresented = false
+    #endif
 
     var body: some View {
-        VStack(spacing: 12) {
-            // Why the condition: the header is a sibling of the TabView, so
-            // hiding the tab bar alone would leave it standing over a page
-            // meant to be alone with the writer.
-            if !session.isActive {
-                ScrybeHeader(label: selection.rawValue)
-            }
-            TabView(selection: $selection) {
-                TodayView(selection: $selection)
-                    .tabItem { Label { Text("Heute") } icon: { ScrybeGlyph.today.image } }
-                    .tag(Tab.today)
-                TrendsView()
-                    .tabItem { Label { Text("Trends") } icon: { ScrybeGlyph.trends.image } }
-                    .tag(Tab.trends)
-                FocusTabView()
-                    .tabItem { Label { Text("Fokus") } icon: { ScrybeGlyph.focus.image } }
-                    .tag(Tab.focus)
-                ProfileView()
-                    .tabItem { Label { Text("Profil") } icon: { ScrybeGlyph.profile.image } }
-                    .tag(Tab.profile)
-            }
+        // Why no shared header here: a sibling above the TabView stood still
+        // while the page scrolled under it, and read as a bar with a seam.
+        // Each page carries its own `ScrybeHeader` inside its scroll content.
+        // Why three tabs: the profile is settings and a collection, not a
+        // place a writer returns to daily. It opens from the header's
+        // profile circle instead, and the strip keeps the three pages that
+        // are about writing.
+        TabView(selection: $selection) {
+            TodayView(selection: $selection)
+                .tabItem { Label { Text("Heute") } icon: { ScrybeGlyph.today.image } }
+                .tag(Tab.today)
+            TrendsView()
+                .tabItem { Label { Text("Trends") } icon: { ScrybeGlyph.trends.image } }
+                .tag(Tab.trends)
+            FocusTabView()
+                .tabItem { Label { Text("Fokus") } icon: { ScrybeGlyph.focus.image } }
+                .tag(Tab.focus)
         }
         .background(theme.paper.ignoresSafeArea())
         .onAppear {
             applyTabBarAppearance()
             FocusStore.shared.start()
             showOnboarding = !onboardingDone
+            #if DEBUG
+            if let tab = DebugFixture.initialTab { selection = tab }
+            debugProfilePresented = DebugFixture.opensProfile
+            Task { await DebugFixture.seedIfRequested() }
+            #endif
         }
+        #if DEBUG
+        .sheet(isPresented: $debugProfilePresented) {
+            ScrybeThemeProvider { ProfileView(onClose: { debugProfilePresented = false }) }
+        }
+        #endif
         .onDisappear {
             FocusStore.shared.stop()
             splashTask?.cancel()
