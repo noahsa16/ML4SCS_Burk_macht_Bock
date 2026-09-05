@@ -77,7 +77,11 @@ struct TodayView: View {
     private var ringSubtitle: String {
         let locale = ScrybeSettings.localeOverride ?? .current
         let percent = shownProgress.percent.formatted(.percent.locale(locale))
-        return String(localized: "\(percent) von \(TimeFormatting.abbreviated(seconds: goalSeconds))")
+        // Why the explicit locale: without it the lookup follows the bundle
+        // language, so the in-app DE/EN override would leave the German "von"
+        // between two English-formatted numbers.
+        return String(localized: "\(percent) von \(TimeFormatting.abbreviated(seconds: goalSeconds))",
+                      locale: locale)
     }
     /// Past days reload after every refresh: the store drops its day cache
     /// then, and the same ISO date must not keep showing stale stretches.

@@ -17,6 +17,7 @@ struct TrendsView: View {
     @State private var span: TrendPaging.Span = .week
 #endif
     @State private var offset = 0
+    @State private var path = NavigationPath()
     /// The tapped bar. `nil` falls back to the window's newest day, so a
     /// fresh page always has one day in the accent.
     @State private var selectedDate: String?
@@ -38,10 +39,19 @@ struct TrendsView: View {
     var body: some View {
         // Why the stack lives here: Verlauf lost its own when it left the tab
         // strip, and a day selection has to land somewhere.
-        NavigationStack {
+        NavigationStack(path: $path) {
             content
                 .navigationDestination(for: HistoryDestination.self) { _ in HistoryView() }
                 .navigationDestination(for: String.self) { DayDetailView(date: $0) }
+                #if DEBUG
+                .onAppear {
+                    switch DebugFixture.initialScreen {
+                    case .history: path.append(HistoryDestination())
+                    case .day: path.append(DebugFixture.todayKey)
+                    default: break
+                    }
+                }
+                #endif
         }
     }
 

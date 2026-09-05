@@ -72,6 +72,12 @@ struct ScrybeHeader: View {
         .padding(.horizontal, 16)
         .accessibilityElement(children: .contain)
         .accessibilityAddTraits(.isHeader)
+        // A demo session is started from the admin panel, which sits on this
+        // sheet; the session page is what is meant to be seen, so the sheet
+        // goes as the session begins.
+        .onReceive(FocusSessionStore.shared.$demoSpeed) { speed in
+            if speed != nil { profilePresented = false }
+        }
         .sheet(isPresented: $profilePresented) {
             ScrybeThemeProvider {
                 ProfileView(onClose: { profilePresented = false })

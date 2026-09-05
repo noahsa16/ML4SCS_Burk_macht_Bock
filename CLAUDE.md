@@ -572,9 +572,22 @@ Datei zu decodieren. Beide Apps kompilieren in **Swift 6** (`SWIFT_VERSION =
 6.0`, Default-Isolation MainActor, null Warnungen); WatchConnectivity- und
 HealthKit-Delegates sind `nonisolated` und hüpfen selbst auf den Main-Actor,
 Framework-Closures tragen ein explizites `@Sendable` — ohne beides trappt
-Swift 6 zur Laufzeit. Die Uhr spiegelt zusätzlich die Kreatur des Phones
-(`WatchCreatureSnapshot` im Poll-Payload, gezeichnet im Ring). Die drei
+Swift 6 zur Laufzeit. Die Uhr spiegelt zusätzlich die **Tages-Schreibzeit des
+Phones** (`WatchDayTotal` im Poll-Payload, mit Datum; der Ring zeigt das
+Maximum aus eigenem Recorder-Stand und Phone-Wert — das Phone enthält alles,
+was die Uhr je geliefert hat, also ist das Maximum der frischere Wert, keine
+Doppelzählung). Die Kreatur wird auf der Uhr nicht mehr gezeichnet. Die drei
 Hardware-Messungen (`reports/sensor_probe.md`) stehen weiterhin aus.
+
+**Fokus-Sitzung zählt sofort in den Tag (seit 2026-09-02).** Die live auf dem
+Phone klassifizierten Sitzungs-Fenster gehen per `FocusStore.ingestSession`
+direkt in den Tages-Speicher, nicht erst der Recorder-Nachlauf der Uhr. Gegen
+Doppelzählung führt `FocusSessionSpans` (UserDefaults, 3 Tage) die von einer
+Sitzung beurteilten Zeitspannen; Recorder-Fenster ganz innerhalb einer Spanne
+werden in `ingest` verworfen — auch schreibende, denn das Sitzungs-Urteil
+(6-Kanal-Modell, live) gilt für seine Minuten, das Recorder-Urteil für den
+Rest des Tages. Die Spanne wächst Fenster für Fenster, sodass eine vom System
+gekillte Sitzung genau die gutgeschriebenen Minuten abdeckt.
 
 **Aggregations-Abweichung vom Server.** `focus.py` rechnet auf
 nicht-überlappenden 1-Hz-Ticks, wo eine Phase `Ende − Start` lang ist.
@@ -597,6 +610,29 @@ Nachhinein lesbar, „schreibt gerade" wäre also eine Behauptung, die die
 Daten nicht tragen. `SyncChip` zeigt stattdessen „Zuletzt geschrieben
 14:20 · abgeglichen 14:31"; `FocusStore.isOffline` heißt jetzt
 `watchUnreachable`.
+
+**Die Wesen im Seitenrand (seit 2026-09-02 mit gemessener Strichstärke).**
+`tools/trace_to_strokes.py` misst je Strich die Tintenbreite (Distanz-
+Transformation unter der Skelett-Mittellinie) und schreibt sie als
+`stroke-width` ins SVG; `svg_to_marginalia.py` skaliert sie mit und erzeugt
+`Marginalia.Stroke(width:path:)`. `CreaturePen` (Mindeststärke, Tonwert für
+Haarlinien) teilen sich `CreatureCanvas` und `tools/render_marginalia.swift`.
+Die Vorlagen liegen in `watch_streamer/drawings/sources/` — **für Bücherwurm
+und Federfisch fehlen sie** (nur das alte SVG ohne Breiten, Einheitsstrich).
+Trace-Parameter für die sauberen Vorlagen: `--max-side 1254 --min-blob 120
+--min-stroke 12 --max-strokes 380 --tolerance 1.2`; volle Anleitung in
+`watch_streamer/tools/README.md`.
+
+**Produkt-Demo der Fokus-Sitzung.** Admin-Panel → „Produkt-Demo" →
+„Fokus-Sitzung vorführen" startet `FocusSessionStore.startDemo(speed:)`: die
+Sitzung läuft gegen das Skript `FocusSessionDemo` (Schreib-/Pausen-Takte, die
+alle drei Lücken-Stufen der Seite zeigen) `speed`-fach schneller — Uhr, Seite
+und Wesen auf derselben virtuellen Zeit (der Sitzungsstart wird je Tick
+zurückgeschoben). Nichts Echtes wird berührt: Wesen wächst in einer
+Wegwerf-Sammlung (Temp-Datei), keine Tages-Ingest, kein `focus_start` an die
+Uhr. Bei 30× ist ein 30-Minuten-Wesen nach einer Minute fertig. Profil-Sheet
+schließt und der Fokus-Tab öffnet sich beim Start (`$demoSpeed`-Hooks in
+`ScrybeHeader` / `RootPagerView`). Simulator: `-scrybeDemoSession 30`.
 
 **Debug-Falle:** `ServerConfig.defaultIP` ist in DEBUG weiterhin die
 Entwickler-LAN-Adresse. Für einen ehrlichen Ohne-Server-Test braucht es

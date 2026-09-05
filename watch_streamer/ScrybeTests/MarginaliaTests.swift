@@ -28,13 +28,37 @@ struct MarginaliaTests {
     func strokesAreInBounds() {
         for id in 0..<Bestiary.speciesCount {
             for (index, stroke) in Marginalia.strokes(forSpecies: id).enumerated() {
-                let b = stroke.boundingRect
+                let b = stroke.path.boundingRect
                 #expect(b.minX >= -0.5 && b.minY >= -0.5,
                         "species \(id) stroke \(index) starts at \(b.origin)")
                 #expect(b.maxX <= 100.5 && b.maxY <= 100.5,
                         "species \(id) stroke \(index) ends at \(b.maxX), \(b.maxY)")
             }
         }
+    }
+
+    // A width of zero draws nothing, and one wider than the box's margin
+    // would be a contour swallowing the creature. Both are conversion
+    // faults, not drawing choices.
+    @Test("every stroke carries a pen width a contour or a hairline could have")
+    func strokeWidthsArePlausible() {
+        for id in 0..<Bestiary.speciesCount {
+            for (index, stroke) in Marginalia.strokes(forSpecies: id).enumerated() {
+                #expect(stroke.width > 0 && stroke.width <= 4,
+                        "species \(id) stroke \(index) has width \(stroke.width)")
+            }
+        }
+    }
+
+    // The pen never lets a hairline vanish into the paper, and never widens a
+    // stroke that is already visible.
+    @Test("the pen floors hairlines at small sizes and leaves contours alone")
+    func penFloor() {
+        let floorAt64 = CreaturePen.minimumPoints * 100 / 64
+        #expect(CreaturePen.lineWidth(0.2, side: 64) == floorAt64)
+        #expect(CreaturePen.lineWidth(0.8, side: 300) == 0.8)
+        #expect(CreaturePen.opacity(0.2, reference: 0.8) < CreaturePen.opacity(0.8, reference: 0.8))
+        #expect(CreaturePen.opacity(0.8, reference: 0.8) == 1)
     }
 
     @Test("each species is named")

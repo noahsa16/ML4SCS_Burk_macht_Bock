@@ -4,11 +4,12 @@ import SwiftUI
 
 /// A deliberately started writing session.
 ///
-/// Holds everything in memory on purpose. Live and recorder windows never share
-/// a `startMs`, so persisting both would double-count the day and idempotency
-/// could not catch it. The passive path stays the single source of truth for
-/// writing time; the only thing a session leaves behind is the writing seconds
-/// it credits to the creature in `BestiaryStore`.
+/// Holds its own state in memory on purpose; what a session leaves behind is
+/// the writing seconds it credits to the creature in `BestiaryStore` and the
+/// windows it hands to `FocusStore` as they arrive. Live and recorder windows
+/// never share a `startMs`, so the day store shields the session's span from
+/// the recorder's later verdict instead of relying on idempotency — see
+/// `FocusSessionSpans`.
 @MainActor
 final class FocusSessionStore: ObservableObject {
     static let shared = FocusSessionStore()
@@ -60,6 +61,7 @@ final class FocusSessionStore: ObservableObject {
     private let injected: PassiveClassifier?
     private let makeClassifier: () throws -> PassiveClassifier
     private let injectedBestiary: BestiaryStore?
+    private let injectedFocus: FocusStore?
     private let hardCapSeconds: TimeInterval
     private let startOnWatch: @MainActor () async -> FocusStartOutcome
     private let stopOnWatch: @MainActor () async -> FocusStopOutcome
@@ -94,16 +96,34 @@ final class FocusSessionStore: ObservableObject {
     /// invariant, not this one's. The key is a millisecond, so two windows
     /// that begin inside the same one are also one payment.
     private var creditedWindowStarts: Set<Int64> = []
+    /// The hand-over of the latest windows to the day store, still in flight.
+    /// Each new batch waits for the previous one, so the day store sees the
+    /// windows in the order they were decided; a test awaits it instead of
+    /// guessing how long file I/O takes.
+    private(set) var pendingDayIngest: Task<Void, Never>?
     /// The lowest `ordinal` a creature completed by this session can carry.
     /// Read at `begin()` so the finished page can tell a creature this
     /// session finished from one that was already in the collection.
     private var firstOrdinalThisSession: Int64 = 0
+
+    /// Session seconds one wall-clock second stands for while a product demo
+    /// runs, `nil` otherwise. A demo owns no Watch stream and credits a
+    /// throwaway collection — see `startDemo`.
+    @Published private(set) var demoSpeed: Double?
+    var isDemo: Bool { demoSpeed != nil }
+    private var demoTask: Task<Void, Never>?
+    private var demoBestiary: BestiaryStore?
+    private var demoBestiaryURL: URL?
+    /// Session seconds already turned into windows, so the next tick starts
+    /// where the previous one stopped.
+    private var demoSessionSeconds: Double = 0
 
     init(classifier: PassiveClassifier? = nil,
          makeClassifier: @escaping () throws -> PassiveClassifier = {
              try ScrybeModel(resourceName: "ScrybeActive", channels: 6, seqLen: 250)
          },
          bestiary: BestiaryStore? = nil,
+         focus: FocusStore? = nil,
          hardCapSeconds: TimeInterval = FocusSessionStore.hardCapSeconds,
          startOnWatch: @escaping @MainActor () async -> FocusStartOutcome = {
              await ServerCommandListener.shared.startFocusSession()
@@ -116,6 +136,7 @@ final class FocusSessionStore: ObservableObject {
         self.injected = classifier
         self.makeClassifier = makeClassifier
         self.injectedBestiary = bestiary
+        self.injectedFocus = focus
         self.hardCapSeconds = hardCapSeconds
         self.startOnWatch = startOnWatch
         self.stopOnWatch = stopOnWatch
@@ -124,7 +145,8 @@ final class FocusSessionStore: ObservableObject {
 
     /// Resolved here rather than in `init` so the default argument does not
     /// have to touch a `@MainActor` singleton from outside the actor.
-    private var bestiary: BestiaryStore { injectedBestiary ?? .shared }
+    private var bestiary: BestiaryStore { demoBestiary ?? injectedBestiary ?? .shared }
+    private var focus: FocusStore { injectedFocus ?? .shared }
 
     var writingSeconds: Double {
         decisions.filter(\.writing).reduce(0) { $0 + $1.creditSeconds }
@@ -371,6 +393,7 @@ final class FocusSessionStore: ObservableObject {
         reset()
         finishReason = nil
         phase = .idle
+        tearDownDemo()
     }
 
     /// Picks a session back up that the Watch is still running — after a
@@ -413,7 +436,7 @@ final class FocusSessionStore: ObservableObject {
     /// See `PassiveWindowBuilder`'s header for why that invariant lives there,
     /// not here.
     func consume(_ samples: [PassiveSample]) {
-        guard case .running(let startedAt, _) = phase else { return }
+        guard case .running(let startedAt, _) = phase, !isDemo else { return }
         // Why the cap is checked here as well as on its own task: a suspended
         // app runs no timers. Re-checking against the wall clock whenever
         // samples arrive means a session cannot outlive the cap merely
@@ -441,6 +464,7 @@ final class FocusSessionStore: ObservableObject {
             }
         }
         guard let classifier else { return }
+        var fresh: [PassiveDecision] = []
         for window in builder.append(samples) {
             let startMs = Int64(window.startTimestamp * 1000)
             guard creditedWindowStarts.insert(startMs).inserted else { continue }
@@ -452,6 +476,7 @@ final class FocusSessionStore: ObservableObject {
                 writing: logit >= 0,
                 creditSeconds: builder.secondsPerWindow)
             decisions.append(decision)
+            fresh.append(decision)
             // Why credited here rather than in one sum at `end()`: the
             // creature has to keep growing past a completion boundary instead
             // of clamping at the last stroke, and this screen is meant to be
@@ -460,6 +485,115 @@ final class FocusSessionStore: ObservableObject {
             guard decision.writing else { continue }
             bestiary.addWritingSeconds(decision.creditSeconds)
         }
+        guard !fresh.isEmpty else { return }
+        // Same reasoning for the day: the total on the Heute page and the
+        // Watch ring must move with the session, not with the recorder.
+        let focus = focus
+        let previous = pendingDayIngest
+        pendingDayIngest = Task {
+            await previous?.value
+            await focus.ingestSession(fresh)
+        }
+    }
+
+    // MARK: - Product demo
+
+    /// Runs a session against a script instead of the Watch, `speed` times
+    /// faster than the clock, for screenshots and video.
+    ///
+    /// Nothing real is touched: the creature grows in a collection on a
+    /// temporary file, the windows never reach the day store, and no
+    /// `focus_start` goes out — so the Watch is free for a real recording.
+    /// The session clock, the page and the creature all run on the same
+    /// virtual time, which is what makes the result honest to film: at 30×
+    /// a thirty-minute creature is complete after a minute, and the clock
+    /// above it reads thirty minutes. Ends like any session — the hard cap
+    /// applies in session seconds — and `returnToIdle` clears the demo.
+    func startDemo(speed: Double, now: Date = Date()) {
+        guard case .idle = phase else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("focus-demo-bestiary-\(UUID().uuidString).json")
+        let scratch = BestiaryStore(fileURL: url)
+        demoBestiary = scratch
+        demoBestiaryURL = url
+        demoSpeed = max(1, speed)
+        demoSessionSeconds = 0
+        reset()
+        activeStartID = nil
+        finishReason = nil
+        startPreemptedByRecording = false
+        firstOrdinalThisSession = scratch.creatureInProgress(now: now).ordinal
+        watchIsStreaming = false
+        phase = .running(startedAt: now, targetSeconds: 25 * 60)
+        demoTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                guard !Task.isCancelled, let self else { return }
+                self.advanceDemo(at: Date())
+            }
+        }
+    }
+
+    /// One wall-clock tick of the demo. Internal so a test can drive it
+    /// without sleeping.
+    ///
+    /// The clock is run faster by moving the session's start back rather
+    /// than by scaling every reader: `startedAt` is the one value the page,
+    /// the clock and the signature derive their time from, so shifting it
+    /// keeps all three in step. The windows already decided move back with
+    /// it — they are stamped on that same axis, and left in place they would
+    /// crowd into the last real second while the clock ran on ahead.
+    func advanceDemo(at now: Date, elapsed: TimeInterval = 1) {
+        guard case .running(let startedAt, let target) = phase,
+              let speed = demoSpeed else { return }
+        let shiftSeconds = max(0, speed - 1) * elapsed
+        let shifted = startedAt.addingTimeInterval(-shiftSeconds)
+        let shiftMs = Int64((shiftSeconds * 1000).rounded())
+        decisions = decisions.map {
+            PassiveDecision(startMs: $0.startMs - shiftMs, endMs: $0.endMs - shiftMs,
+                            logit: $0.logit, writing: $0.writing,
+                            creditSeconds: $0.creditSeconds)
+        }
+        let sessionSeconds = now.timeIntervalSince(shifted)
+        if sessionSeconds >= hardCapSeconds {
+            phase = .running(startedAt: shifted, targetSeconds: target)
+            demoTask?.cancel()
+            demoTask = nil
+            end(at: shifted.addingTimeInterval(hardCapSeconds), reason: .hardCap)
+            return
+        }
+        phase = .running(startedAt: shifted, targetSeconds: target)
+        let fresh = FocusSessionDemo.decisions(from: demoSessionSeconds, to: sessionSeconds,
+                                               sessionStart: shifted)
+        demoSessionSeconds = sessionSeconds
+        guard !fresh.isEmpty else { return }
+        decisions.append(contentsOf: fresh)
+        let credit = fresh.filter(\.writing).reduce(0) { $0 + $1.creditSeconds }
+        if credit > 0 { bestiary.addWritingSeconds(credit, now: now) }
+    }
+
+    /// Ends a running demo and returns to the picker in one step, for the
+    /// admin panel. A demo already on its finished page is cleared the same
+    /// way `returnToIdle` clears it.
+    func stopDemo(at now: Date = Date()) {
+        guard isDemo else { return }
+        demoTask?.cancel()
+        demoTask = nil
+        if case .running = phase { end(at: now, reason: .user) }
+        returnToIdle()
+    }
+
+    private func tearDownDemo() {
+        guard isDemo else { return }
+        demoTask?.cancel()
+        demoTask = nil
+        demoBestiary = nil
+        demoSpeed = nil
+        demoSessionSeconds = 0
+        if let demoBestiaryURL {
+            try? FileManager.default.removeItem(at: demoBestiaryURL)
+        }
+        demoBestiaryURL = nil
     }
 
     // MARK: - Ending

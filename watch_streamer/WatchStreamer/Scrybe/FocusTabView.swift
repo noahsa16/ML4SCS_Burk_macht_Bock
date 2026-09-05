@@ -36,6 +36,9 @@ struct FocusTabView: View {
             }
         }
         .toolbar(session.isActive ? .hidden : .visible, for: .tabBar)
+        #if DEBUG
+        .onAppear { if DebugFixture.initialScreen == .outcome { startOutcome = .unreachable } }
+        #endif
         .onChange(of: segments.last?.kind) { kind in
             if FocusPageTear.occurred(previousLastKind: lastSegmentKind, segments: segments) {
                 UIImpactFeedbackGenerator(style: .soft).impactOccurred()
@@ -115,14 +118,39 @@ struct FocusTabView: View {
             .padding(.top, 16)
             .accessibilityElement(children: .combine)
 
+            // Why the creature is the largest thing on the page: the ink runs
+            // are the record, but the animal growing is what the sitting is
+            // for — the page below stays a strip, the way the Heute ring
+            // keeps its own figure small.
+            creatureBlock(speciesId: session.currentSpecies,
+                          strokesDrawn: session.strokesDrawn,
+                          strokesTotal: session.strokesTotal)
+
             WritingPageView(segments: segments,
-                            species: session.currentSpecies,
-                            strokesDrawn: session.strokesDrawn,
                             headMs: Int64(now.timeIntervalSince1970 * 1000))
                 .scrybeSurface(cornerRadius: 16)
 
             ScrybePrimaryButton("Beenden") { session.end() }
         }
+    }
+
+    /// The vignette with the creature's name under it. Bounded so a wide
+    /// phone does not turn the medallion into a poster; on a narrow one it
+    /// takes the width the padding leaves.
+    private func creatureBlock(speciesId: Int, strokesDrawn: Int,
+                               strokesTotal: Int) -> some View {
+        VStack(spacing: 12) {
+            CreatureVignette(speciesId: speciesId, strokesDrawn: strokesDrawn)
+                .frame(maxWidth: 300)
+                .padding(.horizontal, 12)
+            Text(Marginalia.name(forSpecies: speciesId))
+                .font(.system(.title2, design: .serif))
+                .italic()
+                .foregroundStyle(theme.ink)
+        }
+        .frame(maxWidth: .infinity)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text("\(Marginalia.name(forSpecies: speciesId)), \(strokesDrawn) von \(strokesTotal) Strichen gezeichnet"))
     }
 
     /// mm:ss. `TimeFormatting.clock` is h:mm, which would spend a whole
@@ -136,11 +164,13 @@ struct FocusTabView: View {
 
     private func finished(segments: [FocusSegment], entry: BestiaryEntry) -> some View {
         VStack(alignment: .leading, spacing: 16) {
+            creatureBlock(speciesId: entry.speciesId,
+                          strokesDrawn: entry.strokesDrawn,
+                          strokesTotal: entry.strokesTotal)
+
             // The head is parked on the last decision, so the page draws no
             // trace ahead of it: a finished session has nothing left to write.
             WritingPageView(segments: segments,
-                            species: entry.speciesId,
-                            strokesDrawn: entry.strokesDrawn,
                             headMs: segments.last?.endMs ?? 0)
                 .scrybeSurface(cornerRadius: 16)
 

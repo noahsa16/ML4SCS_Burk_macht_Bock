@@ -35,8 +35,7 @@ struct CreatureCard: View {
     var body: some View {
         VStack(spacing: 12) {
             CreatureCanvas(speciesId: entry.speciesId,
-                           strokesDrawn: entry.strokesDrawn,
-                           showsUnderdrawing: !entry.isComplete)
+                           strokesDrawn: entry.strokesDrawn)
                 .frame(height: 88)
                 .frame(maxWidth: .infinity)
                 .opacity(entry.isComplete ? 1 : 0.85)

@@ -1,11 +1,76 @@
-\section{Limitations}
+\section{Limitationen}
 \label{sec:limitations}
 
-% OWNER: Noah
-% Candidate limitations:
-% - cohort size and participant diversity;
-% - controlled tasks versus natural long-term use;
-% - sensor-rate/channel differences between data pools;
-% - pen-derived labels and alignment uncertainty;
-% - limited device and wrist-placement variation;
-% - binary writing/not-writing target rather than richer activity classes.
+\paragraph{Kohorte.} 32 Personen sind für eine personenunabhängige Aussage
+eine tragfähige Grundlage, aber die Kohorte ist
+homogen: überwiegend Studierende, ein Aufnahmeraum, ein Tisch, ein Uhrenmodell,
+die Uhr immer am Schreibhandgelenk. Händigkeit, Alter und Schreibgewohnheit
+wurden nicht erfasst. Die Ergebnisse sagen nichts über Kinder, ältere
+Menschen, Linkshänder mit der Uhr an der rechten Hand oder Personen mit
+motorischen Einschränkungen. Die Streuung zwischen Personen von 3,5
+Prozentpunkten ist in jeder unserer Kennzahlen die dominante Unsicherheit.
+
+\paragraph{Kontrollierte Aufgaben.} Alle Daten stammen aus einem
+Protokoll mit vorgegebenen Aufgaben von ein bis vier Minuten. Das ist die
+Voraussetzung für die Ground Truth und für die Auswertung je Aufgabe, aber es
+ist nicht der Alltag. Im Alltag sind Schreibphasen seltener, kürzer und
+weniger klar begrenzt, und die Negativklasse ist unvergleichlich breiter als
+unsere sechs Nicht-Schreibaufgaben. Ein Schreibanteil von 43\,\% wie im
+Datensatz ist eine Folge des Protokolls und im Alltag kaum zu erwarten;
+belegen können wir das mit unseren Daten nicht, weil sie ausschließlich unter
+dem Protokoll entstanden sind. Bei stark schiefen Anteilen schrumpft ein
+Schätzer des Schreibanteils zur Mitte, was wir auf den Sitzungsblöcken
+gemessen haben. Eine Aufzeichnung über ganze Tage mit
+einer anderen Form der Ground Truth (Tagebuch, Video) steht aus.
+
+\paragraph{Zwei Datenpools.} Die Umstellung auf 100~Hz mit Schwerkraftvektor
+mitten in der Erhebung zwingt zu zwei Pools. Alle Hauptergebnisse laufen auf
+dem Legacy-Pool, in dem 23 der 32 Aufnahmen heruntergerechnet sind. Der
+Dezimierer ist phasenneutral und anti-aliasing-gefiltert, und ein
+explorativer Vergleich 50 gegen 100~Hz auf zwei Aufnahmen einer einzigen
+Person ergab keinen Unterschied; trotzdem
+ist der Legacy-Pool eine Mischung aus nativen und abgeleiteten Signalen.
+Die Aussagen zum Schwerkraftvektor stützen sich auf die 23 Personen des
+Modern-Pools und sind nicht mit den 32-Personen-Zahlen vergleichbar.
+
+\paragraph{Ground Truth aus dem Stift.} Die Labels sind so gut wie die
+zeitliche Ausrichtung und die Labeldefinition. Die Ausrichtung ist auf
+10~ms aufgelöst und über die Aufnahme stabil; das Toleranzfenster von
+$\pm 40$~ms und das Schließen von Lücken bis 2,5~s sind aber Festlegungen,
+und beide erzeugen Fenster, die inhärent mehrdeutig sind (Übergänge, lange
+Denkpausen). Zwei Aufnahmen trugen über Wochen einen falschen Zeitversatz,
+bevor eine Plausibilitätsgrenze ihn aufdeckte; eine davon war Gegenstand
+einer ausführlichen Fehlanalyse. Wir haben die Konsequenz der
+Alignment-Annahme (Schreiben ist die dynamischere Klasse) und den
+Zusammenhang zwischen Alignment-Diagnostik und Genauigkeit geprüft, aber es
+gibt keine videobasierte Kontrolle der Labels. Eine manuelle
+Annotation einiger Aufnahmen gegen Video wäre der Goldstandard, den wir
+nicht geleistet haben.
+
+\paragraph{Statistische Absicherung der Netze.} Die Netze wurden mit drei
+Saaten auf fünf Gruppen trainiert, aber die Läufe auf 32 Personen haben
+keine personenweisen Vorhersagen gespeichert. Damit sind bei 32 Personen
+weder die Rangfolge der beiden Netze noch ihr Abstand zum Random Forest
+gepaart getestet; der Abstand zum Random Forest ist mit fünf bis sechs
+Prozentpunkten zwar um eine Größenordnung größer als jede beobachtete
+Streuung, ein formaler Test fehlt aber. Die Nichtdeterminiertheit der
+GPU-Kerne (bis 1,6 Prozentpunkte bei identischer Saat) begrenzt außerdem, wie
+fein Architekturen überhaupt unterscheidbar sind. Hinzu kommt, dass
+Architektur- und Hyperparameterwahl auf derselben Kohorte stattfanden, auf der
+wir berichten (Abschnitt~\ref{sec:cv}): Die Werte der Netze sind
+Selektionssieger und damit systematisch nach oben verzerrt.
+
+\paragraph{Binäre Zielgröße.} Das Modell unterscheidet Schreiben von allem
+anderen. Es unterscheidet nicht zwischen Schreiben und Zeichnen, nicht
+zwischen Handschrift und Skizze, und es sagt nichts darüber, was geschrieben
+wird oder ob die Person dabei aufmerksam ist. Der Schreibanteil je Aufgabe,
+den wir als Engagement-Proxy ausgewertet haben, ist genau das: ein Proxy.
+Eine Person kann konzentriert nachdenken, ohne zu schreiben.
+
+\paragraph{Einsatz auf dem Gerät.} Der Random Forest mit HMM-Filter läuft
+im Live-Dashboard, und die Ablation ohne Gyroskop zeigt, dass ein passiver
+Ganztags-Tracker auf der Watch mit etwa einem Prozentpunkt Verlust möglich
+ist. Die Messung, ob die Hintergrund-Sensorik der Watch über zwölf Stunden
+tatsächlich 50~Hz liefert und ob das konvertierte Modell auf der Uhr die
+gleichen Vorhersagen erzeugt wie auf dem Rechner, steht zum Zeitpunkt dieses
+Berichts noch aus.

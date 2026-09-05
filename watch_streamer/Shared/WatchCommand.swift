@@ -142,11 +142,10 @@ public nonisolated enum WatchPayloadKey {
     /// Latest iPhone-owned daily writing goal, mirrored through every durable
     /// command/poll payload so the Watch ring cannot drift to a local default.
     public static let dailyGoalSeconds = "daily_goal_seconds"
-    /// The creature being drawn on the phone, mirrored the same way as the
-    /// goal so the Watch can show its progress — see `WatchCreatureSnapshot`.
-    public static let creatureSpecies = "creature_species"
-    public static let creatureStrokesTotal = "creature_strokes_total"
-    public static let creatureWritingSeconds = "creature_writing_seconds"
+    /// Today's writing total as the phone counts it, mirrored the same way as
+    /// the goal so the ring does not lag a focus session — see `WatchDayTotal`.
+    public static let todayDay = "today_day"
+    public static let todayWritingSeconds = "today_writing_seconds"
 
     /// Envelope type for a batch of passive writing decisions travelling from
     /// the Watch to the phone. Sent over `transferUserInfo` because it is

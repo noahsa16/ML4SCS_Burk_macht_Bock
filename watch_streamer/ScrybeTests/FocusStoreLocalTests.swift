@@ -57,6 +57,47 @@ struct FocusStoreLocalTests {
         #expect(store.todayWritingSeconds == 0)
     }
 
+    // The recorder classifies the same minutes a focus session already judged
+    // live, minutes to hours later and under different window starts, so the
+    // store's idempotency cannot catch the repeat — the session ledger must.
+    @Test("recorder windows inside a session span are dropped")
+    func recorderIsShieldedBySessionSpan() async {
+        let (store, _, _) = tempStore()
+        let session = windows(0, count: 8)                    // 10:00:00 – 10:00:22.5
+        await store.ingestSession(session)
+        #expect(store.todayWritingSeconds == 20.0)
+
+        // Recorder windows offset by 1.2 s: new start times, same minutes.
+        let repeat_ = windows(0, count: 6).map {
+            PassiveDecision(startMs: $0.startMs + 1_200, endMs: $0.endMs + 1_200,
+                            logit: $0.logit, writing: true, creditSeconds: 2.5)
+        }
+        await store.ingest(repeat_)
+        #expect(store.todayWritingSeconds == 20.0)
+
+        // Outside the span the recorder is the record again.
+        await store.ingest(windows(0, count: 4, hour: 14))
+        #expect(store.todayWritingSeconds == 30.0)
+    }
+
+    @Test("a session's idle windows widen the span without adding time")
+    func idleSessionWindowsWidenTheSpan() async {
+        let (store, raw, _) = tempStore()
+        await store.ingestSession(windows(0, count: 8, writing: false))
+        #expect(raw.allDecisions().isEmpty)
+        await store.ingest(windows(0, count: 8).dropFirst(2).map { $0 })
+        #expect(store.todayWritingSeconds == 0)
+    }
+
+    @Test("the watch mirror carries today's date with the total")
+    func watchMirrorCarriesTheDay() async {
+        let (store, _, _) = tempStore()
+        await store.ingest(windows(0, count: 4))
+        let total = store.watchDayTotal()
+        #expect(total.writingSeconds == 10.0)
+        #expect(total.day == WatchDayTotal.isoDay(Date()))
+    }
+
     @Test("a mixed batch keeps only the writing windows")
     func mixedBatch() async {
         let (store, raw, _) = tempStore()

@@ -97,7 +97,7 @@ def _drop_excluded(sessions: pd.DataFrame, exclude) -> pd.DataFrame:
 
     Why: manche Sessions sind formal ``usable``, taugen aber fuer ein
     bestimmtes Experiment nicht -- S095 etwa hat ein uebersprungenes
-    Pen-Alignment (sigma = -1.28, schwaecher als die -2-Schwelle), ihre Labels
+    Pen-Alignment (sigma = -1.08, schwaecher als die -2-Schwelle), ihre Labels
     sind also nicht zeitlich bestaetigt. Der Ausschluss steht in der
     Experiment-Config statt in der server-eigenen sessions.csv: er ist damit
     reproduzierbar, versioniert und experiment-lokal.

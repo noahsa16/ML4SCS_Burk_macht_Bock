@@ -1,11 +1,26 @@
-%% Working-paper template adapted for the ML4SCS semester project.
+%% Working-Paper-Vorlage für das ML4SCS-Semesterprojekt.
 \documentclass[11pt]{article}
+\PassOptionsToPackage{ngerman}{babel} %% Deutsche Silbentrennung; die Vorlage lädt babel selbst.
 \usepackage{UF_FRED_paper_style}
+%% Die Vorlage laedt palatino (Type1-Familie ppl), die unter der
+%% Unicode-Engine von tectonic nicht existiert: LaTeX ersetzt sie durch die
+%% Standardschrift und verliert dabei die fette Serie (\textbf, \paragraph).
+%% TeX Gyre Pagella ist der freie Palatino-Nachbau mit allen Schnitten.
+\usepackage{fontspec}
+\setmainfont{texgyrepagella}[
+    Extension    = .otf,
+    UprightFont  = *-regular,
+    BoldFont     = *-bold,
+    ItalicFont   = *-italic,
+    BoldItalicFont = *-bolditalic]
+
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta, positioning, calc}
 
 \onehalfspacing
-\setlength{\droptitle}{-5em} %% Required by the supplied template.
+\setlength{\droptitle}{-5em} %% Vorgabe der bereitgestellten Vorlage.
 
-\title{Writing Activity Detection from Wrist-Worn Inertial Sensors}
+\title{Erkennung von Schreibaktivität anhand inertialer Sensordaten einer Smartwatch}
 
 \author{Noah Samel (4004067)\\
     noah.samel@stud.leuphana.de
@@ -13,29 +28,52 @@
     Tajuddin Snasni (TODO: Matrikelnummer)\\
     tajuddin.snasni@stud.leuphana.de}
 
-\date{\today}
+\date{2. September 2026}
 
 \begin{document}
+\selectlanguage{ngerman}
 
 {\setstretch{.8}
 \maketitle
 \begin{abstract}
 \noindent
-% TODO (Noah, final): Write this last. Cover the problem, Apple Watch IMU input,
-% pen-derived ground truth, participant-wise evaluation, best result, and conclusion.
+Handschriftliches Schreiben ist eine alltägliche Tätigkeit, die bislang meist
+mit instrumentierten Stiften oder Kameras erfasst wird. Diese Arbeit
+untersucht, ob sich Schreibaktivität allein aus den Daten der inertialen
+Messeinheit (IMU) einer Smartwatch am Schreibhandgelenk erkennen lässt,
+unabhängig von der tragenden Person. Dafür wurde ein eigenes Erfassungssystem
+aus Apple Watch, iPhone-Bridge und Server entwickelt; ein Moleskine Smart Pen
+lieferte die Ground Truth, deren Strichereignisse über eine varianzbasierte
+Zeitausrichtung mit den Watch-Daten verknüpft werden. Unter einem
+Latin-Square-balancierten Studienprotokoll mit Schreibaufgaben und gezielt
+schreibähnlichen Gegenaufgaben (Tippen, Scrollen, Gestikulieren) entstand ein
+Datensatz mit 32 Personen und rund 11,5 Stunden annotierter Daten. Alle
+Modelle wurden mit einer gruppierten fünffachen Kreuzvalidierung über die
+Personen bewertet, sodass keine Person je in ihrem eigenen Training war. Ein Random
+Forest auf 88 Merkmalen je Sekunde erreicht 0,865 Genauigkeit und 0,942
+ROC-AUC. Ein nachgeschaltetes Zwei-Zustands-HMM hebt dieselben Vorhersagen ohne
+Neutraining auf 0,917 Genauigkeit und 0,973 ROC-AUC, wenn es die Aufnahme
+rückblickend dekodiert, und auf 0,898 als kausaler Filter für den
+Live-Einsatz. Ein zeitliches Faltungsnetz mit rekurrentem Kopf auf
+5-s-Fenstern erreicht 0,921 Genauigkeit und 0,975 ROC-AUC; für die Netze
+liegen auf dieser Kohorte keine personenweisen Vorhersagen vor, ihr Vorsprung
+ist deshalb nicht gepaart getestet. Wir schließen,
+dass ein personenunabhängiger Schreibdetektor auf einer Smartwatch möglich
+ist und dass weitere Fortschritte eher von vielfältigeren Trainingspersonen
+als von neuen Modellen zu erwarten sind.
 
 \medskip
 \noindent
-\textit{\textbf{Keywords: }human activity recognition; inertial measurement unit;
-wearable sensing; writing detection; machine learning.}
+\textit{\textbf{Schlagwörter: }Aktivitätserkennung; Inertialsensorik;
+Wearable Computing; Schreiberkennung; maschinelles Lernen.}
 \end{abstract}
 }
 
-% Taji's sections
+% Tajis Abschnitte
 \input{sections/01_introduction}
 \input{sections/02_related_work}
 
-% Noah's sections
+% Noahs Abschnitte
 \input{sections/03_data_collection}
 \input{sections/04_methodology}
 \input{sections/05_experimental_setup}

@@ -58,6 +58,23 @@ Zwei Folgen:
   fehlt ein Stück Linie; der Datensatz ist unberührt. Durabilität, Wiederholung
   und Quittierung entfallen ersatzlos.
 
+**Revision 2026-09-02 — das Sucher-Prinzip ist aufgegeben.** Im Gerätetest las
+sich die erste Folge nicht als Ernte-Einstellung, sondern als Fehler: nach einer
+Sitzung mit einer Minute Schreibzeit zeigten Heute-Seite und Uhr „0 min", und
+der Recorder-Nachlauf kommt Minuten bis Stunden später. Umgesetzt ist jetzt die
+oben verworfene Alternative „live gewinnt", aber ohne Cursor-Manipulation am
+Recorder: `FocusStore.ingestSession` bucht die Sitzungs-Fenster sofort, und
+`FocusSessionSpans` (UserDefaults, Aufbewahrung wie die Rohfenster, 3 Tage)
+merkt sich die von der Sitzung beurteilten Zeitspannen. Recorder-Fenster, die
+ganz in einer Spanne liegen, verwirft `ingest` — schreibende wie stille. Die
+Spanne wächst Fenster für Fenster, deshalb deckt eine vom System beendete
+Sitzung genau die gebuchten Minuten ab und nichts danach. Der Live-Kanal hat
+weiterhin keine Zustellgarantie: ein verlorenes Fenster fehlt in Linie *und*
+Tag, der Recorder darf es nicht nachtragen, weil seine Grenzen die Lücke nie
+exakt treffen. Die Uhr spiegelt die Tagessumme des Telefons (`WatchDayTotal`)
+und zeigt das Maximum aus eigenem Stand und Spiegel; die Kreatur wird auf der
+Uhr nicht mehr gezeichnet.
+
 ## 3. Modellwahl und Datenweg
 
 Die Fokus-Sitzung nutzt **nicht** das Passiv-Modell. Beide liegen bereits im

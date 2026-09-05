@@ -78,3 +78,30 @@ struct BestiaryTests {
         #expect(Bestiary.secondsPerCreature == 30 * 60)
     }
 }
+
+@Suite("Species distribution")
+struct BestiarySpeciesDistributionTests {
+    @Test("Every species appears once per block of eight")
+    func blockHoldsEachSpeciesOnce() {
+        for block in Int64(0)..<40 {
+            let base = block * Int64(Bestiary.speciesCount)
+            let drawn = (0..<Bestiary.speciesCount).map {
+                Bestiary.species(seed: base + Int64($0))
+            }
+            #expect(Set(drawn).count == Bestiary.speciesCount)
+        }
+    }
+
+    @Test("Consecutive creatures are never the same species")
+    func neighboursDiffer() {
+        for seed in Int64(0)..<400 {
+            #expect(Bestiary.species(seed: seed) != Bestiary.species(seed: seed + 1))
+        }
+    }
+
+    @Test("Negative seeds stay inside their own block")
+    func negativeSeeds() {
+        let drawn = (Int64(-8)..<0).map { Bestiary.species(seed: $0) }
+        #expect(Set(drawn).count == Bestiary.speciesCount)
+    }
+}

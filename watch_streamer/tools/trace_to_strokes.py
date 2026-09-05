@@ -21,10 +21,11 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import NamedTuple
 
 import numpy as np
 from PIL import Image, ImageOps
-from scipy.ndimage import convolve
+from scipy.ndimage import convolve, distance_transform_edt
 from skimage.filters import threshold_otsu, threshold_sauvola
 from skimage.morphology import (skeletonize, remove_small_objects,
                                 opening, closing, disk)
@@ -80,11 +81,31 @@ def load_ink(path: Path, invert: bool, max_side: int,
     return ink
 
 
-def centre_lines(ink: np.ndarray, min_blob: int) -> np.ndarray:
+class Stroke(NamedTuple):
+    points: list
+    """Ink thickness along this stroke, in pixels of the traced image."""
+    width: float
+
+
+def centre_lines(ink: np.ndarray, min_blob: int) -> tuple[np.ndarray, np.ndarray]:
+    """The skeleton, and for every ink pixel its distance to the nearest
+    non-ink pixel — which along the skeleton is half the line's thickness."""
     cleaned = remove_small_objects(ink, min_size=min_blob)
     if not cleaned.any():
         raise SystemExit(f"nothing left after removing blobs under {min_blob} px")
-    return skeletonize(cleaned)
+    return skeletonize(cleaned), distance_transform_edt(cleaned)
+
+
+def stroke_width(run: list[tuple[int, int]], half_widths: np.ndarray) -> float:
+    """Median thickness of the ink under a skeleton run.
+
+    Why the median and not the mean: a run that passes through a junction
+    or a filled eye picks up a few very wide samples, and the mean would
+    turn a hairline that touches a contour into a contour.
+    """
+    rows = np.fromiter((r for r, _ in run), dtype=int, count=len(run))
+    cols = np.fromiter((c for _, c in run), dtype=int, count=len(run))
+    return float(2 * np.median(half_widths[rows, cols]))
 
 
 def walk(skeleton: np.ndarray) -> list[list[tuple[int, int]]]:
@@ -200,7 +221,7 @@ def smooth_path(points: list[tuple[float, float]]) -> str:
     return " ".join(out)
 
 
-def drawing_order(strokes: list[list[tuple[float, float]]]) -> list:
+def drawing_order(strokes: list[Stroke]) -> list[Stroke]:
     """Order the strokes so the creature grows instead of assembling.
 
     Sorting by length alone looked right finished and wrong in motion: the
@@ -219,13 +240,13 @@ def drawing_order(strokes: list[list[tuple[float, float]]]) -> list:
     ordered = [remaining.pop(0)]
     # Endpoints are enough: strokes meet at their ends, and comparing every
     # point against every point costs far more for no better an order.
-    anchors = [ordered[0][0], ordered[0][-1]]
+    anchors = [ordered[0].points[0], ordered[0].points[-1]]
 
     while remaining:
         best, best_distance = 0, None
         for i, stroke in enumerate(remaining):
             d = min(np.hypot(p[0] - a[0], p[1] - a[1])
-                    for p in (stroke[0], stroke[-1]) for a in anchors)
+                    for p in (stroke.points[0], stroke.points[-1]) for a in anchors)
             if best_distance is None or d < best_distance - 1e-9:
                 best, best_distance = i, d
             elif abs(d - best_distance) <= 6.0 and \
@@ -233,11 +254,12 @@ def drawing_order(strokes: list[list[tuple[float, float]]]) -> list:
                 best, best_distance = i, d
         stroke = remaining.pop(best)
         ordered.append(stroke)
-        anchors += [stroke[0], stroke[-1]]
+        anchors += [stroke.points[0], stroke.points[-1]]
     return ordered
 
 
-def length_of(points) -> float:
+def length_of(stroke: Stroke) -> float:
+    points = stroke.points
     return sum(np.hypot(points[i + 1][0] - points[i][0], points[i + 1][1] - points[i][1])
                for i in range(len(points) - 1))
 
@@ -273,13 +295,14 @@ def main() -> int:
 
     ink = load_ink(args.image, args.invert, args.max_side,
                    args.window, args.despeckle, args.bridge)
-    runs = walk(centre_lines(ink, args.min_blob))
+    skeleton, half_widths = centre_lines(ink, args.min_blob)
+    runs = walk(skeleton)
 
     strokes = []
     for run in runs:
-        pts = simplify(run, args.tolerance)
-        if len(pts) >= 2 and length_of(pts) >= args.min_stroke:
-            strokes.append(pts)
+        stroke = Stroke(simplify(run, args.tolerance), stroke_width(run, half_widths))
+        if len(stroke.points) >= 2 and length_of(stroke) >= args.min_stroke:
+            strokes.append(stroke)
 
     if not strokes:
         raise SystemExit("no strokes survived; try --min-stroke lower")
@@ -295,8 +318,11 @@ def main() -> int:
     strokes = drawing_order(strokes[:args.max_strokes])
 
     height, width = ink.shape
+    # The measured thickness travels with each path so the app can draw a
+    # contour heavier than the hatching beside it, as the source did.
     body = "\n".join(
-        f'  <path id="{i + 1}" fill="none" stroke="black" d="{smooth_path(s)}"/>'
+        f'  <path id="{i + 1}" fill="none" stroke="black" '
+        f'stroke-width="{s.width:.1f}" d="{smooth_path(s.points)}"/>'
         for i, s in enumerate(strokes))
     args.out.write_text(
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}">\n'

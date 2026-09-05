@@ -9,7 +9,8 @@ import SwiftUI
 //
 //   cd watch_streamer && swiftc -O -o /tmp/render \
 //       tools/render_marginalia.swift \
-//       Shared/Marginalia.swift && /tmp/render
+//       WatchStreamer/Scrybe/Components/Marginalia.swift \
+//       WatchStreamer/Scrybe/Components/CreaturePen.swift && /tmp/render
 //
 // Pass a species index to render that one alone at a larger size:
 //   /tmp/render 3
@@ -81,15 +82,11 @@ enum RenderMarginalia {
             ctx.setStrokeColor(ink.cgColor)
             ctx.setLineCap(.round)
             ctx.setLineJoin(.round)
-            let all = Marginalia.strokes(forSpecies: species)
-            // A detailed creature needs a finer pen. At nine strokes a heavy
-            // line reads as confident; at seventy the same line welds the
-            // detail into blobs, so the weight follows the stroke count.
-            let base = max(0.9, 2.6 - CGFloat(all.count) * 0.03)
-            for (index, stroke) in all.enumerated() {
-                // Later strokes sit slightly finer, the way a pen loses ink.
-                ctx.setLineWidth(base - min(base * 0.3, CGFloat(index) * 0.01))
-                ctx.addPath(stroke.cgPath)
+            // Each stroke carries the thickness measured from its source, so
+            // a contour comes out heavy and the hatching beside it fine.
+            for stroke in Marginalia.strokes(forSpecies: species) {
+                ctx.setLineWidth(CreaturePen.lineWidth(stroke.width, side: cell * scale))
+                ctx.addPath(stroke.path.cgPath)
                 ctx.strokePath()
             }
             ctx.restoreGState()
@@ -143,13 +140,13 @@ enum RenderMarginalia {
             ctx.setStrokeColor(ink.cgColor)
             ctx.setLineCap(.round)
             ctx.setLineJoin(.round)
-            let base = max(0.9, 2.6 - CGFloat(strokes.count) * 0.03) * (side < 100 ? 1.6 : 1)
             for (i, stroke) in strokes.prefix(count).enumerated() {
                 // The newest stroke is still wet, so it sits a shade darker.
                 let fresh = i == count - 1 && count < strokes.count
-                ctx.setLineWidth(fresh ? base * 1.15 : base)
+                let width = CreaturePen.lineWidth(stroke.width, side: side)
+                ctx.setLineWidth(fresh ? width * 1.15 : width)
                 ctx.setAlpha(fresh ? 1.0 : 0.92)
-                ctx.addPath(stroke.cgPath)
+                ctx.addPath(stroke.path.cgPath)
                 ctx.strokePath()
             }
             ctx.setAlpha(1)

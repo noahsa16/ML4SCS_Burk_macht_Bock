@@ -132,8 +132,6 @@ enum WritingPageLayout {
 /// The session as a page: time runs left to right and wraps like handwriting.
 struct WritingPageView: View {
     let segments: [FocusSegment]
-    let species: Int
-    let strokesDrawn: Int
     /// Wall clock of the pen tip, which runs ahead of the last decision by one
     /// window. Drawn faint so the latency is shown rather than hidden.
     let headMs: Int64
@@ -142,24 +140,16 @@ struct WritingPageView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     /// Ruled-line spacing, and the only vertical metric the page has. Scaled:
-    /// the creature and the ink between the rules grow with the reader's text
-    /// size, so lines held at 32 pt would crowd them into each other.
-    /// `WritingPageLayout` stays free of it — the pure mapping is in drawn
-    /// seconds, and a Dynamic Type setting must not move where a stroke falls
-    /// on the page's time axis.
+    /// the ink between the rules grows with the reader's text size, so lines
+    /// held at 32 pt would crowd it. `WritingPageLayout` stays free of it — the
+    /// pure mapping is in drawn seconds, and a Dynamic Type setting must not
+    /// move where a stroke falls on the page's time axis.
     @ScaledMetric private var lineHeight: CGFloat = 32
-    /// Scaled with the line height, not held at 40: the creature is drawn
-    /// inside this margin, so a margin that stayed put would have it spill
-    /// over the ink once the reader's text size grew it.
-    @ScaledMetric private var marginLeft: CGFloat = 40
-    private let marginRight: CGFloat = 24
+    private let marginLeft: CGFloat = 20
+    private let marginRight: CGFloat = 20
     private let topInset: CGFloat = 24
     private let bottomInset: CGFloat = 16
     private let paragraphIndent: CGFloat = 16
-    /// The creature fills one ruled line, so it takes the line's own metric
-    /// rather than a second copy of 32 that would stay 32 while the rules
-    /// moved apart — which left it stranded in a widening margin.
-    private var creatureBoxSize: CGFloat { lineHeight }
     /// The serif figure beside a paragraph mark.
     @ScaledMetric(relativeTo: .caption2) private var paragraphFigureSize: CGFloat = 10
     /// One line of page holds this much writing (Spec §6).
@@ -193,9 +183,9 @@ struct WritingPageView: View {
             staticPage(page)
             if !reduceMotion {
                 // Why: only the wet head moves in real time -- the ruled
-                // lines, every ink/resting run, every paragraph mark, and up
-                // to 200+ creature strokes are static between decisions and
-                // must not be redrawn on every tip-animation tick.
+                // lines, every ink/resting run and every paragraph mark are
+                // static between decisions and must not be redrawn on every
+                // tip-animation tick.
                 TimelineView(.animation(minimumInterval: 1.0 / 12, paused: reduceMotion)) { timeline in
                     Canvas { context, size in
                         let geo = renderGeometry(page: page, size: size)
@@ -220,14 +210,13 @@ struct WritingPageView: View {
         .accessibilityValue(Text(accessibilitySummary))
     }
 
-    /// Rules, ink, resting hairlines, paragraph marks and the creature — the
-    /// entire page except the wet head. Redraws only when SwiftUI decides
-    /// this view's own inputs changed, never on the wet head's 60 Hz tick.
+    /// Rules, ink, resting hairlines and paragraph marks — the entire page
+    /// except the wet head. Redraws only when SwiftUI decides this view's own
+    /// inputs changed, never on the wet head's 60 Hz tick.
     private func staticPage(_ page: WritingPageLayout.Page) -> some View {
         Canvas { context, size in
             let geo = renderGeometry(page: page, size: size)
             drawRules(page: page, width: size.width, in: &context)
-            drawCreature(in: &context)
             for run in page.runs {
                 draw(run, geo: geo, in: &context)
             }
@@ -290,21 +279,6 @@ struct WritingPageView: View {
             // it a gap reads as nothing rather than an empty line (Spec §6
             // "Aufbau").
             context.stroke(path, with: .color(theme.hairline), lineWidth: 0.5)
-        }
-    }
-
-    private func drawCreature(in context: inout GraphicsContext) {
-        let strokes = Marginalia.strokes(forSpecies: species)
-        guard !strokes.isEmpty, strokesDrawn > 0 else { return }
-        let scale = creatureBoxSize / 100
-        let origin = CGPoint(x: 4, y: topInset)
-        for path in strokes.prefix(strokesDrawn) {
-            let scaled = path.applying(CGAffineTransform(scaleX: scale, y: scale))
-                .offsetBy(dx: origin.x, dy: origin.y)
-            // Why: the creature lives in the left margin, drawn `strokesDrawn`
-            // strokes at a time from `Marginalia.strokes(forSpecies:)` (Spec
-            // §8 "Das Bestiarium").
-            context.stroke(scaled, with: .color(theme.secondaryInk), lineWidth: 1.2)
         }
     }
 
@@ -427,9 +401,8 @@ struct WritingPageView: View {
             .filter { $0.kind == .ink }
             .reduce(0.0) { $0 + Double(max(0, $1.endMs - $1.startMs)) / 1_000 }
         let pauses = segments.filter { $0.kind != .ink }.count
-        let creature = Marginalia.name(forSpecies: species)
         return String(localized:
-            "\(TimeFormatting.human(seconds: writtenSeconds)) geschrieben, \(pauses) Pausen, \(strokesDrawn) Striche für \(creature)")
+            "\(TimeFormatting.human(seconds: writtenSeconds)) geschrieben, \(pauses) Pausen")
     }
 
     /// The pen tip runs ahead of the last decision in real time, with a faint
@@ -507,7 +480,7 @@ struct WritingPageView: View {
         FocusSegment(kind: .paragraph, startMs: 300_000, endMs: 372_000),
         FocusSegment(kind: .ink, startMs: 372_000, endMs: 410_000),
     ]
-    return WritingPageView(segments: segments, species: 2, strokesDrawn: 5, headMs: 415_000)
+    return WritingPageView(segments: segments, headMs: 415_000)
         .padding(24)
         .background(ScrybeTheme.standard.paper)
         .scrybeTheme()

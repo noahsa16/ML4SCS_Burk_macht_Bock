@@ -43,6 +43,9 @@ struct RootPagerView: View {
                 .tag(Tab.focus)
         }
         .background(theme.paper.ignoresSafeArea())
+        .onReceive(FocusSessionStore.shared.$demoSpeed) { speed in
+            if speed != nil { selection = .focus }
+        }
         .onAppear {
             applyTabBarAppearance()
             FocusStore.shared.start()
@@ -51,6 +54,9 @@ struct RootPagerView: View {
             if let tab = DebugFixture.initialTab { selection = tab }
             debugProfilePresented = DebugFixture.opensProfile
             Task { await DebugFixture.seedIfRequested() }
+            if let speed = DebugFixture.demoSessionSpeed {
+                FocusSessionStore.shared.startDemo(speed: speed)
+            }
             #endif
         }
         #if DEBUG

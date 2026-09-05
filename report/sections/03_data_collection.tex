@@ -1,17 +1,197 @@
-\section{Data Collection}
+\section{Datenerhebung}
 \label{sec:data-collection}
 
-% OWNER: Noah
+\subsection{Erfassungssystem}
 
-\subsection{Sensing System}
-% Apple Watch: accelerometer, gyroscope, capture rate and channel variants.
-% Moleskine Smart Pen: used only to obtain ground-truth stroke events.
-% State explicitly that inference requires only the watch.
+Die zentrale Herausforderung beim Aufbau des Datensatzes bestand darin, ein
+präzises Referenzsignal (Ground Truth) für den ansonsten nicht direkt
+beobachtbaren Übergang zwischen Schreiben und Nicht-Schreiben zu gewinnen.
+Dazu diente ein Moleskine Smart Pen (NWP-F130). Da die verfügbare
+NeoSmartpen-Websoftware keine geeignete Python-Schnittstelle für die
+Datenerfassung bereitstellte, analysierten wir die TypeScript-Implementierung
+des NeoSmartpen Web SDK 2.0 \citep{neosmartpen2023} und implementierten das
+benötigte Bluetooth-Low-Energy-Protokoll in Python. Der daraus entstandene
+Logger führt den Verbindungsaufbau mit dem Stift durch, aktiviert das
+Online-Streaming, dekodiert das binäre Paketformat und zeichnet Ereignisse für
+das Aufsetzen, Bewegen und Abheben des Stifts sowie Hover-Ereignisse zusammen
+mit Geräte- und lokalen Zeitstempeln auf. Der Stift liefert diese Ereignisse
+mit etwa 80 bis 90~Hz. Koordinaten, Druck und Neigung wurden zu
+Diagnosezwecken gespeichert; die zeitlichen Stiftereignisse bildeten die
+Grundlage der in dieser Arbeit verwendeten Labels.
 
-\subsection{Study Protocol}
-% Participants, tasks, counterbalancing, writing and non-writing activities.
-% Mention Study Mode and task markers only where methodologically relevant.
+Die Eingabedaten des Modells wurden unabhängig davon durch eine Apple Watch
+Series~6 am Schreibhandgelenk der Versuchsperson aufgezeichnet. Erfasst wurden
+der dreiachsige Beschleunigungssensor und das dreiachsige Gyroskop, zunächst
+mit 50~Hz. Nach den ersten neun Aufnahmen wurde die Erfassung auf 100~Hz
+umgestellt und zusätzlich der von Core Motion getrennt ausgegebene
+Schwerkraftvektor gespeichert, der die Orientierung des Handgelenks
+rekonstruierbar macht. Aus dieser Umstellung ergeben sich die beiden Datenpools
+aus Abschnitt~\ref{sec:dataset}.
 
-\subsection{Dataset}
-% Final cohort size, sessions, pool differences, inclusion/exclusion criteria,
-% and class balance. Insert a compact cohort table once values are frozen.
+Für erste Testaufnahmen wurde die Anwendung SensorLogger
+\citep{sensorlogger} verwendet, die in unseren Versuchen jedoch keine stabile
+Abtastrate lieferte und keine Kontrolle über Zeitstempel und Übertragung bot. Wir haben deshalb
+eine eigene native Anwendung für watchOS und iOS in Swift entwickelt. Auf der
+Watch erfasst ein auf \texttt{CMMotionManager} aus dem Core-Motion-Framework
+\citep{apple_coremotion} basierender Dienst die Gerätebewegung und bündelt je
+zehn Messungen zu einem Paket, das über \texttt{WatchConnectivity}
+\citep{apple_watchconnectivity} an die iPhone-App und von dort per HTTP an den
+Erfassungsserver geht. Jedes einzelne Sample trägt dabei einen Zeitstempel der
+Uhr selbst, jedes Paket eine fortlaufende Sequenznummer. Beides ist
+notwendig, weil die Watch bei Verbindungsproblemen puffert und Pakete
+verspätet nachliefert: Die Ankunftszeit am Server ist um Sekunden bis Minuten
+verschoben, während der Sample-Zeitstempel korrekt bleibt. Alle Zeitrechnungen
+in dieser Arbeit laufen deshalb auf dieser Capture-Uhr der Watch
+(Abschnitt~\ref{sec:alignment}).
+
+\subsection{Studienprotokoll}
+\label{sec:protocol}
+
+Jede Aufnahme lief unter einem festen Ablaufskript, das ein Protokoll-Runner im
+Erfassungsserver steuerte. Die Versuchsperson sah auf einem Bildschirm die
+aktuelle Aufgabe mit Countdown und Anweisung, die Versuchsleitung überwachte
+den Lauf auf einem zweiten Gerät. Jeder Aufgabenwechsel wurde mit einem
+Zeitstempel als Marker protokolliert. Die Marker gehen nicht in das Training
+ein, sie erlauben aber im Nachhinein, jeden Vorhersagefehler einer konkreten
+Aufgabe zuzuordnen (Abschnitt~\ref{sec:error-analysis}).
+
+Protokoll~v1 (Abbildung~\ref{fig:protocol-v1}) bestand aus drei Schreibaufgaben
+von je 240~s, getrennt durch zwei freie Pausen von je 90~s. In den Pausen
+durften die Personen tun, was sie wollten, nur nicht schreiben. Die Auswertung
+der ersten Aufnahmen zeigte, dass diese Pausen als Negativbeispiele zu leicht
+waren: Das Modell lehnte sie fast fehlerfrei ab, und die wenigen Fehler
+konzentrierten sich auf Personen, die in der Pause auf dem Handy tippten. Diese
+Bewegung erzeugt am Handgelenk ein schreibähnliches Muster, das im Protokoll
+weder vorgesehen noch kontrolliert war.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[font=\tiny]
+        \def\h{1.9}
+        \foreach \x/\w/\lab/\fc in {%
+            0/4.0/Abschreiben/{blue!14}, 4.0/1.5/Pause/{black!8},
+            5.5/4.0/Rechnen/{blue!14}, 9.5/1.5/Pause/{black!8},
+            11.0/4.0/{Freies Schreiben}/{blue!14}} {
+            \draw[fill=\fc, draw=black!45] (\x,0) rectangle ++(\w,\h);
+            \node[rotate=90, align=center] at (\x+\w/2, \h/2) {\lab};
+        }
+        \draw[-{Latex[length=1.6mm]}] (0,-0.15) -- (15,-0.15);
+        \node[anchor=north] at (7.5,-0.3) {15,5~min};
+    \end{tikzpicture}
+    \caption{Protokoll v1: drei Schreibaufgaben (blau) von je 240~s, getrennt
+    durch zwei freie Pausen (grau) von je 90~s. Die Blockbreite entspricht der
+    Dauer.}
+    \label{fig:protocol-v1}
+\end{figure}
+
+Protokoll~v2 (Abbildung~\ref{fig:protocol-v2}) ersetzt die freien Pausen
+deshalb durch fünf gezielte Hard Negatives: Tippen auf dem Handy, Scrollen auf
+dem Handy, Tippen auf einer Tastatur, Herumspielen mit dem Stift in der
+Schreibhand und Gestikulieren beim Erzählen. Auf der Schreibseite kommen zwei
+Varianten hinzu, die den beobachteten Schwierigkeiten entsprechen: bewusst
+leises, druckarmes Schreiben und Schreiben mit erzwungenen Denkpausen von 10
+bis 15~s. Schreib- und Nicht-Schreibaufgaben wechseln sich ab; ein Durchlauf
+dauert etwa 25,5~min.
+
+\begin{figure}[H]
+    \centering
+    \begin{tikzpicture}[font=\tiny]
+        \def\h{2.4}
+        \foreach \x/\w/\lab/\fc in {%
+            0/1.84/Abschreiben/{blue!14}, 1.84/1.22/{Handy tippen}/{black!8},
+            3.06/2.14/Rechnen/{blue!14}, 5.20/0.92/{Handy scrollen}/{black!8},
+            6.12/1.53/{Freies Schreiben}/{blue!14}, 7.65/1.22/{Tastatur tippen}/{black!8},
+            8.88/1.53/{Leises Schreiben}/{blue!14}, 10.41/1.22/{Stift in der Hand}/{black!8},
+            11.63/2.14/{Mit Denkpausen}/{blue!14}, 13.77/0.61/Gestikulieren/{black!8},
+            14.38/0.61/Pause/{black!8}} {
+            \draw[fill=\fc, draw=black!45] (\x,0) rectangle ++(\w,\h);
+            \node[rotate=90, align=center] at (\x+\w/2, \h/2) {\lab};
+        }
+        \draw[-{Latex[length=1.6mm]}] (0,-0.15) -- (15,-0.15);
+        \node[anchor=north] at (7.5,-0.3) {25,5~min};
+    \end{tikzpicture}
+    \caption{Protokoll v2: fünf Schreibaufgaben (blau, 150 bis 210~s) im
+    Wechsel mit sechs Nicht-Schreibaufgaben (grau, 60 bis 120~s), davon fünf
+    gezielte Hard Negatives. Die Blockbreite entspricht der Dauer.}
+    \label{fig:protocol-v2}
+\end{figure}
+
+Die Reihenfolge der Aufgaben ist pro Person balanciert. Der Runner erzeugt für
+die Schreibaufgaben und getrennt für die Nicht-Schreibaufgaben je ein Balanced
+Latin Square nach \citet{williams1949}, wählt die Zeile über einen
+fortlaufenden Personenindex und verschränkt beide Folgen. Die Sollzeiten der
+Schreibaufgaben werden pro Lauf summenerhaltend um bis zu $\pm 15\,\%$
+variiert (Jitter), damit Aufgabengrenzen nicht bei allen Personen an
+denselben Zeitpunkten liegen; Pausen und Nicht-Schreibaufgaben behalten ihre
+Sollzeit. Vor jeder Aufgabe lief ein Countdown von 5~s, in dem die Anweisung
+gelesen werden konnte.
+
+\subsection{Datensatz}
+\label{sec:dataset}
+
+In den Datensatz gingen nur vollständig abgeschlossene Aufnahmen ein.
+Pilotläufe, Kurztests und abgebrochene Durchläufe wurden ausgeschlossen. Jede
+verbleibende Aufnahme wurde vor der Übernahme auf drei Punkte geprüft: eine Abtastrate innerhalb von $\pm 20\,\%$ um den Sollwert und eine
+lückenlose Sequenznummerierung des Watch-Stroms, eine zeitliche Überlappung
+beider Datenströme über die gesamte Sitzung sowie eine Zeitausrichtung von
+Stift und Watch, die entweder automatisch als vertrauenswürdig eingestuft wurde
+oder eine manuelle Prüfung der Alignment-Kurven bestand
+(Abschnitt~\ref{sec:alignment}). Eine v2-Aufnahme fiel dabei heraus, weil sich
+für sie kein belastbarer Zeitversatz bestimmen ließ ($\sigma = -1{,}08$); die
+Sitzungsverwaltung führt sie formal als verwendbar, der Ausschluss steht in der
+Experimentkonfiguration. Pro Person wurde genau
+eine Aufnahme verwendet. Der finale Datensatz umfasst 32~Personen, 13 nach
+Protokoll~v1 und 19 nach Protokoll~v2, mit insgesamt rund 11,5~Stunden
+annotierter Sensordaten. Die beiden Autoren sind als Versuchspersonen
+enthalten, die übrigen Personen waren überwiegend Studierende und Bekannte. Die
+Watch saß in allen Aufnahmen am Schreibhandgelenk; Händigkeit wurde nicht
+systematisch erfasst und geht nicht als Variable ein.
+
+\begin{table}[H]
+  \centering
+  \caption{Zusammensetzung des Datensatzes. Der Modern-Pool ist eine echte
+  Teilmenge des Legacy-Pools: Aufnahmen mit 100~Hz wurden für den Legacy-Pool
+  auf 50~Hz heruntergerechnet, damit alle 32 Personen in einem Protokoll
+  auswertbar sind.}
+  \label{tab:cohort}
+  \small
+  \begin{tabular}{lrrrl}
+    \hline
+    \textbf{Pool} & \textbf{Personen} & \textbf{Abtastrate} & \textbf{Werte je Sample} & \textbf{Inhalt} \\ \hline \hline
+    Legacy & 32 & 50~Hz & 6 & alle Aufnahmen (9 nativ, 23 dezimiert) \\
+    Modern & 23 & 100~Hz & 9 & ab Ende Mai 2026, mit Schwerkraftvektor \\ \hline
+    \multicolumn{5}{l}{\textit{Protokoll:} 13 Personen v1 (15,5~min), 19 Personen v2 (25,5~min)} \\
+    \multicolumn{5}{l}{\textit{Fenster (1~s, Schritt 0,5~s, Legacy):} 81\,938, davon 42,7\,\% Schreiben} \\
+    \multicolumn{5}{l}{\textit{Schreibanteil je Person:} 44,4\,\% $\pm$ 8,4 Prozentpunkte} \\
+    \multicolumn{5}{l}{\textit{Alignment-Konfidenz $\sigma$:} $-2{,}19$ bis $-5{,}10$ (Median $-4{,}1$)} \\ \hline
+  \end{tabular}
+\end{table}
+
+Die Umstellung auf 100~Hz mit Schwerkraftvektor teilt den Datensatz in zwei
+Pools (Tabelle~\ref{tab:cohort}). Damit alle Personen in einem einheitlichen
+Protokoll vergleichbar bleiben, haben wir die 100-Hz-Aufnahmen mit einem
+Anti-Aliasing-Filter (Chebyshev-Tiefpass achter Ordnung, phasenneutral) auf
+50~Hz heruntergerechnet und den Schwerkraftvektor verworfen. Dieser
+Legacy-Pool mit 32 Personen ist die Grundlage aller Hauptergebnisse; der
+Modern-Pool mit 23 Personen dient den Ablationen zu Schwerkraftvektor und
+Kanalreduktion. Da der Modern-Pool eine Teilmenge des Legacy-Pools ist,
+sind gepaarte Vergleiche nur innerhalb eines Pools zulässig.
+
+Über alle 32 Personen tragen 42,7\,\% der Fenster das Label Schreiben, die
+Klassen sind also nahezu ausgeglichen. Je Person liegt der Schreibanteil bei
+44,4\,\% mit einer Streuung von 8,4 Prozentpunkten, weil Schreibtempo und
+Länge der Denkpausen sich stark unterscheiden.
+\subsection{Forschungsethik und Umgang mit den Daten}
+\label{sec:ethics}
+
+Alle Versuchspersonen nahmen freiwillig teil und gaben vor der Aufnahme eine
+schriftliche Einwilligung, die Zweck, Art der Daten, Verwendung und das Recht
+auf Abbruch benennt. Ein formales Ethikvotum wurde für dieses Semesterprojekt
+nicht eingeholt; erhoben wurden ausschließlich Bewegungsdaten des Handgelenks
+und Stiftereignisse während vorgegebener Aufgaben. Die Aufnahmen sind
+pseudonymisiert, Namen werden nicht mit den Kennungen aufbewahrt. Von den
+Stiftdaten gehen nur die Zeitpunkte der Ereignisse in die Auswertung ein, nie
+die Koordinaten, sodass kein geschriebener Text rekonstruierbar ist. Rohdaten
+liegen ausschließlich lokal und sind von der Versionsverwaltung
+ausgeschlossen. Demografische Angaben wurden nicht erhoben; Abschnitt~\ref{sec:limitations}
+greift diese Lücke auf.

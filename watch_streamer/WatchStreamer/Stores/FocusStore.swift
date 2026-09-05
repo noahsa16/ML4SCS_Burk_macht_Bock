@@ -218,18 +218,72 @@ final class FocusStore: ObservableObject {
     ///
     /// Idle windows are dropped on arrival: no screen reads them — a gap
     /// between writing windows already ends a stretch — and keeping them costs
-    /// roughly twenty times the storage.
+    /// roughly twenty times the storage. Windows inside a focus session's
+    /// span are dropped too, writing or idle: the session already judged
+    /// those minutes live (see `FocusSessionSpans`).
     func ingest(_ batch: [PassiveDecision]) async {
         // Any decision delivery proves that WatchConnectivity is working
         // again. Do this before filtering idle windows so a healthy all-idle
         // batch also clears a stale failed-pull warning.
         watchUnreachable = false
-        let writing = batch.filter(\.writing)
+        let spans = sessionSpans
+        let writing = batch.filter {
+            $0.writing && !spans.covers(startMs: $0.startMs, endMs: $0.endMs)
+        }
         guard !writing.isEmpty else { return }
         guard await persistence.record(writing) else { return }
         ingestRevision &+= 1
         guard !demoModeEnabled else { return }
         await refresh()
+    }
+
+    /// Stores windows a focus session classified on the phone and refreshes,
+    /// so the day's total moves while the session runs rather than when the
+    /// Watch's recorder is next read.
+    ///
+    /// Every window extends the session's span in the ledger — idle ones too,
+    /// since the recorder must not overrule the session's "not writing"
+    /// either. Only the writing ones are kept, as in `ingest`.
+    func ingestSession(_ batch: [PassiveDecision]) async {
+        guard !batch.isEmpty else { return }
+        var spans = sessionSpans
+        for decision in batch {
+            spans.extend(startMs: decision.startMs, endMs: decision.endMs)
+        }
+        sessionSpans = spans
+        let writing = batch.filter(\.writing)
+        guard !writing.isEmpty else { return }
+        guard await persistence.record(writing) else { return }
+        guard !demoModeEnabled else { return }
+        await refresh()
+    }
+
+    /// Today's total as the Watch should mirror it — see `WatchDayTotal`.
+    func watchDayTotal(now: Date = Date()) -> WatchDayTotal {
+        WatchDayTotal(day: isoDay(now), writingSeconds: todayWritingSeconds)
+    }
+
+    // MARK: - Session ledger
+
+    private static let sessionSpansKey = "focusStore.sessionSpans"
+
+    /// Read pruned to the raw retention window: a recorder window older than
+    /// that is deleted on arrival by `FocusPersistence`, so the span it would
+    /// have been checked against has nothing left to do.
+    private var sessionSpans: FocusSessionSpans {
+        get {
+            guard let data = defaults.data(forKey: Self.sessionSpansKey),
+                  var spans = try? JSONDecoder().decode(FocusSessionSpans.self, from: data)
+            else { return FocusSessionSpans() }
+            let cutoff = Date().addingTimeInterval(
+                -Double(FocusArchive.rawRetentionDays) * 24 * 3600)
+            spans.prune(before: Int64(cutoff.timeIntervalSince1970 * 1000))
+            return spans
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue) else { return }
+            defaults.set(data, forKey: Self.sessionSpansKey)
+        }
     }
 
     /// `transferUserInfo` is a second, durable transport and arrives shortly
@@ -436,6 +490,7 @@ final class FocusStore: ObservableObject {
         // harvest against a total that no longer exists.
         defaults.removeObject(forKey: Self.lastHarvestedSecondsKey)
         defaults.removeObject(forKey: Self.lastHarvestedDayKey)
+        defaults.removeObject(forKey: Self.sessionSpansKey)
     }
 
     // MARK: - Derived

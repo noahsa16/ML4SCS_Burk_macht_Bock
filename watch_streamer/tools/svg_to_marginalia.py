@@ -10,7 +10,7 @@ directly.
 Usage:
 
     python3 tools/svg_to_marginalia.py drawings/*.svg \\
-        --out Shared/Marginalia.swift
+        --out WatchStreamer/Scrybe/Components/Marginalia.swift
 
 One SVG per creature. The file's stem becomes the species name, so name them
 in roster order:
@@ -228,7 +228,7 @@ def apply(matrix, x, y):
 # Reading one creature
 # --------------------------------------------------------------------------
 
-def strokes_from_svg(path: Path) -> list[list[tuple]]:
+def strokes_from_svg(path: Path) -> list[tuple[list[tuple], float | None]]:
     # Why this check rather than defusedxml: the stdlib parser does not fetch
     # external entities, but it does expand internal ones, so a crafted file
     # can exhaust memory. This tool must stay dependency-free, and a drawing
@@ -242,7 +242,7 @@ def strokes_from_svg(path: Path) -> list[list[tuple]]:
             f"open it and check where it came from."
         )
     tree = ET.parse(path)
-    found: list[tuple[float | None, list[tuple]]] = []
+    found: list[tuple[float | None, list[tuple], float | None]] = []
 
     def walk(node, matrix):
         matrix = _compose(matrix, parse_transform(node.get("transform", "")))
@@ -258,7 +258,13 @@ def strokes_from_svg(path: Path) -> list[list[tuple]]:
             ]
             label = node.get("id") or node.get("{http://www.inkscape.org/namespaces/inkscape}label") or ""
             m = re.match(r"\s*(\d+)", label)
-            found.append((float(m.group(1)) if m else None, segments))
+            # A stroke-width written by trace_to_strokes.py is the measured
+            # ink thickness; it scales with the transform like any length.
+            width = node.get("stroke-width")
+            a, b, c, d, _, _ = matrix
+            unit = math.sqrt(abs(a * d - b * c)) or 1.0
+            found.append((float(m.group(1)) if m else None, segments,
+                          float(width) * unit if width else None))
         elif tag in {"rect", "circle", "ellipse", "line", "polyline", "polygon"}:
             raise Unsupported(
                 f"{path.name} contains a <{tag}>. Convert every shape to a path "
@@ -273,15 +279,21 @@ def strokes_from_svg(path: Path) -> list[list[tuple]]:
 
     # Explicit numbering wins over document order, but only if every stroke
     # carries one — a half-numbered file is a mistake, not an instruction.
-    if all(order is not None for order, _ in found):
-        found.sort(key=lambda pair: pair[0])
-    return [segments for _, segments in found]
+    if all(order is not None for order, _, _ in found):
+        found.sort(key=lambda item: item[0])
+    return [(segments, width) for _, segments, width in found]
 
 
-def normalise(strokes: list[list[tuple]]) -> list[list[tuple]]:
-    """Scale and centre a creature into the 100×100 box, aspect preserved."""
+def normalise(strokes: list[tuple[list[tuple], float | None]]) -> list[tuple[list[tuple], float]]:
+    """Scale and centre a creature into the 100×100 box, aspect preserved.
+
+    Widths come along in the same units. A drawing without measured widths
+    (hand-drawn, or traced before the tool recorded them) gets one width for
+    every stroke, finer the more strokes it has — at a fixed weight the
+    detail of a dense creature would weld into a blob.
+    """
     points = [(seg[i], seg[i + 1])
-              for stroke in strokes for seg in stroke
+              for stroke, _ in strokes for seg in stroke
               for i in range(1, len(seg), 2)]
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
@@ -293,12 +305,14 @@ def normalise(strokes: list[list[tuple]]) -> list[list[tuple]]:
     # Centre the shorter axis so the creature does not sit against an edge.
     ox = MARGIN + (BOX - 2 * MARGIN - width * scale) / 2 - min(xs) * scale
     oy = MARGIN + (BOX - 2 * MARGIN - height * scale) / 2 - min(ys) * scale
+    fallback = max(0.9, 2.6 - 0.03 * len(strokes))
     return [
-        [(seg[0],) + tuple(
+        ([(seg[0],) + tuple(
             (seg[i] * scale + ox) if i % 2 == 1 else (seg[i] * scale + oy)
             for i in range(1, len(seg))
-        ) for seg in stroke]
-        for stroke in strokes
+        ) for seg in stroke],
+         width * scale if width is not None else fallback)
+        for stroke, width in strokes
     ]
 
 
@@ -345,7 +359,7 @@ def display_name(stem: str) -> str:
     return " ".join(w[:1].upper() + w[1:] for w in slug.split("-") if w)
 
 
-def emit(creatures: list[tuple[str, str, list[list[tuple]]]]) -> str:
+def emit(creatures: list[tuple[str, str, list[tuple[list[tuple], float]]]]) -> str:
     def n(v: float) -> str:
         return f"{v:.1f}"
 
@@ -358,8 +372,14 @@ def emit(creatures: list[tuple[str, str, list[list[tuple]]]]) -> str:
         "// The creatures a focus session draws in the margin of its page:",
         "// drolleries, traced from public-domain manuscript scans. Each path is",
         "// one stroke of the pen, in drawing order, normalised into a 100×100 box",
-        "// using SwiftUI's convention that y counts downward.",
+        "// using SwiftUI's convention that y counts downward. `width` is the",
+        "// stroke's ink thickness in the same units, measured from the source.",
         "enum Marginalia {",
+        "",
+        "    struct Stroke {",
+        "        let width: CGFloat",
+        "        let path: Path",
+        "    }",
         "",
         "    static let names = [",
     ]
@@ -371,7 +391,7 @@ def emit(creatures: list[tuple[str, str, list[list[tuple]]]]) -> str:
         "        strokes(forSpecies: id).count",
         "    }",
         "",
-        "    static func strokes(forSpecies id: Int) -> [Path] {",
+        "    static func strokes(forSpecies id: Int) -> [Stroke] {",
         "        switch id {",
     ]
     lines += [f"        case {i}: return {ident}"
@@ -384,9 +404,9 @@ def emit(creatures: list[tuple[str, str, list[list[tuple]]]]) -> str:
 
     for ident, name, strokes in creatures:
         lines += ["", f"    // MARK: - {name}", "",
-                  f"    private static let {ident}: [Path] = ["]
-        for stroke in strokes:
-            lines.append("            Path { p in")
+                  f"    private static let {ident}: [Stroke] = ["]
+        for stroke, width in strokes:
+            lines.append(f"            Stroke(width: {width:.2f}, path: Path {{ p in")
             for seg in stroke:
                 if seg[0] == "M":
                     lines.append(f"                p.move(to: CGPoint(x: {n(seg[1])}, y: {n(seg[2])}))")
@@ -399,7 +419,7 @@ def emit(creatures: list[tuple[str, str, list[list[tuple]]]]) -> str:
                         f"                           control1: CGPoint(x: {n(seg[1])}, y: {n(seg[2])}),")
                     lines.append(
                         f"                           control2: CGPoint(x: {n(seg[3])}, y: {n(seg[4])}))")
-            lines.append("            },")
+            lines.append("            }),")
         lines += ["    ]"]
 
     lines += ["}", ""]
@@ -421,7 +441,10 @@ def main() -> int:
             print(f"{svg.name}: {exc}", file=sys.stderr)
             return 1
         count = len(strokes)
-        note = "" if 6 <= count <= 60 else "   <-- unusual stroke count"
+        measured = sum(1 for _, width in strokes_from_svg(svg) if width is not None)
+        note = "" if 6 <= count <= 400 else "   <-- unusual stroke count"
+        if measured == 0:
+            note += "   (no measured widths: one pen weight for every stroke)"
         print(f"  {svg.name:<34} {count:>3} strokes{note}")
         creatures.append((identifier(svg.stem), display_name(svg.stem), strokes))
 

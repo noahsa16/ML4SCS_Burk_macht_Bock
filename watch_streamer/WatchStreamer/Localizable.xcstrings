@@ -32,36 +32,6 @@
         }
       }
     },
-    "–" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "–"
-          }
-        }
-      }
-    },
-    "·" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "·"
-          }
-        }
-      }
-    },
-    "%@ – %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@ – %@"
-          }
-        }
-      }
-    },
     "%@ %@ als zuvor" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -99,18 +69,18 @@
         }
       }
     },
-    "%@ geschrieben, %lld Pausen, %lld Striche für %@" : {
+    "%@ geschrieben, %lld Pausen" : {
       "localizations" : {
         "de" : {
           "stringUnit" : {
             "state" : "new",
-            "value" : "%1$@ geschrieben, %2$lld Pausen, %3$lld Striche für %4$@"
+            "value" : "%1$@ geschrieben, %2$lld Pausen"
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "%1$@ written, %2$lld pauses, %3$lld strokes for %4$@"
+            "value" : "%1$@ written, %2$lld pauses"
           }
         }
       }
@@ -121,6 +91,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%1$@ of %2$@"
+          }
+        }
+      }
+    },
+    "%@ – %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@ – %@"
           }
         }
       }
@@ -137,6 +117,22 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%@, %@"
+          }
+        }
+      }
+    },
+    "%@, %lld von %lld Strichen gezeichnet" : {
+      "localizations" : {
+        "de" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, %2$lld von %3$lld Strichen gezeichnet"
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%1$@, %2$lld of %3$lld strokes drawn"
           }
         }
       }
@@ -188,16 +184,6 @@
         }
       }
     },
-    "%lld gesammelt" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%lld collected"
-          }
-        }
-      }
-    },
     "%lld Min" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -225,6 +211,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "%lld writing sessions"
+          }
+        }
+      }
+    },
+    "%lld gesammelt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%lld collected"
           }
         }
       }
@@ -275,22 +271,12 @@
         }
       }
     },
-    "−%@ vs. Vormonat" : {
+    "100 Hz" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "−%@ vs. last month"
-          }
-        }
-      }
-    },
-    "−%@ vs. Vorwoche" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "−%@ vs. last week"
+            "value" : "100 Hz"
           }
         }
       }
@@ -335,16 +321,6 @@
         }
       }
     },
-    "100 Hz" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "100 Hz"
-          }
-        }
-      }
-    },
     "Abbrechen" : {
       "localizations" : {
         "en" : {
@@ -361,17 +337,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Evening"
-          }
-        }
-      }
-    },
-    "abgeglichen %@" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "synced %@"
           }
         }
       }
@@ -396,16 +361,6 @@
         }
       }
     },
-    "aktiv" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "active"
-          }
-        }
-      }
-    },
     "Aktualisieren" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -417,16 +372,6 @@
         }
       }
     },
-    "Alle ansehen" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "See all"
-          }
-        }
-      }
-    },
     "Alle Kreaturen" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -434,6 +379,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "All creatures"
+          }
+        }
+      }
+    },
+    "Alle ansehen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "See all"
           }
         }
       }
@@ -494,17 +449,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Written on %lld of %lld days"
-          }
-        }
-      }
-    },
-    "Ändert die Dauer." : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Changes the duration."
           }
         }
       }
@@ -576,16 +520,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Barks only at the full moon"
-          }
-        }
-      }
-    },
-    "bestanden" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "passed"
           }
         }
       }
@@ -712,12 +646,12 @@
         }
       }
     },
-    "dein bester Lauf" : {
+    "Dein Tagesziel" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "your best run yet"
+            "value" : "Your daily goal"
           }
         }
       }
@@ -728,16 +662,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Your best writing window is between %lld and %lld o'clock."
-          }
-        }
-      }
-    },
-    "Dein Tagesziel" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your daily goal"
           }
         }
       }
@@ -763,16 +687,6 @@
         }
       }
     },
-    "Deine erste Kreatur entsteht mit der ersten Sitzung." : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Your first creature begins with your first session."
-          }
-        }
-      }
-    },
     "Deine Sessions erscheinen hier, sobald die erste Aufnahme läuft." : {
       "localizations" : {
         "en" : {
@@ -789,6 +703,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Your trends build up over the first days."
+          }
+        }
+      }
+    },
+    "Deine erste Kreatur entsteht mit der ersten Sitzung." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Your first creature begins with your first session."
           }
         }
       }
@@ -850,16 +774,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "The request did not arrive. Check whether the Watch is in range."
-          }
-        }
-      }
-    },
-    "die Sitzung endet, wenn du sie beendest" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "the session ends when you end it"
           }
         }
       }
@@ -986,26 +900,6 @@
         }
       }
     },
-    "dranbleiben" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "keep at it"
-          }
-        }
-      }
-    },
-    "durchgefallen" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "failed"
-          }
-        }
-      }
-    },
     "Echtzeit" : {
       "localizations" : {
         "en" : {
@@ -1066,16 +960,6 @@
         }
       }
     },
-    "eine ganze Woche" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "a whole week"
-          }
-        }
-      }
-    },
     "Eine Sitzung von " : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1083,17 +967,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "A session of "
-          }
-        }
-      }
-    },
-    "einfach schreiben" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "just write"
           }
         }
       }
@@ -1219,16 +1092,6 @@
         }
       }
     },
-    "fang heute an" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "start today"
-          }
-        }
-      }
-    },
     "Fertig" : {
       "localizations" : {
         "en" : {
@@ -1276,6 +1139,36 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Focus session"
+          }
+        }
+      }
+    },
+    "Fokus-Sitzung beendet" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Focus session ended"
+          }
+        }
+      }
+    },
+    "Fokus-Sitzung läuft im Zeitraffer" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Focus session running in fast motion"
+          }
+        }
+      }
+    },
+    "Fokus-Sitzung vorführen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Demo the focus session"
           }
         }
       }
@@ -1341,16 +1234,6 @@
         }
       }
     },
-    "Heute" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Today"
-          }
-        }
-      }
-    },
     "HEUTE" : {
       "localizations" : {
         "en" : {
@@ -1361,22 +1244,12 @@
         }
       }
     },
-    "Im Entstehen" : {
+    "Heute" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "In the making"
-          }
-        }
-      }
-    },
-    "im Schnitt" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "about average"
+            "value" : "Today"
           }
         }
       }
@@ -1401,32 +1274,12 @@
         }
       }
     },
-    "inaktiv" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "inactive"
-          }
-        }
-      }
-    },
     "Jede Kreatur entsteht aus echter Schreibzeit." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "Every creature grows from real writing time."
-          }
-        }
-      }
-    },
-    "Keine aktive Session" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "No active session"
           }
         }
       }
@@ -1451,6 +1304,16 @@
         }
       }
     },
+    "Keine Verbindung zur Uhr" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No connection to the watch"
+          }
+        }
+      }
+    },
     "Keine Verbindung · Daten bleiben erhalten" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -1462,12 +1325,12 @@
         }
       }
     },
-    "Keine Verbindung zur Uhr" : {
+    "Keine aktive Session" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "No connection to the watch"
+            "value" : "No active session"
           }
         }
       }
@@ -1492,28 +1355,6 @@
         }
       }
     },
-    "Längste" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Longest"
-          }
-        }
-      }
-    },
-    "Längste: %lld" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Longest: %lld"
-          }
-        }
-      }
-    },
     "Laufzeit %lld Minuten %lld Sekunden" : {
       "localizations" : {
         "de" : {
@@ -1530,12 +1371,12 @@
         }
       }
     },
-    "letzte %lld Tage" : {
+    "Letzte 30 Tage" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "last %lld days"
+            "value" : "Last 30 days"
           }
         }
       }
@@ -1546,16 +1387,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Last 7 days"
-          }
-        }
-      }
-    },
-    "Letzte 30 Tage" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Last 30 days"
           }
         }
       }
@@ -1622,6 +1453,38 @@
         }
       }
     },
+    "Loslassen zum Abgleichen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Release to sync"
+          }
+        }
+      }
+    },
+    "Längste" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Longest"
+          }
+        }
+      }
+    },
+    "Längste: %lld" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Longest: %lld"
+          }
+        }
+      }
+    },
     "Löschen" : {
       "localizations" : {
         "en" : {
@@ -1660,26 +1523,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Deletes raw data not yet uploaded and all settings on this iPhone. Recordings already sent to the server are not affected."
-          }
-        }
-      }
-    },
-    "Loslassen zum Abgleichen" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Release to sync"
-          }
-        }
-      }
-    },
-    "min" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "min"
           }
         }
       }
@@ -1735,36 +1578,6 @@
         }
       }
     },
-    "Nächste Woche" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Next week"
-          }
-        }
-      }
-    },
-    "Nächster Monat" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Next month"
-          }
-        }
-      }
-    },
-    "Nächster Tag" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Next day"
-          }
-        }
-      }
-    },
     "Nacht" : {
       "localizations" : {
         "en" : {
@@ -1801,16 +1614,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Not written"
-          }
-        }
-      }
-    },
-    "nichts geschrieben" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "nothing written"
           }
         }
       }
@@ -1877,22 +1680,32 @@
         }
       }
     },
-    "Öffnet den Tag." : {
+    "Nächste Woche" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Opens the day."
+            "value" : "Next week"
           }
         }
       }
     },
-    "Öffnet Profil und Einstellungen." : {
+    "Nächster Monat" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Opens profile and settings."
+            "value" : "Next month"
+          }
+        }
+      }
+    },
+    "Nächster Tag" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Next day"
           }
         }
       }
@@ -1938,33 +1751,12 @@
         }
       }
     },
-    "Pause" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Paused"
-          }
-        }
-      }
-    },
     "PIN" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
             "value" : "PIN"
-          }
-        }
-      }
-    },
-    "Profil" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Profile"
           }
         }
       }
@@ -1976,6 +1768,27 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "PROFILE"
+          }
+        }
+      }
+    },
+    "Pause" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Paused"
+          }
+        }
+      }
+    },
+    "Profil" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Profile"
           }
         }
       }
@@ -2036,6 +1849,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Rate"
+          }
+        }
+      }
+    },
+    "STOP" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "STOP"
           }
         }
       }
@@ -2120,17 +1943,6 @@
         }
       }
     },
-    "schreibt gerade" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "writing"
-          }
-        }
-      }
-    },
     "Schreibtage" : {
       "localizations" : {
         "en" : {
@@ -2181,16 +1993,6 @@
         }
       }
     },
-    "scrybe" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "scrybe"
-          }
-        }
-      }
-    },
     "Scrybe" : {
       "localizations" : {
         "en" : {
@@ -2207,16 +2009,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Scrybe %@"
-          }
-        }
-      }
-    },
-    "seit %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "since %@"
           }
         }
       }
@@ -2269,6 +2061,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Starting session …"
+          }
+        }
+      }
+    },
+    "Sitzungs-Demo beenden" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Stop session demo"
           }
         }
       }
@@ -2334,16 +2136,6 @@
         }
       }
     },
-    "STOP" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "STOP"
-          }
-        }
-      }
-    },
     "Streak" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2371,16 +2163,6 @@
         }
       }
     },
-    "Strich für Strich …" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Stroke by stroke …"
-          }
-        }
-      }
-    },
     "System" : {
       "extractionState" : "stale",
       "localizations" : {
@@ -2388,6 +2170,17 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "System"
+          }
+        }
+      }
+    },
+    "TRENDS" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "TRENDS"
           }
         }
       }
@@ -2503,16 +2296,6 @@
         }
       }
     },
-    "Tägliche Erinnerung" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Daily reminder"
-          }
-        }
-      }
-    },
     "Temporäre Beispieldaten für Screenshots und Video. Echte Schreibdaten bleiben unverändert." : {
       "localizations" : {
         "en" : {
@@ -2554,16 +2337,6 @@
         }
       }
     },
-    "Trägt sein Haus und alle Zeit der Welt" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Carries its house and all the time in the world"
-          }
-        }
-      }
-    },
     "Trends" : {
       "localizations" : {
         "en" : {
@@ -2574,33 +2347,22 @@
         }
       }
     },
-    "TRENDS" : {
-      "extractionState" : "stale",
+    "Trägt sein Haus und alle Zeit der Welt" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "TRENDS"
+            "value" : "Carries its house and all the time in the world"
           }
         }
       }
     },
-    "über dem Schnitt" : {
+    "Tägliche Erinnerung" : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "above average"
-          }
-        }
-      }
-    },
-    "Übernehmen" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "Apply"
+            "value" : "Daily reminder"
           }
         }
       }
@@ -2648,12 +2410,13 @@
         }
       }
     },
-    "unter dem Schnitt" : {
+    "VERLAUF" : {
+      "extractionState" : "stale",
       "localizations" : {
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "below average"
+            "value" : "HISTORY"
           }
         }
       }
@@ -2675,17 +2438,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "History"
-          }
-        }
-      }
-    },
-    "VERLAUF" : {
-      "extractionState" : "stale",
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "HISTORY"
           }
         }
       }
@@ -2727,16 +2479,6 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Video speed"
-          }
-        }
-      }
-    },
-    "von %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "of %@"
           }
         }
       }
@@ -2811,36 +2553,6 @@
         }
       }
     },
-    "weiter so!" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "keep it up!"
-          }
-        }
-      }
-    },
-    "wie im Vormonat" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "same as the month before"
-          }
-        }
-      }
-    },
-    "wie in der Vorwoche" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "same as the week before"
-          }
-        }
-      }
-    },
     "Wie lange?" : {
       "localizations" : {
         "en" : {
@@ -2858,6 +2570,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Week"
+          }
+        }
+      }
+    },
+    "Zeichnet das Wesen der Fokus-Seite im Zeitraffer, ohne die Uhr und ohne die Sammlung zu verändern." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Draws the focus page's creature in fast motion, touching neither the Watch nor the collection."
           }
         }
       }
@@ -2949,6 +2671,330 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Between %lld and %lld minutes."
+          }
+        }
+      }
+    },
+    "abgeglichen %@" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "synced %@"
+          }
+        }
+      }
+    },
+    "aktiv" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "active"
+          }
+        }
+      }
+    },
+    "bestanden" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "passed"
+          }
+        }
+      }
+    },
+    "dein bester Lauf" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "your best run yet"
+          }
+        }
+      }
+    },
+    "die Sitzung endet, wenn du sie beendest" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "the session ends when you end it"
+          }
+        }
+      }
+    },
+    "dranbleiben" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "keep at it"
+          }
+        }
+      }
+    },
+    "durchgefallen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "failed"
+          }
+        }
+      }
+    },
+    "eine ganze Woche" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "a whole week"
+          }
+        }
+      }
+    },
+    "einfach schreiben" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "just write"
+          }
+        }
+      }
+    },
+    "fang heute an" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "start today"
+          }
+        }
+      }
+    },
+    "im Schnitt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "about average"
+          }
+        }
+      }
+    },
+    "inaktiv" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "inactive"
+          }
+        }
+      }
+    },
+    "letzte %lld Tage" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "last %lld days"
+          }
+        }
+      }
+    },
+    "min" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "min"
+          }
+        }
+      }
+    },
+    "nichts geschrieben" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "nothing written"
+          }
+        }
+      }
+    },
+    "schreibt gerade" : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "writing"
+          }
+        }
+      }
+    },
+    "scrybe" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "scrybe"
+          }
+        }
+      }
+    },
+    "seit %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "since %@"
+          }
+        }
+      }
+    },
+    "unter dem Schnitt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "below average"
+          }
+        }
+      }
+    },
+    "von %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "of %@"
+          }
+        }
+      }
+    },
+    "weiter so!" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "keep it up!"
+          }
+        }
+      }
+    },
+    "wie im Vormonat" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "same as the month before"
+          }
+        }
+      }
+    },
+    "wie in der Vorwoche" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "same as the week before"
+          }
+        }
+      }
+    },
+    "·" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "·"
+          }
+        }
+      }
+    },
+    "Ändert die Dauer." : {
+      "extractionState" : "stale",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Changes the duration."
+          }
+        }
+      }
+    },
+    "Öffnet Profil und Einstellungen." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens profile and settings."
+          }
+        }
+      }
+    },
+    "Öffnet den Tag." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Opens the day."
+          }
+        }
+      }
+    },
+    "Übernehmen" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Apply"
+          }
+        }
+      }
+    },
+    "über dem Schnitt" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "above average"
+          }
+        }
+      }
+    },
+    "–" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "–"
+          }
+        }
+      }
+    },
+    "−%@ vs. Vormonat" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "−%@ vs. last month"
+          }
+        }
+      }
+    },
+    "−%@ vs. Vorwoche" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "−%@ vs. last week"
           }
         }
       }

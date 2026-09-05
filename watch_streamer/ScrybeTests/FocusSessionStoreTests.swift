@@ -28,6 +28,23 @@ struct FocusSessionStoreTests {
         return (BestiaryStore(fileURL: url), url)
     }
 
+    /// A day store on its own files. `FocusSessionStore` falls back to
+    /// `FocusStore.shared`, and a session's windows now reach the day store —
+    /// so every session in a test needs one, or the test would write into the
+    /// app's real record.
+    private func tempFocus() -> FocusStore {
+        let dir = FileManager.default.temporaryDirectory
+        let id = UUID().uuidString
+        let suite = "focus-session-day-\(id)"
+        let defaults = UserDefaults(suiteName: suite)!
+        defaults.removePersistentDomain(forName: suite)
+        return FocusStore(
+            decisions: PassiveDecisionStore(
+                fileURL: dir.appendingPathComponent("session-decisions-\(id).jsonl")),
+            archive: FocusArchive(fileURL: dir.appendingPathComponent("session-archive-\(id).json")),
+            defaults: defaults)
+    }
+
     /// Lets the fire-and-forget stop task run before an assertion reads its
     /// effect. Ending a session deliberately does not wait for the Watch.
     private func settle() async {
@@ -53,7 +70,7 @@ struct FocusSessionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary)
+                                      bestiary: bestiary, focus: tempFocus())
         store.beginForTesting(targetSeconds: 1_500)
         store.consume(samples(250))              // 0 … 4.98 s
         #expect(store.decisions.count == 1)
@@ -69,32 +86,52 @@ struct FocusSessionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary)
+                                      bestiary: bestiary, focus: tempFocus())
         store.beginForTesting(targetSeconds: 1_500)
         store.consume(samples(200))                 // not yet a full window
         store.consume(samples(200, from: 60.0))     // one minute later
         #expect(store.decisions.count == 0)
     }
 
-    // The viewfinder principle (Spec §2): live windows must never reach the
-    // daily accounting. Asserted against the REAL default store file — an
-    // assertion on some unrelated temp store would hold even if the session
-    // wrote to the actual one, which is the failure worth catching.
-    @Test("a session leaves the passive decision store untouched")
-    func nothingIsPersisted() throws {
-        let url = PassiveDecisionStore.defaultFileURL()
-        let before = (try? Data(contentsOf: url))?.count ?? -1
+    // The Heute page and the Watch ring must move with the session, not with
+    // the recorder's later read — so a session's windows reach the day store
+    // as they are decided, and only the writing ones (as with `ingest`).
+    @Test("a session's writing windows reach the day store as they arrive")
+    func windowsReachTheDayStore() async {
         let (bestiary, bestiaryURL) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: bestiaryURL) }
+        let focus = tempFocus()
+        let now = Date().timeIntervalSince1970
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary)
+                                      bestiary: bestiary, focus: focus)
         store.beginForTesting(targetSeconds: 1_500)
-        store.consume(samples(500))
+        store.consume(samples(375, from: now))       // two windows
+        await store.pendingDayIngest?.value
 
-        #expect(!store.decisions.isEmpty)
-        let after = (try? Data(contentsOf: url))?.count ?? -1
-        #expect(after == before)
+        #expect(store.decisions.count == 2)
+        #expect(focus.todayWritingSeconds == 5.0)
+    }
+
+    @Test("idle session windows are not stored but still shield their span")
+    func idleWindowsShieldTheirSpan() async {
+        let (bestiary, bestiaryURL) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: bestiaryURL) }
+        let focus = tempFocus()
+        let now = Date().timeIntervalSince1970
+
+        let store = FocusSessionStore(classifier: FixedClassifier(value: -1),
+                                      bestiary: bestiary, focus: focus)
+        store.beginForTesting(targetSeconds: 1_500)
+        store.consume(samples(500, from: now))
+        await store.pendingDayIngest?.value
+        #expect(focus.todayWritingSeconds == 0)
+
+        // A recorder window inside the session's minutes must not overrule it.
+        let startMs = Int64(now * 1000) + 1_000
+        await focus.ingest([PassiveDecision(startMs: startMs, endMs: startMs + 5_000,
+                                            logit: 3, writing: true, creditSeconds: 2.5)])
+        #expect(focus.todayWritingSeconds == 0)
     }
 
     private struct Boom: Error {}
@@ -109,7 +146,7 @@ struct FocusSessionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let store = FocusSessionStore(makeClassifier: { throw Boom() },
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { .stopped })
         store.beginForTesting(targetSeconds: 1_500)
 
@@ -137,7 +174,7 @@ struct FocusSessionStoreTests {
         let store = FocusSessionStore(makeClassifier: {
             counter.calls += 1
             throw Boom()
-        }, bestiary: bestiary, stopOnWatch: { .stopped })
+        }, bestiary: bestiary, focus: tempFocus(), stopOnWatch: { .stopped })
         store.beginForTesting(targetSeconds: 1_500)
 
         store.consume(samples(250))
@@ -164,7 +201,7 @@ struct FocusSessionStoreTests {
         bestiary.addWritingSeconds(600, now: Date(timeIntervalSince1970: 1_788_000_000))
         let creature = try #require(bestiary.current)
 
-        let store = FocusSessionStore(classifier: FixedClassifier(value: 1), bestiary: bestiary)
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1), bestiary: bestiary, focus: tempFocus())
         store.begin(targetSeconds: 900)
 
         #expect(store.currentSpecies == creature.speciesId)
@@ -183,7 +220,7 @@ struct FocusSessionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { .stopped })
         store.begin(targetSeconds: 900)
         let drawnSpecies = store.currentSpecies
@@ -209,7 +246,7 @@ struct FocusSessionStoreTests {
         bestiary.addWritingSeconds(600, now: Date(timeIntervalSince1970: 1_788_000_000))
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
@@ -226,7 +263,7 @@ struct FocusSessionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: -1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
@@ -247,7 +284,7 @@ struct FocusSessionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
@@ -271,7 +308,7 @@ struct FocusSessionStoreTests {
         let before = try #require(bestiary.current)
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
@@ -305,7 +342,7 @@ struct FocusSessionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
@@ -329,7 +366,7 @@ struct FocusSessionStoreTests {
         let fine = PassiveWindowBuilder(seqLen: 2, strideSamples: 1,
                                         nominalHz: 4_000, channels: 6)
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { .stopped },
                                       windowBuilder: fine)
         store.begin(targetSeconds: 900)
@@ -353,7 +390,7 @@ struct FocusSessionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500, hz: 100))
@@ -376,7 +413,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
@@ -403,7 +440,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return .stopped })
         store.markStarting()
         store.watchPreemptedByRecording()
@@ -441,7 +478,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return .stopped })
         store.markStarting()
         store.watchPreemptedByRecording()
@@ -471,7 +508,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return .stopped })
         store.markStarting()
         store.watchPreemptedByRecording()
@@ -497,7 +534,7 @@ struct FocusSessionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { .stopped })
         let start = Date().addingTimeInterval(-(FocusSessionStore.hardCapSeconds + 1))
         store.begin(targetSeconds: 900, at: start)
@@ -519,7 +556,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       hardCapSeconds: 0.05,
                                       stopOnWatch: { stops.calls += 1; return stops.outcome })
         store.begin(targetSeconds: 900)
@@ -543,7 +580,7 @@ struct FocusSessionStoreTests {
     @Test func sessionEndsAtTheInjectedCap() async {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: 0.05)
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus(), hardCapSeconds: 0.05)
 
         store.beginForTesting(targetSeconds: 3600)
         #expect(store.isActive)
@@ -565,7 +602,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return .stopped })
         store.markStarting()
         store.failToStart("refused")
@@ -588,7 +625,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(makeClassifier: { throw Boom() },
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(250))
@@ -612,7 +649,7 @@ struct FocusSessionStoreTests {
         stops.outcome = .noAnswer
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return stops.outcome })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
@@ -636,7 +673,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
@@ -664,7 +701,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return .stopped })
         store.begin(targetSeconds: 900)
         store.consume(samples(500))
@@ -694,7 +731,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return .stopped })
         store.markStarting()
         store.watchWorkoutFailed()
@@ -721,7 +758,7 @@ struct FocusSessionStoreTests {
         let stops = StopRecorder()
 
         let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
-                                      bestiary: bestiary,
+                                      bestiary: bestiary, focus: tempFocus(),
                                       stopOnWatch: { stops.calls += 1; return .stopped })
         store.markStarting()
         store.watchWorkoutFailed()
@@ -739,7 +776,7 @@ struct FocusSessionStoreTests {
     @Test func endingReportsWhoEndedIt() {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: FocusSessionStore.hardCapSeconds)
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus(), hardCapSeconds: FocusSessionStore.hardCapSeconds)
 
         store.beginForTesting(targetSeconds: 1500)
         store.end()
@@ -751,7 +788,7 @@ struct FocusSessionStoreTests {
     @Test func preemptionIsNamedAsPreemption() {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: FocusSessionStore.hardCapSeconds)
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus(), hardCapSeconds: FocusSessionStore.hardCapSeconds)
 
         store.beginForTesting(targetSeconds: 1500)
         store.watchPreemptedByRecording()
@@ -761,7 +798,7 @@ struct FocusSessionStoreTests {
     @Test func workoutFailureIsNamedAsWatchFailure() {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: FocusSessionStore.hardCapSeconds)
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus(), hardCapSeconds: FocusSessionStore.hardCapSeconds)
 
         store.beginForTesting(targetSeconds: 1500)
         store.watchWorkoutFailed()
@@ -775,7 +812,7 @@ struct FocusSessionStoreTests {
     @Test func aGoallessSessionRunsAndEndsOnlyWhenAsked() {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: FocusSessionStore.hardCapSeconds)
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus(), hardCapSeconds: FocusSessionStore.hardCapSeconds)
 
         store.begin(targetSeconds: nil)
         guard case .running(_, let target) = store.phase else {
@@ -794,7 +831,7 @@ struct FocusSessionStoreTests {
     @Test func aGoallessSessionStillObeysTheCap() async {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: 0.05,
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus(), hardCapSeconds: 0.05,
                                       stopOnWatch: { .stopped })
 
         store.begin(targetSeconds: nil)
@@ -813,7 +850,7 @@ struct FocusSessionStoreTests {
     @Test func aFocusPollResumesTheSession() {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary)
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus())
 
         let startedAt = Date().addingTimeInterval(-300)
         let poll: [String: Any] = [
@@ -833,7 +870,7 @@ struct FocusSessionStoreTests {
     @Test func aRecordingPollIsNotAdopted() {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary)
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus())
 
         store.adoptIfWatchIsInFocus(poll: [WatchPayloadKey.Status.captureMode: "recording"])
         #expect(!store.isActive)
@@ -843,7 +880,7 @@ struct FocusSessionStoreTests {
     @Test func adoptingDoesNothingWhileASessionRuns() {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary)
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus())
 
         store.beginForTesting(targetSeconds: 1500)
         guard case .running(let original, _) = store.phase else {
@@ -867,7 +904,7 @@ struct FocusSessionStoreTests {
     @Test func adoptingDoesNothingWhileASessionIsFinished() {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary, stopOnWatch: { .stopped })
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus(), stopOnWatch: { .stopped })
 
         store.beginForTesting(targetSeconds: 1500)
         store.end()
@@ -889,7 +926,7 @@ struct FocusSessionStoreTests {
     @Test func aStaleFocusStartIsNotAdopted() {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary)
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus())
 
         let startedAt = Date().addingTimeInterval(-(FocusSessionStore.hardCapSeconds + 60))
         let poll: [String: Any] = [
@@ -917,7 +954,7 @@ struct FocusSessionStoreTests {
     @Test func adoptionSchedulesTheCapFromTheRealStart() async {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
-        let store = FocusSessionStore(bestiary: bestiary, hardCapSeconds: 1.0,
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus(), hardCapSeconds: 1.0,
                                       stopOnWatch: { .stopped })
 
         let startedAt = Date().addingTimeInterval(-0.95)
@@ -941,7 +978,7 @@ struct FocusSessionStoreTests {
         defer { try? FileManager.default.removeItem(at: url) }
         var calls = 0
         let store = FocusSessionStore(
-            bestiary: bestiary,
+            bestiary: bestiary, focus: tempFocus(),
             startOnWatch: {
                 calls += 1
                 try? await Task.sleep(nanoseconds: 50_000_000)
@@ -965,7 +1002,7 @@ struct FocusSessionStoreTests {
         let (bestiary, url) = tempBestiary()
         defer { try? FileManager.default.removeItem(at: url) }
         let store = FocusSessionStore(
-            bestiary: bestiary,
+            bestiary: bestiary, focus: tempFocus(),
             startOnWatch: {
                 try? await Task.sleep(nanoseconds: 50_000_000)
                 return .started
@@ -980,5 +1017,102 @@ struct FocusSessionStoreTests {
         guard case .failed = store.phase else {
             Issue.record("preemption must keep the session failed"); return
         }
+    }
+
+    // MARK: - Product demo
+
+    @Test("a demo session grows a scratch creature and leaves the collection alone")
+    func demoIsScratch() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(classifier: FixedClassifier(value: 1),
+                                      bestiary: bestiary, focus: tempFocus())
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+
+        store.startDemo(speed: 60, now: t0)
+        #expect(store.isDemo)
+        #expect(store.isActive)
+        for tick in 1...5 {
+            store.advanceDemo(at: t0.addingTimeInterval(Double(tick)))
+        }
+
+        // Five wall-clock seconds at 60× are five session minutes: the clock
+        // has moved its start back accordingly, and every 2.5 s window of
+        // those minutes has been decided.
+        guard case .running(let startedAt, _) = store.phase else {
+            Issue.record("demo left running: \(store.phase)")
+            return
+        }
+        #expect(abs(startedAt.timeIntervalSince(t0) + 5 * 59) < 0.001)
+        #expect(store.decisions.count == 120)
+        // The windows lie on the same axis as the clock: from the shifted
+        // start up to now, not crowded into the five real seconds.
+        let startedMs = Int64(startedAt.timeIntervalSince1970 * 1000)
+        let nowMs = Int64(t0.addingTimeInterval(5).timeIntervalSince1970 * 1000)
+        #expect(store.decisions.first?.startMs == startedMs)
+        #expect(store.decisions.last!.startMs >= nowMs - 5_000)
+        #expect(store.decisions.last!.startMs < nowMs)
+        #expect(store.writingSeconds > 0)
+        #expect(store.strokesDrawn > 0)
+        #expect(bestiary.current == nil)
+        #expect(bestiary.completed.isEmpty)
+
+        // Samples from a Watch that happens to stream are not the demo's.
+        store.consume(samples(300))
+        #expect(store.decisions.count == 120)
+
+        store.end(at: t0.addingTimeInterval(5))
+        guard case .finished(let shown) = store.phase else {
+            Issue.record("demo did not finish: \(store.phase)")
+            return
+        }
+        #expect(shown.strokesDrawn == store.strokesDrawn)
+        #expect(store.finishReason == .user)
+
+        store.returnToIdle()
+        #expect(!store.isDemo)
+        #expect(store.phase == .idle)
+        #expect(bestiary.current == nil)
+    }
+
+    @Test("a demo ends at the hard cap in session seconds")
+    func demoHitsCap() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus(), hardCapSeconds: 100)
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+
+        store.startDemo(speed: 60, now: t0)
+        store.advanceDemo(at: t0.addingTimeInterval(1))
+        #expect(store.isActive)
+        store.advanceDemo(at: t0.addingTimeInterval(2))
+        #expect(!store.isActive)
+        #expect(store.finishReason == .hardCap)
+        #expect(store.isDemo)
+        #expect(bestiary.current == nil)
+
+        store.stopDemo()
+        #expect(!store.isDemo)
+        #expect(store.phase == .idle)
+    }
+
+    @Test("stopping a running demo from the panel returns straight to the picker")
+    func demoStopsInOneStep() {
+        let (bestiary, url) = tempBestiary()
+        defer { try? FileManager.default.removeItem(at: url) }
+        let store = FocusSessionStore(bestiary: bestiary, focus: tempFocus())
+        let t0 = Date(timeIntervalSince1970: 1_700_000_000)
+
+        store.startDemo(speed: 10, now: t0)
+        store.advanceDemo(at: t0.addingTimeInterval(1))
+        store.stopDemo(at: t0.addingTimeInterval(2))
+        #expect(store.phase == .idle)
+        #expect(!store.isDemo)
+        #expect(store.decisions.isEmpty)
+
+        // The picker is free for a real session afterwards.
+        store.beginForTesting(targetSeconds: 600, at: t0.addingTimeInterval(3))
+        #expect(store.isActive)
+        #expect(!store.isDemo)
     }
 }

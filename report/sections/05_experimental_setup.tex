@@ -1,16 +1,96 @@
-\section{Experimental Setup}
+\section{Versuchsaufbau und Evaluation}
 \label{sec:experimental-setup}
 
-% OWNER: Noah
+\subsection{Evaluationsprotokoll}
+\label{sec:cv}
 
-\subsection{Participant-Wise Cross-Validation}
-% Primary reporting protocol: leakage-free grouped five-fold CV by person.
-% Explain that samples from one person never occur in both train and test sets.
+Die Forschungsfrage verlangt, dass ein Modell auf Personen funktioniert, die es
+nie gesehen hat. Alle Kennzahlen stammen deshalb aus einer gruppierten
+fünffachen Kreuzvalidierung über die Personen, auf die wir uns mit der
+Partnergruppe an der ZHAW verständigt haben: In jeder Runde liegen
+sämtliche Fenster einer Person entweder im Training oder im Test, nie in
+beiden. Jede der 32 Personen ist genau einmal Testperson. Der Splitter ist
+eine eigene Implementierung und nicht scikit-learns \texttt{GroupKFold}: Die
+Personenkennungen werden mit einer festen Zufallssaat gemischt und
+anschließend reihum auf fünf Gruppen verteilt, was gleich große Folds ergibt.
+Die Gruppenreinheit ist dieselbe wie bei \texttt{GroupKFold}, die konkrete
+Zuordnung der Personen zu den Folds ist es nicht. Random Forest und Netze
+mischen die Personen mit derselben Saat, aber aus unterschiedlicher
+Ausgangsreihenfolge, und landen deshalb in verschiedenen Fold-Partitionen;
+gepaarte Tests zwischen den beiden Familien sind auf dieser Kohorte daher
+nicht möglich, innerhalb einer Familie sind die Folds identisch. In den ersten
+Erhebungsrunden hatten wir Leave-One-Subject-Out verwendet; beide Protokolle
+lieferten auf denselben Daten praktisch identische Werte.
 
-\subsection{Metrics and Statistical Analysis}
-% Define the primary metric and supporting metrics. State seed aggregation and
-% paired significance testing. Treat sub-percentage-point non-significant gains
-% as noise rather than improvements.
+Aus den Testrunden entsteht eine vollständige Out-of-Fold-Tabelle mit einer
+Wahrscheinlichkeit je Fenster. Die zeitliche Glättung, die Kalibrierung und die
+Fehleranalyse rechnen auf dieser Tabelle und erben damit dieselbe
+Leakage-Garantie; die Übergangsmatrix des HMM wird je Runde nur aus den
+Trainingspersonen geschätzt. Personenbezogene Kennzahlen berichten wir als
+Mittel und Standardabweichung über die 32 Personen.
 
-\subsection{Baselines and Ablations}
-% RF/deep baselines and selected ablations: gravity, HMM mode, fusion.
+\subsection{Metriken und statistische Analyse}
+\label{sec:metrics}
+
+Primäre Kennzahl ist die Genauigkeit je Fenster bei einer festen Schwelle von
+0,5; sie ist hier aussagekräftig, weil die Klassen nahezu ausgeglichen sind und
+ein Tracker am Ende eine Entscheidung treffen muss. Ergänzend berichten wir die
+ROC-AUC als schwellenfreies Maß der Trennbarkeit und den F1-Wert der Klasse
+Schreiben. Jede Kennzahl steht zusammen mit ihrer Entscheidungsskala: je
+1-s-Fenster, nach kausaler Glättung über 5, 10 und 30~s oder nach dem HMM.
+
+Die Streuung zwischen Personen liegt bei drei bis vier Prozentpunkten.
+Unterschiede unterhalb dieser Größe sind ohne gepaarten Test nicht
+interpretierbar. Wir prüfen deshalb jeden Vergleich auf denselben Personen mit
+dem Wilcoxon-Vorzeichen-Rang-Test \citep{wilcoxon1945} auf den personenweisen
+Differenzen und geben an, bei wie vielen der 32 Personen eine Konfiguration
+vorn liegt. Ein Gewinn unter einem Prozentpunkt ohne $p < 0{,}05$ gilt als Rauschen.
+Für die Netze mitteln wir drei Zufallssaaten, weil selbst zwei Läufe derselben
+Konfiguration mit identischer Saat auf der GPU um bis zu 1,6 Prozentpunkte
+auseinanderliegen können. Rangfolgen aus Einzelläufen sind deshalb nicht
+belastbar; bei 32 Personen liegen für die Netze nur Saaten-Aggregate vor, der
+Vergleich der Netze untereinander ist dort also nominal.
+
+\paragraph{Modellauswahl und Evaluation auf derselben Kohorte.} Architekturen
+und Hyperparameter wurden anhand derselben gruppierten Kreuzvalidierung
+ausgewählt, auf der wir am Ende die Leistung berichten. Personen kreuzen dabei
+nie zwischen Training und Test, es liegt also keine Leakage auf Fensterebene
+vor, wohl aber eine Selektionsoptimierung: Aus mehreren Konfigurationen wurde
+diejenige mit dem besten Kreuzvalidierungswert übernommen und deren Wert
+anschließend als Ergebnis berichtet. Eine verschachtelte Kreuzvalidierung oder
+ein unabhängiger Bestätigungssatz hätte das ausgeschlossen; beides war mit 32
+Personen und dem Rechenbudget des Projekts nicht darstellbar. Die Zahlen der
+Netze sind deshalb als Ergebnis einer explorativen Modellauswahl zu lesen und
+nach oben verzerrt. Ein Anhaltspunkt für die Größe dieser Verzerrung: Die
+Sieger der Hyperparametersuche verloren beim Nachrechnen mit drei Saaten ein
+bis zwei Prozentpunkte gegenüber ihrem besten Einzellauf innerhalb der Suche.
+Für den Random Forest ist der Effekt gering, weil seine Hyperparameter über das
+ganze Projekt unverändert blieben.
+
+\subsection{Baselines und Ablationsstudien}
+\label{sec:ablations}
+
+Der Random Forest auf 88 Merkmalen ist die Referenz, gegen die alle anderen
+Ergebnisse gelesen werden. Weil die Netze auf nativen 5-s-Fenstern arbeiten,
+vergleichen wir sie mit ihm bei gleicher Entscheidungslatenz: gegen seine
+kausal über 5~s geglätteten 1-s-Vorhersagen und gegen einen Random Forest,
+dessen Merkmale direkt über 5~s berechnet wurden.
+
+Die Ablationen beantworten je eine Frage mit einer einzigen Variablen auf
+identischen Folds und Saaten: Schwerkraftvektor (sechs gegen neun Eingangswerte
+je Sample im Modern-Pool), Gyroskop (volle IMU gegen nur Beschleunigung, für
+den Random Forest), Dekodiermodus (gleitender Mittelwert gegen HMM-Filter
+gegen HMM-Smoother) und Fusion zweier Modelle. Zwei weitere Vergleiche sind
+nicht auf eine Variable beschränkt und werden entsprechend eingeordnet: ein
+früher Vergleich zwischen 50 und 100~Hz und der Drei-Kanal-Lauf der Netze. Weitere Eingriffe,
+die sich als wirkungslos erwiesen haben, fasst Abschnitt~\ref{sec:ablation-results}
+zusammen: Rhythmusmerkmale, geschärfte Merkmale und Umgewichtung für die
+Tipp-Aufgaben, Datenaugmentation, eine breite automatische Merkmalsbank, ein
+personenspezifischer Schwellwert und ein Audit der zeitlichen Ausrichtung. Wir
+berichten diese Nullbefunde, weil sie zusammen die Interpretation der
+Leistungsgrenze tragen.
+
+Random Forest, HMM und Nachverarbeitung laufen lokal in unter einer Stunde. Die
+Netze wurden auf einer gemieteten Cloud-GPU trainiert; ein
+vollständiger Durchlauf mit drei Saaten über beide Pools benötigte rund zehn
+Stunden.

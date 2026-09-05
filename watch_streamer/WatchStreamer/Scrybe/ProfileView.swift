@@ -15,13 +15,14 @@ struct ProfileView: View {
     @State private var adminPresented = false
     @State private var adminUnlocked = false
     @State private var secretTaps = 0
+    @State private var path = NavigationPath()
     @State private var lastSecretTapAt = Date.distantPast
 
     private static let secretTapCount = 5
     private static let secretTapWindow: TimeInterval = 1.5
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     ScrybeHeader(label: "Profil", showsProfileEntry: false, onClose: onClose)
@@ -50,6 +51,16 @@ struct ProfileView: View {
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: BestiaryDestination.self) { _ in BestiaryView() }
         }
+        #if DEBUG
+        .onAppear {
+            switch DebugFixture.initialScreen {
+            case .bestiary: path.append(BestiaryDestination())
+            case .admin: adminUnlocked = true; adminPresented = true
+            case .adminGate: adminPresented = true
+            default: break
+            }
+        }
+        #endif
         .fullScreenCover(isPresented: $adminPresented, onDismiss: { adminUnlocked = false }) {
             ScrybeThemeProvider {
                 if adminUnlocked {
@@ -330,7 +341,7 @@ private struct ReminderSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ScrybeSectionHeader("Erinnerung")
-            Toggle(isOn: $enabled) {
+            Toggle(isOn: Binding(get: { enabled }, set: { setReminder($0) })) {
                 Text("Tägliche Erinnerung")
                     .font(.system(.body, design: .serif))
                     .foregroundStyle(theme.ink)
@@ -347,17 +358,23 @@ private struct ReminderSection: View {
             Text("Ein täglicher Anstoß, falls dein Ziel noch offen ist.")
                 .scrybeMarginNote(.footnote)
         }
-        .onChange(of: enabled) { on in
-            if on {
-                Task {
-                    if await NotificationScheduler.requestAuthorization() {
-                        NotificationScheduler.schedule(minutes: minutes)
-                    } else {
-                        enabled = false
-                    }
-                }
+    }
+
+    /// Driven from the toggle rather than from `onChange`: the stored value is
+    /// re-published while the sheet appears, and an observer on it asked for
+    /// the notification permission before anyone had touched the switch.
+    private func setReminder(_ on: Bool) {
+        guard on else {
+            enabled = false
+            NotificationScheduler.cancel()
+            return
+        }
+        enabled = true
+        Task {
+            if await NotificationScheduler.requestAuthorization() {
+                NotificationScheduler.schedule(minutes: minutes)
             } else {
-                NotificationScheduler.cancel()
+                enabled = false
             }
         }
     }

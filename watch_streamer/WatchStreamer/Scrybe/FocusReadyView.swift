@@ -3,9 +3,9 @@ import SwiftUI
 /// The focus tab on arrival: the creature being drawn, how far along it is,
 /// the length of the next sitting, and the one button that starts it.
 ///
-/// Sections are ruled apart, not boxed. The creature sits in a dotted circle
-/// with its undrawn strokes traced faintly, so a reader sees both what the
-/// writing has earned and what is still to come.
+/// Sections are ruled apart, not boxed. The creature sits in its vignette with
+/// its undrawn strokes traced faintly, so a reader sees both what the writing
+/// has earned and what is still to come.
 struct FocusReadyView: View {
     /// Seconds, or `nil` for a session without a goal.
     let onStart: (Double?) -> Void
@@ -44,6 +44,9 @@ struct FocusReadyView: View {
                     else { goalless = true }
                 }), isPresented: $sheetPresented)
         }
+        #if DEBUG
+        .onAppear { if DebugFixture.initialScreen == .duration { sheetPresented = true } }
+        #endif
     }
 
     // MARK: - Creature
@@ -51,30 +54,11 @@ struct FocusReadyView: View {
     private func creatureSection(_ creature: BestiaryEntry, remaining: Double,
                                  fraction: Double) -> some View {
         VStack(spacing: 24) {
-            ZStack {
-                Text("Im Entstehen").scrybeCaption(.caption)
-                HStack {
-                    Spacer()
-                    Text("Strich für Strich …").scrybeMarginNote(.caption)
-                }
-            }
-
-            ZStack {
-                Circle()
-                    .fill(RadialGradient(colors: [theme.wash(theme.sepia), .clear],
-                                         center: .center, startRadius: 0,
-                                         endRadius: creatureSide / 2))
-                Circle()
-                    .stroke(theme.sepia.opacity(0.45),
-                            style: StrokeStyle(lineWidth: 1, dash: [1.5, 5]))
-                CreatureCanvas(speciesId: creature.speciesId,
-                               strokesDrawn: creature.strokesDrawn,
-                               showsUnderdrawing: true)
-                    .padding(creatureSide * 0.09)
-            }
-            .frame(width: creatureSide, height: creatureSide)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(Text(creatureLabel(creature, remaining: remaining)))
+            CreatureVignette(speciesId: creature.speciesId,
+                             strokesDrawn: creature.strokesDrawn)
+                .frame(width: creatureSide, height: creatureSide)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(Text(creatureLabel(creature, remaining: remaining)))
 
             VStack(spacing: 6) {
                 Text(Marginalia.name(forSpecies: creature.speciesId))

@@ -37,15 +37,36 @@ British Library hat ihre Handschriften-Digitalisate vor 1800 gemeinfrei gestellt
 
 `trace_to_strokes.py` reduziert die Tinte eines Scans auf ihre Mittellinien und
 schreibt daraus ein SVG mit einem Pfad je Federstrich. Damit braucht es weder
-Zeichenkenntnis noch Zeit.
+Zeichenkenntnis noch Zeit. **Jeder Pfad trägt zusätzlich die gemessene
+Strichstärke** (`stroke-width`, Median der Tintenbreite unter der Mittellinie):
+so bleibt eine Kontur im Ergebnis schwer und die Fellschraffur daneben fein,
+statt dass beides zu einer Einheitslinie wird.
+
+Die Vorlagen der aktuellen Wesen liegen in `drawings/sources/` (saubere
+Strichzeichnungen, 1254×1254). Sie wurden so nachgezeichnet:
+
+```bash
+.venv/bin/python tools/trace_to_strokes.py drawings/sources/0-trompeten-hase.jpeg \
+    --out drawings/0-trompeten-hase.svg \
+    --max-side 1254 --min-blob 120 --min-stroke 12 --max-strokes 380 --tolerance 1.2
+```
+
+`--min-stroke 12` behält die kurzen Schraffurstriche, die das Fell ausmachen;
+`--max-strokes 380` liegt über jedem der acht Wesen, sodass nichts weggelassen
+wird; `--tolerance 1.2` hält die Kurven glatt. Für Bücherwurm und Federfisch
+fehlt die Vorlage — ihre SVGs stammen aus einem früheren Lauf ohne
+Strichstärken und werden mit einer Einheitsbreite gezeichnet, bis die Vorlage
+wieder auftaucht.
+
+Für einen Handschriften-Scan (Feder auf Pergament, fleckig) sind andere Werte
+der Ausgangspunkt:
 
 ```bash
 .venv/bin/python tools/trace_to_strokes.py ausschnitt.png --out 0-hase.svg \
     --window 41 --despeckle 1 --bridge 4 --min-blob 400 --min-stroke 30
 ```
 
-Diese Werte stammen aus einem echten Beispiel (Feder auf Pergament, 14. Jh.,
-480×780 Ausschnitt) und sind der sinnvolle Ausgangspunkt für Handschriften.
+Diese Werte stammen aus einem echten Beispiel (14. Jh., 480×780 Ausschnitt).
 
 Was die Schalter tun, und warum die Reihenfolge zählt:
 
@@ -87,9 +108,9 @@ Drei Regeln, sonst kommt der Konverter nicht durch:
 Auto-Trace ist zum *Anschauen* nützlich, aber sein Ergebnis ist ein gefüllter
 Umriss — als Vorlage zum Drüberzeichnen gut, als Endergebnis nicht.
 
-Zur Detailtiefe: 30 bis 50 Striche sind völlig in Ordnung. Mehr Striche heißt
-nur, dass das Wesen feiner wächst. Die frühere Grenze von 6 bis 12 war eine
-willkürliche Setzung, keine technische.
+Zur Detailtiefe: 100 bis 350 Striche sind der aktuelle Stand. Mehr Striche
+heißt nur, dass das Wesen feiner wächst; bei 30 Minuten je Wesen kommt bei 150
+Strichen alle 12 s einer dazu, bei 350 alle 5 s.
 
 ### 3. Exportieren
 
@@ -109,22 +130,28 @@ Reihenfolge und verschwindet aus dem Namen.
 ```bash
 cd watch_streamer
 python3 tools/svg_to_marginalia.py drawings/*.svg \
-    --out Shared/Marginalia.swift
+    --out WatchStreamer/Scrybe/Components/Marginalia.swift
 ```
 
 Das Werkzeug skaliert jedes Wesen formattreu in ein 100×100-Feld mit 4 Einheiten
 Rand, rechnet jede Kurve in eine kubische um und schreibt fertigen Swift-Code.
-Es braucht keine Bibliotheken.
+Die Strichstärke wird mitskaliert; ein SVG ohne `stroke-width` bekommt eine
+Einheitsbreite, die mit der Strichzahl feiner wird. Es braucht keine
+Bibliotheken.
 
 ### 5. Ansehen
 
 ```bash
 swiftc -O -o /tmp/render tools/render_marginalia.swift \
-    Shared/Marginalia.swift && /tmp/render
+    WatchStreamer/Scrybe/Components/Marginalia.swift \
+    WatchStreamer/Scrybe/Components/CreaturePen.swift && /tmp/render
 ```
 
 Schreibt `/tmp/marginalia.png` — alle Wesen als beschriftetes Raster mit
-Grundlinie. Eine einzelne Art groß: `/tmp/render 5`.
+Grundlinie. Eine einzelne Art groß: `/tmp/render 5`. Das Wachsen einer Art in
+sechs Stufen: `/tmp/render grow 0` → `/tmp/marginalia_growth.png`.
+`CreaturePen` ist derselbe Stift, den die App benutzt (Mindeststärke, Tonwert
+für Haarlinien), damit das geprüfte Bild dem gezeichneten entspricht.
 
 **Immer hinsehen, bevor committet wird.** Der Renderer kippt die y-Achse, weil
 SwiftUI sie nach unten zählt und AppKit nach oben; ohne diese Kippung prüfte man
@@ -139,6 +166,5 @@ xcodebuild test -project WatchStreamer.xcodeproj -scheme WatchStreamer \
     -only-testing:ScrybeTests/MarginaliaTests
 ```
 
-Prüft Strichzahlen, dass jeder Strich im Feld bleibt, und dass jede Art benannt
-ist. Der Bereich 6…12 in `MarginaliaTests` ist anzuheben, sobald die
-nachgezeichneten Wesen mehr Striche haben.
+Prüft Strichzahlen (6…400), dass jeder Strich im Feld bleibt, eine plausible
+Strichstärke trägt, und dass jede Art benannt ist.

@@ -10,39 +10,11 @@ private enum WatchScrybeStyle {
     static let goalReached = Color(red: 0.88, green: 0.48, blue: 0.31)
 }
 
-/// The creature in progress, drawn stroke by stroke as on the phone's focus
-/// page. Same density-matched pen as `CreatureCanvas`, minus the theme: the
-/// Watch canvas is always dark, so the ink is the ring's own palette.
-struct WatchCreatureGlyph: View {
-    let creature: WatchCreatureSnapshot
-    let ink: Color
-
-    var body: some View {
-        Canvas { context, size in
-            let strokes = Marginalia.strokes(forSpecies: creature.speciesId)
-            guard !strokes.isEmpty else { return }
-            let side = min(size.width, size.height)
-            context.translateBy(x: (size.width - side) / 2, y: (size.height - side) / 2)
-            context.scaleBy(x: side / 100, y: side / 100)
-            let base = max(0.9, 2.6 - CGFloat(strokes.count) * 0.03)
-            let lineWidth = base * (side < 100 ? 1.6 : 1)
-            for path in strokes.prefix(creature.strokesDrawn) {
-                context.stroke(path, with: .color(ink), lineWidth: lineWidth)
-            }
-        }
-        .accessibilityHidden(true)
-    }
-}
-
 struct WatchInkRing: View {
     let fraction: Double
     let writingSeconds: Double
     let goalSeconds: Double
     let tint: Color
-    /// Shown inside the ring when the phone has a creature with at least one
-    /// earned stroke; an entry with credited time but nothing visible would
-    /// read as broken, not as "in progress".
-    var creature: WatchCreatureSnapshot?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -61,11 +33,6 @@ struct WatchInkRing: View {
                 .animation(reduceMotion ? nil : .easeInOut(duration: 0.5), value: progress)
 
             VStack(spacing: 2) {
-                if let creature, creature.strokesDrawn > 0 {
-                    WatchCreatureGlyph(creature: creature, ink: .secondary)
-                        .frame(width: 34, height: 34)
-                }
-
                 Text(Self.clock(writingSeconds))
                     .font(.system(.title2, design: .serif).weight(.semibold))
                     .monospacedDigit()
@@ -82,11 +49,7 @@ struct WatchInkRing: View {
     }
 
     private var accessibilityValueText: String {
-        var text = "\(Self.accessibleDuration(writingSeconds)), \(progressPercent) Prozent von \(Self.accessibleDuration(goalSeconds))"
-        if let creature, creature.strokesDrawn > 0 {
-            text += ", Kreatur zu \(Int((creature.fraction * 100).rounded())) Prozent gezeichnet"
-        }
-        return text
+        "\(Self.accessibleDuration(writingSeconds)), \(progressPercent) Prozent von \(Self.accessibleDuration(goalSeconds))"
     }
 
     private static func clock(_ seconds: Double) -> String {
@@ -107,16 +70,24 @@ struct WatchInkRing: View {
 struct WatchView: View {
     @StateObject private var motion = MotionManager()
     @ObservedObject private var passive = PassiveTracker.shared
-    @ObservedObject private var creature = WatchCreatureStore.shared
+    @ObservedObject private var phoneTotal = WatchDayTotalStore.shared
     @AppStorage(WatchScrybeStyle.goalKey) private var storedGoalSeconds = 0.0
 
     private var goalSeconds: Double {
         storedGoalSeconds > 0 ? storedGoalSeconds : WatchScrybeStyle.defaultGoalSeconds
     }
 
+    /// The larger of the Watch's own count and the phone's mirrored total —
+    /// see `WatchDayTotal` for why the larger one is the fresher, not a
+    /// double count.
+    private var writingSecondsToday: Double {
+        max(passive.writingSecondsToday,
+            phoneTotal.current?.writingSeconds(on: Date()) ?? 0)
+    }
+
     private var progress: Double {
         guard goalSeconds > 0 else { return 0 }
-        return passive.writingSecondsToday / goalSeconds
+        return writingSecondsToday / goalSeconds
     }
 
     private var goalMet: Bool { progress >= 1 }
@@ -138,12 +109,11 @@ struct WatchView: View {
                 ZStack {
                     WatchInkRing(
                         fraction: progress,
-                        writingSeconds: passive.writingSecondsToday,
+                        writingSeconds: writingSecondsToday,
                         goalSeconds: goalSeconds,
                         tint: goalMet
                             ? WatchScrybeStyle.goalReached
-                            : WatchScrybeStyle.accent,
-                        creature: creature.current
+                            : WatchScrybeStyle.accent
                     )
                     .frame(width: side, height: side)
                     .position(x: proxy.size.width / 2, y: free / 2)

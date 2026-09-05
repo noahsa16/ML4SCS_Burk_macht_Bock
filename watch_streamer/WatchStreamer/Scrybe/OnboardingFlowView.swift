@@ -9,7 +9,11 @@ struct OnboardingFlowView: View {
     @Environment(\.scrybe) private var theme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @AppStorage(ScrybeSettings.goalKey) private var goalSeconds: Double = ScrybeSettings.defaultGoalSeconds
+#if DEBUG
+    @State private var page = DebugFixture.onboardingPage ?? 0
+#else
     @State private var page = 0
+#endif
     @State private var wantsReminder = false
 
     private let lastPage = 3

@@ -2,20 +2,18 @@ import SwiftUI
 
 /// Draws a creature's first `strokesDrawn` strokes, scaled into the cell.
 ///
-/// Density-matched line width, so a species traced in two hundred strokes
-/// gets a finer pen than one traced in twenty — at a fixed width the detail
-/// of a dense creature would weld into a blob (mirrors
-/// `tools/render_marginalia.swift`'s renderer, boost included: below the
-/// tool's own 100pt reference size the same line reads too faint, so it's
-/// widened back up rather than left to fade with the cell).
+/// Every stroke is drawn at the thickness measured from its source, so a
+/// contour comes out heavy and the fur hatching beside it fine, and a
+/// hairline is inked a shade lighter than a contour. The pen's floor and its
+/// tone live in `CreaturePen`, shared with `tools/render_marginalia.swift`,
+/// so the picture approved on the Mac is the one the app draws.
+///
+/// Only earned strokes appear. There is no faint underdrawing of the rest:
+/// the creature is meant to reveal itself as it is written, and a pencil
+/// outline would give the animal away before the first stroke.
 struct CreatureCanvas: View {
     let speciesId: Int
     let strokesDrawn: Int
-    /// Also trace the strokes not yet earned, faint and dashed — the pencil
-    /// underdrawing the ink has yet to follow. The focus page shows it so a
-    /// half-drawn creature reads as half-drawn rather than as a fragment;
-    /// the gallery leaves it off, where the finished ink is the point.
-    var showsUnderdrawing = false
 
     @Environment(\.scrybe) private var theme
 
@@ -29,17 +27,14 @@ struct CreatureCanvas: View {
             // the coordinate system rather than the paths lets it shrink
             // with the cell the same way it shrinks with stroke density.
             context.scaleBy(x: side / 100, y: side / 100)
-            let base = max(0.9, 2.6 - CGFloat(strokes.count) * 0.03)
-            let lineWidth = base * (side < 100 ? 1.6 : 1)
-            if showsUnderdrawing {
-                let dash = StrokeStyle(lineWidth: max(0.6, lineWidth * 0.6),
-                                       lineCap: .round, dash: [2.2, 2.6])
-                for path in strokes.dropFirst(strokesDrawn) {
-                    context.stroke(path, with: .color(theme.mutedInk), style: dash)
-                }
-            }
-            for path in strokes.prefix(strokesDrawn) {
-                context.stroke(path, with: .color(theme.secondaryInk), lineWidth: lineWidth)
+            let heaviest = strokes.map(\.width).max() ?? 1
+            let ink = StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
+            for stroke in strokes.prefix(strokesDrawn) {
+                var style = ink
+                style.lineWidth = CreaturePen.lineWidth(stroke.width, side: side)
+                let tone = CreaturePen.opacity(stroke.width, reference: heaviest)
+                context.stroke(stroke.path, with: .color(theme.secondaryInk.opacity(tone)),
+                               style: style)
             }
         }
     }
@@ -60,7 +55,7 @@ extension Marginalia {
 #Preview {
     HStack(spacing: 24) {
         CreatureCanvas(speciesId: 0, strokesDrawn: 12)
-        CreatureCanvas(speciesId: 0, strokesDrawn: 12, showsUnderdrawing: true)
+        CreatureCanvas(speciesId: 0, strokesDrawn: 60)
     }
     .frame(height: 140)
     .padding(40)

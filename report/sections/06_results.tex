@@ -1,18 +1,350 @@
-\section{Results}
+\section{Ergebnisse}
 \label{sec:results}
 
-% OWNER: Noah
+\subsection{Klassifikation der Schreibaktivität}
+\label{sec:main-results}
 
-\subsection{Writing-Activity Classification}
-% Lead with the final grouped-five-fold headline result.
-% TODO: Add the canonical model-comparison table generated from final artefacts.
+Tabelle~\ref{tab:main} fasst die Hauptergebnisse auf dem Legacy-Pool mit 32
+Personen zusammen. Der Random Forest erreicht je 1-s-Fenster eine
+Genauigkeit von 0,865 und eine ROC-AUC von 0,942, gemittelt über die 32
+ausgelassenen Personen. Der kausale HMM-Filter hebt dieselben Vorhersagen ohne
+Neutraining auf 0,898. Den höchsten beobachteten Mittelwert erreicht
+tcn\_bigru auf nativen 5-s-Fenstern mit 0,921 bei einer ROC-AUC von 0,975.
+Dieser Wert ist ein Mittel über drei Zufallssaaten und nicht gepaart gegen den
+Random Forest getestet; die beiden Streuungsangaben in Tabelle~\ref{tab:main}
+messen Verschiedenes.
 
-\subsection{Temporal Decoding}
-% Report causal filtering and non-causal smoothing separately.
+\begin{table}[H]
+  \centering
+  \caption{Hauptergebnisse, Legacy-Pool, 32 Personen, gruppierte fünffache
+  Kreuzvalidierung. Die letzte Spalte nennt, worüber die Streuung gebildet ist:
+  Bei Random Forest und HMM ist $\pm$ die Standardabweichung zwischen den 32
+  Personen, bei den Netzen die Standardabweichung über drei Zufallssaaten des
+  Mittels der fünf Gruppen. Die beiden Größen messen Verschiedenes und sind
+  nicht gegeneinander lesbar; für die Netze wurden auf dieser Kohorte keine
+  personenweisen Vorhersagen gespeichert. Kausal bedeutet, dass die
+  Entscheidung zum Zeitpunkt $t$ nur Daten bis $t$ verwendet.}
+  \label{tab:main}
+  \footnotesize
+  \setlength{\tabcolsep}{2.5pt}
+  \begin{tabular}{llcrrl}
+    \hline
+    \textbf{Modell} & \textbf{Entscheidungsskala} & \textbf{kausal} & \textbf{Genauigkeit} & \textbf{ROC-AUC} & \textbf{$\pm$ über} \\ \hline \hline
+    Random Forest & 1~s & ja & 0,865 $\pm$ 0,035 & 0,942 $\pm$ 0,029 & 32 Personen \\
+    Random Forest, Burst & 5~s & ja & 0,861 $\pm$ 0,037 & 0,934 $\pm$ 0,027 & 32 Personen \\
+    Random Forest, Burst & 30~s & ja & 0,773 $\pm$ 0,041 & 0,856 $\pm$ 0,040 & 32 Personen \\
+    Random Forest + HMM-Filter & $\sim$18~s, adaptiv & ja & 0,898 $\pm$ 0,034 & 0,962 $\pm$ 0,025 & 32 Personen \\
+    Random Forest + HMM-Smoother & rückblickend & nein & 0,917 $\pm$ 0,036 & 0,973 $\pm$ 0,025 & 32 Personen \\ \hline
+    tcn6 & 5~s nativ & ja & 0,915 $\pm$ 0,007 & 0,974 & 3 Saaten \\
+    tcn\_bigru & 5~s nativ & ja & 0,921 $\pm$ 0,006 & 0,975 & 3 Saaten \\ \hline
+  \end{tabular}
+\end{table}
 
-\subsection{Ablation Results}
-% Gravity, deep--deep fusion, HMM hyperparameters, and other retained analyses.
+Der F1-Wert der Klasse Schreiben liegt für den Random Forest bei
+0,840 $\pm$ 0,051 über die 32 Personen und nach dem HMM-Filter bei 0,884. Die Streuung zwischen
+Personen ist mit 3,5 Prozentpunkten die größte Unsicherheitsquelle;
+Abbildung~\ref{fig:per-person} zeigt sie aufgelöst. Die Genauigkeit reicht
+von 0,78 (P73, P31, P63) bis 0,91 (P26, P13, P57, P66). Der HMM-Filter
+verbessert alle 32 Personen, die schwächsten aber unterschiedlich stark; darauf
+kommen wir in der Fehleranalyse zurück.
 
-\subsection{Error Analysis}
-% Keyboard/phone tapping, task-specific errors, and soft-writer case.
-% Prefer participant- and task-level evidence over anecdotal descriptions.
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/per_person_n32.pdf}
+    \caption{Genauigkeit je ausgelassener Person, aufsteigend sortiert
+    nach dem Random Forest auf 1-s-Fenstern (Balken). Punkte: derselbe
+    Random Forest nach kausalem HMM-Filter, Dreiecke: nach rückblickendem
+    HMM-Smoother. Die gepunktete Linie ist das Mittel des Random Forest.}
+    \label{fig:per-person}
+\end{figure}
+
+Der ehrliche Vergleich zwischen Merkmalsmodell und Netz hält die
+Entscheidungslatenz fest. Bei einem Fenster von 5~s liegt tcn\_bigru mit
+0,921 sechs Prozentpunkte über dem kausal auf 5~s geglätteten Random Forest
+(0,861) und noch 2,3 Prozentpunkte über dem HMM-gestützten Random Forest,
+der mit rund 18~s deutlich mehr Kontext verbraucht. Dieser Abstand ist kein
+Effekt des längeren Eingangsfensters allein: Ein Random Forest, dessen 88
+Merkmale direkt über 5~s berechnet werden, kam auf 15 Personen auf 0,885 und
+lag damit gepaart signifikant unter einem TCN auf nativen 5-s-Fenstern
+(0,911, $p = 0{,}0012$); auf 20 Personen stand derselbe Random Forest bei
+0,879 gegen 0,898 für tcn6. Das Netz nutzt die Zeitstruktur innerhalb
+des Fensters, die die Merkmalsstatistik wegmittelt. Auf 1-s-Fenstern ist der
+Vorsprung der Netze dagegen fast vollständig hochfrequentes Rauschen, das die
+Glättung ohnehin entfernt (TCN 0,895 gegen Random Forest 0,872 je Fenster,
+nach Glättung über 5~s nicht mehr unterscheidbar).
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.5\textwidth]{figures/cohort_scaling.pdf}
+    \caption{Genauigkeit in Abhängigkeit von der Zahl der Personen im
+    Datensatz. Der Random Forest bewegt sich zwischen 20 und 32 Personen
+    nicht, beide Netze steigen um mehr als ihre Saatenstreuung.}
+    \label{fig:scaling}
+\end{figure}
+
+Die Kohorte ist im Lauf des Projekts von 3 auf 32 Personen gewachsen, und
+diese Reihe ist selbst ein Ergebnis (Abbildung~\ref{fig:scaling}). Der
+Random Forest liegt bei 20, 22 und 32 Personen bei 0,869, 0,863 und 0,865,
+also innerhalb des Rauschens; auch die früheren Stufen mit 7 bis 15 Personen
+lagen zwischen 0,86 und 0,87. Zwölf zusätzliche Personen haben ihn nicht
+bewegt. Die Netze legen im selben Schritt von 22 auf 32 Personen um 0,7
+(tcn6) und 0,95 Prozentpunkte (tcn\_bigru) zu, jeweils mehr als ihre
+Saatenstreuung. Die Ergebnisse deuten damit darauf hin, dass die Grenze des
+Random Forest eher in der Repräsentation als in der Datenmenge liegt. Ein
+kausaler Schluss ist das nicht: Zwischen den Stufen hat sich nicht nur die
+Zahl der Personen geändert, sondern auch die Zusammensetzung der Kohorte und
+der Anteil der Aufnahmen nach Protokoll~v2 mit seinen schwierigeren
+Gegenaufgaben. Denkbar ist deshalb auch, dass der Random Forest einen Zugewinn
+durch zusätzliche Personen gegen die härtere Aufgabenmischung eintauscht und
+beides sich zu einer flachen Kurve addiert. Die Stufe mit 22 Personen ist
+zudem durch einen Datenfehler belastet: Die Labels einer Person (P33) waren
+dort um rund 16~s verschoben, weil ein Randminimum der Ausrichtung
+übernommen worden war; der Fehler wurde erst vor dem Lauf mit 32 Personen
+korrigiert (Abschnitt~\ref{sec:alignment}).
+
+Der Vorsprung von tcn\_bigru gegenüber tcn6 (0,55 Prozentpunkte bei einer
+Saatenstreuung von 0,6 bis 0,7) ist nominal und nicht belegt; im Modern-Pool
+dreht sich die Rangfolge. Alle übrigen in der Suche getesteten Netze,
+darunter ein zweischichtiges GRU, InceptionTime und zwei
+Transformer-Varianten, lagen auf 20 Personen zwischen 0,88 und 0,93 und
+damit im selben Band oder darunter; die Transformer waren am schwächsten. Die
+Kontrollfamilien bestätigen das Bild von der anderen Seite: MiniRocket
+erreicht auf 5-s-Fenstern exakt den Wert des Random Forest auf 5-s-Merkmalen
+(0,886 gegen 0,885, $p = 0{,}93$ auf 15 Personen), und das vortrainierte
+harnet liegt als eingefrorener Merkmalsextraktor gleichauf mit dem Random
+Forest, wobei seine Fehler über die Personen mit denen des Random Forest zu
+$r = 0{,}85$ korrelieren.
+
+\subsection{Zeitliche Glättung}
+\label{sec:smoothing-results}
+
+Abbildung~\ref{fig:decoders} stellt die Dekoder auf denselben
+Wahrscheinlichkeiten gegenüber. Der kausale gleitende Mittelwert hebt die
+Genauigkeit auf keiner Skala über das 1-s-Niveau; bei 5~s liegt er gleichauf,
+bei 30~s neun Prozentpunkte darunter, weil er echte Übergänge verschmiert. Das
+HMM tut das Gegenteil: Der kausale Vorwärtsfilter gewinnt gegenüber dem rohen
+1-s-Modell 3,3 Prozentpunkte Genauigkeit und 2,0 Punkte ROC-AUC, in 32 von 32
+Personen ($p < 10^{-5}$). Er ist dabei kein verstecktes langes Fenster: Bei
+vergleichbarem Gedächtnis liegt der Mittelwert sieben bis zwölf Punkte
+darunter. Der Unterschied ist, dass der Filter bei schwacher Evidenz den
+Zustand hält und bei starker Evidenz schnell wechselt, statt fest zu mitteln.
+Die Negativkontrolle mit permutierten Beobachtungen fällt auf 0,516 und
+schließt aus, dass das HMM nur die Blockstruktur der Labels belohnt.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.62\textwidth]{figures/decoders_n32.pdf}
+    \caption{Genauigkeit derselben Random-Forest-Wahrscheinlichkeiten unter
+    verschiedenen Dekodern (32 Personen, Mittel und Standardabweichung). Die
+    Beschriftung am Balkenfuß gibt die Entscheidungslatenz an. Grau:
+    kausaler gleitender Mittelwert. Orange: kausaler HMM-Filter. Grün:
+    rückblickende Dekoder, die die ganze Aufnahme sehen.}
+    \label{fig:decoders}
+\end{figure}
+
+Der eigentliche Hebel ist der Dekodiermodus. Der rückblickende Smoother liegt
+mit 0,917 um 1,9 Prozentpunkte über dem Filter, in 31 von 32 Personen
+($p < 10^{-5}$); Viterbi liegt gleichauf. Eine Rastersuche über 450
+Kombinationen der HMM-Parameter fand dagegen keinen Gewinner, der die
+Standardwerte signifikant schlägt. Für den Einsatz folgt daraus eine klare
+Trennung: Eine Live-Anzeige muss den Filter verwenden, eine rückblickende
+Tagesauswertung darf den Smoother nehmen und gewinnt dadurch 1,9 Prozentpunkte
+ohne zusätzlichen Aufwand.
+
+Ob der Gewinn an der Modellfamilie oder am Zeitkontext des Basismodells hängt,
+zeigt ein $2\times2$-Versuch mit Random Forest und TCN auf 1-s- und
+5-s-Fenstern: Das HMM hilft beiden 1-s-Modellen (+2,4 und +1,0 Punkte) und
+schadet beiden 5-s-Modellen ($-0{,}8$ und $-0{,}9$ Punkte). Sobald das
+Basismodell rund 5~s Kontext trägt, ist nichts mehr nachzurüsten. Random Forest
+mit HMM, TCN mit HMM und nativer 5-s-TCN landen auf denselben Personen an
+derselben Stelle (0,905, 0,905 und 0,911): Der Gewinn aus der Zeitstruktur
+lässt sich nachträglich oder in der Repräsentation einsammeln, aber nicht
+doppelt. Die Wahrscheinlichkeiten sind dabei gut kalibriert (erwarteter
+Kalibrierungsfehler 0,020 je 1-s-Fenster); der HMM-Filter hat den besten
+Brier-Score des Panels, ist aber leicht überkonfident.
+
+\subsection{Ergebnisse der Ablationsstudien}
+\label{sec:ablation-results}
+
+\paragraph{Schwerkraftvektor.} Der Modern-Pool erlaubt den gepaarten
+Vergleich von sechs gegen neun Eingangswerten auf 23 Personen
+(Tabelle~\ref{tab:gravity}). Für tcn6 hilft der Schwerkraftvektor um 0,86
+Prozentpunkte und halbiert die Saatenstreuung, für tcn\_bigru ist er neutral.
+Auf vier Personen hatten wir zuvor für den Random Forest einen Verlust von
+0,5 Punkten und für tcn\_bigru auf sieben Personen einen Verlust von 2,7
+Punkten gemessen; beide früheren Befunde waren Artefakte kleiner Stichproben.
+Die Orientierung des Handgelenks relativ zur Schwerkraft trägt also
+personenübergreifend Information, aber nur für die Architektur ohne
+rekurrenten Kopf. Plausibel ist, dass der bidirektionale Kopf eine
+vergleichbare Lageinformation aus dem zeitlichen Verlauf rekonstruiert.
+
+\begin{table}[H]
+  \centering
+  \caption{Ablation des Schwerkraftvektors im Modern-Pool (23 Personen,
+  100~Hz, 5-s-Fenster, Mittel $\pm$ Standardabweichung über drei Saaten).}
+  \label{tab:gravity}
+  \begin{tabular}{lrrr}
+    \hline
+    \textbf{Modell} & \textbf{6 Werte} & \textbf{9 Werte (mit Schwerkraft)} & $\Delta$ \\ \hline \hline
+    tcn6 & 0,902 $\pm$ 0,007 & 0,911 $\pm$ 0,004 & +0,86~pp \\
+    tcn\_bigru & 0,909 $\pm$ 0,002 & 0,910 $\pm$ 0,002 & +0,06~pp \\ \hline
+  \end{tabular}
+\end{table}
+
+\paragraph{Abtastrate.} Ein früher, explorativer Vergleich auf zwei nativ
+mit 100~Hz aufgezeichneten Aufnahmen derselben Person zeigt keinen
+Unterschied: Der auf 50~Hz und zehn fremden Personen trainierte Random Forest
+erreichte auf diesen Aufnahmen im Mittel 0,881, ein auf der jeweils anderen
+100-Hz-Aufnahme derselben Person trainierter 0,883. Das ist kein
+kontrolliertes Downsampling-Experiment: Neben der Abtastrate unterscheiden
+sich Trainingsmenge und Personenbezug. Eine Person und zwei Aufnahmen tragen
+keine allgemeine Aussage über den Wert der höheren Abtastrate. Der Befund ist mit dem
+Abtasttheorem verträglich, weil die 1-s-Merkmale und die Strichfrequenz von 3
+bis 8~Hz bei 50~Hz vollständig abgedeckt sind, aber er ersetzt keinen
+personenübergreifenden Test. Die Erfassung läuft weiter mit 100~Hz, weil sich
+eine höhere Rate im Nachhinein nicht erzeugen lässt, eine niedrigere dagegen
+jederzeit. Umsonst ist das nicht: Datenmenge, Übertragung, Speicherbedarf und
+Energieverbrauch auf der Uhr verdoppeln sich, was für einen passiven
+Ganztags-Tracker der ausschlaggebende Punkt wäre.
+
+\paragraph{Gyroskop.} Ohne die 41 Gyroskop-Merkmale verliert der Random
+Forest auf 15 Personen 1,9 Prozentpunkte je 1-s-Fenster ($p = 0{,}003$),
+unter dem HMM-Filter noch 1,1 Punkte ($p = 0{,}008$), auf der 30-s-Skala
+0,5 Punkte. Ein Modell allein aus Beschleunigungsdaten mit HMM (0,893) liegt
+damit über dem vollständigen Modell ohne HMM (0,874). Ersetzt man die
+fusionsbereinigte durch die rohe Gesamtbeschleunigung einschließlich
+Schwerkraft, wie sie die Hintergrund-Aufzeichnung der Watch liefert, ändert
+sich auf fünf Personen nichts ($\Delta = -0{,}2$ Punkte, nicht signifikant),
+weil die Schwerkraft innerhalb einer Sekunde nahezu konstant ist und die
+meisten Merkmale mittelwertfrei sind. Für die Netze liegt ein Vergleich vor,
+der nicht nur das Gyroskop entfernt: drei Kanäle roher Gesamtbeschleunigung
+einschließlich Schwerkraft bei 50~Hz, wie sie die Hintergrund-Aufzeichnung
+der Watch liefert, gegen sechs fusionsbereinigte Kanäle bei 100~Hz. Damit
+fällt tcn6 auf 23 Personen von 0,902 auf 0,884 und tcn\_bigru von 0,909 auf
+0,875. Der Verlust bündelt drei Änderungen (Kanalzahl, Art der
+Beschleunigung, Abtastrate) und ist als Preis des passiven Einsatzes zu lesen,
+nicht als isolierte Gyroskop-Ablation. Der rekurrente Kopf verliert dabei
+deutlich mehr als der Faltungsstamm.
+
+\paragraph{Fusion.} Das Wahrscheinlichkeitsmittel aus Random Forest und tcn6
+auf 5-s-Fenstern hebt auf 20 Personen beide Einzelmodelle signifikant
+(0,909 gegen 0,898 für tcn6, $p = 0{,}036$; gegen 0,879 für den Random
+Forest, $p = 0{,}003$), obwohl die Residuen mit $r = 0{,}60$ deutlich
+korrelieren. Zwei Netze untereinander (InceptionTime mit tcn\_bigru) bringen
+dagegen nichts ($r = 0{,}71$, alle $p > 0{,}06$), ebenso wenig harnet mit
+dem Random Forest auf 14 Personen. Nur die Fusion über Paradigmengrenzen
+hinweg gewinnt, und auch sie nur rund einen Prozentpunkt.
+
+\paragraph{Merkmale und Training.} Fünf weitere Hebel auf der Seite des
+Random Forest blieben ohne Wirkung. Rhythmusmerkmale (Höhe des
+Autokorrelationsmaximums, spektrale Flachheit) sollten Tippen von Schreiben
+trennen und senkten die Falsch-positiv-Rate beim Tastaturtippen von 0,343
+auf 0,336; die Genauigkeit blieb unverändert ($p = 0{,}54$). Zehn gezielt
+auf die Tipp-Verwechslung geschärfte Merkmale verschlechterten sie leicht
+(0,358). Eine dreifache Gewichtung der Tipp-Fenster im Training hob die
+Falsch-positiv-Rate beim Handytippen von 0,243 auf 0,286 und schadete den
+Personen, die Tippen bereits korrekt ablehnten; dasselbe Gewicht im
+Training von tcn6 machte das Netz global zurückhaltender, ohne gezielt
+Tippen zu trennen. Datenaugmentation der Rohsequenzen (Skalierung,
+Rotation, Zeitverzerrung, Jitter) brachte für tcn6 auf keinem Pool einen
+signifikanten Gewinn (kein $p < 0{,}05$; der kleinste Wert, $p = 0{,}058$,
+stammt aus einem unvollständigen Lauf der reichen Variante auf dem
+Legacy-Pool; ROC-AUC durchweg flach). Ein
+personenspezifischer Schwellwert, auf dem ersten Drittel einer Aufnahme
+kalibriert, verschlechterte den F1-Wert (0,858 auf 0,846). Der einzige
+signifikante Merkmalsgewinn kam aus einer breiten automatischen
+Merkmalsbank: 42 aus rund 4\,700 tsfresh-Merkmalen destillierte Größen
+(Autokorrelation bei kurzen Verzögerungen, Quantile, Komplexitätsmaße) heben
+die Genauigkeit je Fenster um 0,5 Punkte ($p = 0{,}007$) und den Live-Pfad
+mit HMM um 0,4 Punkte ($p = 0{,}003$); wir haben sie wegen des geringen
+Effekts nicht in die Hauptpipeline übernommen.
+
+\paragraph{Zeitliche Ausrichtung als Fehlerquelle.} Ein Audit auf zehn
+Personen prüfte, ob der Restfehler der Ausrichtung die Leistungsgrenze
+erklärt. Weder die Konfidenz $\sigma$ noch die Drift von $\delta$ zwischen
+erster und zweiter Aufnahmehälfte (Median 20~ms, entspricht einem Sample)
+korreliert mit der Genauigkeit der Person ($r = -0{,}22$ und $-0{,}18$).
+Die zwei damals schwächsten Personen zeigten keine auffällige
+Alignment-Diagnostik; eine von ihnen hatte sogar das schärfste Minimum des
+ganzen Satzes. Ein
+künstlicher Fehler von $\pm 50$~ms würde 10,7\,\% der Sample-Labels kippen;
+dass die Genauigkeit nicht mit den Alignment-Diagnosen zusammenhängt,
+belegt, dass dieser Fall im Merge nicht eintritt.
+
+\subsection{Fehleranalyse}
+\label{sec:error-analysis}
+
+Die Marker des Studienprotokolls erlauben, jeden Fehler einer Aufgabe
+zuzuordnen. Abbildung~\ref{fig:task-errors} zeigt für den Random Forest auf
+1-s-Fenstern die Falsch-positiv-Rate je Nicht-Schreibaufgabe und die
+Falsch-negativ-Rate je Schreibaufgabe über alle 32 Personen.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/task_errors_n32.pdf}
+    \caption{Fehler je Aufgabe (Random Forest, 1-s-Fenster, 32 Personen).
+    Links: Anteil der Nicht-Schreib-Fenster, die als Schreiben klassifiziert
+    wurden. Rechts: Anteil der Schreib-Fenster, die als Nicht-Schreiben
+    klassifiziert wurden.}
+    \label{fig:task-errors}
+\end{figure}
+
+Die Fehler verteilen sich nicht gleichmäßig. Pausen, Scrollen und
+Gestikulieren werden zu über 97\,\% korrekt abgelehnt. Die Falsch-positiv-Rate
+konzentriert sich auf das Tippen: 22\,\% der Tastatur-Fenster und 17\,\% der
+Handy-Fenster gelten als Schreiben, gegenüber 2,4\,\% in Pausen. Auf der
+Schreibseite ist das leise, druckarme Schreiben mit 29\,\% verpassten
+Fenstern die schwierigste Aufgabe, gefolgt von den Rechenaufgaben (22\,\%),
+in denen lange Denkpausen von mehr als 2,5~s die Schreibabschnitte
+zerschneiden.
+
+Abbildung~\ref{fig:signal} zeigt, warum gerade das Tippen schwierig ist. Die
+Magnituden von Beschleunigung und Winkelgeschwindigkeit liegen beim Schreiben,
+in einer Pause und beim Tippen auf einer Tastatur in derselben Größenordnung.
+Was Schreiben auszeichnet, ist weniger die Amplitude als die zeitliche
+Struktur der Bewegung, und die ist beim Tippen ähnlich genug, um Fenster zu
+verwechseln.
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=\textwidth]{figures/signal_example.pdf}
+    \caption{Zwölf Sekunden Rohsignal der Apple Watch aus einer Aufnahme
+    (Person P26): Betrag der Beschleunigung ohne Schwerkraft (oben) und der
+    Winkelgeschwindigkeit (unten) während des Abschreibens, einer Pause und des
+    Tippens auf einer Tastatur. Grün hinterlegt sind die Abschnitte, in denen
+    der Stift laut Ground Truth Kontakt mit dem Papier hatte.}
+    \label{fig:signal}
+\end{figure}
+
+Das Tipp-Problem ist stark personenabhängig. Bei P31 werden 68\,\% der
+Tastatur- und 63\,\% der Handy-Fenster als Schreiben gelesen, bei P63 80\,\%
+der Handy-Fenster, bei P34 66\,\%; bei P26, P27, P57 und P71 liegen beide
+Raten unter 5\,\%. Die drei Personen mit der niedrigsten Gesamtgenauigkeit
+(P73, P31, P63) gehören alle zur ersten Gruppe. Bei 20 Personen lagen die
+gepoolten Raten mit 0,36 und 0,25 noch deutlich höher; die zwölf zusätzlichen
+Personen mit Tipp-Aufgaben haben sie auf 0,22 und 0,17 gedrückt, ohne dass
+sich das im Gesamtmittel niederschlägt, weil zugleich neue schwierige
+Personen hinzukamen.
+
+Für eine dieser Personen (P17) haben wir den Mechanismus nachvollzogen. Ihr
+Tippen erzeugt am Handgelenk Gyroskop-Ausschläge derselben Größenordnung wie
+ihr Schreiben, während eine Kontrollperson (P26) beim Tippen deutlich
+darunter liegt: In drei von Hand gewählten 10-s-Ausschnitten betragen die
+Effektivwerte 1,64, 1,25 und 0,31~rad/s. Die Ausschnitte sind eine
+Illustration, keine Statistik über die Aufgabe. Eine SHAP-Analyse
+\citep{lundberg2017} der korrekt erkannten Schreibfenster und der falsch als
+Schreiben gelesenen Tipp-Fenster ergibt eine Korrelation der
+Merkmalsbeiträge von $r = 0{,}63$: Die Mehrheit der Merkmale sieht in beiden
+dasselbe. Zwei Merkmale trennen (Anteil des 3-bis-8-Hz-Bands der
+Rotationsachse $x$ und der Jerk des Gyroskop-Betrags), werden aber
+überstimmt. Das erklärt, warum die in Abschnitt~\ref{sec:ablation-results}
+beschriebenen Merkmalseingriffe wirkungslos blieben: Die Information ist
+vorhanden, aber für eine Person mit diesem Tippstil in der Trainingsmenge
+unterrepräsentiert.
+
+Die schwachen Personen zerfallen in zwei Klassen, die sich am HMM-Gewinn
+ablesen lassen. P73 gewinnt durch den Filter 6,7 Prozentpunkte, seine Fehler
+sind also hochfrequentes Flackern, das Zeitkontext beseitigt. P31 gewinnt nur
+2,7 Punkte und P17 nur 1,2: Ihre Fehler sind stabil falsche Emissionen über
+ganze Aufgabenblöcke, und ein Übergangsmodell kann eine falsche, aber
+konsistente Emission nicht korrigieren.
