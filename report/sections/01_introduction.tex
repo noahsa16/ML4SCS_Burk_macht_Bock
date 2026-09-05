@@ -1,10 +1,20 @@
 \section{Introduction}
 \label{sec:introduction}
 
-% OWNER: Taji
-% Suggested flow:
-% 1. Why measuring writing activity is useful.
-% 2. Why wrist-worn sensing is attractive compared with instrumented pens.
-% 3. The challenge: distinguish handwriting from similar hand activities.
-% 4. Research question and contribution of this work.
-% 5. Brief roadmap of the paper.
+Wearable devices have become an integral part of everyday life. Smartwatches in particular are worn continuously throughout the day, recording fine-grained motion data via built-in inertial measurement units (IMUs) comprising accelerometers and gyroscopes. While these sensors were originally designed for step counting and fitness tracking, they capture far richer information about the wearer's activity. One largely unexplored application is the automatic detection of handwriting activity, that is, determining whether a person is currently writing by hand based solely on the motion of their wrist.
+
+Handwriting remains a fundamental activity in education, professional life, and personal note-taking. Unlike typing on a keyboard, handwriting is a cognitively demanding motor task that engages the brain differently, promotes retention, and leaves a rich signal at the wrist. The ability to detect writing activity passively and unobtrusively, without requiring the user to start a timer or interact with the device, opens up a range of practical applications. These include tracking productive writing time, monitoring cognitive engagement in educational settings, and building smart environments that adapt to whether a person is actively composing thoughts on paper.
+
+Prior work on writing detection from wrist-worn sensors has focused primarily on recognising \textit{what} is written, such as inferring letters, words, or specific gestures, rather than the simpler but practically more useful question of \textit{whether} writing is happening at all \cite{soubam2023, xiamotionhacker2018}. These approaches often rely on controlled laboratory conditions, a small number of participants, and evaluation strategies that do not reflect how well the model generalises to previously unseen users.
+
+In this work, we address these limitations. We collect IMU data from an Apple Watch Series~7 worn by 22 participants during a counterbalanced study protocol that includes genuine writing conditions as well as a range of hard negative activities such as keyboard typing, phone typing, scrolling, pen-fidgeting, and gesturing. Ground truth writing labels are provided by a Moleskine smart pen during data collection only; once the model is trained, inference runs on the watch alone. We evaluate all models using leave-one-subject-out (LOSO) cross-validation, which holds out one participant entirely per fold and thus directly measures generalisation to unseen users, the condition that matters in a real deployment.
+
+Our central research question is:
+
+\begin{quote}
+\textit{Can writing activity be reliably detected from the wrist IMU of an Apple Watch alone, independently of who is wearing the watch and what they write?}
+\end{quote}
+
+We compare a range of approaches, including a Random Forest baseline with 92 hand-engineered features, a causal Hidden Markov Model (HMM) post-filter, and deep temporal models (TCN, GRU). Our best deployed model, a Random Forest with per-session z-score normalisation and a causal HMM, reaches an accuracy of \textbf{0.905} and an ROC-AUC of \textbf{0.946} at one-second resolution on a 20-subject LOSO cohort. A Temporal Convolutional Network (TCN) operating on five-second windows achieves \textbf{0.911} accuracy under the same protocol.
+
+The remainder of this paper is structured as follows. Section~2 reviews related work on writing and handwriting detection from wrist-worn sensors. Section~3 describes the data collection protocol, sensor setup, and preprocessing pipeline. Section~4 presents our experimental results and analysis. Section~5 concludes with a discussion of limitations and directions for future work.
