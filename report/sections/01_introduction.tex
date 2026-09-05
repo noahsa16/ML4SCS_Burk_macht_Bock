@@ -15,6 +15,6 @@ Our central research question is:
 \textit{Can writing activity be reliably detected from the wrist IMU of an Apple Watch alone, independently of who is wearing the watch and what they write?}
 \end{quote}
 
-We compare a range of approaches, including a Random Forest baseline with 92 hand-engineered features, a causal Hidden Markov Model (HMM) post-filter, and deep temporal models (TCN, GRU). Our best deployed model, a Random Forest with per-session z-score normalisation and a causal HMM, reaches an accuracy of \textbf{0.905} and an ROC-AUC of \textbf{0.946} at one-second resolution on a 20-subject LOSO cohort. A Temporal Convolutional Network (TCN) operating on five-second windows achieves \textbf{0.911} accuracy under the same protocol.
+We compare a range of approaches, including a Random Forest baseline with 92 hand-engineered features, a causal Hidden Markov Model (HMM) post-filter, and deep temporal models (TCN, GRU). The experimental results and a detailed analysis of each model's performance are presented in Section~4.
 
 The remainder of this paper is structured as follows. Section~2 reviews related work on writing and handwriting detection from wrist-worn sensors. Section~3 describes the data collection protocol, sensor setup, and preprocessing pipeline. Section~4 presents our experimental results and analysis. Section~5 concludes with a discussion of limitations and directions for future work.
