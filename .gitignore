@@ -122,3 +122,10 @@ paper_notes/
 
 # Isoliertes venv fuer die Core-ML-Konvertierung (siehe requirements-coreml.txt)
 .venv-coreml/
+
+# LaTeX build artefacts of the final report
+report/main.pdf
+report/*.log
+report/*.blg
+report/*.aux
+report/tmp/

@@ -1,6 +1,32 @@
-\section{Conclusion}
+\section{Fazit und Ausblick}
 \label{sec:conclusion}
 
-% OWNER: Noah
-% Answer the research question directly, state the strongest validated result,
-% and give one restrained next step. Do not introduce new results here.
+Schreibaktivität lässt sich aus den IMU-Daten einer Apple Watch am
+Schreibhandgelenk personenunabhängig erkennen. Mit 32 Personen, einem
+instrumentierten Stift als Ground Truth und einer Evaluation, bei der keine
+Person je in ihrem eigenen Training war, erreicht ein zeitliches
+Faltungsnetz mit rekurrentem Kopf auf 5-s-Fenstern 0,921 Genauigkeit und
+0,975 ROC-AUC, gemittelt über drei Zufallssaaten und ohne gepaarten Test
+gegen die übrigen Modelle. Ein Random Forest auf 88 handgebauten Merkmalen erreicht je
+Sekunde 0,865 und mit einem kausalen Zwei-Zustands-HMM 0,898; rückblickend
+dekodiert 0,917. Die Wahrscheinlichkeiten sind kalibriert, das HMM ist
+ohne Neutraining einsetzbar und läuft im Live-System.
+
+Drei Erkenntnisse gehen über die Zahlen hinaus. Erstens deuten die
+Ergebnisse darauf hin, dass die Grenze des Merkmalsmodells eher in der
+Repräsentation als im Signal liegt: Zwölf zusätzliche Personen haben den
+Random Forest nicht bewegt, die Netze aber schon — bei allerdings zugleich
+veränderter Zusammensetzung der Kohorte. Zweitens ist Zeitkontext der wirksamste Hebel und lässt sich nur
+einmal einsammeln, in der Repräsentation oder nachträglich, mit einem
+Aufschlag von zwei Prozentpunkten für alles, was nicht live entschieden
+werden muss. Drittens sind die verbleibenden Fehler nicht diffus, sondern
+sitzen bei bestimmten Personen in bestimmten Aufgaben, vor allem beim
+Tippen, und dort ist die Trainingsvielfalt der Hebel, nicht das
+Merkmalsdesign.
+
+Der nächste Schritt liegt deshalb weniger im Modell als in den Daten: den
+Datensatz um Personen zu erweitern, die anders tippen und anders schreiben
+als die bisherige Kohorte, und einen Teil der Aufnahmen gegen Video zu
+annotieren, damit die Labeldefinition selbst überprüfbar wird. Beides ist
+Erhebungsarbeit, und die Ergebnisse dieser Arbeit legen nahe, dass sie
+mehr bewirkt als weitere Rechenzeit.
