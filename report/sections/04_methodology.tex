@@ -233,13 +233,7 @@ erkannten Schreibfenstern liegt, gehört mit hoher Wahrscheinlichkeit ebenfalls
 zum Schreiben. Das HMM formalisiert genau diese Überlegung. Es bekommt die
 Wahrscheinlichkeit des Random Forest je Fenster als Beobachtung und lernt aus
 den Trainingspersonen nur, wie wahrscheinlich ein Zustandswechsel von einem
-Fenster zum nächsten ist. Die gelernte Matrix ist träge (Verbleib\-wahrschein\-lichkeit
-0,97 in beiden Zuständen), was einem Gedächtnis von etwa 16 bis 18~s
-entspricht. Die im Live-Dashboard eingesetzte Matrix wurde auf einer früheren
-Kohorte von 15 Personen geschätzt und seither nicht neu exportiert. Die
-Ergebnisse auf 32 Personen validieren das Verfahren, nicht exakt diese Matrix.
-Das Modell hält damit bei schwacher Evidenz den Zustand und wechselt erst,
-wenn die Beobachtungen deutlich dagegen sprechen.
+Fenster zum nächsten ist.
 
 Entscheidend ist, welchen Teil der Aufnahme das HMM dabei sehen darf. Der
 Vorwärtsfilter nutzt nur Vergangenheit und Gegenwart und ist damit live
