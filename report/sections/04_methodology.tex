@@ -193,11 +193,11 @@ zwei Architekturen für den Endvergleich:
 Beide Netze verzichten auf die Normalisierung je Aufnahme, weil die
 Batch-Normalisierung die Skala ohnehin neu setzt. Trainiert wurde mit Adam,
 Kreuzentropie und Early Stopping auf einem personenfremden Validierungsanteil
-in PyTorch \citep{paszke2019}. Die Hyperparameter stammen aus Rastersuchen
-über Lernrate, Dropout, Batchgröße und Gewichtsabnahme. Das volle Raster mit
+in PyTorch \citep{paszke2019}. Die Hyperparameter stammen aus einer Grid
+Search über Lernrate, Dropout, Batchgröße und Weight Decay. Das volle Grid mit
 36 Kombinationen und drei Saaten lief für tcn6. Die später hinzugekommenen
 Architekturen, darunter tcn\_bigru, erhielten aus Zeitgründen ein auf vier
-bis sechs Kombinationen verengtes Raster mit einer Saat um die Siegerwerte
+bis sechs Kombinationen verengtes Grid mit einer Saat um die Siegerwerte
 ihrer Vorgänger. Die Abstimmung ist damit nicht für alle Architekturen gleich
 gründlich. Jede Endkonfiguration wurde anschließend mit drei Zufallssaaten
 trainiert.
