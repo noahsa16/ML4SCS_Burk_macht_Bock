@@ -16,8 +16,8 @@ Voraussetzung für die Ground Truth und für die Auswertung je Aufgabe, aber es
 ist nicht der Alltag. Im Alltag sind Schreibphasen seltener, kürzer und
 weniger klar begrenzt, und die Negativklasse ist unvergleichlich breiter als
 unsere sechs Nicht-Schreibaufgaben. Ein Schreibanteil von 43\,\% wie im
-Datensatz ist eine Folge des Protokolls und im Alltag kaum zu erwarten;
-belegen können wir das mit unseren Daten nicht, weil sie ausschließlich unter
+Datensatz ist eine Folge des Protokolls und im Alltag kaum zu erwarten.
+Belegen können wir das mit unseren Daten nicht, weil sie ausschließlich unter
 dem Protokoll entstanden sind. Bei stark schiefen Anteilen schrumpft ein
 Schätzer des Schreibanteils zur Mitte, was wir auf den Sitzungsblöcken
 gemessen haben. Eine Aufzeichnung über ganze Tage mit
@@ -28,18 +28,18 @@ mitten in der Erhebung zwingt zu zwei Pools. Alle Hauptergebnisse laufen auf
 dem Legacy-Pool, in dem 23 der 32 Aufnahmen heruntergerechnet sind. Der
 Dezimierer ist phasenneutral und anti-aliasing-gefiltert, und ein
 explorativer Vergleich 50 gegen 100~Hz auf zwei Aufnahmen einer einzigen
-Person ergab keinen Unterschied; trotzdem
-ist der Legacy-Pool eine Mischung aus nativen und abgeleiteten Signalen.
+Person ergab keinen Unterschied. Trotzdem ist der Legacy-Pool eine Mischung
+aus nativen und abgeleiteten Signalen.
 Die Aussagen zum Schwerkraftvektor stützen sich auf die 23 Personen des
 Modern-Pools und sind nicht mit den 32-Personen-Zahlen vergleichbar.
 
 \paragraph{Ground Truth aus dem Stift.} Die Labels sind so gut wie die
 zeitliche Ausrichtung und die Labeldefinition. Die Ausrichtung ist auf
-10~ms aufgelöst und über die Aufnahme stabil; das Toleranzfenster von
+10~ms aufgelöst und über die Aufnahme stabil. Das Toleranzfenster von
 $\pm 40$~ms und das Schließen von Lücken bis 2,5~s sind aber Festlegungen,
 und beide erzeugen Fenster, die inhärent mehrdeutig sind (Übergänge, lange
 Denkpausen). Zwei Aufnahmen trugen über Wochen einen falschen Zeitversatz,
-bevor eine Plausibilitätsgrenze ihn aufdeckte; eine davon war Gegenstand
+bevor eine Plausibilitätsgrenze ihn aufdeckte. Eine davon war Gegenstand
 einer ausführlichen Fehlanalyse. Wir haben die Konsequenz der
 Alignment-Annahme (Schreiben ist die dynamischere Klasse) und den
 Zusammenhang zwischen Alignment-Diagnostik und Genauigkeit geprüft, aber es
@@ -51,7 +51,7 @@ nicht geleistet haben.
 Saaten auf fünf Gruppen trainiert, aber die Läufe auf 32 Personen haben
 keine personenweisen Vorhersagen gespeichert. Damit sind bei 32 Personen
 weder die Rangfolge der beiden Netze noch ihr Abstand zum Random Forest
-gepaart getestet; der Abstand zum Random Forest ist mit fünf bis sechs
+gepaart getestet. Der Abstand zum Random Forest ist mit fünf bis sechs
 Prozentpunkten zwar um eine Größenordnung größer als jede beobachtete
 Streuung, ein formaler Test fehlt aber. Die Nichtdeterminiertheit der
 GPU-Kerne (bis 1,6 Prozentpunkte bei identischer Saat) begrenzt außerdem, wie

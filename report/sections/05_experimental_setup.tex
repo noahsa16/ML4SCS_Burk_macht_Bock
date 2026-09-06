@@ -16,16 +16,16 @@ anschließend reihum auf fünf Gruppen verteilt, was gleich große Folds ergibt.
 Die Gruppenreinheit ist dieselbe wie bei \texttt{GroupKFold}, die konkrete
 Zuordnung der Personen zu den Folds ist es nicht. Random Forest und Netze
 mischen die Personen mit derselben Saat, aber aus unterschiedlicher
-Ausgangsreihenfolge, und landen deshalb in verschiedenen Fold-Partitionen;
-gepaarte Tests zwischen den beiden Familien sind auf dieser Kohorte daher
+Ausgangsreihenfolge, und landen deshalb in verschiedenen Fold-Partitionen.
+Gepaarte Tests zwischen den beiden Familien sind auf dieser Kohorte daher
 nicht möglich, innerhalb einer Familie sind die Folds identisch. In den ersten
-Erhebungsrunden hatten wir Leave-One-Subject-Out verwendet; beide Protokolle
+Erhebungsrunden hatten wir Leave-One-Subject-Out verwendet. Beide Protokolle
 lieferten auf denselben Daten praktisch identische Werte.
 
 Aus den Testrunden entsteht eine vollständige Out-of-Fold-Tabelle mit einer
 Wahrscheinlichkeit je Fenster. Die zeitliche Glättung, die Kalibrierung und die
 Fehleranalyse rechnen auf dieser Tabelle und erben damit dieselbe
-Leakage-Garantie; die Übergangsmatrix des HMM wird je Runde nur aus den
+Leakage-Garantie. Die Übergangsmatrix des HMM wird je Runde nur aus den
 Trainingspersonen geschätzt. Personenbezogene Kennzahlen berichten wir als
 Mittel und Standardabweichung über die 32 Personen.
 
@@ -33,7 +33,7 @@ Mittel und Standardabweichung über die 32 Personen.
 \label{sec:metrics}
 
 Primäre Kennzahl ist die Genauigkeit je Fenster bei einer festen Schwelle von
-0,5; sie ist hier aussagekräftig, weil die Klassen nahezu ausgeglichen sind und
+0,5. Sie ist hier aussagekräftig, weil die Klassen nahezu ausgeglichen sind und
 ein Tracker am Ende eine Entscheidung treffen muss. Ergänzend berichten wir die
 ROC-AUC als schwellenfreies Maß der Trennbarkeit und den F1-Wert der Klasse
 Schreiben. Jede Kennzahl steht zusammen mit ihrer Entscheidungsskala: je
@@ -48,7 +48,7 @@ vorn liegt. Ein Gewinn unter einem Prozentpunkt ohne $p < 0{,}05$ gilt als Rausc
 Für die Netze mitteln wir drei Zufallssaaten, weil selbst zwei Läufe derselben
 Konfiguration mit identischer Saat auf der GPU um bis zu 1,6 Prozentpunkte
 auseinanderliegen können. Rangfolgen aus Einzelläufen sind deshalb nicht
-belastbar; bei 32 Personen liegen für die Netze nur Saaten-Aggregate vor, der
+belastbar. Bei 32 Personen liegen für die Netze nur Saaten-Aggregate vor, der
 Vergleich der Netze untereinander ist dort also nominal.
 
 \paragraph{Modellauswahl und Evaluation auf derselben Kohorte.} Architekturen
@@ -58,7 +58,7 @@ nie zwischen Training und Test, es liegt also keine Leakage auf Fensterebene
 vor, wohl aber eine Selektionsoptimierung: Aus mehreren Konfigurationen wurde
 diejenige mit dem besten Kreuzvalidierungswert übernommen und deren Wert
 anschließend als Ergebnis berichtet. Eine verschachtelte Kreuzvalidierung oder
-ein unabhängiger Bestätigungssatz hätte das ausgeschlossen; beides war mit 32
+ein unabhängiger Bestätigungssatz hätte das ausgeschlossen. Beides war mit 32
 Personen und dem Rechenbudget des Projekts nicht darstellbar. Die Zahlen der
 Netze sind deshalb als Ergebnis einer explorativen Modellauswahl zu lesen und
 nach oben verzerrt. Ein Anhaltspunkt für die Größe dieser Verzerrung: Die
@@ -91,6 +91,6 @@ berichten diese Nullbefunde, weil sie zusammen die Interpretation der
 Leistungsgrenze tragen.
 
 Random Forest, HMM und Nachverarbeitung laufen lokal in unter einer Stunde. Die
-Netze wurden auf einer gemieteten Cloud-GPU trainiert; ein
+Netze wurden auf einer gemieteten Cloud-GPU trainiert. Ein
 vollständiger Durchlauf mit drei Saaten über beide Pools benötigte rund zehn
 Stunden.

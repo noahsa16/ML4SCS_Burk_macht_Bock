@@ -16,7 +16,7 @@ Online-Streaming, dekodiert das binäre Paketformat und zeichnet Ereignisse für
 das Aufsetzen, Bewegen und Abheben des Stifts sowie Hover-Ereignisse zusammen
 mit Geräte- und lokalen Zeitstempeln auf. Der Stift liefert diese Ereignisse
 mit etwa 80 bis 90~Hz. Koordinaten, Druck und Neigung wurden zu
-Diagnosezwecken gespeichert; die zeitlichen Stiftereignisse bildeten die
+Diagnosezwecken gespeichert. Die zeitlichen Stiftereignisse bildeten die
 Grundlage der in dieser Arbeit verwendeten Labels.
 
 Die Eingabedaten des Modells wurden unabhängig davon durch eine Apple Watch
@@ -90,7 +90,7 @@ dem Handy, Tippen auf einer Tastatur, Herumspielen mit dem Stift in der
 Schreibhand und Gestikulieren beim Erzählen. Auf der Schreibseite kommen zwei
 Varianten hinzu, die den beobachteten Schwierigkeiten entsprechen: bewusst
 leises, druckarmes Schreiben und Schreiben mit erzwungenen Denkpausen von 10
-bis 15~s. Schreib- und Nicht-Schreibaufgaben wechseln sich ab; ein Durchlauf
+bis 15~s. Schreib- und Nicht-Schreibaufgaben wechseln sich ab. Ein Durchlauf
 dauert etwa 25,5~min.
 
 \begin{figure}[H]
@@ -122,7 +122,7 @@ Latin Square nach \citet{williams1949}, wählt die Zeile über einen
 fortlaufenden Personenindex und verschränkt beide Folgen. Die Sollzeiten der
 Schreibaufgaben werden pro Lauf summenerhaltend um bis zu $\pm 15\,\%$
 variiert (Jitter), damit Aufgabengrenzen nicht bei allen Personen an
-denselben Zeitpunkten liegen; Pausen und Nicht-Schreibaufgaben behalten ihre
+denselben Zeitpunkten liegen. Pausen und Nicht-Schreibaufgaben behalten ihre
 Sollzeit. Vor jeder Aufgabe lief ein Countdown von 5~s, in dem die Anweisung
 gelesen werden konnte.
 
@@ -137,14 +137,14 @@ beider Datenströme über die gesamte Sitzung sowie eine Zeitausrichtung von
 Stift und Watch, die entweder automatisch als vertrauenswürdig eingestuft wurde
 oder eine manuelle Prüfung der Alignment-Kurven bestand
 (Abschnitt~\ref{sec:alignment}). Eine v2-Aufnahme fiel dabei heraus, weil sich
-für sie kein belastbarer Zeitversatz bestimmen ließ ($\sigma = -1{,}08$); die
+für sie kein belastbarer Zeitversatz bestimmen ließ ($\sigma = -1{,}08$). Die
 Sitzungsverwaltung führt sie formal als verwendbar, der Ausschluss steht in der
 Experimentkonfiguration. Pro Person wurde genau
 eine Aufnahme verwendet. Der finale Datensatz umfasst 32~Personen, 13 nach
 Protokoll~v1 und 19 nach Protokoll~v2, mit insgesamt rund 11,5~Stunden
 annotierter Sensordaten. Die beiden Autoren sind als Versuchspersonen
 enthalten, die übrigen Personen waren überwiegend Studierende und Bekannte. Die
-Watch saß in allen Aufnahmen am Schreibhandgelenk; Händigkeit wurde nicht
+Watch saß in allen Aufnahmen am Schreibhandgelenk. Händigkeit wurde nicht
 systematisch erfasst und geht nicht als Variable ein.
 
 \begin{table}[H]
@@ -172,7 +172,7 @@ Pools (Tabelle~\ref{tab:cohort}). Damit alle Personen in einem einheitlichen
 Protokoll vergleichbar bleiben, haben wir die 100-Hz-Aufnahmen mit einem
 Anti-Aliasing-Filter (Chebyshev-Tiefpass achter Ordnung, phasenneutral) auf
 50~Hz heruntergerechnet und den Schwerkraftvektor verworfen. Dieser
-Legacy-Pool mit 32 Personen ist die Grundlage aller Hauptergebnisse; der
+Legacy-Pool mit 32 Personen ist die Grundlage aller Hauptergebnisse. Der
 Modern-Pool mit 23 Personen dient den Ablationen zu Schwerkraftvektor und
 Kanalreduktion. Da der Modern-Pool eine Teilmenge des Legacy-Pools ist,
 sind gepaarte Vergleiche nur innerhalb eines Pools zulässig.
@@ -187,11 +187,11 @@ Länge der Denkpausen sich stark unterscheiden.
 Alle Versuchspersonen nahmen freiwillig teil und gaben vor der Aufnahme eine
 schriftliche Einwilligung, die Zweck, Art der Daten, Verwendung und das Recht
 auf Abbruch benennt. Ein formales Ethikvotum wurde für dieses Semesterprojekt
-nicht eingeholt; erhoben wurden ausschließlich Bewegungsdaten des Handgelenks
+nicht eingeholt. Erhoben wurden ausschließlich Bewegungsdaten des Handgelenks
 und Stiftereignisse während vorgegebener Aufgaben. Die Aufnahmen sind
 pseudonymisiert, Namen werden nicht mit den Kennungen aufbewahrt. Von den
 Stiftdaten gehen nur die Zeitpunkte der Ereignisse in die Auswertung ein, nie
 die Koordinaten, sodass kein geschriebener Text rekonstruierbar ist. Rohdaten
 liegen ausschließlich lokal und sind von der Versionsverwaltung
-ausgeschlossen. Demografische Angaben wurden nicht erhoben; Abschnitt~\ref{sec:limitations}
-greift diese Lücke auf.
+ausgeschlossen. Demografische Angaben wurden nicht erhoben.
+Abschnitt~\ref{sec:limitations} greift diese Lücke auf.

@@ -15,7 +15,7 @@ Prozent, und die Ergebnisse sagen ziemlich genau, wo sie sitzen.
 Repräsentation.} Über den größten Teil des Projekts sah es so aus, als läge
 die Leistungsgrenze im Signal. Random Forest, MiniRocket, ein vortrainiertes
 Modell und die Netze auf 1-s-Fenstern trafen dieselbe Marke und scheiterten
-an denselben Personen; kein Merkmalseingriff, keine Augmentation, keine
+an denselben Personen. Kein Merkmalseingriff, keine Augmentation und keine
 Umgewichtung bewegte sie. Der Schritt von 22 auf 32 Personen trennt diese
 Lesart, wenn auch nicht sauber: Der Random Forest blieb stehen, die Netze
 stiegen — zugleich änderten sich Kohortenzusammensetzung und Protokollanteil,
@@ -31,16 +31,16 @@ auf vier Personen daran scheiterte, passt in dasselbe Bild.
 einmal einsammeln.} Drei ganz verschiedene Wege führen auf dieselbe Höhe:
 ein Netz auf nativen 5-s-Fenstern, ein 1-s-Modell mit HMM, und die Fusion
 von Random Forest und Netz. Das HMM hilft nur Modellen ohne eigenes
-Gedächtnis; sobald das Basismodell fünf Sekunden Kontext trägt, überglättet
+Gedächtnis. Sobald das Basismodell fünf Sekunden Kontext trägt, überglättet
 es. Dass der Rolling-Mean auf keiner Skala hilft, das HMM aber auf jeder,
 zeigt, dass es nicht um Mittelung geht, sondern um ein Modell der
 Übergänge: Schreiben ist ein Zustand mit Trägheit, und ein Detektor, der das
 weiß, darf bei schwacher Evidenz beim letzten Zustand bleiben. Für den
 Einsatz ist damit die Frage nach der Latenz entscheidend. Wer eine Anzeige
-im Moment will, bekommt 0,90; wer abends den Tag rekonstruiert, bekommt
+im Moment will, bekommt 0,90. Wer abends den Tag rekonstruiert, bekommt
 0,92, weil der Smoother beide Seiten eines Übergangs sehen darf. Diese
 Differenz von knapp zwei Prozentpunkten ist in 31 von 32 Personen dieselbe
-und war bei 22 Personen schon vorhanden; sie gehört zu den robustesten
+und war bei 22 Personen schon vorhanden. Sie gehört zu den robustesten
 Befunden der Arbeit.
 
 \paragraph{Der Restfehler ist personen- und aufgabenspezifisch, nicht
@@ -49,7 +49,7 @@ Nicht-Schreib-Situationen, sondern konzentrieren sich auf zwei Muster: Tippen
 auf Tastatur oder Handy bei einem Teil der Personen und sehr leises oder
 stark unterbrochenes Schreiben bei einem anderen Teil. Beide Muster sind am
 Handgelenk physikalisch begründet. Wer beim Tippen die Hand ähnlich bewegt
-wie beim Schreiben, erzeugt ähnliche Rotationen; wer sehr leicht schreibt,
+wie beim Schreiben, erzeugt ähnliche Rotationen. Wer sehr leicht schreibt,
 erzeugt kaum mehr Bewegung als in Ruhe. Für das Tippen konnten wir
 zeigen, dass die trennende Information in den Merkmalen vorhanden ist, aber
 von der Mehrheit der Merkmale überstimmt wird, und dass alle Versuche, sie
