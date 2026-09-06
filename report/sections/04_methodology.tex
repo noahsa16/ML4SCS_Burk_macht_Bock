@@ -105,7 +105,7 @@ bis 2,5~s zwischen zwei Schreibabschnitten (morphologisches Schließen). Die
 Zielgröße ist damit ausdrücklich \emph{im Schreibmodus sein} einschließlich
 Mikropausen und nicht \emph{Stift berührt gerade das Papier}. Der Wert von
 2,5~s stammt aus einem Sweep über Schwellen von 0,3 bis 3,0~s und war dort das
-Optimum. Oberhalb von 2,5~s ändert sich die Genauigkeit nicht mehr
+Optimum. Oberhalb von 2,5~s ändert sich die Accuracy nicht mehr
 nennenswert. Das Öffnen kurzer Schreibspitzen haben wir getestet, aber nicht
 verwendet, weil echte kurze Striche wie i-Punkte und Satzzeichen informativ
 sind.
@@ -115,7 +115,7 @@ gebildet. Ein Fenster trägt das Label Schreiben, wenn mindestens 60\,\% seiner
 Samples als Schreiben gelabelt sind. Auch die Fensterlänge haben wir
 durchgetestet (1 bis 10~s). Für den Random Forest ist 1~s die beste Wahl,
 lang genug für die Spektralmerkmale und zeitlich noch scharf. Die Netze
-arbeiten auf 5-s-Fenstern, wo ihre Genauigkeit ein Plateau erreicht. Die
+arbeiten auf 5-s-Fenstern, wo ihre Accuracy ein Plateau erreicht. Die
 Zeitskala, auf der eine Entscheidung berichtet wird, behandeln wir davon
 getrennt (Abschnitt~\ref{sec:smoothing}).
 

@@ -6,7 +6,7 @@
 
 Tabelle~\ref{tab:main} fasst die Hauptergebnisse auf dem Legacy-Pool mit 32
 Personen zusammen. Der Random Forest erreicht je 1-s-Fenster eine
-Genauigkeit von 0,865 und eine ROC-AUC von 0,942, gemittelt über die 32
+Accuracy von 0,865 und eine ROC-AUC von 0,942, gemittelt über die 32
 ausgelassenen Personen. Der kausale HMM-Filter hebt dieselben Vorhersagen ohne
 Neutraining auf 0,898. Den höchsten beobachteten Mittelwert erreicht
 tcn\_bigru auf nativen 5-s-Fenstern mit 0,921 bei einer ROC-AUC von 0,975.
@@ -29,7 +29,7 @@ messen Verschiedenes.
   \setlength{\tabcolsep}{2.5pt}
   \begin{tabular}{llcrrl}
     \hline
-    \textbf{Modell} & \textbf{Entscheidungsskala} & \textbf{kausal} & \textbf{Genauigkeit} & \textbf{ROC-AUC} & \textbf{$\pm$ über} \\ \hline \hline
+    \textbf{Modell} & \textbf{Entscheidungsskala} & \textbf{kausal} & \textbf{Accuracy} & \textbf{ROC-AUC} & \textbf{$\pm$ über} \\ \hline \hline
     Random Forest & 1~s & ja & 0,865 $\pm$ 0,035 & 0,942 $\pm$ 0,029 & 32 Personen \\
     Random Forest, Burst & 5~s & ja & 0,861 $\pm$ 0,037 & 0,934 $\pm$ 0,027 & 32 Personen \\
     Random Forest, Burst & 30~s & ja & 0,773 $\pm$ 0,041 & 0,856 $\pm$ 0,040 & 32 Personen \\
@@ -43,7 +43,7 @@ messen Verschiedenes.
 Der F1-Wert der Klasse Schreiben liegt für den Random Forest bei
 0,840 $\pm$ 0,051 über die 32 Personen und nach dem HMM-Filter bei 0,884. Die Streuung zwischen
 Personen ist mit 3,5 Prozentpunkten die größte Unsicherheitsquelle.
-Abbildung~\ref{fig:per-person} zeigt sie aufgelöst. Die Genauigkeit reicht
+Abbildung~\ref{fig:per-person} zeigt sie aufgelöst. Die Accuracy reicht
 von 0,78 (P73, P31, P63) bis 0,91 (P26, P13, P57, P66). Der HMM-Filter
 verbessert alle 32 Personen, die schwächsten aber unterschiedlich stark.
 Darauf kommen wir in der Fehleranalyse zurück.
@@ -51,7 +51,7 @@ Darauf kommen wir in der Fehleranalyse zurück.
 \begin{figure}[H]
     \centering
     \includegraphics[width=\textwidth]{figures/per_person_n32.pdf}
-    \caption{Genauigkeit je ausgelassener Person, aufsteigend sortiert
+    \caption{Accuracy je ausgelassener Person, aufsteigend sortiert
     nach dem Random Forest auf 1-s-Fenstern (Balken). Punkte: derselbe
     Random Forest nach kausalem HMM-Filter, Dreiecke: nach rückblickendem
     HMM-Smoother. Die gepunktete Linie ist das Mittel des Random Forest.}
@@ -76,7 +76,7 @@ nach Glättung über 5~s nicht mehr unterscheidbar).
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.5\textwidth]{figures/cohort_scaling.pdf}
-    \caption{Genauigkeit in Abhängigkeit von der Zahl der Personen im
+    \caption{Accuracy in Abhängigkeit von der Zahl der Personen im
     Datensatz. Der Random Forest bewegt sich zwischen 20 und 32 Personen
     nicht, beide Netze steigen um mehr als ihre Saatenstreuung.}
     \label{fig:scaling}
@@ -120,10 +120,10 @@ $r = 0{,}85$ korrelieren.
 
 Abbildung~\ref{fig:decoders} stellt die Dekoder auf denselben
 Wahrscheinlichkeiten gegenüber. Der kausale gleitende Mittelwert hebt die
-Genauigkeit auf keiner Skala über das 1-s-Niveau. Bei 5~s liegt er gleichauf,
+Accuracy auf keiner Skala über das 1-s-Niveau. Bei 5~s liegt er gleichauf,
 bei 30~s neun Prozentpunkte darunter, weil er echte Übergänge verschmiert. Das
 HMM tut das Gegenteil: Der kausale Vorwärtsfilter gewinnt gegenüber dem rohen
-1-s-Modell 3,3 Prozentpunkte Genauigkeit und 2,0 Punkte ROC-AUC, in 32 von 32
+1-s-Modell 3,3 Prozentpunkte Accuracy und 2,0 Punkte ROC-AUC, in 32 von 32
 Personen ($p < 10^{-5}$). Er ist dabei kein verstecktes langes Fenster: Bei
 vergleichbarem Gedächtnis liegt der Mittelwert sieben bis zwölf Punkte
 darunter. Der Unterschied ist, dass der Filter bei schwacher Evidenz den
@@ -134,7 +134,7 @@ schließt aus, dass das HMM nur die Blockstruktur der Labels belohnt.
 \begin{figure}[H]
     \centering
     \includegraphics[width=0.62\textwidth]{figures/decoders_n32.pdf}
-    \caption{Genauigkeit derselben Random-Forest-Wahrscheinlichkeiten unter
+    \caption{Accuracy derselben Random-Forest-Wahrscheinlichkeiten unter
     verschiedenen Dekodern (32 Personen, Mittel und Standardabweichung). Die
     Beschriftung am Balkenfuß gibt die Entscheidungslatenz an. Grau:
     kausaler gleitender Mittelwert. Orange: kausaler HMM-Filter. Grün:
@@ -240,7 +240,7 @@ hinweg gewinnt, und auch sie nur rund einen Prozentpunkt.
 Random Forest blieben ohne Wirkung. Rhythmusmerkmale (Höhe des
 Autokorrelationsmaximums, spektrale Flachheit) sollten Tippen von Schreiben
 trennen und senkten die Falsch-positiv-Rate beim Tastaturtippen von 0,343
-auf 0,336. Die Genauigkeit blieb unverändert ($p = 0{,}54$). Zehn gezielt
+auf 0,336. Die Accuracy blieb unverändert ($p = 0{,}54$). Zehn gezielt
 auf die Tipp-Verwechslung geschärfte Merkmale verschlechterten sie leicht
 (0,358). Eine dreifache Gewichtung der Tipp-Fenster im Training hob die
 Falsch-positiv-Rate beim Handytippen von 0,243 auf 0,286 und schadete den
@@ -256,7 +256,7 @@ kalibriert, verschlechterte den F1-Wert (0,858 auf 0,846). Der einzige
 signifikante Merkmalsgewinn kam aus einer breiten automatischen
 Merkmalsbank: 42 aus rund 4\,700 tsfresh-Merkmalen destillierte Größen
 (Autokorrelation bei kurzen Verzögerungen, Quantile, Komplexitätsmaße) heben
-die Genauigkeit je Fenster um 0,5 Punkte ($p = 0{,}007$) und den Live-Pfad
+die Accuracy je Fenster um 0,5 Punkte ($p = 0{,}007$) und den Live-Pfad
 mit HMM um 0,4 Punkte ($p = 0{,}003$). Wir haben sie wegen des geringen
 Effekts nicht in die Hauptpipeline übernommen.
 
@@ -264,11 +264,11 @@ Effekts nicht in die Hauptpipeline übernommen.
 Personen prüfte, ob der Restfehler der Ausrichtung die Leistungsgrenze
 erklärt. Weder die Konfidenz $\sigma$ noch die Drift von $\delta$ zwischen
 erster und zweiter Aufnahmehälfte (Median 20~ms, entspricht einem Sample)
-korreliert mit der Genauigkeit der Person ($r = -0{,}22$ und $-0{,}18$).
+korreliert mit der Accuracy der Person ($r = -0{,}22$ und $-0{,}18$).
 Die zwei damals schwächsten Personen zeigten keine auffällige
 Alignment-Diagnostik. Eine von ihnen hatte sogar das schärfste Minimum des
 ganzen Satzes. Ein künstlicher Fehler von $\pm 50$~ms würde 10,7\,\% der
-Sample-Labels kippen. Dass die Genauigkeit nicht mit den Alignment-Diagnosen
+Sample-Labels kippen. Dass die Accuracy nicht mit den Alignment-Diagnosen
 zusammenhängt, belegt, dass dieser Fall im Merge nicht eintritt.
 
 \subsection{Fehleranalyse}
@@ -319,7 +319,7 @@ verwechseln.
 Das Tipp-Problem ist stark personenabhängig. Bei P31 werden 68\,\% der
 Tastatur- und 63\,\% der Handy-Fenster als Schreiben gelesen, bei P63 80\,\%
 der Handy-Fenster, bei P34 66\,\%. Bei P26, P27, P57 und P71 liegen beide
-Raten unter 5\,\%. Die drei Personen mit der niedrigsten Gesamtgenauigkeit
+Raten unter 5\,\%. Die drei Personen mit der niedrigsten Gesamt-Accuracy
 (P73, P31, P63) gehören alle zur ersten Gruppe. Bei 20 Personen lagen die
 gepoolten Raten mit 0,36 und 0,25 noch deutlich höher. Die zwölf zusätzlichen
 Personen mit Tipp-Aufgaben haben sie auf 0,22 und 0,17 gedrückt, ohne dass
