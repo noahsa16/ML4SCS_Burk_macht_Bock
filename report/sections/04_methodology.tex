@@ -238,11 +238,7 @@ Fenster zum nächsten ist.
 Entscheidend ist, welchen Teil der Aufnahme das HMM dabei sehen darf. Der
 Vorwärtsfilter nutzt nur Vergangenheit und Gegenwart und ist damit live
 einsetzbar. Der Vorwärts-Rückwärts-Smoother und der Viterbi-Pfad sehen die
-ganze Aufnahme und eignen sich für eine rückblickende Tagesauswertung. Als
-Negativkontrolle dekodieren wir zusätzlich mit innerhalb jeder Aufnahme
-zufällig permutierten Beobachtungen: Erkennt das HMM nur die Blockstruktur der
-Labels, bliebe die Genauigkeit hoch. Ist der Gewinn signalgetrieben, fällt sie
-auf Zufallsniveau.
+ganze Aufnahme und eignen sich für eine rückblickende Tagesauswertung.
 
 Als Modellfusion haben wir das Mittel der Wahrscheinlichkeiten zweier Modelle
 auf denselben 5-s-Fenstern getestet, sowohl zwischen den Familien (Random
