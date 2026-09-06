@@ -7,20 +7,14 @@
 Die Forschungsfrage verlangt, dass ein Modell auf Personen funktioniert, die es
 nie gesehen hat. Alle Kennzahlen stammen deshalb aus einer gruppierten
 Five-Fold Cross-Validation über die Personen, auf die wir uns mit der
-Partnergruppe an der ZHAW verständigt haben: In jeder Runde liegen
-sämtliche Fenster einer Person entweder im Training oder im Test, nie in
-beiden. Jede der 32 Personen ist genau einmal Testperson. Der Splitter ist
-eine eigene Implementierung und nicht scikit-learns \texttt{GroupKFold}: Die
-Personenkennungen werden mit einer festen Zufallssaat gemischt und
-anschließend reihum auf fünf Gruppen verteilt, was gleich große Folds ergibt.
-Die Gruppenreinheit ist dieselbe wie bei \texttt{GroupKFold}, die konkrete
-Zuordnung der Personen zu den Folds ist es nicht. Random Forest und Netze
-mischen die Personen mit derselben Saat, aber aus unterschiedlicher
-Ausgangsreihenfolge, und landen deshalb in verschiedenen Fold-Partitionen.
-Gepaarte Tests zwischen den beiden Familien sind auf dieser Kohorte daher
-nicht möglich, innerhalb einer Familie sind die Folds identisch. In den ersten
-Erhebungsrunden hatten wir Leave-One-Subject-Out verwendet. Beide Protokolle
-lieferten auf denselben Daten praktisch identische Werte.
+Partnergruppe an der ZHAW verständigt haben. Sämtliche Fenster einer Person
+liegen entweder im Training oder im Test, und jede der 32 Personen ist genau
+einmal Testperson. Random Forest und Netze wurden mit unterschiedlichen
+Fold-Partitionen gerechnet. Gepaarte Tests zwischen den beiden Familien sind
+auf dieser Kohorte daher nicht möglich, innerhalb einer Familie sind die Folds
+identisch. In den ersten Erhebungsrunden hatten wir Leave-One-Subject-Out
+verwendet. Beide Protokolle lieferten auf denselben Daten praktisch identische
+Werte.
 
 Aus den Testrunden entsteht eine vollständige Out-of-Fold-Tabelle mit einer
 Wahrscheinlichkeit je Fenster. Die zeitliche Glättung, die Kalibrierung und die
