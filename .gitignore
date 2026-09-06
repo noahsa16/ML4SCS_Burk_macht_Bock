@@ -129,3 +129,6 @@ report/*.log
 report/*.blg
 report/*.aux
 report/tmp/
+
+# Author name -> pseudonym mapping for report figures (never public)
+data/author_pseudonyms.json
