@@ -6,7 +6,7 @@
 
 Die Forschungsfrage verlangt, dass ein Modell auf Personen funktioniert, die es
 nie gesehen hat. Alle Kennzahlen stammen deshalb aus einer gruppierten
-fünffachen Kreuzvalidierung über die Personen, auf die wir uns mit der
+Five-Fold Cross-Validation über die Personen, auf die wir uns mit der
 Partnergruppe an der ZHAW verständigt haben: In jeder Runde liegen
 sämtliche Fenster einer Person entweder im Training oder im Test, nie in
 beiden. Jede der 32 Personen ist genau einmal Testperson. Der Splitter ist
@@ -52,12 +52,12 @@ belastbar. Bei 32 Personen liegen für die Netze nur Saaten-Aggregate vor, der
 Vergleich der Netze untereinander ist dort also nominal.
 
 \paragraph{Modellauswahl und Evaluation auf derselben Kohorte.} Architekturen
-und Hyperparameter wurden anhand derselben gruppierten Kreuzvalidierung
+und Hyperparameter wurden anhand derselben gruppierten Cross-Validation
 ausgewählt, auf der wir am Ende die Leistung berichten. Personen kreuzen dabei
 nie zwischen Training und Test, es liegt also keine Leakage auf Fensterebene
 vor, wohl aber eine Selektionsoptimierung: Aus mehreren Konfigurationen wurde
-diejenige mit dem besten Kreuzvalidierungswert übernommen und deren Wert
-anschließend als Ergebnis berichtet. Eine verschachtelte Kreuzvalidierung oder
+diejenige mit dem besten Cross-Validation-Wert übernommen und deren Wert
+anschließend als Ergebnis berichtet. Eine Nested Cross-Validation oder
 ein unabhängiger Bestätigungssatz hätte das ausgeschlossen. Beides war mit 32
 Personen und dem Rechenbudget des Projekts nicht darstellbar. Die Zahlen der
 Netze sind deshalb als Ergebnis einer explorativen Modellauswahl zu lesen und
