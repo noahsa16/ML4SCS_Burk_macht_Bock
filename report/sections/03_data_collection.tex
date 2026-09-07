@@ -3,66 +3,41 @@
 
 \subsection{Erfassungssystem}
 
-Die zentrale Herausforderung beim Aufbau des Datensatzes bestand darin, ein
-präzises Referenzsignal (Ground Truth) für den ansonsten nicht direkt
-beobachtbaren Übergang zwischen Schreiben und Nicht-Schreiben zu gewinnen.
-Dazu diente ein Moleskine Smart Pen (NWP-F130). Da die verfügbare
-NeoSmartpen-Websoftware keine geeignete Python-Schnittstelle für die
-Datenerfassung bereitstellte, analysierten wir die TypeScript-Implementierung
-des NeoSmartpen Web SDK 2.0 \citep{neosmartpen2023} und implementierten das
-benötigte Bluetooth-Low-Energy-Protokoll in Python. Der daraus entstandene
-Logger führt den Verbindungsaufbau mit dem Stift durch, aktiviert das
-Online-Streaming, dekodiert das binäre Paketformat und zeichnet Ereignisse für
-das Aufsetzen, Bewegen und Abheben des Stifts sowie Hover-Ereignisse zusammen
-mit Geräte- und lokalen Zeitstempeln auf. Der Stift liefert diese Ereignisse
-mit etwa 80 bis 90~Hz. Koordinaten, Druck und Neigung wurden zu
-Diagnosezwecken gespeichert. Die zeitlichen Stiftereignisse bildeten die
-Grundlage der in dieser Arbeit verwendeten Labels.
+Als Referenzsignal diente ein Moleskine Smart Pen (NWP-F130). Da das
+Herstellerwerkzeug keine Python-Schnittstelle bietet, haben wir das
+Bluetooth-Protokoll anhand des NeoSmartpen Web SDK \citep{neosmartpen2023}
+in Python nachgebaut. Der Logger zeichnet Aufsetzen, Bewegen, Abheben und
+Hover des Stifts mit Zeitstempel bei etwa 80 bis 90~Hz auf. Nur diese
+Ereigniszeitpunkte gehen als Labels in die Arbeit ein.
 
-Die Eingabedaten des Modells wurden unabhängig davon durch eine Apple Watch
-Series~6 am Schreibhandgelenk der Versuchsperson aufgezeichnet. Erfasst wurden
-der dreiachsige Beschleunigungssensor und das dreiachsige Gyroskop, zunächst
-mit 50~Hz. Nach den ersten neun Aufnahmen wurde die Erfassung auf 100~Hz
-umgestellt und zusätzlich der von Core Motion getrennt ausgegebene
-Schwerkraftvektor gespeichert, der die Orientierung des Handgelenks
-rekonstruierbar macht. Aus dieser Umstellung ergeben sich die beiden Datenpools
-aus Abschnitt~\ref{sec:dataset}.
-
-Für erste Testaufnahmen wurde die Anwendung SensorLogger
-\citep{sensorlogger} verwendet, die in unseren Versuchen jedoch keine stabile
-Abtastrate lieferte und keine Kontrolle über Zeitstempel und Übertragung bot. Wir haben deshalb
-eine eigene native Anwendung für watchOS und iOS in Swift entwickelt. Auf der
-Watch erfasst ein auf \texttt{CMMotionManager} aus dem Core-Motion-Framework
-\citep{apple_coremotion} basierender Dienst die Gerätebewegung und bündelt je
-zehn Messungen zu einem Paket, das über \texttt{WatchConnectivity}
-\citep{apple_watchconnectivity} an die iPhone-App und von dort per HTTP an den
-Erfassungsserver geht. Jedes einzelne Sample trägt dabei einen Zeitstempel der
-Uhr selbst, jedes Paket eine fortlaufende Sequenznummer. Beides ist
-notwendig, weil die Watch bei Verbindungsproblemen puffert und Pakete
-verspätet nachliefert: Die Ankunftszeit am Server ist um Sekunden bis Minuten
-verschoben, während der Sample-Zeitstempel korrekt bleibt. Alle Zeitrechnungen
-in dieser Arbeit laufen deshalb auf dieser Capture-Uhr der Watch
+Die Modelleingabe lieferte eine Apple Watch Series~6 am Schreibhandgelenk:
+dreiachsiger Beschleunigungssensor und dreiachsiges Gyroskop, zunächst mit
+50~Hz. Nach den ersten neun Aufnahmen wurde auf 100~Hz umgestellt und
+zusätzlich der von Core Motion getrennte Schwerkraftvektor gespeichert
+(Abschnitt~\ref{sec:dataset}). Weil SensorLogger \citep{sensorlogger} in
+Vorversuchen keine stabile Abtastrate lieferte, entstand eine eigene
+watchOS- und iOS-App in Swift auf Basis von Core Motion
+\citep{apple_coremotion} und WatchConnectivity
+\citep{apple_watchconnectivity}, die Pakete von zehn Samples per HTTP an den
+Erfassungsserver leitet. Jedes Sample trägt den Zeitstempel der Uhr, weil die
+Watch bei Verbindungsproblemen puffert und Pakete um Sekunden bis Minuten
+verspätet nachliefert. Alle Zeitrechnungen laufen auf dieser Capture-Uhr
 (Abschnitt~\ref{sec:alignment}).
 
 \subsection{Studienprotokoll}
 \label{sec:protocol}
 
-Jede Aufnahme lief unter einem festen Ablaufskript, das ein Protokoll-Runner im
-Erfassungsserver steuerte. Die Versuchsperson sah auf einem Bildschirm die
-aktuelle Aufgabe mit Countdown und Anweisung, die Versuchsleitung überwachte
-den Lauf auf einem zweiten Gerät. Jeder Aufgabenwechsel wurde mit einem
-Zeitstempel als Marker protokolliert. Die Marker gehen nicht in das Training
-ein, sie erlauben aber im Nachhinein, jeden Vorhersagefehler einer konkreten
+Jede Aufnahme folgte einem festen Ablaufskript, das ein Protokoll-Runner im
+Server steuerte: Die Versuchsperson sah Aufgabe, Anweisung und Countdown auf
+einem Bildschirm. Jeder Aufgabenwechsel wurde als Marker protokolliert. Die
+Marker gehen nicht ins Training ein, erlauben aber, jeden Fehler einer
 Aufgabe zuzuordnen (Abschnitt~\ref{sec:error-analysis}).
 
-Protokoll~v1 (Abbildung~\ref{fig:protocol-v1}) bestand aus drei Schreibaufgaben
-von je 240~s, getrennt durch zwei freie Pausen von je 90~s. In den Pausen
-durften die Personen tun, was sie wollten, nur nicht schreiben. Die Auswertung
-der ersten Aufnahmen zeigte, dass diese Pausen als Negativbeispiele zu leicht
-waren: Das Modell lehnte sie fast fehlerfrei ab, und die wenigen Fehler
-konzentrierten sich auf Personen, die in der Pause auf dem Handy tippten. Diese
-Bewegung erzeugt am Handgelenk ein schreibähnliches Muster, das im Protokoll
-weder vorgesehen noch kontrolliert war.
+Protokoll~v1 (Abbildung~\ref{fig:protocol-v1}) bestand aus drei
+Schreibaufgaben von je 240~s, getrennt durch zwei freie Pausen von je 90~s.
+Diese Pausen erwiesen sich als zu leichte Negativbeispiele: Das Modell lehnte
+sie fast fehlerfrei ab, und die wenigen Fehler entfielen auf Personen, die in
+der Pause auf dem Handy tippten.
 
 \begin{figure}[H]
     \centering
@@ -84,14 +59,12 @@ weder vorgesehen noch kontrolliert war.
     \label{fig:protocol-v1}
 \end{figure}
 
-Protokoll~v2 (Abbildung~\ref{fig:protocol-v2}) ersetzt die freien Pausen
-deshalb durch fünf gezielte Hard Negatives: Tippen auf dem Handy, Scrollen auf
-dem Handy, Tippen auf einer Tastatur, Herumspielen mit dem Stift in der
-Schreibhand und Gestikulieren beim Erzählen. Auf der Schreibseite kommen zwei
-Varianten hinzu, die den beobachteten Schwierigkeiten entsprechen: bewusst
-leises, druckarmes Schreiben und Schreiben mit erzwungenen Denkpausen von 10
-bis 15~s. Schreib- und Nicht-Schreibaufgaben wechseln sich ab. Ein Durchlauf
-dauert etwa 25,5~min.
+Protokoll~v2 (Abbildung~\ref{fig:protocol-v2}) ersetzt die Pausen durch fünf
+gezielte Hard Negatives (Tippen und Scrollen am Handy, Tastaturtippen, Spielen
+mit dem Stift, Gestikulieren) und ergänzt zwei schwierige Schreibvarianten:
+bewusst leises, druckarmes Schreiben und Schreiben mit erzwungenen
+Denkpausen von 10 bis 15~s. Schreib- und Nicht-Schreibaufgaben wechseln sich
+ab; ein Durchlauf dauert etwa 25,5~min.
 
 \begin{figure}[H]
     \centering
@@ -116,36 +89,27 @@ dauert etwa 25,5~min.
     \label{fig:protocol-v2}
 \end{figure}
 
-Die Reihenfolge der Aufgaben ist pro Person balanciert. Der Runner erzeugt für
-die Schreibaufgaben und getrennt für die Nicht-Schreibaufgaben je ein Balanced
-Latin Square nach \citet{williams1949}, wählt die Zeile über einen
-fortlaufenden Personenindex und verschränkt beide Folgen. Die Sollzeiten der
-Schreibaufgaben werden pro Lauf summenerhaltend um bis zu $\pm 15\,\%$
-variiert (Jitter), damit Aufgabengrenzen nicht bei allen Personen an
-denselben Zeitpunkten liegen. Pausen und Nicht-Schreibaufgaben behalten ihre
-Sollzeit. Vor jeder Aufgabe lief ein Countdown von 5~s, in dem die Anweisung
-gelesen werden konnte.
+Die Reihenfolge ist pro Person balanciert: Der Runner erzeugt für Schreib-
+und Nicht-Schreibaufgaben je ein Balanced Latin Square nach
+\citet{williams1949}, wählt die Zeile über einen fortlaufenden Personenindex
+und verschränkt beide Folgen. Die Sollzeiten der Schreibaufgaben werden pro
+Lauf summenerhaltend um bis zu $\pm 15\,\%$ variiert, damit Aufgabengrenzen
+nicht bei allen Personen an denselben Zeitpunkten liegen.
 
 \subsection{Datensatz}
 \label{sec:dataset}
 
-In den Datensatz gingen nur vollständig abgeschlossene Aufnahmen ein.
-Pilotläufe, Kurztests und abgebrochene Durchläufe wurden ausgeschlossen. Jede
-verbleibende Aufnahme wurde vor der Übernahme auf drei Punkte geprüft: eine Abtastrate innerhalb von $\pm 20\,\%$ um den Sollwert und eine
-lückenlose Sequenznummerierung des Watch-Stroms, eine zeitliche Überlappung
-beider Datenströme über die gesamte Sitzung sowie eine Zeitausrichtung von
-Stift und Watch, die entweder automatisch als vertrauenswürdig eingestuft wurde
-oder eine manuelle Prüfung der Alignment-Kurven bestand
-(Abschnitt~\ref{sec:alignment}). Eine v2-Aufnahme fiel dabei heraus, weil sich
-für sie kein belastbarer Zeitversatz bestimmen ließ ($\sigma = -1{,}08$). Die
-Sitzungsverwaltung führt sie formal als verwendbar, der Ausschluss steht in der
-Experimentkonfiguration. Pro Person wurde genau
-eine Aufnahme verwendet. Der finale Datensatz umfasst 32~Personen, 13 nach
-Protokoll~v1 und 19 nach Protokoll~v2, mit insgesamt rund 11,5~Stunden
-annotierter Sensordaten. Die beiden Autoren sind als Versuchspersonen
-enthalten, die übrigen Personen waren überwiegend Studierende und Bekannte. Die
-Watch saß in allen Aufnahmen am Schreibhandgelenk. Händigkeit wurde nicht
-systematisch erfasst und geht nicht als Variable ein.
+Eingeschlossen wurden nur vollständig abgeschlossene Läufe, die drei Prüfungen
+bestanden: Abtastrate innerhalb von $\pm 20\,\%$ um den Sollwert bei
+lückenloser Sequenznummerierung, zeitliche Überlappung beider Ströme und eine
+Zeitausrichtung, die automatisch als vertrauenswürdig galt oder eine manuelle
+Prüfung bestand (Abschnitt~\ref{sec:alignment}). Eine v2-Aufnahme fiel
+heraus, weil sich kein belastbarer Zeitversatz bestimmen ließ
+($\sigma = -1{,}08$). Pro Person ging genau eine Aufnahme ein. Der Datensatz
+umfasst 32~Personen (13 nach v1, 19 nach v2) mit rund 11,5~Stunden
+annotierter Daten, darunter beide Autoren; die übrigen waren überwiegend
+Studierende. Die Watch saß immer am Schreibhandgelenk, Händigkeit wurde nicht
+erfasst.
 
 \begin{table}[H]
   \centering
@@ -167,31 +131,20 @@ systematisch erfasst und geht nicht als Variable ein.
   \end{tabular}
 \end{table}
 
-Die Umstellung auf 100~Hz mit Schwerkraftvektor teilt den Datensatz in zwei
-Pools (Tabelle~\ref{tab:cohort}). Damit alle Personen in einem einheitlichen
-Protokoll vergleichbar bleiben, haben wir die 100-Hz-Aufnahmen mit einem
-Anti-Aliasing-Filter (Chebyshev-Tiefpass achter Ordnung, phasenneutral) auf
-50~Hz heruntergerechnet und den Schwerkraftvektor verworfen. Dieser
-Legacy-Pool mit 32 Personen ist die Grundlage aller Hauptergebnisse. Der
-Modern-Pool mit 23 Personen dient den Ablationen zu Schwerkraftvektor und
-Kanalreduktion. Da der Modern-Pool eine Teilmenge des Legacy-Pools ist,
-sind gepaarte Vergleiche nur innerhalb eines Pools zulässig.
+Die Umstellung auf 100~Hz teilt den Datensatz in zwei Pools
+(Tabelle~\ref{tab:cohort}). Die 100-Hz-Aufnahmen wurden mit einem
+phasenneutralen Anti-Aliasing-Filter auf 50~Hz dezimiert und der
+Schwerkraftvektor verworfen. Dieser Legacy-Pool mit 32 Personen trägt alle
+Hauptergebnisse; der Modern-Pool mit 23 Personen dient den Ablationen zu
+Schwerkraftvektor und Kanalreduktion. Gepaarte Vergleiche sind nur innerhalb
+eines Pools zulässig.
 
-Über alle 32 Personen tragen 42,7\,\% der Fenster das Label Schreiben, die
-Klassen sind also nahezu ausgeglichen. Je Person liegt der Schreibanteil bei
-44,4\,\% mit einer Streuung von 8,4 Prozentpunkten, weil Schreibtempo und
-Länge der Denkpausen sich stark unterscheiden.
 \subsection{Forschungsethik und Umgang mit den Daten}
 \label{sec:ethics}
 
-Alle Versuchspersonen nahmen freiwillig teil und gaben vor der Aufnahme eine
-schriftliche Einwilligung, die Zweck, Art der Daten, Verwendung und das Recht
-auf Abbruch benennt. Ein formales Ethikvotum wurde für dieses Semesterprojekt
-nicht eingeholt. Erhoben wurden ausschließlich Bewegungsdaten des Handgelenks
-und Stiftereignisse während vorgegebener Aufgaben. Die Aufnahmen sind
-pseudonymisiert, Namen werden nicht mit den Kennungen aufbewahrt. Von den
-Stiftdaten gehen nur die Zeitpunkte der Ereignisse in die Auswertung ein, nie
-die Koordinaten, sodass kein geschriebener Text rekonstruierbar ist. Rohdaten
-liegen ausschließlich lokal und sind von der Versionsverwaltung
-ausgeschlossen. Demografische Angaben wurden nicht erhoben.
-Abschnitt~\ref{sec:limitations} greift diese Lücke auf.
+Alle Personen gaben eine schriftliche Einwilligung; ein formales Ethikvotum
+wurde für das Semesterprojekt nicht eingeholt. Die Aufnahmen sind
+pseudonymisiert. Von den Stiftdaten gehen nur Zeitpunkte ein, nie
+Koordinaten, sodass kein Text rekonstruierbar ist. Rohdaten liegen nur lokal
+und außerhalb der Versionsverwaltung. Demografische Angaben wurden nicht
+erhoben (Abschnitt~\ref{sec:limitations}).
