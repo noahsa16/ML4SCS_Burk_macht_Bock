@@ -31,9 +31,9 @@ Jeden Vergleich auf denselben Personen prüfen wir deshalb mit dem
 Wilcoxon-Vorzeichen-Rang-Test \citep{wilcoxon1945} auf den personenweisen
 Differenzen und nennen, bei wie vielen Personen eine Konfiguration vorn
 liegt. Ein Gewinn unter einem Prozentpunkt ohne $p < 0{,}05$ gilt als
-Rauschen. Für die Netze mitteln wir drei Saaten, weil zwei GPU-Läufe mit
-identischer Saat um bis zu 1,6 Prozentpunkte auseinanderliegen können; bei
-32 Personen liegen für die Netze nur Saaten-Aggregate vor, ihr Vergleich
+Rauschen. Für die Netze mitteln wir drei Seeds, weil zwei GPU-Läufe mit
+identischem Seed um bis zu 1,6 Prozentpunkte auseinanderliegen können; bei
+32 Personen liegen für die Netze nur Seed-Aggregate vor, ihr Vergleich
 untereinander ist dort nominal.
 
 \paragraph{Modellauswahl auf derselben Kohorte.} Architekturen und
@@ -41,7 +41,7 @@ Hyperparameter wurden anhand derselben Cross-Validation ausgewählt, auf der
 wir berichten. Personen kreuzen nie zwischen Training und Test, aber die Werte der Netze
 sind Selektionssieger und damit nach oben verzerrt; eine Nested
 Cross-Validation war mit dem Rechenbudget nicht darstellbar. Die Sieger der
-Hyperparametersuche verloren beim Nachrechnen mit drei Saaten ein bis zwei
+Hyperparametersuche verloren beim Nachrechnen mit drei Seeds ein bis zwei
 Prozentpunkte gegenüber ihrem besten Einzellauf. Die Hyperparameter des
 Random Forest blieben über das Projekt unverändert.
 
@@ -52,7 +52,7 @@ Der Random Forest auf 88 Merkmalen ist die Referenz. Die Netze auf nativen
 5-s-Fenstern vergleichen wir mit ihm bei gleicher Entscheidungslatenz: gegen
 seine kausal über 5~s geglätteten 1-s-Vorhersagen und gegen einen Random
 Forest mit direkt über 5~s berechneten Merkmalen. Die Ablationen ändern je
-eine Variable auf identischen Folds und Saaten: Schwerkraftvektor,
+eine Variable auf identischen Folds und Seeds: Schwerkraftvektor,
 Gyroskop, Dekodiermodus und Fusion. Zwei Vergleiche sind nicht auf eine
 Variable beschränkt (50 gegen 100~Hz, Drei-Kanal-Lauf der Netze) und werden
 entsprechend eingeordnet. Wirkungslose Eingriffe fasst Abschnitt~\ref{sec:ablation-results} zusammen,

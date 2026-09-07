@@ -9,14 +9,14 @@ Personen zusammen. Der Random Forest erreicht je 1-s-Fenster 0,865 Accuracy
 und 0,942 ROC-AUC; der kausale HMM-Filter hebt dieselben Vorhersagen ohne
 Neutraining auf 0,898. Den höchsten Mittelwert erreicht tcn\_bigru auf
 nativen 5-s-Fenstern mit 0,921 bei 0,975 ROC-AUC, gemittelt über drei
-Saaten und nicht gepaart gegen den Random Forest getestet.
+Seeds und nicht gepaart gegen den Random Forest getestet.
 
 \begin{table}[H]
   \centering
   \caption{Hauptergebnisse, Legacy-Pool, 32 Personen, gruppierte
   Five-Fold Cross-Validation. Die letzte Spalte nennt, worüber die Streuung gebildet ist:
   Bei Random Forest und HMM ist $\pm$ die Standardabweichung zwischen den 32
-  Personen, bei den Netzen die Standardabweichung über drei Zufallssaaten des
+  Personen, bei den Netzen die Standardabweichung über drei Zufalls-Seeds des
   Mittels der fünf Gruppen. Die beiden Größen messen Verschiedenes und sind
   nicht gegeneinander lesbar. Für die Netze wurden auf dieser Kohorte keine
   personenweisen Vorhersagen gespeichert. Kausal bedeutet, dass die
@@ -32,8 +32,8 @@ Saaten und nicht gepaart gegen den Random Forest getestet.
     Random Forest, Burst & 30~s & ja & 0,773 $\pm$ 0,041 & 0,856 $\pm$ 0,040 & 32 Personen \\
     Random Forest + HMM-Filter & $\sim$18~s, adaptiv & ja & 0,898 $\pm$ 0,034 & 0,962 $\pm$ 0,025 & 32 Personen \\
     Random Forest + HMM-Smoother & rückblickend & nein & 0,917 $\pm$ 0,036 & 0,973 $\pm$ 0,025 & 32 Personen \\ \hline
-    tcn6 & 5~s nativ & ja & 0,915 $\pm$ 0,007 & 0,974 & 3 Saaten \\
-    tcn\_bigru & 5~s nativ & ja & 0,921 $\pm$ 0,006 & 0,975 & 3 Saaten \\ \hline
+    tcn6 & 5~s nativ & ja & 0,915 $\pm$ 0,007 & 0,974 & 3 Seeds \\
+    tcn\_bigru & 5~s nativ & ja & 0,921 $\pm$ 0,006 & 0,975 & 3 Seeds \\ \hline
   \end{tabular}
 \end{table}
 
@@ -69,14 +69,14 @@ Netze dagegen hochfrequentes Rauschen, das die Glättung ohnehin entfernt.
     \includegraphics[width=0.5\textwidth]{figures/cohort_scaling.pdf}
     \caption{Accuracy in Abhängigkeit von der Zahl der Personen im
     Datensatz. Der Random Forest bewegt sich zwischen 20 und 32 Personen
-    nicht, beide Netze steigen um mehr als ihre Saatenstreuung.}
+    nicht, beide Netze steigen um mehr als ihre Seed-Streuung.}
     \label{fig:scaling}
 \end{figure}
 
 Die Kohorte ist von 3 auf 32 Personen gewachsen (Abbildung~\ref{fig:scaling}).
 Der Random Forest liegt bei 20, 22 und 32 Personen bei 0,869, 0,863 und
 0,865; die Netze legen von 22 auf 32 Personen um 0,7 (tcn6) und 0,95
-Prozentpunkte (tcn\_bigru) zu, mehr als ihre Saatenstreuung. Das deutet auf
+Prozentpunkte (tcn\_bigru) zu, mehr als ihre Seed-Streuung. Das deutet auf
 eine Grenze des Random Forest in der Repräsentation, nicht in der
 Datenmenge. Ein kausaler Schluss ist das nicht: Zwischen den Stufen änderten
 sich auch Kohortenzusammensetzung und v2-Anteil, und die Stufe mit 22
@@ -84,7 +84,7 @@ Personen trug noch die um 16~s verschobenen Labels einer Person
 (Abschnitt~\ref{sec:alignment}).
 
 Der Vorsprung von tcn\_bigru gegenüber tcn6 (0,55 Prozentpunkte bei
-Saatenstreuung 0,6 bis 0,7) ist nominal; im Modern-Pool dreht sich die
+Seed-Streuung 0,6 bis 0,7) ist nominal; im Modern-Pool dreht sich die
 Rangfolge. Die Kontrollfamilien bestätigen das Bild: MiniRocket trifft auf
 5-s-Fenstern exakt den Random Forest auf 5-s-Merkmalen (0,886 gegen 0,885,
 $p = 0{,}93$), harnet liegt gleichauf (0,901 gegen 0,899) und irrt an
@@ -131,14 +131,14 @@ TCN mit HMM und nativer 5-s-TCN landen an derselben Stelle (0,905, 0,905,
 
 \paragraph{Schwerkraftvektor.} Im Modern-Pool (Tabelle~\ref{tab:gravity})
 hilft der Schwerkraftvektor tcn6 um 0,86 Prozentpunkte und halbiert die
-Saatenstreuung, für tcn\_bigru ist er neutral; frühere Verluste auf vier und
+Seed-Streuung, für tcn\_bigru ist er neutral; frühere Verluste auf vier und
 sieben Personen waren Artefakte kleiner Stichproben. Plausibel ist, dass der
 bidirektionale Kopf die Lageinformation aus dem Verlauf rekonstruiert.
 
 \begin{table}[H]
   \centering
   \caption{Ablation des Schwerkraftvektors im Modern-Pool (23 Personen,
-  100~Hz, 5-s-Fenster, Mittel $\pm$ Standardabweichung über drei Saaten).}
+  100~Hz, 5-s-Fenster, Mittel $\pm$ Standardabweichung über drei Seeds).}
   \label{tab:gravity}
   \begin{tabular}{lrrr}
     \hline

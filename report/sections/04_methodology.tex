@@ -154,9 +154,9 @@ Trainiert wurde in PyTorch \citep{paszke2019} mit Adam, Kreuzentropie und
 Early Stopping auf einem personenfremden Validierungsanteil, ohne
 Normalisierung je Aufnahme. Die Hyperparameter stammen aus einer Grid Search
 über Lernrate, Dropout, Batchgröße und Weight Decay: das volle Grid (36
-Kombinationen, drei Saaten) für tcn6, ein aus Zeitgründen auf vier bis sechs
+Kombinationen, drei Seeds) für tcn6, ein aus Zeitgründen auf vier bis sechs
 Kombinationen verengtes Grid für tcn\_bigru. Jede Endkonfiguration lief mit
-drei Saaten. Als Kontrolle, ob die Leistungsgrenze an der Modellklasse hängt,
+drei Seeds. Als Kontrolle, ob die Leistungsgrenze an der Modellklasse hängt,
 dienten MiniRocket \citep{dempster2021} und das auf 700\,000 Personentagen
 vortrainierte harnet \citep{yuan2024} als eingefrorener Merkmalsextraktor,
 beide auf 5-s-Fenstern.
