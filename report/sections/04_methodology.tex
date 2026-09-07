@@ -2,12 +2,10 @@
 \label{sec:methodology}
 
 Abbildung~\ref{fig:pipeline} fasst die Verarbeitungskette zusammen. Aus Stift-
-und Watch-Strom entsteht zunächst ein Datensatz mit einem Label je
-Watch-Sample. Darauf bauen zwei Modellfamilien auf: ein Random Forest auf
-handgebauten Merkmalen über 1-s-Fenster und zeitliche Faltungsnetze auf den
-rohen Sequenzen über 5-s-Fenster. Ein Hidden-Markov-Modell glättet die
-Fenstervorhersagen zeitlich. Die folgenden Abschnitte beschreiben jede Stufe
-so weit, wie sie die Gültigkeit der Ergebnisse beeinflusst.
+und Watch-Strom entsteht ein Datensatz mit einem Label je Watch-Sample.
+Darauf bauen ein Random Forest auf handgebauten Merkmalen über 1-s-Fenster
+und zeitliche Faltungsnetze auf rohen 5-s-Sequenzen auf. Ein
+Hidden-Markov-Modell glättet die Fenstervorhersagen zeitlich.
 
 \begin{figure}[H]
     \centering
@@ -44,26 +42,18 @@ so weit, wie sie die Gültigkeit der Ergebnisse beeinflusst.
 \subsection{Zeitliche Ausrichtung und Ground-Truth-Labels}
 \label{sec:alignment}
 
-Stift und Watch haben keine gemeinsame Zeitbasis. Der Stift stempelt mit seiner
-eigenen Geräteuhr, die in unseren Geräten rund 922 Tage hinter der Wanduhr lag
-und zusätzlich einen sitzungsabhängigen Versatz von wenigen Sekunden aufwies.
-Ein Versatz von einer halben Sekunde entspricht bereits mehreren Buchstaben.
-Der Versatz $\delta$ wird deshalb pro Aufnahme aus den Daten selbst geschätzt,
-mit einem Verfahren, das uns Samuel Wehrli von der ZHAW als
-unveröffentlichte technische Notiz zur Verfügung gestellt hat (persönliche
-Mitteilung, 2026). Es ist im Folgenden vollständig beschrieben, damit die
-Auswertung ohne diese Notiz nachvollziehbar bleibt. Die Annahme dahinter ist,
-dass das Handgelenk
-sich während eines Strichs als Ganzes vergleichsweise wenig bewegt, während die
-großen Translationsbewegungen (Greifen, Umblättern, Gestikulieren) zwischen den
-Strichen liegen. Für einen Kandidaten $\delta$ verschiebt das Verfahren die
-Strichintervalle des Stifts um $\delta$ und mittelt die gefensterte Varianz der
-Watch-Beschleunigung innerhalb dieser Maske. Das richtige $\delta$ minimiert
-diesen Wert. Gesucht wird zweistufig, grob über $\pm 20$~s und fein über
-$\pm 5$~s. Als Konfidenzmaß dient der z-Wert des Minimums gegenüber der
-Verteilung auf dem Suchgitter ($\sigma$). Je negativer er ist, desto
-ausgeprägter ist das Minimum. Abbildung~\ref{fig:alignment} zeigt das Ergebnis
-an einer Aufnahme.
+Stift und Watch haben keine gemeinsame Zeitbasis: Die Stiftuhr lag rund 922
+Tage plus einen sitzungsabhängigen Versatz von wenigen Sekunden hinter der
+Wanduhr, und schon eine halbe Sekunde entspricht mehreren Buchstaben. Der
+Versatz $\delta$ wird deshalb je Aufnahme aus den Daten geschätzt, nach einer
+unveröffentlichten Notiz von Samuel Wehrli (ZHAW, persönliche Mitteilung,
+2026). Die Annahme: Während eines Strichs bewegt sich das Handgelenk als
+Ganzes wenig, große Translationen liegen zwischen den Strichen. Für einen
+Kandidaten $\delta$ werden die Strichintervalle verschoben und die gefensterte
+Varianz der Watch-Beschleunigung unter dieser Maske gemittelt; das richtige
+$\delta$ minimiert diesen Wert. Gesucht wird grob über $\pm 20$~s und fein
+über $\pm 5$~s. Als Konfidenz dient der z-Wert des Minimums gegenüber dem
+Suchgitter ($\sigma$, Abbildung~\ref{fig:alignment}).
 
 \begin{figure}[H]
     \centering
@@ -75,62 +65,45 @@ an einer Aufnahme.
     \label{fig:alignment}
 \end{figure}
 
-Wir übernehmen $\delta$, wenn $\sigma \le -2$ gilt, das Minimum nicht am Rand
-des Suchraums liegt und $|\delta| \le 5$~s ist. Die letzten beiden Regeln kamen
-im Lauf des Projekts hinzu, weil ein formal akzeptables $\sigma$ nicht
-ausschließt, dass die Zielfunktion einfach zum Rand hin abfällt. In zwei
-Aufnahmen hatte ein solches Randminimum die Labels um 16 bzw. 18~s verschoben.
-Diese Kandidatenverschiebungen von rund $-16$ und $+18$~s verwerfen die beiden
-Regeln jetzt. Die betroffenen Aufnahmen laufen mit $\delta = 0$. Mehr als fünf
-Sekunden Versatz sind physikalisch ausgeschlossen, weil beide Zeitstempel gegen
-dieselbe Wanduhr laufen.
+Wir übernehmen $\delta$, wenn $\sigma \le -2$ gilt, das Minimum nicht am
+Rand des Suchraums liegt und $|\delta| \le 5$~s ist. Die letzten beiden
+Regeln kamen hinzu, nachdem in zwei Aufnahmen ein Randminimum mit formal
+akzeptablem $\sigma$ die Labels um 16 bzw. 18~s verschoben hatte; beide
+laufen jetzt mit $\delta = 0$.
 
-Nach der Ausrichtung entsteht der Datensatz durch einen Merge mit der Watch als
-Basis: Jedes Watch-Sample erhält das Label~1, wenn innerhalb von $\pm 40$~ms
-ein Stiftereignis vom Typ \emph{aufgesetzt} oder \emph{bewegt} liegt, sonst das
-Label~0. Watch-Samples ohne Stiftereignis in Reichweite bilden damit die
-Negativklasse, und zwar sowohl in den Nicht-Schreibaufgaben als auch in den
-Lücken innerhalb der Schreibaufgaben. Der Merge läuft auf der Capture-Uhr der
-Watch. Eine frühere Fassung auf der Ankunftszeit am Server hatte Labels
+Danach erhält jedes Watch-Sample das Label~1, wenn innerhalb von $\pm 40$~ms
+ein Stiftereignis \emph{aufgesetzt} oder \emph{bewegt} liegt, sonst 0.
+Samples ohne Stiftereignis bilden die Negativklasse, auch in den Lücken
+innerhalb der Schreibaufgaben. Der Merge läuft auf der Capture-Uhr der Watch;
+eine frühere Fassung auf der Ankunftszeit am Server hatte Labels
 nachgelieferter Pakete um bis zu 42~s versetzt.
 
 \subsection{Vorverarbeitung und Fensterbildung}
 \label{sec:windows}
 
-Die rohen Stiftlabels sind für die Zielgröße zu hart. Zwischen Buchstaben, an
-Wortgrenzen und in kurzen Denkpausen hebt der Stift für 50~ms bis 2~s ab, und
-die Handgelenkbewegung in diesen Lücken unterscheidet sich nicht von der in den
-Strichen davor und danach. Wir schließen deshalb auf Sample-Ebene alle Lücken
-bis 2,5~s zwischen zwei Schreibabschnitten (morphologisches Schließen). Die
-Zielgröße ist damit ausdrücklich \emph{im Schreibmodus sein} einschließlich
-Mikropausen und nicht \emph{Stift berührt gerade das Papier}. Der Wert von
-2,5~s stammt aus einem Sweep über Schwellen von 0,3 bis 3,0~s und war dort das
-Optimum. Oberhalb von 2,5~s ändert sich die Accuracy nicht mehr
-nennenswert. Das Öffnen kurzer Schreibspitzen haben wir getestet, aber nicht
-verwendet, weil echte kurze Striche wie i-Punkte und Satzzeichen informativ
-sind.
+Die rohen Stiftlabels sind zu hart: Zwischen Buchstaben, an Wortgrenzen und
+in kurzen Denkpausen hebt der Stift für 50~ms bis 2~s ab, ohne dass sich die
+Handgelenkbewegung ändert. Wir schließen deshalb auf Sample-Ebene alle Lücken
+bis 2,5~s zwischen zwei Schreibabschnitten. Die Zielgröße ist damit \emph{im
+Schreibmodus sein} einschließlich Mikropausen, nicht \emph{Stift berührt das
+Papier}. Der Wert war das Optimum eines Sweeps über 0,3 bis 3,0~s.
 
-Anschließend werden gleitende Fenster mit halber Fensterlänge als Schritt
-gebildet. Ein Fenster trägt das Label Schreiben, wenn mindestens 60\,\% seiner
-Samples als Schreiben gelabelt sind. Auch die Fensterlänge haben wir
-durchgetestet (1 bis 10~s). Für den Random Forest ist 1~s die beste Wahl,
-lang genug für die Spektralmerkmale und zeitlich noch scharf. Die Netze
-arbeiten auf 5-s-Fenstern, wo ihre Accuracy ein Plateau erreicht. Die
-Zeitskala, auf der eine Entscheidung berichtet wird, behandeln wir davon
-getrennt (Abschnitt~\ref{sec:smoothing}).
+Gleitende Fenster mit halber Fensterlänge als Schritt gelten als Schreiben,
+wenn mindestens 60\,\% ihrer Samples so gelabelt sind. Für den Random Forest
+ist 1~s die beste Länge (Sweep 1 bis 10~s), die Netze erreichen auf
+5-s-Fenstern ein Plateau. Die Zeitskala der berichteten Entscheidung
+behandeln wir davon getrennt (Abschnitt~\ref{sec:smoothing}).
 
 \subsection{Merkmalsbasierte Klassifikation}
 \label{sec:rf}
 
 Je 1-s-Fenster berechnen wir 88 Merkmale aus den sechs Kanälen
-(Tabelle~\ref{tab:features}). Die Gruppen decken die Amplitude, das
-Frequenzspektrum, die Glattheit und die Kopplung der Achsen ab. Beim Spektrum
-wird der Gleichanteil vor Schwerpunkt und Entropie entfernt. Das Band von 3 bis
-8~Hz entspricht der typischen Strichfrequenz beim Schreiben. Die
-Jerk-Merkmale werden mit der Abtastrate skaliert, damit sie zwischen 50 und
-100~Hz vergleichbar bleiben. Im Modern-Pool kommen vier Merkmale aus dem
-Schwerkraftvektor hinzu (mittlere Neigung je Achse und mittlere
-Winkeländerung zwischen aufeinanderfolgenden Schwerkraftvektoren).
+(Tabelle~\ref{tab:features}); sie decken Amplitude, Spektrum, Glattheit und
+Achsenkopplung ab. Das Band von 3 bis 8~Hz entspricht der typischen
+Strichfrequenz. Die Jerk-Merkmale werden mit der Abtastrate skaliert, damit
+50 und 100~Hz vergleichbar bleiben. Im Modern-Pool kommen vier Merkmale aus
+dem Schwerkraftvektor hinzu (mittlere Neigung je Achse, mittlere
+Winkeländerung zwischen aufeinanderfolgenden Vektoren).
 
 \begin{table}[H]
   \centering
@@ -149,99 +122,62 @@ Winkeländerung zwischen aufeinanderfolgenden Schwerkraftvektoren).
   \end{tabular}
 \end{table}
 
-Das schwierigste Problem beim Übertragen auf fremde Personen ist nicht,
-welches Merkmal Schreiben anzeigt, sondern dass dieselbe Geste an
-verschiedenen Handgelenken unterschiedliche Absolutwerte erzeugt
-(Handgelenksumfang, Sitz der Uhr, Schreibhaltung). Wir standardisieren deshalb
-jede Merkmalsspalte je Aufnahme (z-Score), bevor ein Modell sie sieht. Dieser
-Schritt war der größte Einzelgewinn auf der Merkmalsseite und reduzierte
-zugleich die Streuung zwischen den Folds deutlich. Für den Live-Einsatz ist er
-nicht kausal, weil die Statistik einer Aufnahme auch deren Zukunft enthält.
-Eine einsetzbare Variante schätzt Mittel und Streuung auf den
-Trainingspersonen und schneidet im gepaarten Vergleich nicht schlechter ab.
-
-Als Klassifikator dient ein Random Forest \citep{breiman2001} mit 200 Bäumen
-und klassenbalancierten Gewichten in der Implementierung von scikit-learn
-\citep{pedregosa2011}. Die Entscheidung fällt bei einer Wahrscheinlichkeit von
-0,5. Extra Trees, Gradient Boosting, logistische Regression, ein
-mehrschichtiges Perzeptron und eine SVM mit RBF-Kern auf denselben Folds
-übertrafen ihn nicht.
+Dieselbe Geste erzeugt an verschiedenen Handgelenken unterschiedliche
+Absolutwerte. Wir standardisieren deshalb jede Merkmalsspalte je Aufnahme
+(z-Score), der größte Einzelgewinn auf der Merkmalsseite. Live ist das nicht
+kausal; eine Variante mit Statistik aus den Trainingspersonen schneidet
+gepaart nicht schlechter ab.
+Klassifikator ist ein Random Forest \citep{breiman2001} mit 200 Bäumen und
+klassenbalancierten Gewichten in scikit-learn \citep{pedregosa2011}, Schwelle
+0,5. Extra Trees, Gradient Boosting, logistische Regression, ein MLP und eine
+RBF-SVM auf denselben Folds übertrafen ihn nicht.
 
 \subsection{Deep-Learning-Modelle}
 \label{sec:deep}
 
-Neben den handgebauten Merkmalen haben wir Netze direkt auf den rohen
-Sequenzen der sechs Kanäle trainiert. Nach einer breiteren Suche über
-eindimensionale CNNs, LSTM- und GRU-Netze, InceptionTime
-\citep{ismailfawaz2020}, Transformer-Varianten und mehrere Hybride blieben
-zwei Architekturen für den Endvergleich:
+Auf den rohen Sequenzen der sechs Kanäle blieben nach einer Suche über
+1D-CNNs, LSTM- und GRU-Netze, InceptionTime \citep{ismailfawaz2020},
+Transformer-Varianten und Hybride zwei Architekturen für den Endvergleich:
 
 \begin{itemize}
   \item \textbf{tcn6}: ein zeitliches Faltungsnetz nach \citet{bai2018} mit
-  sechs Ebenen dilatierter, kausaler Faltungen. Das rezeptive Feld deckt mit
-  253 Samples nahezu das ganze 5-s-Fenster ab. Die Ausgabe wird über die Zeit
-  gemittelt und linear auf die zwei Klassen abgebildet. Das Modell hat rund
-  9\,400 Parameter.
-  \item \textbf{tcn\_bigru}: derselbe Faltungsstamm, dessen Ausgabefolge statt
-  in ein Mittel in eine bidirektionale GRU-Schicht \citep{chung2014} läuft. Die
-  Rekursion übernimmt die zeitliche Zusammenfassung, die tcn6 wegmittelt, und
-  der Rückwärtslauf trägt das Fensterende in frühe Zeitschritte. Innerhalb
-  eines abgeschlossenen Fensters ist das zulässig, über Fenstergrenzen hinweg
-  bleibt das Modell kausal. Es hat rund 19\,000 Parameter.
+  sechs Ebenen dilatierter, kausaler Faltungen. Das rezeptive Feld von 253
+  Samples deckt nahezu das ganze 5-s-Fenster ab; die Ausgabe wird über die
+  Zeit gemittelt und linear klassifiziert (rund 9\,400 Parameter).
+  \item \textbf{tcn\_bigru}: derselbe Faltungsstamm, dessen Ausgabefolge
+  statt in ein Mittel in eine bidirektionale GRU-Schicht \citep{chung2014}
+  läuft. Der Rückwärtslauf trägt das Fensterende in frühe Zeitschritte; über
+  Fenstergrenzen hinweg bleibt das Modell kausal (rund 19\,000 Parameter).
 \end{itemize}
 
-Beide Netze verzichten auf die Normalisierung je Aufnahme, weil die
-Batch-Normalisierung die Skala ohnehin neu setzt. Trainiert wurde mit Adam,
-Kreuzentropie und Early Stopping auf einem personenfremden Validierungsanteil
-in PyTorch \citep{paszke2019}. Die Hyperparameter stammen aus einer Grid
-Search über Lernrate, Dropout, Batchgröße und Weight Decay. Das volle Grid mit
-36 Kombinationen und drei Saaten lief für tcn6. Die später hinzugekommenen
-Architekturen, darunter tcn\_bigru, erhielten aus Zeitgründen ein auf vier
-bis sechs Kombinationen verengtes Grid mit einer Saat um die Siegerwerte
-ihrer Vorgänger. Die Abstimmung ist damit nicht für alle Architekturen gleich
-gründlich. Jede Endkonfiguration wurde anschließend mit drei Zufallssaaten
-trainiert.
-
-Zwei weitere Modellfamilien dienten als Kontrolle, ob die beobachtete
-Leistungsgrenze an der Modellklasse hängt. MiniRocket \citep{dempster2021}
-klassifiziert Zeitreihen mit einer großen Zahl zufälliger Faltungskerne und
-einem linearen Kopf, lernt die Merkmale also gerade nicht. Harnet
-\citep{yuan2024} ist ein auf 700\,000 Personentagen Beschleunigungsdaten
-selbstüberwacht vortrainiertes Netz, das wir als eingefrorenen
-Merkmalsextraktor mit logistischer Regression einsetzen. Beide laufen auf
-5-s-Fenstern, harnet auf 30~Hz und nur auf den drei Beschleunigungsachsen.
+Trainiert wurde in PyTorch \citep{paszke2019} mit Adam, Kreuzentropie und
+Early Stopping auf einem personenfremden Validierungsanteil, ohne
+Normalisierung je Aufnahme. Die Hyperparameter stammen aus einer Grid Search
+über Lernrate, Dropout, Batchgröße und Weight Decay: das volle Grid (36
+Kombinationen, drei Saaten) für tcn6, ein aus Zeitgründen auf vier bis sechs
+Kombinationen verengtes Grid für tcn\_bigru. Jede Endkonfiguration lief mit
+drei Saaten. Als Kontrolle, ob die Leistungsgrenze an der Modellklasse hängt,
+dienten MiniRocket \citep{dempster2021} und das auf 700\,000 Personentagen
+vortrainierte harnet \citep{yuan2024} als eingefrorener Merkmalsextraktor,
+beide auf 5-s-Fenstern.
 
 \subsection{Zeitliche Glättung und Modellfusion}
 \label{sec:smoothing}
 
-Ein Fenster von einer Sekunde ist die richtige Größe für die Merkmale, aber
-nicht die Zeitskala, auf der ein Nutzer eine Aussage erwartet. Ein
-Schreibzeit-Tracker fragt, ob jemand in den letzten Sekunden bis Minuten
-geschrieben hat. Wir unterscheiden deshalb das Merkmalsfenster von der
-Entscheidungsskala und berichten jedes Modell auf mehreren Skalen. Die
-einfachste Glättung ist ein gleitender Mittelwert der
-Fensterwahrscheinlichkeiten über 5, 10 oder 30~s, danach erneut bei 0,5
-geschwellt. Wir rechnen ihn ausschließlich rückwärts gerichtet, also nur aus
-Vergangenheit und Gegenwart, damit die Zahlen dem entsprechen, was ein Tracker
-zum Zeitpunkt $t$ tatsächlich anzeigen kann.
+Ein 1-s-Fenster ist die richtige Größe für die Merkmale, aber nicht die
+Zeitskala, auf der ein Nutzer eine Aussage erwartet. Wir trennen deshalb
+Merkmalsfenster und Entscheidungsskala. Die einfachste Glättung ist ein
+kausaler gleitender Mittelwert der Fensterwahrscheinlichkeiten über 5, 10
+oder 30~s, erneut bei 0,5 geschwellt.
 
-Der eigentliche Glätter ist ein Hidden-Markov-Modell mit den zwei Zuständen
-Nicht-Schreiben und Schreiben \citep{rabiner1989}. Die Idee dahinter ist
-einfach: Schreiben kommt in Blöcken vor, nicht in einzelnen Sekunden. Ein
-Fenster, das für sich genommen unsicher aussieht, das aber zwischen zwei klar
-erkannten Schreibfenstern liegt, gehört mit hoher Wahrscheinlichkeit ebenfalls
-zum Schreiben. Das HMM formalisiert genau diese Überlegung. Es bekommt die
-Wahrscheinlichkeit des Random Forest je Fenster als Beobachtung und lernt aus
-den Trainingspersonen nur, wie wahrscheinlich ein Zustandswechsel von einem
-Fenster zum nächsten ist.
-
-Entscheidend ist, welchen Teil der Aufnahme das HMM dabei sehen darf. Der
-Vorwärtsfilter nutzt nur Vergangenheit und Gegenwart und ist damit live
-einsetzbar. Der Vorwärts-Rückwärts-Smoother und der Viterbi-Pfad sehen die
-ganze Aufnahme und eignen sich für eine rückblickende Tagesauswertung.
-
-Als Modellfusion haben wir das Mittel der Wahrscheinlichkeiten zweier Modelle
-auf denselben 5-s-Fenstern getestet, sowohl zwischen den Familien (Random
-Forest mit tcn6) als auch zwischen zwei Netzen. Als Vorabtest dient die
-Korrelation der Residuen: Irren beide an denselben Fenstern, kann das Mittel
-wenig gewinnen.
+Der eigentliche Glätter ist ein Hidden-Markov-Modell mit den Zuständen
+Nicht-Schreiben und Schreiben \citep{rabiner1989}: Schreiben kommt in
+Blöcken vor, ein unsicheres Fenster zwischen zwei klaren Schreibfenstern
+gehört mit hoher Wahrscheinlichkeit dazu. Das HMM erhält die
+Random-Forest-Wahrscheinlichkeit je Fenster als Beobachtung und lernt aus den
+Trainingspersonen nur die Übergangswahrscheinlichkeiten. Der Vorwärtsfilter
+nutzt nur die Vergangenheit und ist live einsetzbar; Vorwärts-Rückwärts-Smoother
+und Viterbi sehen die ganze Aufnahme und eignen sich für eine rückblickende
+Tagesauswertung. Als Modellfusion haben wir das Wahrscheinlichkeitsmittel
+zweier Modelle auf denselben 5-s-Fenstern getestet; die Korrelation der
+Residuen zeigt vorab, ob das Mittel gewinnen kann.
