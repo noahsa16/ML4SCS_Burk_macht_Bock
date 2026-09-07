@@ -1,9 +1,32 @@
-\section{Related Work}
-\label{sec:related-work}
+\section{Verwandte Arbeiten}
+\label{sec:related_work}
 
-% OWNER: Taji
-% Suggested themes:
-% - Wearable human activity recognition using accelerometers and gyroscopes.
-% - Recognition of handwriting and fine-grained hand activities.
-% - Subject-independent evaluation and the risk of person leakage.
-% - Research gap addressed by Apple-Watch-only inference.
+Im Rahmen dieser Arbeit haben wir zwei Studien identifiziert, die unserem Projekt am nächsten kommen. Soubam et al. (2023) verwenden dieselbe Sensorklasse und denselben Klassifikationsansatz zur Erkennung von Schreibaktivität am Handgelenk. Xia et al. (2018) nutzen ebenfalls eine handgelenksgetragene IMU und einen Random Forest, verfolgen jedoch ein grundlegend anderes Ziel. Im Folgenden werden beide Arbeiten vorgestellt und in Bezug zu unserem Ansatz gesetzt.
+
+\subsection{Erkennung von Schreib-Mikroereignissen (Soubam et al., 2023)}
+
+Soubam et al.~\cite{soubam2023} präsentieren ein System zur Erkennung feinkörniger Schreib-Mikroereignisse mithilfe einer Smartwatch. Anstatt den geschriebenen Inhalt zu erkennen, untersuchen sie, welche Teilaktivität eine Person gerade ausführt. Die drei betrachteten Klassen sind aktives Schreiben (\textit{write}), Verschieben der Hand auf dem Papier (\textit{shift}) sowie Beginn einer neuen Zeile (\textit{newline}). Diese Formulierung ist methodisch nah an unserer binären Schreiberkennungsaufgabe, operiert jedoch auf einer feineren Granularitätsstufe.
+
+Die Daten wurden von zehn Probanden (fünf Frauen, fünf Männer) mit einer LG W100 Smartwatch erhoben, die Beschleunigungssensor-, Gyroskop- und Rotationsvektor-Daten bei 100~Hz aufzeichnet. Jede Testperson absolvierte drei Schreibszenarien, nämlich Abschreiben, Schreiben aus dem Gedächtnis und freies Formulieren, über drei Sitzungen. Dies ergab insgesamt rund 15 Stunden annotierter Sensordaten. Die Ground-Truth-Labels wurden durch manuelle Videoannotation mit der ELAN-Software erstellt.
+
+Ein zentraler methodischer Beitrag des Papers ist das \textit{Thresholding Tag Assignment}-Verfahren zur Fensterbeschriftung. Da sich Mikroereignisse stark in ihrer Dauer unterscheiden, wobei \textit{write}-Segmente mehrere Sekunden dauern, während \textit{shift} und \textit{newline} oft unter einer Sekunde liegen, klassifiziert die übliche Mehrheitsabstimmung kurze Ereignisse systematisch falsch. Das vorgeschlagene Verfahren weist einem Fenster stattdessen das Label jedes Ereignisses zu, das einen definierten Mindestanteil von beispielsweise 20\% überschreitet, wobei seltenere Klassen Vorrang haben. Dadurch können mittlere Fenstergrößen von 200 bis 300 Samples verwendet werden, ohne kurze Ereignisse in der Labelverteilung zu verlieren.
+
+Zur Klassifikation werden handkonstruierte Feature-basierte Modelle (Random Forest, SVM, XGBoost, MLP) mit einem LSTM auf Rohzeitreihen verglichen. Statistische Features wie Mittelwert, Standardabweichung, Kurtosis, Zero-Crossing-Rate und Signal-Magnitude-Area sowie Frequenz-Domain-Features wie FFT-Energie und Schiefe werden für alle Sensorachsen extrahiert. Die Evaluation erfolgt mittels fünffacher Kreuzvalidierung mit dem Macro-F1-Score. Das beste nutzerunabhängige Modell erreicht F1~=~0,84, ein nutzerspezifisches Modell F1~=~0,91. Bemerkenswert ist, dass der Random Forest konsistent mit dem LSTM gleichzieht oder dieses übertrifft. Dies zeigt, dass sorgfältiges Feature Engineering bei kleinen Sensordatensätzen mit Deep Learning konkurrieren kann.
+
+Unsere Arbeit greift mehrere dieser Erkenntnisse auf. Wir übernehmen eine ähnliche Feature-Philosophie, die Zeitbereichs-Statistiken mit FFT-basierten Spektral-Features kombiniert, in unserem 92-Feature-Set. Unser Ansatz unterscheidet sich jedoch in drei wesentlichen Punkten. Erstens formulieren wir die Aufgabe als binäre Klassifikation (Schreiben vs.\ Nicht-Schreiben), was die Labelstruktur vereinfacht, aber anspruchsvolle Negativbeispiele wie Tastatur- und Smartphone-Tippen einführt. Zweitens erheben wir Daten von 22 Probanden, mehr als doppelt so viele wie Soubam et al. Drittens evaluieren wir mit Leave-One-Subject-Out-Kreuzvalidierung (LOSO) statt Standard-k-Fold, was eine deutlich konservativere und realistischere Schätzung der Generalisierung auf unbekannte Nutzer liefert.
+
+\subsection{MotionHacker: Belauschen von Handschrift (Xia et al., 2018)}
+
+Xia et al.~\cite{xiamotionhacker2018} nähern sich dem Thema Handschreiben und Bewegungssensoren aus einer völlig anderen Perspektive, nämlich aus dem Bereich Datenschutz und Sicherheit. Ihr System MotionHacker ist ein Proof-of-Concept-Angriff, der zeigt, dass eine bösartige App auf einer Smartwatch unbemerkt Handgelenksbewegungen mitloggen und daraus rekonstruieren kann, was die Person schreibt, konkret welche Buchstaben und Wörter beim normalen Handschreiben auf Papier entstehen.
+
+Das System zielt auf nutzerunabhängige Buchstabenerkennung für Kleinbuchstaben in Druckschrift ab. Eine LG R Watch zeichnet Beschleunigungssensor- und Gyroskop-Daten bei 200~Hz auf. Fünf Trainingspersonen schreiben alle 26 Buchstaben je 20-mal; fünf weitere Testpersonen fungieren in der Evaluation als Vergleichsgruppe. Die Pipeline gliedert sich in vier Stufen: Vorverarbeitung mit Ausreißerentfernung mittels 3$\sigma$-Kriterium und 1--25~Hz-Tiefpassfilter, Segmentierung der Wort- und Buchstabengrenzen über Gyroskop-Amplitudenschwellenwerte, Feature-Extraktion und Klassifikation.
+
+Das Feature Engineering ist besonders aufwändig. Da die Handgelenksbewegung beim Schreiben subtil ist und stark von Schreibgeschwindigkeit und Druck abhängt, werden klassische Zeitbereichs-Features als unzureichend betrachtet. Stattdessen konstruieren die Autoren 115 spezialisierte, ausschließlich gyroskopbasierte Features in zwei Gruppen: 78 Frequenzbereichs-Features auf Basis von FFT-Entropie und Spektrum im 1--25~Hz-Band sowie 37 phasenbezogene Features, die die zeitlichen Beziehungen zwischen Peaks und Tälern über die drei Gyroskopachsen kodieren. Ein Random-Forest-Klassifikator liefert die Top-5-Buchstabenkandidaten je Segment; ein Wörterbuch-Filter ordnet anschließend Buchstabensequenzen dem wahrscheinlichsten Wort zu.
+
+Evaluiert an den fünf Testpersonen, die zwei 100-Wörter-Absätze abschreiben, erreicht MotionHacker eine durchschnittliche Wort-Accuracy von 32,8\% für Top-1-Vorhersagen und 48,8\% für Top-5. Diese Ergebnisse bestätigen, dass IMU-Daten am Handgelenk ausreichend Signal tragen, um feinkörnige Schreibmuster nutzerunabhängig zu unterscheiden.
+
+Unser Ansatz teilt mit MotionHacker die Sensormodalität (handgelenksgetragene IMU, Beschleunigungssensor und Gyroskop) und den Kernklassifikator (Random Forest). Wir übernehmen zudem die FFT-basierte Feature-Philosophie aus deren Frequenzbereichsgruppe. Unser Ziel ist jedoch grundlegend verschieden und einfacher: Wir fragen nur, \textit{ob} geschrieben wird, nicht \textit{was}. Diese Vereinfachung erlaubt robustere Features und eine rigorose Evaluation im großen Maßstab.
+
+\subsection{Einordnung unserer Arbeit}
+
+Beide Studien liefern wichtige Erkenntnisse für unser Projekt. Von Soubam et al. übernehmen wir die Feature-Philosophie sowie die Erkenntnis, dass Random Forests auf Sensordaten kleiner Kohorten mit Deep Learning mithalten können. Von MotionHacker übernehmen wir die FFT- und phasenbasierte Frequenzbereichs-Analyse als Inspiration für unser eigenes Feature-Set. Gleichzeitig zeigen beide Arbeiten dieselbe Schwäche: kleine Teilnehmerzahlen und Evaluationsstrategien, die keine zuverlässige Aussage über die Generalisierung auf unbekannte Nutzer erlauben. Keine der beiden Studien verwendet LOSO-Kreuzvalidierung. Unsere Arbeit schließt diese Lücke durch eine Kohorte von 22 Probanden, ein ausbalanciertes Studiendesign mit ökologisch validen Negativbeispielen und eine strikte LOSO-by-Person-Evaluation, die der Bedingung eines realen Deployments auf der Uhr eines neuen Nutzers direkt entspricht.
