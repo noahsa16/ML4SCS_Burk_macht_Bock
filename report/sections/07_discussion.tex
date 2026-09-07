@@ -1,88 +1,52 @@
 \section{Diskussion}
 \label{sec:discussion}
 
-Die Forschungsfrage lautete, ob sich Schreibaktivität allein aus den
-IMU-Daten einer Smartwatch erkennen lässt, unabhängig von der Person,
-die sie trägt. Die Antwort ist ja, mit einer klar benennbaren Grenze. Auf 32
-Personen, von denen jede für ihr eigenes Testergebnis nie im Training war,
-erreicht ein zeitliches Faltungsnetz auf 5-s-Fenstern 92\,\% Accuracy, und
-ein Random Forest auf handgebauten Merkmalen mit kausalem HMM-Filter 90\,\%.
-Beide Zahlen sind ohne Kenntnis der Person, ohne Kalibrierungsphase und ohne
-Blick in die Zukunft erreichbar. Was fehlt, sind die restlichen acht bis zehn
-Prozent, und die Ergebnisse sagen ziemlich genau, wo sie sitzen.
+Die Forschungsfrage ist mit ja zu beantworten, mit einer klar benennbaren
+Grenze: Auf 32 Personen, von denen keine je im eigenen Training war,
+erreicht ein Faltungsnetz auf 5-s-Fenstern 92\,\% Accuracy und ein Random
+Forest mit kausalem HMM-Filter 90\,\%, ohne Kalibrierungsphase und ohne
+Blick in die Zukunft. Die Ergebnisse zeigen, wo die restlichen acht bis zehn
+Prozent sitzen.
 
 \paragraph{Die Grenze des Merkmalsmodells liegt vermutlich in der
-Repräsentation.} Über den größten Teil des Projekts sah es so aus, als läge
-die Leistungsgrenze im Signal. Random Forest, MiniRocket, ein vortrainiertes
-Modell und die Netze auf 1-s-Fenstern trafen dieselbe Marke und scheiterten
-an denselben Personen. Kein Merkmalseingriff, keine Augmentation und keine
-Umgewichtung bewegte sie. Der Schritt von 22 auf 32 Personen trennt diese
-Lesart, wenn auch nicht sauber: Der Random Forest blieb stehen, die Netze
-stiegen — zugleich änderten sich Kohortenzusammensetzung und Protokollanteil,
-sodass die Beobachtung nicht allein der Personenzahl zuzuschreiben ist. Die
-naheliegende Deutung ist, dass nicht das Signal erschöpft ist, sondern das,
-was Statistiken über ein 1-s-Fenster ausdrücken können. Ein Netz, das die
-Reihenfolge der Bewegungen innerhalb von fünf Sekunden sieht, profitiert
-anders als der Random Forest weiter von zusätzlichen Personen. Dass die Netze im Modern-Pool auf
-23 Personen den Schwerkraftvektor nutzen können, während der Random Forest
-auf vier Personen daran scheiterte, passt in dasselbe Bild.
+Repräsentation.} Random Forest, MiniRocket, harnet und die Netze auf 1-s-Fenstern trafen
+dieselbe Marke, scheiterten an denselben Personen, und kein Merkmalseingriff
+bewegte sie. Der Schritt von 22 auf 32 Personen trennt die Lesart
+\emph{Signal erschöpft} von \emph{Repräsentation erschöpft}, wenn auch nicht
+sauber: Der Random Forest blieb stehen, die Netze stiegen, während sich
+zugleich Kohorte und Protokollanteil änderten.
 
-\paragraph{Zeitkontext ist der entscheidende Hebel, und man kann ihn nur
-einmal einsammeln.} Drei ganz verschiedene Wege führen auf dieselbe Höhe:
-ein Netz auf nativen 5-s-Fenstern, ein 1-s-Modell mit HMM, und die Fusion
-von Random Forest und Netz. Das HMM hilft nur Modellen ohne eigenes
-Gedächtnis. Sobald das Basismodell fünf Sekunden Kontext trägt, überglättet
-es. Dass der Rolling-Mean auf keiner Skala hilft, das HMM aber auf jeder,
-zeigt, dass es nicht um Mittelung geht, sondern um ein Modell der
-Übergänge: Schreiben ist ein Zustand mit Trägheit, und ein Detektor, der das
-weiß, darf bei schwacher Evidenz beim letzten Zustand bleiben. Für den
-Einsatz ist damit die Frage nach der Latenz entscheidend. Wer eine Anzeige
-im Moment will, bekommt 0,90. Wer abends den Tag rekonstruiert, bekommt
-0,92, weil der Smoother beide Seiten eines Übergangs sehen darf. Diese
-Differenz von knapp zwei Prozentpunkten ist in 31 von 32 Personen dieselbe
-und war bei 22 Personen schon vorhanden. Sie gehört zu den robustesten
-Befunden der Arbeit.
+\paragraph{Zeitkontext ist der entscheidende Hebel, und er lässt sich nur
+einmal einsammeln.} Ein Netz auf nativen 5-s-Fenstern, ein 1-s-Modell mit HMM und die Fusion
+beider führen auf dieselbe Höhe; das HMM hilft nur Modellen ohne eigenes
+Gedächtnis. Dass der gleitende Mittelwert nie hilft, das HMM aber immer,
+zeigt, dass es um ein Modell der Übergänge geht: Schreiben ist ein Zustand
+mit Trägheit. Für den Einsatz entscheidet die Latenz: 0,90 im Moment, 0,92
+rückblickend, bei 31 von 32 Personen gleich.
 
 \paragraph{Der Restfehler ist personen- und aufgabenspezifisch, nicht
-diffus.} Die Fehler des Modells liegen nicht gleichmäßig über allen
-Nicht-Schreib-Situationen, sondern konzentrieren sich auf zwei Muster: Tippen
-auf Tastatur oder Handy bei einem Teil der Personen und sehr leises oder
-stark unterbrochenes Schreiben bei einem anderen Teil. Beide Muster sind am
-Handgelenk physikalisch begründet. Wer beim Tippen die Hand ähnlich bewegt
-wie beim Schreiben, erzeugt ähnliche Rotationen. Wer sehr leicht schreibt,
-erzeugt kaum mehr Bewegung als in Ruhe. Für das Tippen konnten wir
-zeigen, dass die trennende Information in den Merkmalen vorhanden ist, aber
-von der Mehrheit der Merkmale überstimmt wird, und dass alle Versuche, sie
-per Merkmalsdesign oder Gewichtung durchzusetzen, gescheitert sind. Der
-gepoolte Tipp-Fehler ist mit den zusätzlichen Personen von 36 auf 22
-Prozent gefallen, ohne dass jemand daran gearbeitet hätte. Mehr Personen mit
-verschiedenen Tippstilen sind offenbar der Hebel, den Merkmalsdesign nicht
-ersetzen kann.
+diffus.} Die Fehler konzentrieren sich auf Tippen bei einem Teil der Personen und
+sehr leises oder stark unterbrochenes Schreiben bei einem anderen, beides
+physikalisch begründet. Für das Tippen ist die trennende Information in den
+Merkmalen vorhanden, wird aber überstimmt, und alle Versuche, sie per
+Merkmalsdesign oder Gewichtung durchzusetzen, scheiterten. Der gepoolte
+Tipp-Fehler fiel mit zusätzlichen Personen von 36 auf 22 Prozent, ohne dass
+jemand daran gearbeitet hätte: Mehr Personen mit verschiedenen Tippstilen
+sind der Hebel.
 
-\paragraph{Was die Zahlen messen, entscheidet die Labeldefinition.} Das
-Schließen von Lücken bis 2,5~s macht aus der Frage \emph{berührt der Stift
-das Papier} die Frage \emph{ist die Person im Schreibmodus}. Für einen
-Schreibzeit-Tracker ist das die richtige Frage, und sie ist für das Modell
-lernbar, weil das Handgelenk in Mikropausen dasselbe tut wie in den Strichen.
-Die Kehrseite ist sichtbar: Rechenaufgaben mit Denkpausen über 2,5~s
-bleiben schwierig, weil die Semantik dort ausfranst, und ein Schätzer für den
-Schreibanteil überschätzt die rohe Stiftzeit systematisch um rund 20
-Prozentpunkte. Beides ist kein Modellfehler, sondern eine Folge der
-Definition, und beides muss bei jeder Anwendung mitgedacht werden.
+\paragraph{Die Labeldefinition entscheidet, was die Zahlen messen.} Das
+Schließen von Lücken bis 2,5~s macht aus \emph{berührt der Stift das Papier}
+die Frage \emph{ist die Person im Schreibmodus}, die richtige Frage für einen
+Schreibzeit-Tracker. Die Kehrseite: Denkpausen über 2,5~s bleiben schwierig,
+und ein Schätzer des Schreibanteils überschätzt die rohe Stiftzeit um rund 20
+Prozentpunkte, als Folge der Definition, nicht des Modells.
 
-\paragraph{Wo die Ergebnisse tragen und wo sie Hypothesen bleiben.} Belegt
-sind, jeweils gepaart über Personen und mit $p < 0{,}05$: der Gewinn des
-HMM-Filters, der Vorsprung des Smoothers, der Vorsprung der nativen
-5-s-Netze gegenüber dem Random Forest bei 15 und 20 Personen, der Gewinn der
-Fusion, die Kosten des fehlenden Gyroskops und die Wirkung der Korrekturen
-an der Zeitachse. Nominal, aber nicht belegt sind die Rangfolge der beiden
-Netze, der Vorsprung der Netze bei 32 Personen (der Abstand ist groß, die
-personenweisen Vorhersagen liegen aber nicht vor) und die Wirkung des
-Schwerkraftvektors auf tcn6. Hypothesen sind die Erklärungen: dass der
-rekurrente Kopf Lageinformation aus dem Verlauf rekonstruiert, und dass die
-Tipp-Verwechslung mit mehr Personen weiter schrumpft. Wir haben im Verlauf
-des Projekts zweimal einen scheinbar sauberen Befund zurücknehmen müssen,
-einmal wegen eines Sortierfehlers, einmal wegen eines verschobenen
-Zeitversatzes. Beide Male war nicht die Statistik falsch, sondern die Daten
-darunter. Das ist der Grund, warum diese Arbeit so viel Platz auf
-Zeitachsen und Kontrollen verwendet.
+\paragraph{Was belegt ist und was Hypothese bleibt.} Gepaart über Personen
+mit $p < 0{,}05$ belegt sind der Gewinn des HMM-Filters, der Vorsprung des
+Smoothers, der Vorsprung der 5-s-Netze bei 15 und 20 Personen, der Gewinn der
+Fusion und die Kosten des fehlenden Gyroskops. Nominal sind die Rangfolge der
+Netze, ihr Vorsprung bei 32 Personen und die Wirkung des Schwerkraftvektors
+auf tcn6. Hypothesen sind die Erklärungen. Zweimal mussten wir einen sauber
+wirkenden Befund zurücknehmen, wegen eines Sortierfehlers und eines
+verschobenen Zeitversatzes; beide Male waren die Daten falsch, nicht die
+Statistik.
