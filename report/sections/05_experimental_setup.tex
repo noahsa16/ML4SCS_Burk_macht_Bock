@@ -4,87 +4,58 @@
 \subsection{Evaluationsprotokoll}
 \label{sec:cv}
 
-Die Forschungsfrage verlangt, dass ein Modell auf Personen funktioniert, die es
-nie gesehen hat. Alle Kennzahlen stammen deshalb aus einer gruppierten
-Five-Fold Cross-Validation über die Personen, auf die wir uns mit der
-Partnergruppe an der ZHAW verständigt haben. Sämtliche Fenster einer Person
-liegen entweder im Training oder im Test, und jede der 32 Personen ist genau
-einmal Testperson. Random Forest und Netze wurden mit unterschiedlichen
-Fold-Partitionen gerechnet. Gepaarte Tests zwischen den beiden Familien sind
-auf dieser Kohorte daher nicht möglich, innerhalb einer Familie sind die Folds
-identisch. In den ersten Erhebungsrunden hatten wir Leave-One-Subject-Out
-verwendet. Beide Protokolle lieferten auf denselben Daten praktisch identische
+Alle Kennzahlen stammen aus einer gruppierten Five-Fold Cross-Validation über
+die Personen, abgestimmt mit der Partnergruppe an der ZHAW. Sämtliche Fenster
+einer Person liegen entweder im Training oder im Test, jede der 32 Personen
+ist genau einmal Testperson. Random Forest und Netze wurden mit
+unterschiedlichen Fold-Partitionen gerechnet; gepaarte Tests zwischen den
+Familien sind auf dieser Kohorte daher nicht möglich. Ein früher verwendetes
+Leave-One-Subject-Out lieferte auf denselben Daten praktisch identische
 Werte.
 
-Aus den Testrunden entsteht eine vollständige Out-of-Fold-Tabelle mit einer
-Wahrscheinlichkeit je Fenster. Die zeitliche Glättung, die Kalibrierung und die
-Fehleranalyse rechnen auf dieser Tabelle und erben damit dieselbe
-Leakage-Garantie. Die Übergangsmatrix des HMM wird je Runde nur aus den
-Trainingspersonen geschätzt. Personenbezogene Kennzahlen berichten wir als
-Mittel und Standardabweichung über die 32 Personen.
+Glättung, Kalibrierung und Fehleranalyse rechnen auf der Out-of-Fold-Tabelle
+der Fensterwahrscheinlichkeiten und erben dieselbe Leakage-Garantie; die
+Übergangsmatrix des HMM wird je Runde nur aus den Trainingspersonen
+geschätzt.
 
 \subsection{Metriken und statistische Analyse}
 \label{sec:metrics}
 
-Primäre Kennzahl ist die Accuracy je Fenster bei einer festen Schwelle von
-0,5. Sie ist hier aussagekräftig, weil die Klassen nahezu ausgeglichen sind und
-ein Tracker am Ende eine Entscheidung treffen muss. Ergänzend berichten wir die
-ROC-AUC als schwellenfreies Maß der Trennbarkeit und den F1-Wert der Klasse
-Schreiben. Jede Kennzahl steht zusammen mit ihrer Entscheidungsskala: je
-1-s-Fenster, nach kausaler Glättung über 5, 10 und 30~s oder nach dem HMM.
+Primäre Kennzahl ist die Accuracy je Fenster bei fester Schwelle 0,5, weil
+die Klassen nahezu ausgeglichen sind und ein Tracker eine Entscheidung
+treffen muss. Ergänzend berichten wir ROC-AUC und den F1-Wert der Klasse
+Schreiben, jeweils mit ihrer Entscheidungsskala.
 
 Die Streuung zwischen Personen liegt bei drei bis vier Prozentpunkten.
-Unterschiede unterhalb dieser Größe sind ohne gepaarten Test nicht
-interpretierbar. Wir prüfen deshalb jeden Vergleich auf denselben Personen mit
-dem Wilcoxon-Vorzeichen-Rang-Test \citep{wilcoxon1945} auf den personenweisen
-Differenzen und geben an, bei wie vielen der 32 Personen eine Konfiguration
-vorn liegt. Ein Gewinn unter einem Prozentpunkt ohne $p < 0{,}05$ gilt als Rauschen.
-Für die Netze mitteln wir drei Zufallssaaten, weil selbst zwei Läufe derselben
-Konfiguration mit identischer Saat auf der GPU um bis zu 1,6 Prozentpunkte
-auseinanderliegen können. Rangfolgen aus Einzelläufen sind deshalb nicht
-belastbar. Bei 32 Personen liegen für die Netze nur Saaten-Aggregate vor, der
-Vergleich der Netze untereinander ist dort also nominal.
+Jeden Vergleich auf denselben Personen prüfen wir deshalb mit dem
+Wilcoxon-Vorzeichen-Rang-Test \citep{wilcoxon1945} auf den personenweisen
+Differenzen und nennen, bei wie vielen Personen eine Konfiguration vorn
+liegt. Ein Gewinn unter einem Prozentpunkt ohne $p < 0{,}05$ gilt als
+Rauschen. Für die Netze mitteln wir drei Saaten, weil zwei GPU-Läufe mit
+identischer Saat um bis zu 1,6 Prozentpunkte auseinanderliegen können; bei
+32 Personen liegen für die Netze nur Saaten-Aggregate vor, ihr Vergleich
+untereinander ist dort nominal.
 
-\paragraph{Modellauswahl und Evaluation auf derselben Kohorte.} Architekturen
-und Hyperparameter wurden anhand derselben gruppierten Cross-Validation
-ausgewählt, auf der wir am Ende die Leistung berichten. Personen kreuzen dabei
-nie zwischen Training und Test, es liegt also keine Leakage auf Fensterebene
-vor, wohl aber eine Selektionsoptimierung: Aus mehreren Konfigurationen wurde
-diejenige mit dem besten Cross-Validation-Wert übernommen und deren Wert
-anschließend als Ergebnis berichtet. Eine Nested Cross-Validation oder
-ein unabhängiger Bestätigungssatz hätte das ausgeschlossen. Beides war mit 32
-Personen und dem Rechenbudget des Projekts nicht darstellbar. Die Zahlen der
-Netze sind deshalb als Ergebnis einer explorativen Modellauswahl zu lesen und
-nach oben verzerrt. Ein Anhaltspunkt für die Größe dieser Verzerrung: Die
-Sieger der Hyperparametersuche verloren beim Nachrechnen mit drei Saaten ein
-bis zwei Prozentpunkte gegenüber ihrem besten Einzellauf innerhalb der Suche.
-Für den Random Forest ist der Effekt gering, weil seine Hyperparameter über das
-ganze Projekt unverändert blieben.
+\paragraph{Modellauswahl auf derselben Kohorte.} Architekturen und
+Hyperparameter wurden anhand derselben Cross-Validation ausgewählt, auf der
+wir berichten. Personen kreuzen nie zwischen Training und Test, aber die Werte der Netze
+sind Selektionssieger und damit nach oben verzerrt; eine Nested
+Cross-Validation war mit dem Rechenbudget nicht darstellbar. Die Sieger der
+Hyperparametersuche verloren beim Nachrechnen mit drei Saaten ein bis zwei
+Prozentpunkte gegenüber ihrem besten Einzellauf. Die Hyperparameter des
+Random Forest blieben über das Projekt unverändert.
 
 \subsection{Baselines und Ablationsstudien}
 \label{sec:ablations}
 
-Der Random Forest auf 88 Merkmalen ist die Referenz, gegen die alle anderen
-Ergebnisse gelesen werden. Weil die Netze auf nativen 5-s-Fenstern arbeiten,
-vergleichen wir sie mit ihm bei gleicher Entscheidungslatenz: gegen seine
-kausal über 5~s geglätteten 1-s-Vorhersagen und gegen einen Random Forest,
-dessen Merkmale direkt über 5~s berechnet wurden.
-
-Die Ablationen beantworten je eine Frage mit einer einzigen Variablen auf
-identischen Folds und Saaten: Schwerkraftvektor (sechs gegen neun Eingangswerte
-je Sample im Modern-Pool), Gyroskop (volle IMU gegen nur Beschleunigung, für
-den Random Forest), Dekodiermodus (gleitender Mittelwert gegen HMM-Filter
-gegen HMM-Smoother) und Fusion zweier Modelle. Zwei weitere Vergleiche sind
-nicht auf eine Variable beschränkt und werden entsprechend eingeordnet: ein
-früher Vergleich zwischen 50 und 100~Hz und der Drei-Kanal-Lauf der Netze. Weitere Eingriffe,
-die sich als wirkungslos erwiesen haben, fasst Abschnitt~\ref{sec:ablation-results}
-zusammen: Rhythmusmerkmale, geschärfte Merkmale und Umgewichtung für die
-Tipp-Aufgaben, Datenaugmentation, eine breite automatische Merkmalsbank, ein
-personenspezifischer Schwellwert und ein Audit der zeitlichen Ausrichtung. Wir
-berichten diese Nullbefunde, weil sie zusammen die Interpretation der
-Leistungsgrenze tragen.
-
-Random Forest, HMM und Nachverarbeitung laufen lokal in unter einer Stunde. Die
-Netze wurden auf einer gemieteten Cloud-GPU trainiert. Ein
-vollständiger Durchlauf mit drei Saaten über beide Pools benötigte rund zehn
-Stunden.
+Der Random Forest auf 88 Merkmalen ist die Referenz. Die Netze auf nativen
+5-s-Fenstern vergleichen wir mit ihm bei gleicher Entscheidungslatenz: gegen
+seine kausal über 5~s geglätteten 1-s-Vorhersagen und gegen einen Random
+Forest mit direkt über 5~s berechneten Merkmalen. Die Ablationen ändern je
+eine Variable auf identischen Folds und Saaten: Schwerkraftvektor,
+Gyroskop, Dekodiermodus und Fusion. Zwei Vergleiche sind nicht auf eine
+Variable beschränkt (50 gegen 100~Hz, Drei-Kanal-Lauf der Netze) und werden
+entsprechend eingeordnet. Wirkungslose Eingriffe fasst Abschnitt~\ref{sec:ablation-results} zusammen,
+weil sie die Interpretation der Leistungsgrenze tragen. Random Forest und HMM
+laufen lokal in unter einer Stunde, die Netze brauchten auf einer
+Cloud-GPU rund zehn Stunden.
