@@ -185,10 +185,10 @@ außerhalb der Hauptpipeline.
     Rhythmusmerkmale (Autokorrelationsmaximum, spektrale Flachheit) & 20 & Tastatur-FPR 0,343 $\to$ 0,336, Accuracy unverändert ($p = 0{,}54$) \\
     Zehn auf Tippen geschärfte Merkmale & 20 & Tastatur-FPR 0,343 $\to$ 0,358 \\
     Dreifache Gewichtung der Tipp-Fenster & 20 & Handy-FPR 0,243 $\to$ 0,286; bei tcn6 global zurückhaltender, keine gezielte Trennung \\
-    Datenaugmentation der Rohsequenzen (tcn6, beide Pools) & 20 / 23 & kein $p < 0{,}05$ (Minimum 0,058), ROC-AUC flach \\
-    Personenspezifischer Schwellwert (kalibriert auf erstem Drittel) & 15 & F1 0,858 $\to$ 0,846 \\
-    42 tsfresh-Merkmale & 32 & +0,5~pp je Fenster ($p = 0{,}007$), +0,4~pp mit HMM ($p = 0{,}003$); nicht übernommen \\
-    HMM-Parameter, Grid über 450 Kombinationen & 32 & kein Gewinner signifikant über den Standardwerten \\
+    Datenaugmentation der Rohsequenzen (tcn6, beide Pools) & 14 / 8 & kein $p < 0{,}05$ (Minimum 0,058), ROC-AUC flach \\
+    Personenspezifischer Schwellwert (kalibriert auf erstem Drittel) & 10 & F1 0,858 $\to$ 0,846 \\
+    42 tsfresh-Merkmale & 20 & +0,5~pp je Fenster ($p = 0{,}007$), +0,4~pp mit HMM ($p = 0{,}003$); nicht übernommen \\
+    HMM-Parameter, Grid über 450 Kombinationen & 20 & kein Gewinner signifikant über den Standardwerten \\
     Fusion zweier Netze (InceptionTime, tcn\_bigru) & 20 & $r = 0{,}71$, alle $p > 0{,}06$ \\
     Fusion harnet mit Random Forest & 14 & kein Gewinn \\
     Abtastrate 50 gegen 100~Hz (eine Person, zwei Aufnahmen) & 1 & 0,881 gegen 0,883, explorativ \\
